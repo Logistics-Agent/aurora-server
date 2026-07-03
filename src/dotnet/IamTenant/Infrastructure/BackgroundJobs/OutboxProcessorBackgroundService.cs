@@ -3,6 +3,7 @@ using IamTenant.Infrastructure.Persistences;
 using MassTransit;
 using Microsoft.EntityFrameworkCore;
 using Shared.Events;
+using Shared.Cache;
 
 namespace IamTenant.Infrastructure.BackgroundJobs;
 
@@ -34,6 +35,7 @@ public class OutboxProcessorBackgroundService(
         using var scope = serviceProvider.CreateScope();
         var context = scope.ServiceProvider.GetRequiredService<IamTenantDbContext>();
         var publishEndpoint = scope.ServiceProvider.GetRequiredService<IPublishEndpoint>();
+        var permissionCache = scope.ServiceProvider.GetRequiredService<IPermissionCacheService>();
 
         var messages = await context.OutboxMessages
             .Where(m => m.ProcessedAt == null && m.RetryCount < 5)
@@ -52,7 +54,26 @@ public class OutboxProcessorBackgroundService(
                     var eventObject = JsonSerializer.Deserialize(message.Payload, eventType);
                     if (eventObject != null)
                     {
-                        await publishEndpoint.Publish(eventObject, eventType, stoppingToken);
+                        if (eventObject is RolePermissionsChangedEvent roleEvent)
+                        {
+                            var affectedUsers = await context.UserRoles
+                                .Where(ur => ur.RoleId == roleEvent.RoleId)
+                                .Select(ur => ur.User)
+                                .ToListAsync(stoppingToken);
+
+                            foreach (var user in affectedUsers)
+                            {
+                                if (user != null)
+                                {
+                                    user.PermissionVersion++;
+                                    await permissionCache.InvalidateAsync(user.Id, stoppingToken);
+                                }
+                            }
+                        }
+                        else
+                        {
+                            await publishEndpoint.Publish(eventObject, eventType, stoppingToken);
+                        }
                     }
                 }
 
@@ -79,6 +100,7 @@ public class OutboxProcessorBackgroundService(
             nameof(TenantAdminCreatedEvent) => typeof(TenantAdminCreatedEvent),
             nameof(TenantStaffCreatedEvent) => typeof(TenantStaffCreatedEvent),
             nameof(TenantStaffPasswordResetEvent) => typeof(TenantStaffPasswordResetEvent),
+            nameof(RolePermissionsChangedEvent) => typeof(RolePermissionsChangedEvent),
             _ => null
         };
     }

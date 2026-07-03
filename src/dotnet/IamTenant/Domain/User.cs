@@ -30,4 +30,5 @@ public class User : TenantAuditableEntity
 
     public Tenant? Tenant { get; set; }
     public ICollection<UserRole> UserRoles { get; set; } = [];
+    public ICollection<UserPermission> UserPermissions { get; set; } = [];
 }

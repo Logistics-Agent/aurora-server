@@ -2,23 +2,22 @@ using IamTenant.Infrastructure.Persistences;
 using IamTenant.Application.DTOs.Roles;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
-using Shared.Cache;
-using Shared.Constants;
 using IamTenant.Application.Constants;
+using System.Text.Json;
+using Shared.Events;
 
 namespace IamTenant.Application.Commands.Permissions;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ASSIGN PERMISSIONS TO ROLE
 // Sau khi assign, tăng permission_version cho tất cả user có role này
-// và invalidate Redis cache của họ.
+// và invalidate Redis cache của họ bất đồng bộ qua Outbox.
 // ─────────────────────────────────────────────────────────────────────────────
 public record AssignPermissionsToRoleCommand(Guid RoleId, List<Guid> PermissionIds) : IRequest<RoleDto>;
 
 public class AssignPermissionsToRoleHandler(
     IamTenantDbContext context,
-    IPermissionCacheService permissionCache,
-    IamTenant.Application.Interfaces.IAuditTrailService auditTrail)
+    Interfaces.IAuditTrailService auditTrail)
     : IRequestHandler<AssignPermissionsToRoleCommand, RoleDto>
 {
     public async Task<RoleDto> Handle(AssignPermissionsToRoleCommand request, CancellationToken cancellationToken)
@@ -28,10 +27,6 @@ public class AssignPermissionsToRoleHandler(
             .FirstOrDefaultAsync(r => r.Id == request.RoleId, cancellationToken)
             ?? throw new Shared.Exceptions.NotFoundException("Role not found.");
 
-        // Replace all current permissions
-        context.RolePermissions.RemoveRange(role.RolePermissions);
-
-        // Batch query for permissions to avoid N+1
         var validIds = await context.Permissions
             .Where(p => request.PermissionIds.Contains(p.Id))
             .Select(p => p.Id)
@@ -41,39 +36,52 @@ public class AssignPermissionsToRoleHandler(
         if (invalidIds.Any())
             throw new Shared.Exceptions.NotFoundException($"Permissions not found: {string.Join(", ", invalidIds)}");
 
-        foreach (var permId in validIds)
-        {
-            role.RolePermissions.Add(new IamTenant.Domain.RolePermission
-            {
-                RoleId = role.Id,
-                PermissionId = permId
-            });
-        }
+        var currentPermissionIds = role.RolePermissions.Select(rp => rp.PermissionId).ToList();
 
-        // Increment PermissionVersion for affected users
-        var affectedUsers = await context.UserRoles
-            .Where(ur => ur.RoleId == request.RoleId)
-            .Select(ur => ur.User)
-            .ToListAsync(cancellationToken);
+        // Calculate differences to avoid unnecessary DB operations, version increments, and cache clears
+        var toRemove = role.RolePermissions.Where(rp => !validIds.Contains(rp.PermissionId)).ToList();
+        var toAdd = validIds.Except(currentPermissionIds).ToList();
 
-        foreach (var user in affectedUsers)
+        if (toRemove.Any() || toAdd.Any())
         {
-            if (user != null)
+            // Remove obsolete permissions
+            foreach (var rp in toRemove)
             {
-                user.PermissionVersion++;
-                await permissionCache.InvalidateAsync(user.Id, cancellationToken);
+                role.RolePermissions.Remove(rp);
             }
+
+            // Add new permissions
+            foreach (var permId in toAdd)
+            {
+                role.RolePermissions.Add(new Domain.RolePermission
+                {
+                    RoleId = role.Id,
+                    PermissionId = permId
+                });
+            }
+
+            // Enqueue Outbox Message to asynchronously update user versions and cache
+            var rolePermissionsChangedEvent = new RolePermissionsChangedEvent
+            {
+                RoleId = role.Id
+            };
+
+            context.OutboxMessages.Add(new Domain.OutboxMessage
+            {
+                Id = Guid.CreateVersion7(),
+                EventType = nameof(RolePermissionsChangedEvent),
+                Payload = JsonSerializer.Serialize(rolePermissionsChangedEvent),
+                CreatedAt = DateTimeOffset.UtcNow
+            });
+
+            await auditTrail.LogAsync(
+                AuditActions.AssignPermission,
+                $"Role: {role.Id}",
+                new { AssignedPermissions = request.PermissionIds },
+                cancellationToken);
+
+            await context.SaveChangesAsync(cancellationToken);
         }
-
-        await auditTrail.LogAsync(
-            AuditActions.AssignPermission,
-            $"Role: {role.Id}",
-            new { AssignedPermissions = request.PermissionIds },
-            cancellationToken);
-
-        await context.SaveChangesAsync(cancellationToken);
-
-
 
         return new RoleDto
         {

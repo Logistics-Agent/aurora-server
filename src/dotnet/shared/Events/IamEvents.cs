@@ -28,3 +28,9 @@ public record TenantStaffPasswordResetEvent
     public Guid UserId { get; init; }
     public string Email { get; init; } = string.Empty;
 }
+
+[EntityName("role_permissions_changed_event")]
+public record RolePermissionsChangedEvent
+{
+    public Guid RoleId { get; init; }
+}

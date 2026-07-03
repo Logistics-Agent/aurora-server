@@ -3,7 +3,6 @@ using IamTenant.Application.DTOs.Roles;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Shared.Cache;
-using Shared.Security;
 
 namespace IamTenant.Application.Queries.Permissions;
 
@@ -19,7 +18,6 @@ public class GetUserPermissionsHandler(
 {
     public async Task<UserPermissionsDto> Handle(GetUserPermissionsQuery request, CancellationToken cancellationToken)
     {
-        // 1. Thử đọc từ Redis
         var cached = await permissionCache.GetAsync(request.UserId, cancellationToken);
 
         if (cached is not null && (request.JwtPermissionVersion is null || cached.Version == request.JwtPermissionVersion))
@@ -35,37 +33,45 @@ public class GetUserPermissionsHandler(
             };
         }
 
-        // 2. Cache miss hoặc version lệch — query từ DB
-        var user = await context.Users
+        var userData = await context.Users
             .Where(u => u.Id == request.UserId)
             .Select(u => new
             {
                 u.PermissionVersion,
-                RoleIds = u.UserRoles.Select(ur => ur.RoleId.ToString()).ToList(),
+                RoleIds = u.UserRoles.SelectMany(ur => ur.RoleIds).ToList(),
                 RoleCodes = u.UserRoles.Select(ur => ur.Role!.Code).ToList(),
-                Permissions = u.UserRoles
+                RolePermissions = u.UserRoles
                     .SelectMany(ur => ur.Role!.RolePermissions.Select(rp => rp.Permission))
                     .Where(p => p != null)
-                    .Select(p => new PermissionDto
-                    {
-                        Id = p!.Id,
-                        Code = p.Code,
-                        Module = p.Module,
-                        Description = p.Description
-                    })
+                    .Select(p => new { p!.Id, p.Code, p.Module, p.Description })
+                    .ToList(),
+
+                DirectPermissions = u.UserPermissions
+                    .Select(up => up.Permission)
+                    .Where(p => p != null)
+                    .Select(p => new { p!.Id, p.Code, p.Module, p.Description })
                     .ToList()
             })
             .FirstOrDefaultAsync(cancellationToken)
         ?? throw new Shared.Exceptions.NotFoundException("User not found");
         
-        var permissions = user.Permissions.DistinctBy(p => p.Id).ToList();
+        var permissions = userData.RolePermissions
+            .Concat(userData.DirectPermissions)
+            .DistinctBy(p => p.Id)
+            .Select(p => new PermissionDto
+            {
+                Id = p.Id,
+                Code = p.Code,
+                Module = p.Module,
+                Description = p.Description
+            })
+            .ToList();
 
-        // 3. Update Redis
         var newCache = new UserPermissionCache
         {
-            Version = user.PermissionVersion,
-            RoleIds = user.RoleIds,
-            RoleCodes = user.RoleCodes,
+            Version = userData.PermissionVersion,
+            RoleIds = userData.RoleIds,
+            RoleCodes = userData.RoleCodes,
             Permissions = [.. permissions.Select(p => p.Code)]
         };
         await permissionCache.SetAsync(request.UserId, newCache, cancellationToken);
@@ -73,10 +79,10 @@ public class GetUserPermissionsHandler(
         return new UserPermissionsDto
         {
             UserId = request.UserId,
-            RoleIds = user.RoleIds,
-            RoleCodes = user.RoleCodes,
+            RoleIds = userData.RoleIds,
+            RoleCodes = userData.RoleCodes,
             Permissions = permissions,
-            Version = user.PermissionVersion,
+            Version = userData.PermissionVersion,
             FromCache = false
         };
     }
