@@ -1,4 +1,4 @@
-HRM + Agent + Muilt-tennant: 
+Logistic + Muilt-Agent + Muilt-tennant: 
 BE: .net + nestjs 
 FE: React - Stitch
 microservices: gRPC - RabbitMQ
@@ -17,24 +17,29 @@ Agent Gemini:
 Cloudflare -> ALB -> BFF gateway
 
 Service: 
-API Gateway & BFF [CORE]								Tan
-Identity & Tenant Service [CORE]						Tan
-Route Planning Agent Service [AI]						Tan
-GPS Tracking & Monitoring Service [CORE]				Tan
-Financial & Cost Estimation Service [AI + CORE]			Tan
-Billing & Settlement Service [CORE]						Tan
-AI Ops & Monitoring Service [AI + DEVOPS]				Tan
- 
-Realtime Hub 											Huynh
-Document OCR Agent Service [AI]							Huynh
-Regulatory Compliance RAG Service [AI]					Huynh
-Carrier Marketplace Service [CORE]						Huynh
-Negotiation Agent Service [AI] 							Huynh
-Customer Assistant & Notification Service [AI + CORE]	Huynh
+@Thanh Tân: API Gateway & BFF [CORE]						
+Identity & Tenant Service [CORE]					
+Route Planning Agent Service [AI]
+AI Ops & Monitoring Service [AI + DEVOPS]	
+Audit Log [Core]
 
+@Đào Huỳnh:  Financial & Cost Estimation Service [AI + CORE]			
+Billing & Settlement Service [CORE]			
+Realtime Hub [Core]										
+Negotiation Agent Service [AI] 						
+Customer Assistant [AI]	
+
+@Ngọc Khoa:GPS Tracking & Monitoring Service [CORE]						
+Notification Service [CORE]								
+Document OCR Agent Service [AI]						
+Regulatory Compliance RAG Service [AI]	
+Shipment Workflow Service [Core]
+
+@Hùng Vũ: Email Agent [AI], Tester, Docs
+
+@Minh Huy: FE
 
 S3 key nên phân tenant:
-
 s3://hrm-private-docs/tenants/{tenantId}/employees/{employeeId}/documents/{fileId}
 
 

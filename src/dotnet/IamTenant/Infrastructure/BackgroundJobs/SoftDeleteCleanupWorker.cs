@@ -52,7 +52,7 @@ public class SoftDeleteCleanupWorker(
 
             logger.LogInformation("Hard deleted {Count} old soft-deleted users.", deletedUsersCount);
 
-            // 2. Hard Delete AuditLogs quá hạn (ví dụ 90 ngày)
+            // 2. Hard Delete AuditLogs quá hạn 
             var auditLogCutoffDate = DateTimeOffset.UtcNow.AddDays(-90);
             var deletedAuditLogsCount = await context.AuditLogs
                 .Where(a => a.CreatedAt <= auditLogCutoffDate)

@@ -1,7 +1,6 @@
 using Google.Protobuf.WellKnownTypes;
 using Grpc.Core;
 using IamTenant.Application.Commands.Permissions;
-using IamTenant.Application.Commands.Roles;
 using IamTenant.Application.Commands.Tenants;
 using IamTenant.Application.Commands.Users;
 using IamTenant.Application.Queries.Permissions;
@@ -163,7 +162,6 @@ public class IamGrpcService(IMediator mediator) : IamService.IamServiceBase
     {
         var result = await mediator.Send(new ListStaffQuery
         {
-            TenantId = Guid.Empty, // Resolved from CurrentUserService
             Page = request.Page,
             Limit = request.Limit
         }, context.CancellationToken);
@@ -245,20 +243,20 @@ public class IamGrpcService(IMediator mediator) : IamService.IamServiceBase
     // ROLE RPCs
     // ═══════════════════════════════════════════════════════════════════════
 
-    public override async Task<RoleResponse> CreateCustomRole(CreateCustomRoleRequest request, ServerCallContext context)
-    {
-        try
-        {
-            var dto = await mediator.Send(new CreateCustomRoleCommand(
-                request.Code, request.Name, request.Description), context.CancellationToken);
+    // public override async Task<RoleResponse> CreateCustomRole(CreateCustomRoleRequest request, ServerCallContext context)
+    // {
+    //     try
+    //     {
+    //         var dto = await mediator.Send(new CreateCustomRoleCommand(
+    //             request.Code, request.Name, request.Description), context.CancellationToken);
 
-            return MapRoleResponse(dto);
-        }
-        catch (Exception ex)
-        {
-            throw new RpcException(new Status(StatusCode.InvalidArgument, ex.Message));
-        }
-    }
+    //         return MapRoleResponse(dto);
+    //     }
+    //     catch (Exception ex)
+    //     {
+    //         throw new RpcException(new Status(StatusCode.InvalidArgument, ex.Message));
+    //     }
+    // }
 
     public override async Task<RoleResponse> GetRole(GetRoleRequest request, ServerCallContext context)
     {
@@ -296,39 +294,39 @@ public class IamGrpcService(IMediator mediator) : IamService.IamServiceBase
         return response;
     }
 
-    public override async Task<RoleResponse> UpdateRole(UpdateRoleRequest request, ServerCallContext context)
-    {
-        try
-        {
-            if (!Guid.TryParse(request.Id, out var id))
-                throw new RpcException(new Status(StatusCode.InvalidArgument, "Invalid role ID."));
+    // public override async Task<RoleResponse> UpdateRole(UpdateRoleRequest request, ServerCallContext context)
+    // {
+    //     try
+    //     {
+    //         if (!Guid.TryParse(request.Id, out var id))
+    //             throw new RpcException(new Status(StatusCode.InvalidArgument, "Invalid role ID."));
 
-            var dto = await mediator.Send(new UpdateRoleCommand(id, request.Name, request.Description), context.CancellationToken);
-            return MapRoleResponse(dto);
-        }
-        catch (RpcException) { throw; }
-        catch (Exception ex)
-        {
-            throw new RpcException(new Status(StatusCode.Internal, ex.Message));
-        }
-    }
+    //         var dto = await mediator.Send(new UpdateRoleCommand(id, request.Name, request.Description), context.CancellationToken);
+    //         return MapRoleResponse(dto);
+    //     }
+    //     catch (RpcException) { throw; }
+    //     catch (Exception ex)
+    //     {
+    //         throw new RpcException(new Status(StatusCode.Internal, ex.Message));
+    //     }
+    // }
 
-    public override async Task<EmptyResponse> DeleteRole(DeleteRoleRequest request, ServerCallContext context)
-    {
-        try
-        {
-            if (!Guid.TryParse(request.Id, out var id))
-                throw new RpcException(new Status(StatusCode.InvalidArgument, "Invalid role ID."));
+    // public override async Task<EmptyResponse> DeleteRole(DeleteRoleRequest request, ServerCallContext context)
+    // {
+    //     try
+    //     {
+    //         if (!Guid.TryParse(request.Id, out var id))
+    //             throw new RpcException(new Status(StatusCode.InvalidArgument, "Invalid role ID."));
 
-            await mediator.Send(new DeleteRoleCommand(id), context.CancellationToken);
-            return new EmptyResponse();
-        }
-        catch (RpcException) { throw; }
-        catch (Exception ex)
-        {
-            throw new RpcException(new Status(StatusCode.Internal, ex.Message));
-        }
-    }
+    //         await mediator.Send(new DeleteRoleCommand(id), context.CancellationToken);
+    //         return new EmptyResponse();
+    //     }
+    //     catch (RpcException) { throw; }
+    //     catch (Exception ex)
+    //     {
+    //         throw new RpcException(new Status(StatusCode.Internal, ex.Message));
+    //     }
+    // }
 
     // ═══════════════════════════════════════════════════════════════════════
     // PERMISSION RPCs
@@ -367,7 +365,7 @@ public class IamGrpcService(IMediator mediator) : IamService.IamServiceBase
             {
                 UserId = dto.UserId.ToString()
             };
-            response.RoleIds.AddRange(dto.RoleIds);
+            response.RoleIds.AddRange(dto.RoleIds.Select(id => id.ToString()));
             response.Permissions.AddRange(dto.Permissions.Select(p => new PermissionInfo
             {
                 Id = p.Id.ToString(),
@@ -391,7 +389,7 @@ public class IamGrpcService(IMediator mediator) : IamService.IamServiceBase
     {
         "TENANT_STATUS_ACTIVE" or "ACTIVE" => TenantStatus.Active,
         "TENANT_STATUS_SUSPENDED" or "SUSPENDED" => TenantStatus.Suspended,
-        _ => TenantStatus.Unspecified 
+        _ => TenantStatus.Unspecified
     };
 
     private static UserStatus MapUserStatus(string status) => status switch

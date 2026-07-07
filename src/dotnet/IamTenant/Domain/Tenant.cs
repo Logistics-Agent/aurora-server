@@ -1,5 +1,5 @@
 using Shared.Entity;
-
+using Shared.Exceptions;
 namespace IamTenant.Domain;
 
 public class Tenant : AuditableEntity

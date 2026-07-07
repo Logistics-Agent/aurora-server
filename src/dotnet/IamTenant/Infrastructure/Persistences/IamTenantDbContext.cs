@@ -97,7 +97,7 @@ public class IamTenantDbContext(
         });
 
         // Composite PKs cho junction tables
-        modelBuilder.Entity<UserRole>().HasKey(ur => new { ur.UserId, ur.RoleId });
+        modelBuilder.Entity<UserRole>().HasKey(ur => new { ur.UserId, ur.RoleIds });
         modelBuilder.Entity<RolePermission>().HasKey(rp => new { rp.RoleId, rp.PermissionId });
         modelBuilder.Entity<UserPermission>(e =>
         {

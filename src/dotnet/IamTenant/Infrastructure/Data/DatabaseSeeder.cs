@@ -1,7 +1,7 @@
 using IamTenant.Domain;
-using IamTenant.Domain.Constants;
 using IamTenant.Infrastructure.Persistences;
 using Microsoft.EntityFrameworkCore;
+using Shared.Constants;
 
 namespace IamTenant.Infrastructure.Data;
 
