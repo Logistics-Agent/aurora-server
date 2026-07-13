@@ -55,6 +55,15 @@ message ShipmentResponse {
   string status = 10;
   google.protobuf.Timestamp createdAt = 11;
   google.protobuf.Timestamp updatedAt = 12;
+  repeated CargoItemResponse cargoItems = 13;
+}
+
+message CargoItemResponse {
+  string id = 1;
+  string name = 2;
+  int32 quantity = 3;
+  double weightKg = 4;
+  string hsCode = 5;
 }
 
 message GetShipmentRequest {

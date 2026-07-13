@@ -15,6 +15,7 @@ public sealed record ShipmentDto
     public ShipmentStatus Status { get; init; }
     public DateTimeOffset CreatedAt { get; init; }
     public DateTimeOffset? UpdatedAt { get; init; }
+    public IReadOnlyCollection<CargoItemDto> CargoItems { get; init; } = [];
 
     public static ShipmentDto FromEntity(ShipmentEntity shipment)
     {
@@ -28,7 +29,10 @@ public sealed record ShipmentDto
             DestinationAddress = shipment.DestinationAddress,
             Status = shipment.Status,
             CreatedAt = shipment.CreatedAt,
-            UpdatedAt = shipment.UpdatedAt
+            UpdatedAt = shipment.UpdatedAt,
+            CargoItems = shipment.CargoItems
+                .Select(CargoItemDto.FromEntity)
+                .ToArray()
         };
     }
 }

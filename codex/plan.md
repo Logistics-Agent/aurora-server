@@ -36,8 +36,8 @@ Expected results:
 | 05    | Persistence                    | Completed   |
 | 06    | Proto Contract                 | Completed   |
 | 07    | Program Configuration          | Completed   |
-| 08    | Create Shipment Vertical Slice | In Progress |
-| 09    | Database Migration             | Not Started |
+| 08    | Create Shipment Vertical Slice | Completed   |
+| 09    | Database Migration             | In Progress |
 | 10    | Testing                        | Not Started |
 
 ## 3. Completed Work
@@ -63,9 +63,9 @@ Expected results:
 
 ## 4. Current Work
 
-The current task is Phase 08 — Create Shipment Vertical Slice.
+The current task is Phase 09 — Database Migration.
 
-Phase 06 proto contract and Phase 07 program configuration are complete.
+Phase 08 CreateShipment vertical slice is complete and builds successfully.
 
 ## 5. Phase 04 — Namespace Cleanup
 
@@ -208,13 +208,16 @@ Status: Completed
 
 ### Phase 08 — Create Shipment
 
-* Complete `CreateShipmentCommand`.
-* Resolve `TenantId`.
-* Generate `ShipmentNo`.
-* Add cargo items.
-* Add initial history.
-* Add an outbox record.
-* Implement the gRPC method.
+Status: Completed
+
+* Completed `CreateShipmentCommand` for shipment, cargo, status history, and outbox persistence.
+* Resolved `TenantId` from current-user context only.
+* Added validation for shipment and cargo fields.
+* Generated tenant-scoped shipment numbers using `IShipmentNumberGenerator`.
+* Implemented gRPC CreateShipment request/response mapping.
+* Added a minimal protobuf response update for cargo items.
+* Build passed with 0 errors and 0 warnings.
+* No relevant automated test project was found; coverage is pending Phase 10.
 
 ### Phase 09 — Database Migration
 
@@ -233,8 +236,8 @@ Status: Completed
 Complete these steps in order:
 
 ```text
-1. Complete Phase 08 — Create Shipment Vertical Slice.
-2. Do not start Phase 09 until Phase 08 passes validation.
+1. Complete Phase 09 — Database Migration.
+2. Do not start Phase 10 until Phase 09 passes validation.
 ```
 
 Do not start a later phase before the current phase passes validation.
