@@ -1,0 +1,102 @@
+syntax = "proto3";
+
+option csharp_namespace = "ShipmentWorkflow.Grpc";
+
+import "google/protobuf/timestamp.proto";
+
+service ShipmentWorkflowService {
+
+    rpc CreateShipment(CreateShipmentRequest)
+    returns (ShipmentResponse);
+
+    rpc GetShipment(GetShipmentRequest)
+    returns (ShipmentResponse);
+
+    rpc ListShipments(ListShipmentsRequest)
+    returns (ListShipmentsResponse);
+
+    rpc UpdateShipmentStatus(UpdateShipmentStatusRequest)
+    returns (ShipmentResponse);
+
+    rpc GetShipmentTimeline(GetShipmentTimelineRequest)
+    returns (ShipmentTimelineResponse);
+
+    rpc CancelShipment(CancelShipmentRequest)
+    returns (ShipmentResponse);
+}
+
+message CreateShipmentRequest {
+  string orderId = 1;
+  string customerName = 2;
+  string originAddress = 3;
+  string destinationAddress = 4;
+  string originCountry = 5;
+  string destinationCountry = 6;
+  repeated CargoItemRequest cargoItems = 7;
+}
+
+message CargoItemRequest {
+  string name = 1;
+  int32 quantity = 2;
+  double weightKg = 3;
+  string hsCode = 4;
+}
+
+message ShipmentResponse {
+  string id = 1;
+  string tenantId = 2;
+  string shipmentNo = 3;
+  string orderId = 4;
+  string customerName = 5;
+  string originAddress = 6;
+  string destinationAddress = 7;
+  string originCountry = 8;
+  string destinationCountry = 9;
+  string status = 10;
+  google.protobuf.Timestamp createdAt = 11;
+  google.protobuf.Timestamp updatedAt = 12;
+}
+
+message GetShipmentRequest {
+  string id = 1;
+}
+
+message ListShipmentsRequest {
+  int32 page = 1;
+  int32 limit = 2;
+  string status = 3;
+}
+
+message ListShipmentsResponse {
+  repeated ShipmentResponse shipments = 1;
+  int32 page = 2;
+  int32 limit = 3;
+  int32 totalItems = 4;
+  int32 totalPages = 5;
+}
+
+message UpdateShipmentStatusRequest {
+  string id = 1;
+  string status = 2;
+  string note = 3;
+}
+
+message GetShipmentTimelineRequest {
+  string shipmentId = 1;
+}
+
+message ShipmentTimelineResponse {
+  string shipmentId = 1;
+  repeated ShipmentTimelineItem items = 2;
+}
+
+message ShipmentTimelineItem {
+  string status = 1;
+  string note = 2;
+  google.protobuf.Timestamp createdAt = 3;
+}
+
+message CancelShipmentRequest {
+  string id = 1;
+  string reason = 2;
+}

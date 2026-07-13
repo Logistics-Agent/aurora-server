@@ -34,8 +34,8 @@ Expected results:
 | 03    | Domain Model                   | In Progress |
 | 04    | Namespace Cleanup              | Completed   |
 | 05    | Persistence                    | Completed   |
-| 06    | Proto Contract                 | Not Started |
-| 07    | Program Configuration          | Not Started |
+| 06    | Proto Contract                 | Completed   |
+| 07    | Program Configuration          | In Progress |
 | 08    | Create Shipment Vertical Slice | Not Started |
 | 09    | Database Migration             | Not Started |
 | 10    | Testing                        | Not Started |
@@ -63,9 +63,9 @@ Expected results:
 
 ## 4. Current Work
 
-The current task is complete through Phase 05 — Persistence.
+The current task is Phase 07 — Program Configuration.
 
-Phase 04 namespace cleanup is complete. Phase 05 persistence configuration is complete. Do not start Phase 06 until explicitly requested.
+Phase 06 proto contract is complete. Phase 04 namespace cleanup and Phase 05 persistence configuration remain complete.
 
 ## 5. Phase 04 — Namespace Cleanup
 
@@ -187,10 +187,13 @@ Status: Completed
 
 ### Phase 06 — Proto Contract
 
-* Complete `shipment_workflow.proto`.
-* Add all MVP RPC operations.
-* Use `google.protobuf.Timestamp`.
-* Do not accept `TenantId` from the client.
+Status: Completed
+
+* Completed `shipment_workflow.proto`.
+* Added all MVP RPC operations, including `CancelShipment`.
+* Used `google.protobuf.Timestamp` for timestamp fields.
+* Confirmed create requests do not accept `TenantId` from the client.
+* Build passed with 0 errors and 0 warnings.
 
 ### Phase 07 — Program Configuration
 
@@ -229,8 +232,8 @@ Status: Completed
 Complete these steps in order:
 
 ```text
-1. Start Phase 06 — Proto Contract when explicitly requested.
-2. Do not start Phase 06 automatically from this task.
+1. Complete Phase 07 — Program Configuration.
+2. Do not start Phase 08 until Phase 07 passes validation.
 ```
 
 Do not start a later phase before the current phase passes validation.
