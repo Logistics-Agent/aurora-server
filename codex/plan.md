@@ -35,8 +35,8 @@ Expected results:
 | 04    | Namespace Cleanup              | Completed   |
 | 05    | Persistence                    | Completed   |
 | 06    | Proto Contract                 | Completed   |
-| 07    | Program Configuration          | In Progress |
-| 08    | Create Shipment Vertical Slice | Not Started |
+| 07    | Program Configuration          | Completed   |
+| 08    | Create Shipment Vertical Slice | In Progress |
 | 09    | Database Migration             | Not Started |
 | 10    | Testing                        | Not Started |
 
@@ -63,9 +63,9 @@ Expected results:
 
 ## 4. Current Work
 
-The current task is Phase 07 — Program Configuration.
+The current task is Phase 08 — Create Shipment Vertical Slice.
 
-Phase 06 proto contract is complete. Phase 04 namespace cleanup and Phase 05 persistence configuration remain complete.
+Phase 06 proto contract and Phase 07 program configuration are complete.
 
 ## 5. Phase 04 — Namespace Cleanup
 
@@ -197,13 +197,14 @@ Status: Completed
 
 ### Phase 07 — Program Configuration
 
-* Register gRPC.
-* Register MediatR.
-* Register DbContext.
-* Register shared services.
-* Register MassTransit.
-* Register interceptors.
-* Map `ShipmentGrpcService`.
+Status: Completed
+
+* Registered gRPC, interceptors, shared services, MassTransit/RabbitMQ, MediatR, DbContext, PostgreSQL, and shipment number generator.
+* Mapped `ShipmentGrpcService`.
+* Removed template Greeter service/proto from ShipmentWorkflow.
+* Confirmed no ShipmentWorkflow outbox worker exists yet, so none was registered.
+* Build passed with 0 errors and 0 warnings.
+* Startup smoke validation stayed running until manually stopped.
 
 ### Phase 08 — Create Shipment
 
@@ -232,8 +233,8 @@ Status: Completed
 Complete these steps in order:
 
 ```text
-1. Complete Phase 07 — Program Configuration.
-2. Do not start Phase 08 until Phase 07 passes validation.
+1. Complete Phase 08 — Create Shipment Vertical Slice.
+2. Do not start Phase 09 until Phase 08 passes validation.
 ```
 
 Do not start a later phase before the current phase passes validation.
