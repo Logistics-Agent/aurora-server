@@ -132,7 +132,7 @@ Apply the database update only when the configured database is confirmed to be t
 * `src/dotnet/ShipmentWorkflow/Infrastructure/Persistences/Migrations/20260713201248_InitialShipmentWorkflow.cs`
 * `src/dotnet/ShipmentWorkflow/Infrastructure/Persistences/Migrations/20260713201248_InitialShipmentWorkflow.Designer.cs`
 * `src/dotnet/ShipmentWorkflow/Infrastructure/Persistences/Migrations/ShipmentWorkflowDbContextModelSnapshot.cs`
-* `codex/tasks/phase-09-database-migration.md`
+* `codex/tasks/shipment-workflow/phase-09-database-migration.md`
 * `codex/plan.md`
 
 ### Commands Executed

@@ -126,7 +126,7 @@ The project contains namespace segments that still cause unqualified `Shipment` 
 * `src/dotnet/ShipmentWorkflow/Application/DTOs/Shipments/ShipmentDto.cs`
 * `src/dotnet/ShipmentWorkflow/Application/Commands/Shipments/CreateShipmentCommand.cs`
 * `src/dotnet/ShipmentWorkflow/Infrastructure/Persistences/ShipmentWorkflowDbContext.cs`
-* `codex/tasks/phase-04-namespace-cleanup.md`
+* `codex/tasks/shipment-workflow/phase-04-namespace-cleanup.md`
 * `codex/plan.md`
 
 ### Commands Executed

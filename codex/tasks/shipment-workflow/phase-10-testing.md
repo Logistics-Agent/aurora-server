@@ -208,7 +208,7 @@ dotnet build src/dotnet/ShipmentWorkflow/ShipmentWorkflow.csproj
 * `tests/dotnet/ShipmentWorkflow.Tests/ShipmentWorkflow.Tests.csproj`
 * `tests/dotnet/ShipmentWorkflow.Tests/CreateShipmentCommandHandlerTests.cs`
 * `src/dotnet/ShipmentWorkflow/Infrastructure/Persistences/ShipmentWorkflowDbContext.cs`
-* `codex/tasks/phase-10-testing.md`
+* `codex/tasks/shipment-workflow/phase-10-testing.md`
 * `codex/plan.md`
 
 ### Commands Executed

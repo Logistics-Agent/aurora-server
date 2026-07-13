@@ -24,7 +24,7 @@ The Phase 06 task file was empty before implementation, so the phase scope was d
 ## Files Changed
 
 * `protos/shipment_workflow.proto`
-* `codex/tasks/phase-06-proto-contract.md`
+* `codex/tasks/shipment-workflow/phase-06-proto-contract.md`
 * `codex/plan.md`
 
 ## Commands Executed

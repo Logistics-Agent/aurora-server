@@ -192,7 +192,7 @@ dotnet build src/dotnet/ShipmentWorkflow/ShipmentWorkflow.csproj
 
 * `src/dotnet/ShipmentWorkflow/Domain/OutboxMessage.cs`
 * `src/dotnet/ShipmentWorkflow/Infrastructure/Persistences/ShipmentWorkflowDbContext.cs`
-* `codex/tasks/phase-05-persistence.md`
+* `codex/tasks/shipment-workflow/phase-05-persistence.md`
 * `codex/plan.md`
 
 ### Commands Executed

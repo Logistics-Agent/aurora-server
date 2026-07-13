@@ -130,7 +130,7 @@ dotnet run \
 * `src/dotnet/ShipmentWorkflow/appsettings.Development.json`
 * `src/dotnet/ShipmentWorkflow/Protos/greet.proto`
 * `src/dotnet/ShipmentWorkflow/Services/GreeterService.cs`
-* `codex/tasks/phase-07-program-configuration.md`
+* `codex/tasks/shipment-workflow/phase-07-program-configuration.md`
 * `codex/plan.md`
 
 ### Commands Executed

@@ -148,7 +148,7 @@ Run relevant unit tests when present.
 * `src/dotnet/ShipmentWorkflow/Domain/`
 * `src/dotnet/ShipmentWorkflow/GrpcServices/ShipmentGrpcService.cs`
 * `src/dotnet/ShipmentWorkflow/Infrastructure/Services/ShipmentNumberGenerator.cs`
-* `codex/tasks/phase-08-create-shipment.md`
+* `codex/tasks/shipment-workflow/phase-08-create-shipment.md`
 * `codex/plan.md`
 
 ### Commands Executed
