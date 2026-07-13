@@ -1,0 +1,86 @@
+services:
+  shipment-postgres:
+    image: postgres:16-alpine
+    container_name: aurora-shipment-postgres
+    restart: unless-stopped
+
+    environment:
+      POSTGRES_DB: aurora_shipment_workflow
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+
+    ports:
+      - "5433:5432"
+
+    volumes:
+      - shipment_postgres_data:/var/lib/postgresql/data
+
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U postgres -d aurora_shipment_workflow"
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+    networks:
+      - aurora-dev
+
+  redis:
+    image: redis:7-alpine
+    container_name: aurora-redis
+    restart: unless-stopped
+
+    ports:
+      - "6379:6379"
+
+    volumes:
+      - redis_data:/data
+
+    command: redis-server --appendonly yes
+
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+    networks:
+      - aurora-dev
+
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    container_name: aurora-rabbitmq
+    restart: unless-stopped
+
+    environment:
+      RABBITMQ_DEFAULT_USER: aurora
+      RABBITMQ_DEFAULT_PASS: aurora_dev
+
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+    networks:
+      - aurora-dev
+
+volumes:
+  shipment_postgres_data:
+  redis_data:
+  rabbitmq_data:
+
+networks:
+  aurora-dev:
+    name: aurora-dev
+
