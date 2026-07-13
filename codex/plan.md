@@ -37,8 +37,8 @@ Expected results:
 | 06    | Proto Contract                 | Completed   |
 | 07    | Program Configuration          | Completed   |
 | 08    | Create Shipment Vertical Slice | Completed   |
-| 09    | Database Migration             | In Progress |
-| 10    | Testing                        | Not Started |
+| 09    | Database Migration             | Completed   |
+| 10    | Testing                        | In Progress |
 
 ## 3. Completed Work
 
@@ -63,9 +63,9 @@ Expected results:
 
 ## 4. Current Work
 
-The current task is Phase 09 — Database Migration.
+The current task is Phase 10 — Testing.
 
-Phase 08 CreateShipment vertical slice is complete and builds successfully.
+Phase 09 database migration is complete after resetting the local Shipment Workflow development database and applying the generated migration.
 
 ## 5. Phase 04 — Namespace Cleanup
 
@@ -221,8 +221,14 @@ Status: Completed
 
 ### Phase 09 — Database Migration
 
-* Create the initial EF Core migration.
-* Create or update the Shipment Workflow database.
+Status: Completed
+
+* Generated `20260713201248_InitialShipmentWorkflow` from the current model.
+* Verified required tables, indexes, foreign keys, cascade behavior, tenant indexes, and outbox indexes in the generated migration.
+* Reset the local development database by explicit user action.
+* Applied the migration to `aurora_shipment_workflow`.
+* Verified the database contains `shipments`, `cargo_items`, `shipment_status_histories`, `outbox_messages`, and `__EFMigrationsHistory`.
+* Build passed with 0 errors and 0 warnings.
 
 ### Phase 10 — Testing
 
@@ -236,8 +242,8 @@ Status: Completed
 Complete these steps in order:
 
 ```text
-1. Complete Phase 09 — Database Migration.
-2. Do not start Phase 10 until Phase 09 passes validation.
+1. Complete Phase 10 — Testing.
+2. Do not start another service.
 ```
 
 Do not start a later phase before the current phase passes validation.
