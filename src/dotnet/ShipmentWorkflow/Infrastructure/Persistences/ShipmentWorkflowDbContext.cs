@@ -54,10 +54,8 @@ public sealed class ShipmentWorkflowDbContext(
 
             entity.HasKey(shipment => shipment.Id);
 
-            // Tenant chỉ được thấy shipment thuộc công ty mình.
             entity.HasQueryFilter(shipment =>
-                !_currentUser.TenantId.HasValue ||
-                shipment.TenantId == _currentUser.TenantId.Value);
+                shipment.TenantId == _currentUser.TenantId);
 
             entity.HasIndex(shipment =>
                     new { shipment.TenantId, shipment.ShipmentNo })
@@ -111,10 +109,9 @@ public sealed class ShipmentWorkflowDbContext(
 
             entity.HasKey(cargoItem => cargoItem.Id);
 
-            // Bảo vệ khi CargoItems được query trực tiếp.
             entity.HasQueryFilter(cargoItem =>
-                !_currentUser.TenantId.HasValue ||
-                cargoItem.Shipment!.TenantId == _currentUser.TenantId.Value);
+                cargoItem.Shipment != null &&
+                cargoItem.Shipment.TenantId == _currentUser.TenantId);
 
             entity.HasIndex(cargoItem => cargoItem.ShipmentId);
 
@@ -141,10 +138,9 @@ public sealed class ShipmentWorkflowDbContext(
 
             entity.HasKey(history => history.Id);
 
-            // Bảo vệ khi timeline được query trực tiếp.
             entity.HasQueryFilter(history =>
-                !_currentUser.TenantId.HasValue ||
-                history.Shipment!.TenantId == _currentUser.TenantId.Value);
+                history.Shipment != null &&
+                history.Shipment.TenantId == _currentUser.TenantId);
 
             entity.HasIndex(history =>
                 new { history.ShipmentId, history.CreatedAt });

@@ -38,7 +38,7 @@ Expected results:
 | 07    | Program Configuration          | Completed   |
 | 08    | Create Shipment Vertical Slice | Completed   |
 | 09    | Database Migration             | Completed   |
-| 10    | Testing                        | In Progress |
+| 10    | Testing                        | Completed   |
 
 ## 3. Completed Work
 
@@ -63,9 +63,9 @@ Expected results:
 
 ## 4. Current Work
 
-The current task is Phase 10 — Testing.
+The requested Shipment Workflow phases are complete through Phase 10 — Testing.
 
-Phase 09 database migration is complete after resetting the local Shipment Workflow development database and applying the generated migration.
+Phase 09 database migration is complete and Phase 10 test coverage passes.
 
 ## 5. Phase 04 — Namespace Cleanup
 
@@ -232,18 +232,22 @@ Status: Completed
 
 ### Phase 10 — Testing
 
-* Test shipment creation.
-* Test validation.
-* Test tenant isolation.
-* Add at least one integration test.
+Status: Completed
+
+* Added `ShipmentWorkflow.Tests` xUnit test project.
+* Added PostgreSQL-backed integration tests for CreateShipment command handling.
+* Covered successful creation, missing tenant context, required-field validation, invalid cargo validation, status history creation, outbox creation, and tenant isolation.
+* Fixed tenant query filters so missing tenant context does not disable filtering.
+* `dotnet test tests/dotnet/ShipmentWorkflow.Tests/ShipmentWorkflow.Tests.csproj` passed with 11 tests.
+* Build passed with 0 errors and 0 warnings.
 
 ## 7. Immediate Next Actions
 
 Complete these steps in order:
 
 ```text
-1. Complete Phase 10 — Testing.
-2. Do not start another service.
+1. Review and commit any remaining project documentation/setup files when desired.
+2. Next implementation phase should be explicitly selected by the user.
 ```
 
 Do not start a later phase before the current phase passes validation.
