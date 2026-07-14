@@ -57,7 +57,7 @@ public class Shipment : TenantAuditableEntity
             OrderId = string.IsNullOrWhiteSpace(orderId) ? null : orderId.Trim(),
             CustomerName = customerName.Trim(),
             DestinationAddress = destinationAddress.Trim(),
-            Status = ShipmentStatus.Draft,
+            Status = ShipmentStatus.Created,
             Priority = ShipmentPriority.Normal,
             TransportMode = TransportMode.Unknown
         };

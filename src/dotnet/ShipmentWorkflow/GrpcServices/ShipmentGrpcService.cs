@@ -4,6 +4,7 @@ using MediatR;
 using ShipmentWorkflow.Application.Commands.Shipments;
 using ShipmentWorkflow.Application.DTOs.Shipments;
 using ShipmentWorkflow.Application.Queries.Shipments;
+using ShipmentWorkflow.Domain.Enums;
 using ShipmentWorkflow.Grpc;
 
 namespace ShipmentWorkflow.GrpcServices;
@@ -107,14 +108,95 @@ public sealed class ShipmentGrpcService(ISender sender)
         return response;
     }
 
-    public override Task<ShipmentResponse> UpdateShipmentStatus(
+    public override async Task<ShipmentResponse> SubmitShipment(
+        SubmitShipmentRequest request,
+        ServerCallContext context)
+    {
+        var shipmentId = ParseGuid(request.Id, "Invalid shipment id.");
+        var shipment = await sender.Send(
+            new SubmitShipmentCommand(shipmentId),
+            context.CancellationToken);
+
+        return MapToResponse(shipment);
+    }
+
+    public override async Task<ShipmentResponse> UpdateShipment(
+        UpdateShipmentRequest request,
+        ServerCallContext context)
+    {
+        var shipmentId = ParseGuid(request.Id, "Invalid shipment id.");
+        var shipment = await sender.Send(
+            new UpdateShipmentCommand(
+                shipmentId,
+                request.CustomerName,
+                request.DestinationAddress,
+                ParseEnum<ShipmentPriority>(request.Priority, ShipmentPriority.Normal),
+                ParseEnum<TransportMode>(request.TransportMode, TransportMode.Unknown),
+                request.Notes),
+            context.CancellationToken);
+
+        return MapToResponse(shipment);
+    }
+
+    public override async Task<ShipmentResponse> UpdateShipmentStatus(
         UpdateShipmentStatusRequest request,
         ServerCallContext context)
     {
-        throw new RpcException(
-            new Status(
-                StatusCode.Unimplemented,
-                "UpdateShipmentStatus is not implemented yet."));
+        var shipmentId = ParseGuid(request.Id, "Invalid shipment id.");
+        if (!System.Enum.TryParse<ShipmentStatus>(request.Status, ignoreCase: true, out var status))
+        {
+            throw new RpcException(new Status(StatusCode.InvalidArgument, "Invalid shipment status."));
+        }
+
+        var shipment = await sender.Send(
+            new UpdateShipmentStatusCommand(shipmentId, status, request.Note),
+            context.CancellationToken);
+
+        return MapToResponse(shipment);
+    }
+
+    public override async Task<ShipmentResponse> CancelShipment(
+        CancelShipmentRequest request,
+        ServerCallContext context)
+    {
+        var shipmentId = ParseGuid(request.Id, "Invalid shipment id.");
+        var shipment = await sender.Send(
+            new CancelShipmentCommand(shipmentId, request.Reason),
+            context.CancellationToken);
+
+        return MapToResponse(shipment);
+    }
+
+    public override async Task<DeleteDraftShipmentResponse> DeleteDraftShipment(
+        DeleteDraftShipmentRequest request,
+        ServerCallContext context)
+    {
+        var shipmentId = ParseGuid(request.Id, "Invalid shipment id.");
+        await sender.Send(
+            new DeleteDraftShipmentCommand(shipmentId),
+            context.CancellationToken);
+
+        return new DeleteDraftShipmentResponse { Deleted = true };
+    }
+
+    private static Guid ParseGuid(string value, string errorMessage)
+    {
+        return Guid.TryParse(value, out var id)
+            ? id
+            : throw new RpcException(new Status(StatusCode.InvalidArgument, errorMessage));
+    }
+
+    private static TEnum ParseEnum<TEnum>(string value, TEnum fallback)
+        where TEnum : struct
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return fallback;
+        }
+
+        return System.Enum.TryParse<TEnum>(value, ignoreCase: true, out var parsed)
+            ? parsed
+            : throw new RpcException(new Status(StatusCode.InvalidArgument, $"Invalid {typeof(TEnum).Name}."));
     }
 
     private static ShipmentResponse MapToResponse(ShipmentDto shipment)

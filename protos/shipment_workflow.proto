@@ -21,8 +21,17 @@ service ShipmentWorkflowService {
     rpc GetShipmentTimeline(GetShipmentTimelineRequest)
     returns (ShipmentTimelineResponse);
 
+    rpc SubmitShipment(SubmitShipmentRequest)
+    returns (ShipmentResponse);
+
+    rpc UpdateShipment(UpdateShipmentRequest)
+    returns (ShipmentResponse);
+
     rpc CancelShipment(CancelShipmentRequest)
     returns (ShipmentResponse);
+
+    rpc DeleteDraftShipment(DeleteDraftShipmentRequest)
+    returns (DeleteDraftShipmentResponse);
 }
 
 message CreateShipmentRequest {
@@ -161,4 +170,25 @@ message ShipmentTimelineItem {
 message CancelShipmentRequest {
   string id = 1;
   string reason = 2;
+}
+
+message SubmitShipmentRequest {
+  string id = 1;
+}
+
+message UpdateShipmentRequest {
+  string id = 1;
+  string customerName = 2;
+  string destinationAddress = 3;
+  string priority = 4;
+  string transportMode = 5;
+  string notes = 6;
+}
+
+message DeleteDraftShipmentRequest {
+  string id = 1;
+}
+
+message DeleteDraftShipmentResponse {
+  bool deleted = 1;
 }

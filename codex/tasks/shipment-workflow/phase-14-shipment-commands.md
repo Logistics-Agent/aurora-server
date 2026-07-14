@@ -2,7 +2,7 @@
 
 ## Status
 
-Not Started
+Completed
 
 ## Goal
 
@@ -22,7 +22,7 @@ Phase 13 completed.
 
 ## Existing State
 
-CreateShipment vertical slice is complete through Phase 10. Full Shipment Workflow MVP remains in progress.
+CreateShipment vertical slice is complete through Phase 13. Full Shipment Workflow MVP remains in progress.
 
 ## Scope
 
@@ -57,32 +57,69 @@ git diff --check
 
 ### Completed
 
-Not started.
+* Implemented `SubmitShipmentCommand`, `UpdateShipmentCommand`, `UpdateShipmentStatusCommand`, `CancelShipmentCommand`, and `DeleteDraftShipmentCommand`.
+* Added gRPC RPCs for SubmitShipment, UpdateShipment, and DeleteDraftShipment and wired existing UpdateShipmentStatus/CancelShipment RPCs.
+* All commands resolve tenant context server-side and reject missing tenant context.
+* Cross-tenant mutations return NotFound through tenant filters without leaking existence.
+* UpdateShipment allows edits only before operational processing starts.
+* UpdateShipmentStatus maps requested statuses to validated state-machine transitions.
+* CancelShipment records status and cancellation outbox messages.
+* DeleteDraftShipment only deletes draft/created shipments.
+* Status-changing command handlers use `ExecuteUpdateAsync` for lifecycle fields, then persist history/milestone/outbox rows in one SaveChanges unit. This avoids the EF status enum alias tracked-update concurrency issue while preserving tenant-scoped updates.
 
 ### Files Changed
 
-None.
+* `protos/shipment_workflow.proto`
+* `src/dotnet/ShipmentWorkflow/GrpcServices/ShipmentGrpcService.cs`
+* `src/dotnet/ShipmentWorkflow/Application/Commands/Shipments/ShipmentCommandHelpers.cs`
+* `src/dotnet/ShipmentWorkflow/Application/Commands/Shipments/SubmitShipmentCommand.cs`
+* `src/dotnet/ShipmentWorkflow/Application/Commands/Shipments/UpdateShipmentCommand.cs`
+* `src/dotnet/ShipmentWorkflow/Application/Commands/Shipments/UpdateShipmentStatusCommand.cs`
+* `src/dotnet/ShipmentWorkflow/Application/Commands/Shipments/CancelShipmentCommand.cs`
+* `src/dotnet/ShipmentWorkflow/Application/Commands/Shipments/DeleteDraftShipmentCommand.cs`
+* `src/dotnet/ShipmentWorkflow/Domain/Shipment.cs`
+* `tests/dotnet/ShipmentWorkflow.Tests/ShipmentCommandTests.cs`
+* `codex/tasks/shipment-workflow/phase-14-shipment-commands.md`
+* `codex/plan.md`
+* `codex/specs/shipment-workflow-gap-analysis.md`
 
 ### Commands Executed
 
-None.
+```bash
+git status --short
+dotnet build src/dotnet/ShipmentWorkflow/ShipmentWorkflow.csproj
+dotnet test tests/dotnet/ShipmentWorkflow.Tests/ShipmentWorkflow.Tests.csproj
+dotnet build src/dotnet/ShipmentWorkflow/ShipmentWorkflow.csproj
+dotnet test tests/dotnet/ShipmentWorkflow.Tests/ShipmentWorkflow.Tests.csproj
+dotnet build src/dotnet/ShipmentWorkflow/ShipmentWorkflow.csproj
+```
 
 ### Build Result
 
-Not started.
+Passed. Latest validation:
+
+```text
+ok dotnet build: 3 projects, 0 errors, 0 warnings
+```
 
 ### Test Result
 
-Not started.
+Passed. Latest validation:
+
+```text
+ok dotnet test: 56 tests passed, 0 warnings in 1 projects
+```
 
 ### Runtime Result
 
-Not started.
+Not run. Phase 14 command behavior was validated through PostgreSQL-backed tests.
 
 ### Migration Result
 
-Not started.
+No migration generated or applied in Phase 14.
 
 ### Remaining Issues
 
-Phase has not started.
+* Cargo/location management remains Phase 15.
+* Document/milestone management remains Phase 16.
+* Full event contract expansion remains Phase 18.
