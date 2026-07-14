@@ -2,7 +2,7 @@
 
 ## Status
 
-Not Started
+Completed
 
 ## Goal
 
@@ -57,32 +57,55 @@ git diff --check
 
 ### Completed
 
-Not started.
+* Added synchronous CSV import command and gRPC RPC.
+* Added row-level import results with total, success, and error counts.
+* Enforced CSV-only MVP import with 256 KiB content limit and 100-row limit.
+* Rejected client-controlled TenantId columns.
+* Resolved TenantId only from current-user context.
+* Created valid shipment rows through the Shipment aggregate, including cargo and initial status history.
+* Wrote ShipmentCreated outbox messages atomically for successfully imported rows.
+* Chose partial-success transaction policy: valid rows are inserted together in one transaction; invalid rows are reported and skipped.
+* Added import request identifier echoing for caller-side idempotency/correlation; no persistent import ledger was added because the existing architecture has no import idempotency store yet.
+* Added PostgreSQL-backed tests for valid import, mixed rows, missing columns, TenantId rejection, row/file limits, missing tenant context, and outbox creation.
 
 ### Files Changed
 
-None.
+* `protos/shipment_workflow.proto`
+* `src/dotnet/ShipmentWorkflow/Application/Commands/Shipments/ImportShipmentsCommand.cs`
+* `src/dotnet/ShipmentWorkflow/Application/DTOs/Shipments/ImportShipmentsResult.cs`
+* `src/dotnet/ShipmentWorkflow/GrpcServices/ShipmentGrpcService.cs`
+* `tests/dotnet/ShipmentWorkflow.Tests/ShipmentImportTests.cs`
 
 ### Commands Executed
 
-None.
+```bash
+git status --short
+dotnet build src/dotnet/ShipmentWorkflow/ShipmentWorkflow.csproj
+dotnet test tests/dotnet/ShipmentWorkflow.Tests/ShipmentWorkflow.Tests.csproj
+dotnet test tests/dotnet/ShipmentWorkflow.Tests/ShipmentWorkflow.Tests.csproj --filter ShipmentImportTests
+```
 
 ### Build Result
 
-Not started.
+Passed: `dotnet build src/dotnet/ShipmentWorkflow/ShipmentWorkflow.csproj` completed with 3 projects, 0 errors, 0 warnings.
 
 ### Test Result
 
-Not started.
+Passed: `dotnet test tests/dotnet/ShipmentWorkflow.Tests/ShipmentWorkflow.Tests.csproj` completed with 78 tests passed, 0 warnings.
 
 ### Runtime Result
 
-Not started.
+Not run in Phase 17. Runtime smoke validation remains planned for Phase 19.
 
 ### Migration Result
 
-Not started.
+No migration generated or applied in Phase 17. Import uses existing Shipment aggregate tables; expanded-schema migration remains planned for Phase 19.
 
 ### Remaining Issues
 
-Phase has not started.
+* Full integration event contract completion remains Phase 18 scope.
+* Incremental expanded-schema migration and database update remain Phase 19 scope.
+
+### Commit Hash
+
+Recorded in final report from `git log` after the Phase 17 commit is finalized.

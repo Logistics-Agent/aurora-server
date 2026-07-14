@@ -13,7 +13,7 @@ Regulatory Compliance RAG: Not Started
 ## Active Work
 
 Active Service: Shipment Workflow
-Active Phase: Phase 17 — Shipment Import
+Active Phase: Phase 18 — Contracts and Integration Events
 Current Branch: feat/shipment-workflow
 
 ## Service Progress
@@ -46,7 +46,7 @@ Current Branch: feat/shipment-workflow
 | 14 | Shipment Commands | Completed |
 | 15 | Cargo and Location Management | Completed |
 | 16 | Document and Milestone Management | Completed |
-| 17 | Shipment Import | Not Started |
+| 17 | Shipment Import | Completed |
 | 18 | Contracts and Integration Events | Not Started |
 | 19 | Migration and Full MVP Testing | Not Started |
 
@@ -73,10 +73,11 @@ All future-service phases are `Not Started`.
 * Phase 14 implemented shipment submit, update, status transition, cancellation, and draft deletion commands with tenant-safe mutation and outbox records.
 * Phase 15 implemented tenant-safe cargo and location management commands/RPCs, submit prerequisites, CargoUpdated outbox records, and PostgreSQL-backed tests.
 * Phase 16 implemented document metadata commands/RPCs, controlled OCR metadata updates, business milestone creation, DocumentAttached outbox records, timeline regression coverage, and lifecycle history persistence fixes.
+* Phase 17 implemented synchronous CSV shipment import with row-level results, limits, TenantId rejection, partial-success transaction policy, and ShipmentCreated outbox writes.
 
 ## Current Work
 
-Phase 17 — Shipment Import is the next allowed Shipment Workflow phase. Do not start Notification, GPS, OCR, or Compliance implementation yet.
+Phase 18 — Contracts and Integration Events is the next allowed Shipment Workflow phase. Do not start Notification, GPS, OCR, or Compliance implementation yet.
 
 ## Blocked Work
 
@@ -84,13 +85,12 @@ No active blocker. Phases 11, 15, and 16 deliberately did not create the expande
 
 ## Remaining Work
 
-* Add shipment import MVP.
 * Expand contracts and integration events.
 * Add incremental migration and full MVP test suite.
 
 ## Build Results
 
-Latest verified Phase 16 validation:
+Latest verified Phase 17 validation:
 
 ```bash
 dotnet build src/dotnet/ShipmentWorkflow/ShipmentWorkflow.csproj
@@ -100,17 +100,17 @@ Result: Passed, 3 projects, 0 errors, 0 warnings.
 
 ## Test Results
 
-Latest verified Phase 16 validation:
+Latest verified Phase 17 validation:
 
 ```bash
 dotnet test tests/dotnet/ShipmentWorkflow.Tests/ShipmentWorkflow.Tests.csproj
 ```
 
-Result: Passed, 73 tests, 0 warnings.
+Result: Passed, 78 tests, 0 warnings.
 
 ## Migration Results
 
-Initial Shipment Workflow migration `20260713201248_InitialShipmentWorkflow` is applied to local `aurora_shipment_workflow`. Phases 11 through 16 did not generate or apply a new migration; expanded-schema migration remains planned for Phase 19.
+Initial Shipment Workflow migration `20260713201248_InitialShipmentWorkflow` is applied to local `aurora_shipment_workflow`. Phases 11 through 17 did not generate or apply a new migration; expanded-schema migration remains planned for Phase 19.
 
 ## Commit History
 
@@ -124,7 +124,7 @@ Recent phase commits:
 
 ## Immediate Next Action
 
-Implement `codex/tasks/shipment-workflow/phase-17-shipment-import.md` only after Phase 16 commit is created and the user request remains in scope.
+Implement `codex/tasks/shipment-workflow/phase-18-contracts-and-integration-events.md` only after Phase 17 commit is created and the user request remains in scope.
 
 ## Branch Strategy
 

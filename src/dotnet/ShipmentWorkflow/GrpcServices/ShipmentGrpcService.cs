@@ -357,6 +357,34 @@ public sealed class ShipmentGrpcService(ISender sender)
         return MapToResponse(shipment);
     }
 
+    public override async Task<ImportShipmentsResponse> ImportShipments(
+        ImportShipmentsRequest request,
+        ServerCallContext context)
+    {
+        var result = await sender.Send(
+            new ImportShipmentsCommand(request.FileName, request.Content, request.ImportRequestId),
+            context.CancellationToken);
+
+        var response = new ImportShipmentsResponse
+        {
+            ImportRequestId = result.ImportRequestId ?? string.Empty,
+            TotalRows = result.TotalRows,
+            SuccessCount = result.SuccessCount,
+            ErrorCount = result.ErrorCount
+        };
+
+        response.Rows.AddRange(result.Rows.Select(row => new ShipmentWorkflow.Grpc.ImportShipmentRowResult
+        {
+            RowNumber = row.RowNumber,
+            Success = row.Success,
+            ShipmentId = row.ShipmentId?.ToString() ?? string.Empty,
+            ShipmentNo = row.ShipmentNo ?? string.Empty,
+            Error = row.Error ?? string.Empty
+        }));
+
+        return response;
+    }
+
     private static double? ToOptionalCoordinate(double value)
     {
         return value == 0 ? null : value;

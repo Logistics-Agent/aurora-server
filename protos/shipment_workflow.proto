@@ -61,6 +61,9 @@ service ShipmentWorkflowService {
 
     rpc AddShipmentMilestone(AddShipmentMilestoneRequest)
     returns (ShipmentResponse);
+
+    rpc ImportShipments(ImportShipmentsRequest)
+    returns (ImportShipmentsResponse);
 }
 
 message CreateShipmentRequest {
@@ -313,4 +316,26 @@ message AddShipmentMilestoneRequest {
   string source = 5;
   optional double latitude = 6;
   optional double longitude = 7;
+}
+
+message ImportShipmentsRequest {
+  string fileName = 1;
+  string content = 2;
+  string importRequestId = 3;
+}
+
+message ImportShipmentsResponse {
+  string importRequestId = 1;
+  int32 totalRows = 2;
+  int32 successCount = 3;
+  int32 errorCount = 4;
+  repeated ImportShipmentRowResult rows = 5;
+}
+
+message ImportShipmentRowResult {
+  int32 rowNumber = 1;
+  bool success = 2;
+  string shipmentId = 3;
+  string shipmentNo = 4;
+  string error = 5;
 }
