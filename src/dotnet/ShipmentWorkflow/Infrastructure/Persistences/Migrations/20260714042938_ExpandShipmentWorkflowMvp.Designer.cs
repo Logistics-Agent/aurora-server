@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using ShipmentWorkflow.Infrastructure.Persistences;
@@ -11,9 +12,11 @@ using ShipmentWorkflow.Infrastructure.Persistences;
 namespace ShipmentWorkflow.Infrastructure.Persistences.Migrations
 {
     [DbContext(typeof(ShipmentWorkflowDbContext))]
-    partial class ShipmentWorkflowDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260714042938_ExpandShipmentWorkflowMvp")]
+    partial class ExpandShipmentWorkflowMvp
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder

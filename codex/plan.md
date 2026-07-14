@@ -4,7 +4,7 @@
 
 Shipment Workflow CreateShipment vertical slice: Completed
 Shipment Workflow Aggregate Expansion: Completed
-Shipment Workflow full MVP: In Progress
+Shipment Workflow full MVP: Completed
 Notification Service: Not Started
 GPS Tracking and Monitoring: Not Started
 Document OCR Agent: Not Started
@@ -13,14 +13,14 @@ Regulatory Compliance RAG: Not Started
 ## Active Work
 
 Active Service: Shipment Workflow
-Active Phase: Phase 19 — Migration and Full MVP Testing
+Active Phase: Completed
 Current Branch: feat/shipment-workflow
 
 ## Service Progress
 
 | Service | Status |
 | --- | --- |
-| Shipment Workflow | In Progress |
+| Shipment Workflow | Completed |
 | Notification | Not Started |
 | GPS Tracking and Monitoring | Not Started |
 | Document OCR Agent | Not Started |
@@ -32,7 +32,7 @@ Current Branch: feat/shipment-workflow
 | --- | --- | --- |
 | 01 | Project Foundation | Completed |
 | 02 | Shipment Contracts | Completed |
-| 03 | Domain Model | Partially Completed |
+| 03 | Domain Model | Completed |
 | 04 | Namespace Cleanup | Completed |
 | 05 | Persistence | Completed |
 | 06 | Proto Contract | Completed |
@@ -48,7 +48,7 @@ Current Branch: feat/shipment-workflow
 | 16 | Document and Milestone Management | Completed |
 | 17 | Shipment Import | Completed |
 | 18 | Contracts and Integration Events | Completed |
-| 19 | Migration and Full MVP Testing | Not Started |
+| 19 | Migration and Full MVP Testing | Completed |
 
 ## Future Service Phase Progress
 
@@ -75,22 +75,23 @@ All future-service phases are `Not Started`.
 * Phase 16 implemented document metadata commands/RPCs, controlled OCR metadata updates, business milestone creation, DocumentAttached outbox records, timeline regression coverage, and lifecycle history persistence fixes.
 * Phase 17 implemented synchronous CSV shipment import with row-level results, limits, TenantId rejection, partial-success transaction policy, and ShipmentCreated outbox writes.
 * Phase 18 completed Shipment event contracts with EventId/version fields, added missing lifecycle/update event contracts, and wired outbox writes for submit/update/pickup/delivery/completion flows.
+* Phase 19 generated and applied `20260714042938_ExpandShipmentWorkflowMvp`, verified local PostgreSQL schema, ran runtime smoke validation, and completed full Shipment Workflow regression.
 
 ## Current Work
 
-Phase 19 — Migration and Full MVP Testing is the next allowed Shipment Workflow phase. Do not start Notification, GPS, OCR, or Compliance implementation yet.
+Shipment Workflow MVP is complete. The next allowed service branch is `feat/notification-service`; do not create it until explicitly requested.
 
 ## Blocked Work
 
-No active blocker. Phases 11, 15, and 16 deliberately did not create the expanded-schema migration because migration work is planned for Phase 19. The migrated database needs that later migration before the expanded MVP tables and columns can be used at runtime.
+No active blocker.
 
 ## Remaining Work
 
-* Add incremental migration and full MVP test suite.
+No Shipment Workflow MVP implementation work remains.
 
 ## Build Results
 
-Latest verified Phase 18 validation:
+Latest verified Phase 19 validation:
 
 ```bash
 dotnet build src/dotnet/ShipmentWorkflow/ShipmentWorkflow.csproj
@@ -100,7 +101,7 @@ Result: Passed, 3 projects, 0 errors, 0 warnings.
 
 ## Test Results
 
-Latest verified Phase 18 validation:
+Latest verified Phase 19 validation:
 
 ```bash
 dotnet test tests/dotnet/ShipmentWorkflow.Tests/ShipmentWorkflow.Tests.csproj
@@ -110,7 +111,7 @@ Result: Passed, 83 tests, 0 warnings.
 
 ## Migration Results
 
-Initial Shipment Workflow migration `20260713201248_InitialShipmentWorkflow` is applied to local `aurora_shipment_workflow`. Phases 11 through 17 did not generate or apply a new migration; expanded-schema migration remains planned for Phase 19.
+Initial Shipment Workflow migration `20260713201248_InitialShipmentWorkflow` and expanded MVP migration `20260714042938_ExpandShipmentWorkflowMvp` are applied to local `aurora_shipment_workflow`.
 
 ## Commit History
 
@@ -124,7 +125,7 @@ Recent phase commits:
 
 ## Immediate Next Action
 
-Implement `codex/tasks/shipment-workflow/phase-19-migration-and-full-mvp-testing.md` only after Phase 18 commit is created and the user request remains in scope.
+Stop Shipment Workflow implementation. Next allowed action after explicit request: create `feat/notification-service`.
 
 ## Branch Strategy
 

@@ -24,7 +24,7 @@ The service depends on shared current-user context, PostgreSQL, gRPC, MediatR, M
 
 ## Contracts and APIs
 
-The gRPC contract is `protos/shipment_workflow.proto`. Current implemented behavior is CreateShipment. Remaining MVP operations are GetShipment, ListShipments, UpdateShipmentStatus, GetShipmentTimeline, and CancelShipment, plus expanded MVP commands planned in phases 11–19.
+The gRPC contract is `protos/shipment_workflow.proto`. Shipment Workflow MVP RPCs for create, get, list, timeline, submit, update, status transitions, cancellation, draft deletion, cargo/location/document/milestone management, and CSV import are implemented.
 
 ## Event Consumers and Publishers
 
@@ -60,7 +60,7 @@ Configuration includes PostgreSQL, Redis, RabbitMQ, logging, and authentication/
 
 ## Migration Requirements
 
-Migrations must be incremental after the applied initial migration. Do not regenerate another initial migration. Confirm database name before applying updates.
+Migrations are incremental after the applied initial migration. `20260714042938_ExpandShipmentWorkflowMvp` expands the MVP schema and has been applied to the confirmed local Shipment Workflow database.
 
 ## Test Requirements
 
@@ -68,7 +68,7 @@ Tests must cover create, queries, commands, state machine, tenant isolation, val
 
 ## Definition of Done
 
-Full Shipment MVP is complete when Create, Get, List, Submit, Update, UpdateStatus, Timeline, Cancel, Draft deletion, cargo/location/document/milestone management, import MVP, outbox events, migrations, and tests all pass.
+Full Shipment MVP is complete: Create, Get, List, Submit, Update, UpdateStatus, Timeline, Cancel, Draft deletion, cargo/location/document/milestone management, CSV import MVP, outbox events, migrations, and tests pass.
 
 ## Assumptions
 
@@ -77,3 +77,7 @@ The existing `CargoItem` name may remain unless a compatibility review justifies
 ## Explicitly Excluded Responsibilities
 
 Billing, payment, detailed GPS history, route planning, OCR execution, compliance decisioning, notification delivery, and vector database ownership are excluded.
+
+## Implementation Status
+
+Shipment Workflow full MVP is completed through Phase 19. Current verified regression: `dotnet build src/dotnet/ShipmentWorkflow/ShipmentWorkflow.csproj` passes and `dotnet test tests/dotnet/ShipmentWorkflow.Tests/ShipmentWorkflow.Tests.csproj` passes with 83 tests.
