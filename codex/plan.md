@@ -3,6 +3,7 @@
 ## Current State
 
 Shipment Workflow CreateShipment vertical slice: Completed
+Shipment Workflow Aggregate Expansion: Completed
 Shipment Workflow full MVP: In Progress
 Notification Service: Not Started
 GPS Tracking and Monitoring: Not Started
@@ -12,7 +13,7 @@ Regulatory Compliance RAG: Not Started
 ## Active Work
 
 Active Service: Shipment Workflow
-Active Phase: Phase 11 — Aggregate Expansion
+Active Phase: Phase 12 — Workflow State Machine
 Current Branch: feat/shipment-workflow
 
 ## Service Progress
@@ -39,7 +40,7 @@ Current Branch: feat/shipment-workflow
 | 08 | Create Shipment Vertical Slice | Completed |
 | 09 | Database Migration | Completed |
 | 10 | Testing | Completed |
-| 11 | Aggregate Expansion | Not Started |
+| 11 | Aggregate Expansion | Completed |
 | 12 | Workflow State Machine | Not Started |
 | 13 | Shipment Queries | Not Started |
 | 14 | Shipment Commands | Not Started |
@@ -65,50 +66,49 @@ All future-service phases are `Not Started`.
 * Shipment Workflow project and contract project created.
 * CreateShipment gRPC contract, command handler, persistence, migration, and tests are complete.
 * Local Shipment Workflow database migration was applied after explicit local DB reset.
-* 11 PostgreSQL-backed Shipment Workflow tests pass.
 * Logistics architecture, service specs, future service plans, Shipment gap analysis, and Shipment Phase 11–19 plans have been documented.
+* Phase 11 expanded the Shipment aggregate with MVP shipment fields, ShipmentLocation, ShipmentDocument, ShipmentMilestone, required enums, EF mappings, tenant filters, and aggregate tests.
 
 ## Current Work
 
-Phase 11 — Aggregate Expansion is the next implementation phase. Do not start Notification, GPS, OCR, or Compliance implementation yet.
+Phase 12 — Workflow State Machine is the next allowed Shipment Workflow phase. Do not start Phase 12 until explicitly requested. Do not start Notification, GPS, OCR, or Compliance implementation yet.
 
 ## Blocked Work
 
-No active blocker. Future implementation must confirm migration compatibility before changing the applied Shipment schema.
+No active blocker. Phase 11 deliberately did not create the expanded-schema migration because migration work is planned for Phase 19. The migrated database needs that later migration before the new Phase 11 tables and columns can be used at runtime.
 
 ## Remaining Work
 
-* Expand Shipment aggregate to full MVP entities and fields.
 * Implement workflow state machine.
 * Implement shipment queries and remaining commands.
-* Add cargo/location/document/milestone management.
+* Add cargo/location/document/milestone management commands.
 * Add shipment import MVP.
 * Expand contracts and integration events.
 * Add incremental migration and full MVP test suite.
 
 ## Build Results
 
-Latest verified baseline before documentation update:
+Latest verified Phase 11 validation:
 
 ```bash
 dotnet build src/dotnet/ShipmentWorkflow/ShipmentWorkflow.csproj
 ```
 
-Result: Passed, 0 errors, 0 warnings.
+Result: Passed, 3 projects, 0 errors, 0 warnings.
 
 ## Test Results
 
-Latest verified baseline before documentation update:
+Latest verified Phase 11 validation:
 
 ```bash
 dotnet test tests/dotnet/ShipmentWorkflow.Tests/ShipmentWorkflow.Tests.csproj
 ```
 
-Result: Passed, 11 tests.
+Result: Passed, 24 tests, 0 warnings.
 
 ## Migration Results
 
-Initial Shipment Workflow migration `20260713201248_InitialShipmentWorkflow` is applied to local `aurora_shipment_workflow`.
+Initial Shipment Workflow migration `20260713201248_InitialShipmentWorkflow` is applied to local `aurora_shipment_workflow`. Phase 11 did not generate or apply a new migration; expanded-schema migration remains planned for Phase 19.
 
 ## Commit History
 
@@ -122,7 +122,7 @@ Recent phase commits:
 
 ## Immediate Next Action
 
-Implement `codex/tasks/shipment-workflow/phase-11-aggregate-expansion.md` only after the user explicitly requests implementation of Phase 11.
+Implement `codex/tasks/shipment-workflow/phase-12-workflow-state-machine.md` only after the user explicitly requests implementation of Phase 12.
 
 ## Branch Strategy
 

@@ -7,6 +7,15 @@ using ShipmentEntity =
 using CargoItemEntity =
     global::ShipmentWorkflow.Domain.Entities.CargoItem;
 
+using ShipmentLocationEntity =
+    global::ShipmentWorkflow.Domain.Entities.ShipmentLocation;
+
+using ShipmentDocumentEntity =
+    global::ShipmentWorkflow.Domain.Entities.ShipmentDocument;
+
+using ShipmentMilestoneEntity =
+    global::ShipmentWorkflow.Domain.Entities.ShipmentMilestone;
+
 using ShipmentStatusHistoryEntity =
     global::ShipmentWorkflow.Domain.Entities.ShipmentStatusHistory;
 
@@ -25,6 +34,9 @@ public sealed class ShipmentWorkflowDbContext(
 
     public DbSet<ShipmentEntity> Shipments => Set<ShipmentEntity>();
     public DbSet<CargoItemEntity> CargoItems => Set<CargoItemEntity>();
+    public DbSet<ShipmentLocationEntity> ShipmentLocations => Set<ShipmentLocationEntity>();
+    public DbSet<ShipmentDocumentEntity> ShipmentDocuments => Set<ShipmentDocumentEntity>();
+    public DbSet<ShipmentMilestoneEntity> ShipmentMilestones => Set<ShipmentMilestoneEntity>();
 
     public DbSet<ShipmentStatusHistoryEntity> ShipmentStatusHistories =>
         Set<ShipmentStatusHistoryEntity>();
@@ -42,6 +54,9 @@ public sealed class ShipmentWorkflowDbContext(
 
         ConfigureShipment(modelBuilder);
         ConfigureCargoItem(modelBuilder);
+        ConfigureShipmentLocation(modelBuilder);
+        ConfigureShipmentDocument(modelBuilder);
+        ConfigureShipmentMilestone(modelBuilder);
         ConfigureShipmentStatusHistory(modelBuilder);
         ConfigureOutboxMessage(modelBuilder);
     }
@@ -67,6 +82,15 @@ public sealed class ShipmentWorkflowDbContext(
             entity.HasIndex(shipment =>
                 new { shipment.TenantId, shipment.CreatedAt });
 
+            entity.HasIndex(shipment =>
+                new { shipment.TenantId, shipment.CustomerId });
+
+            entity.HasIndex(shipment =>
+                new { shipment.TenantId, shipment.RouteId });
+
+            entity.HasIndex(shipment =>
+                new { shipment.TenantId, shipment.VehicleId });
+
             entity.HasIndex(shipment => shipment.OrderId);
 
             entity.Property(shipment => shipment.ShipmentNo)
@@ -89,9 +113,43 @@ public sealed class ShipmentWorkflowDbContext(
                 .HasMaxLength(50)
                 .IsRequired();
 
+            entity.Property(shipment => shipment.Priority)
+                .HasConversion<string>()
+                .HasMaxLength(50)
+                .IsRequired();
+
+            entity.Property(shipment => shipment.TransportMode)
+                .HasConversion<string>()
+                .HasMaxLength(50)
+                .IsRequired();
+
+            entity.Property(shipment => shipment.RouteId)
+                .HasMaxLength(100);
+
+            entity.Property(shipment => shipment.VehicleId)
+                .HasMaxLength(100);
+
+            entity.Property(shipment => shipment.Notes)
+                .HasMaxLength(2_000);
+
             entity.HasMany(shipment => shipment.CargoItems)
                 .WithOne(cargoItem => cargoItem.Shipment)
                 .HasForeignKey(cargoItem => cargoItem.ShipmentId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasMany(shipment => shipment.Locations)
+                .WithOne(location => location.Shipment)
+                .HasForeignKey(location => location.ShipmentId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasMany(shipment => shipment.Documents)
+                .WithOne(document => document.Shipment)
+                .HasForeignKey(document => document.ShipmentId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasMany(shipment => shipment.Milestones)
+                .WithOne(milestone => milestone.Shipment)
+                .HasForeignKey(milestone => milestone.ShipmentId)
                 .OnDelete(DeleteBehavior.Cascade);
 
             entity.HasMany(shipment => shipment.StatusHistories)
@@ -127,6 +185,126 @@ public sealed class ShipmentWorkflowDbContext(
 
             entity.Property(cargoItem => cargoItem.HsCode)
                 .HasMaxLength(50);
+        });
+    }
+
+    private void ConfigureShipmentLocation(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<ShipmentLocationEntity>(entity =>
+        {
+            entity.ToTable("shipment_locations");
+
+            entity.HasKey(location => location.Id);
+
+            entity.HasQueryFilter(location =>
+                location.TenantId == _currentUser.TenantId);
+
+            entity.HasIndex(location =>
+                    new { location.TenantId, location.ShipmentId, location.Sequence })
+                .IsUnique();
+
+            entity.Property(location => location.Type)
+                .HasConversion<string>()
+                .HasMaxLength(50)
+                .IsRequired();
+
+            entity.Property(location => location.Name)
+                .HasMaxLength(ShipmentLocationEntity.NameMaxLength)
+                .IsRequired();
+
+            entity.Property(location => location.Address)
+                .HasMaxLength(ShipmentLocationEntity.AddressMaxLength)
+                .IsRequired();
+
+            entity.Property(location => location.ContactName)
+                .HasMaxLength(ShipmentLocationEntity.ContactNameMaxLength);
+
+            entity.Property(location => location.ContactPhone)
+                .HasMaxLength(ShipmentLocationEntity.ContactPhoneMaxLength);
+
+            entity.Property(location => location.Sequence)
+                .IsRequired();
+        });
+    }
+
+    private void ConfigureShipmentDocument(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<ShipmentDocumentEntity>(entity =>
+        {
+            entity.ToTable("shipment_documents");
+
+            entity.HasKey(document => document.Id);
+
+            entity.HasQueryFilter(document =>
+                document.TenantId == _currentUser.TenantId);
+
+            entity.HasIndex(document =>
+                new { document.TenantId, document.ShipmentId, document.DocumentType });
+
+            entity.HasIndex(document =>
+                new { document.TenantId, document.OCRStatus });
+
+            entity.Property(document => document.FileName)
+                .HasMaxLength(ShipmentDocumentEntity.FileNameMaxLength)
+                .IsRequired();
+
+            entity.Property(document => document.DocumentType)
+                .HasConversion<string>()
+                .HasMaxLength(50)
+                .IsRequired();
+
+            entity.Property(document => document.StorageUrl)
+                .HasMaxLength(ShipmentDocumentEntity.StorageUrlMaxLength)
+                .IsRequired();
+
+            entity.Property(document => document.OCRStatus)
+                .HasConversion<string>()
+                .HasMaxLength(50)
+                .IsRequired();
+
+            entity.Property(document => document.OCRConfidence)
+                .HasPrecision(5, 4);
+
+            entity.Property(document => document.UploadedAt)
+                .IsRequired();
+
+            entity.Property(document => document.ExtractedDataJson)
+                .HasColumnType("jsonb");
+        });
+    }
+
+    private void ConfigureShipmentMilestone(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<ShipmentMilestoneEntity>(entity =>
+        {
+            entity.ToTable("shipment_milestones");
+
+            entity.HasKey(milestone => milestone.Id);
+
+            entity.HasQueryFilter(milestone =>
+                milestone.TenantId == _currentUser.TenantId);
+
+            entity.HasIndex(milestone =>
+                new { milestone.TenantId, milestone.ShipmentId, milestone.RecordedAt });
+
+            entity.HasIndex(milestone =>
+                new { milestone.TenantId, milestone.RecordedAt });
+
+            entity.Property(milestone => milestone.Status)
+                .HasConversion<string>()
+                .HasMaxLength(50)
+                .IsRequired();
+
+            entity.Property(milestone => milestone.Description)
+                .HasMaxLength(ShipmentMilestoneEntity.DescriptionMaxLength);
+
+            entity.Property(milestone => milestone.RecordedAt)
+                .IsRequired();
+
+            entity.Property(milestone => milestone.Source)
+                .HasConversion<string>()
+                .HasMaxLength(50)
+                .IsRequired();
         });
     }
 
@@ -176,5 +354,4 @@ public sealed class ShipmentWorkflowDbContext(
             entity.Property(outboxMessage => outboxMessage.Error);
         });
     }
-
 }

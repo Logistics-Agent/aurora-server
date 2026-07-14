@@ -41,17 +41,32 @@ public class Shipment : TenantAuditableEntity
             OrderId = string.IsNullOrWhiteSpace(orderId) ? null : orderId.Trim(),
             CustomerName = customerName.Trim(),
             DestinationAddress = destinationAddress.Trim(),
-            Status = ShipmentStatus.Created
+            Status = ShipmentStatus.Created,
+            Priority = ShipmentPriority.Normal,
+            TransportMode = TransportMode.Unknown
         };
     }
 
     public string ShipmentNo { get; set; } = string.Empty;
     public string? OrderId { get; set; }
+    public Guid? CustomerId { get; set; }
     public string CustomerName { get; set; } = string.Empty;
     public string DestinationAddress { get; set; } = string.Empty;
     public ShipmentStatus Status { get; set; }
+    public ShipmentPriority Priority { get; set; } = ShipmentPriority.Normal;
+    public TransportMode TransportMode { get; set; } = TransportMode.Unknown;
+    public string? RouteId { get; set; }
+    public string? VehicleId { get; set; }
+    public DateTimeOffset? EstimatedPickupTime { get; set; }
+    public DateTimeOffset? EstimatedDeliveryTime { get; set; }
+    public DateTimeOffset? ActualPickupTime { get; set; }
+    public DateTimeOffset? ActualDeliveryTime { get; set; }
+    public string? Notes { get; set; }
 
     public ICollection<CargoItem> CargoItems { get; set; } = [];
+    public ICollection<ShipmentLocation> Locations { get; set; } = [];
+    public ICollection<ShipmentDocument> Documents { get; set; } = [];
+    public ICollection<ShipmentMilestone> Milestones { get; set; } = [];
     public ICollection<ShipmentStatusHistory> StatusHistories { get; set; } = [];
 
     public void AddCargoItem(
@@ -97,5 +112,72 @@ public class Shipment : TenantAuditableEntity
             Note = note,
             CreatedAt = DateTimeOffset.UtcNow
         });
+    }
+
+    public void AddLocation(
+        LocationType type,
+        string name,
+        string address,
+        int sequence,
+        double? latitude = null,
+        double? longitude = null,
+        string? contactName = null,
+        string? contactPhone = null)
+    {
+        Locations.Add(ShipmentLocation.Create(
+            TenantId,
+            Id,
+            type,
+            name,
+            address,
+            sequence,
+            latitude,
+            longitude,
+            contactName,
+            contactPhone));
+    }
+
+    public void AddDocumentMetadata(
+        string fileName,
+        DocumentType documentType,
+        string storageUrl,
+        Guid? uploadedBy,
+        DateTimeOffset uploadedAt,
+        OCRStatus ocrStatus = OCRStatus.Pending,
+        decimal? ocrConfidence = null,
+        string? extractedDataJson = null)
+    {
+        Documents.Add(ShipmentDocument.Create(
+            TenantId,
+            Id,
+            fileName,
+            documentType,
+            storageUrl,
+            uploadedBy,
+            uploadedAt,
+            ocrStatus,
+            ocrConfidence,
+            extractedDataJson));
+    }
+
+    public void AddMilestone(
+        ShipmentStatus status,
+        string? description,
+        DateTimeOffset recordedAt,
+        MilestoneSource source,
+        Guid? createdBy,
+        double? latitude = null,
+        double? longitude = null)
+    {
+        Milestones.Add(ShipmentMilestone.Create(
+            TenantId,
+            Id,
+            status,
+            description,
+            recordedAt,
+            source,
+            createdBy,
+            latitude,
+            longitude));
     }
 }

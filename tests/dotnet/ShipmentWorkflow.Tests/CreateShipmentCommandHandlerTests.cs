@@ -10,6 +10,7 @@ using ShipmentWorkflow.Infrastructure.Persistences;
 
 namespace ShipmentWorkflow.Tests;
 
+[Collection("ShipmentWorkflowDatabase")]
 public sealed class CreateShipmentCommandHandlerTests
 {
     private const string ConnectionString =
@@ -162,7 +163,7 @@ public sealed class CreateShipmentCommandHandlerTests
     {
         var dbContext = CreateDbContext(currentUser);
         await dbContext.Database.EnsureDeletedAsync();
-        await dbContext.Database.MigrateAsync();
+        await dbContext.Database.EnsureCreatedAsync();
         return dbContext;
     }
 
