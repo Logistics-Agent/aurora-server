@@ -13,7 +13,7 @@ Regulatory Compliance RAG: Not Started
 ## Active Work
 
 Active Service: Shipment Workflow
-Active Phase: Phase 13 — Shipment Queries
+Active Phase: Phase 14 — Shipment Commands
 Current Branch: feat/shipment-workflow
 
 ## Service Progress
@@ -42,7 +42,7 @@ Current Branch: feat/shipment-workflow
 | 10 | Testing | Completed |
 | 11 | Aggregate Expansion | Completed |
 | 12 | Workflow State Machine | Completed |
-| 13 | Shipment Queries | Not Started |
+| 13 | Shipment Queries | Completed |
 | 14 | Shipment Commands | Not Started |
 | 15 | Cargo and Location Management | Not Started |
 | 16 | Document and Milestone Management | Not Started |
@@ -69,10 +69,11 @@ All future-service phases are `Not Started`.
 * Logistics architecture, service specs, future service plans, Shipment gap analysis, and Shipment Phase 11–19 plans have been documented.
 * Phase 11 expanded the Shipment aggregate with MVP shipment fields, ShipmentLocation, ShipmentDocument, ShipmentMilestone, required enums, EF mappings, tenant filters, and aggregate tests.
 * Phase 12 implemented the Shipment workflow state machine with validated transitions, terminal states, transition history, milestone creation, and pickup/delivery timestamps.
+* Phase 13 implemented tenant-safe GetShipment, ListShipments, and GetShipmentTimeline query behavior and gRPC mapping.
 
 ## Current Work
 
-Phase 13 — Shipment Queries is the next allowed Shipment Workflow phase. Do not start Phase 13 until explicitly requested. Do not start Notification, GPS, OCR, or Compliance implementation yet.
+Phase 14 — Shipment Commands is the next allowed Shipment Workflow phase. Do not start Phase 14 until explicitly requested. Do not start Notification, GPS, OCR, or Compliance implementation yet.
 
 ## Blocked Work
 
@@ -80,7 +81,7 @@ No active blocker. Phase 11 deliberately did not create the expanded-schema migr
 
 ## Remaining Work
 
-* Implement shipment queries and remaining commands.
+* Implement remaining shipment commands.
 * Add cargo/location/document/milestone management commands.
 * Add shipment import MVP.
 * Expand contracts and integration events.
@@ -104,7 +105,7 @@ Latest verified Phase 11 validation:
 dotnet test tests/dotnet/ShipmentWorkflow.Tests/ShipmentWorkflow.Tests.csproj
 ```
 
-Result: Passed, 41 tests, 0 warnings.
+Result: Passed, 49 tests, 0 warnings.
 
 ## Migration Results
 
@@ -122,7 +123,7 @@ Recent phase commits:
 
 ## Immediate Next Action
 
-Implement `codex/tasks/shipment-workflow/phase-13-shipment-queries.md` only after the user explicitly requests implementation of Phase 13.
+Implement `codex/tasks/shipment-workflow/phase-14-shipment-commands.md` only after the user explicitly requests implementation of Phase 14.
 
 ## Branch Strategy
 

@@ -2,7 +2,7 @@
 
 ## Status
 
-Not Started
+Completed
 
 ## Goal
 
@@ -22,7 +22,7 @@ Phase 12 completed.
 
 ## Existing State
 
-CreateShipment vertical slice is complete through Phase 10. Full Shipment Workflow MVP remains in progress.
+CreateShipment vertical slice is complete through Phase 12. Full Shipment Workflow MVP remains in progress.
 
 ## Scope
 
@@ -57,32 +57,70 @@ git diff --check
 
 ### Completed
 
-Not started.
+* Implemented `GetShipmentQuery`, `ListShipmentsQuery`, and `GetShipmentTimelineQuery`.
+* Added tenant context validation for all query paths.
+* Added NotFound behavior that does not leak cross-tenant shipment existence.
+* Added aggregate DTO mapping for cargo, locations, documents, milestones, lifecycle fields, and timestamps.
+* Implemented pagination, status, shipment number, customer, and created-date filters for list queries.
+* Implemented deterministic timeline composition from status histories and business milestones.
+* Implemented gRPC service methods for GetShipment, ListShipments, and GetShipmentTimeline.
+* Extended proto response messages compatibly with new field numbers for aggregate data and filters.
 
 ### Files Changed
 
-None.
+* `protos/shipment_workflow.proto`
+* `src/dotnet/ShipmentWorkflow/GrpcServices/ShipmentGrpcService.cs`
+* `src/dotnet/ShipmentWorkflow/Application/DTOs/Shipments/ShipmentDto.cs`
+* `src/dotnet/ShipmentWorkflow/Application/DTOs/Shipments/ShipmentLocationDto.cs`
+* `src/dotnet/ShipmentWorkflow/Application/DTOs/Shipments/ShipmentDocumentDto.cs`
+* `src/dotnet/ShipmentWorkflow/Application/DTOs/Shipments/ShipmentMilestoneDto.cs`
+* `src/dotnet/ShipmentWorkflow/Application/DTOs/Shipments/ShipmentTimelineDto.cs`
+* `src/dotnet/ShipmentWorkflow/Application/DTOs/Shipments/ListShipmentsResult.cs`
+* `src/dotnet/ShipmentWorkflow/Application/Queries/Shipments/GetShipmentQuery.cs`
+* `src/dotnet/ShipmentWorkflow/Application/Queries/Shipments/ListShipmentsQuery.cs`
+* `src/dotnet/ShipmentWorkflow/Application/Queries/Shipments/GetShipmentTimelineQuery.cs`
+* `tests/dotnet/ShipmentWorkflow.Tests/ShipmentQueryTests.cs`
+* `codex/tasks/shipment-workflow/phase-13-shipment-queries.md`
+* `codex/plan.md`
+* `codex/specs/shipment-workflow-gap-analysis.md`
 
 ### Commands Executed
 
-None.
+```bash
+git status --short
+git log --oneline --decorate -5
+dotnet build src/dotnet/ShipmentWorkflow/ShipmentWorkflow.csproj
+dotnet test tests/dotnet/ShipmentWorkflow.Tests/ShipmentWorkflow.Tests.csproj
+dotnet build src/dotnet/ShipmentWorkflow/ShipmentWorkflow.csproj
+dotnet build src/dotnet/ShipmentWorkflow/ShipmentWorkflow.csproj
+dotnet test tests/dotnet/ShipmentWorkflow.Tests/ShipmentWorkflow.Tests.csproj
+```
 
 ### Build Result
 
-Not started.
+Passed. Latest validation:
+
+```text
+ok dotnet build: 3 projects, 0 errors, 0 warnings
+```
 
 ### Test Result
 
-Not started.
+Passed. Latest validation:
+
+```text
+ok dotnet test: 49 tests passed, 0 warnings in 1 projects
+```
 
 ### Runtime Result
 
-Not started.
+Not run. Phase 13 added query behavior and did not require service startup validation.
 
 ### Migration Result
 
-Not started.
+No migration generated or applied in Phase 13.
 
 ### Remaining Issues
 
-Phase has not started.
+* Write command RPCs remain out of scope until Phase 14.
+* Cargo/location/document/milestone management RPCs remain later phase scope.

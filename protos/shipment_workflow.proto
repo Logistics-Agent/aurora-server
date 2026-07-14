@@ -56,6 +56,19 @@ message ShipmentResponse {
   google.protobuf.Timestamp createdAt = 11;
   google.protobuf.Timestamp updatedAt = 12;
   repeated CargoItemResponse cargoItems = 13;
+  string customerId = 14;
+  string priority = 15;
+  string transportMode = 16;
+  string routeId = 17;
+  string vehicleId = 18;
+  google.protobuf.Timestamp estimatedPickupTime = 19;
+  google.protobuf.Timestamp estimatedDeliveryTime = 20;
+  google.protobuf.Timestamp actualPickupTime = 21;
+  google.protobuf.Timestamp actualDeliveryTime = 22;
+  string notes = 23;
+  repeated ShipmentLocationResponse locations = 24;
+  repeated ShipmentDocumentResponse documents = 25;
+  repeated ShipmentMilestoneResponse milestones = 26;
 }
 
 message CargoItemResponse {
@@ -66,6 +79,41 @@ message CargoItemResponse {
   string hsCode = 5;
 }
 
+message ShipmentLocationResponse {
+  string id = 1;
+  string type = 2;
+  string name = 3;
+  string address = 4;
+  double latitude = 5;
+  double longitude = 6;
+  string contactName = 7;
+  string contactPhone = 8;
+  int32 sequence = 9;
+}
+
+message ShipmentDocumentResponse {
+  string id = 1;
+  string fileName = 2;
+  string documentType = 3;
+  string storageUrl = 4;
+  string ocrStatus = 5;
+  double ocrConfidence = 6;
+  string uploadedBy = 7;
+  google.protobuf.Timestamp uploadedAt = 8;
+  string extractedDataJson = 9;
+}
+
+message ShipmentMilestoneResponse {
+  string id = 1;
+  string status = 2;
+  string description = 3;
+  double latitude = 4;
+  double longitude = 5;
+  google.protobuf.Timestamp recordedAt = 6;
+  string source = 7;
+  string createdBy = 8;
+}
+
 message GetShipmentRequest {
   string id = 1;
 }
@@ -74,6 +122,10 @@ message ListShipmentsRequest {
   int32 page = 1;
   int32 limit = 2;
   string status = 3;
+  string shipmentNo = 4;
+  string customerName = 5;
+  google.protobuf.Timestamp createdFrom = 6;
+  google.protobuf.Timestamp createdTo = 7;
 }
 
 message ListShipmentsResponse {
@@ -103,6 +155,7 @@ message ShipmentTimelineItem {
   string status = 1;
   string note = 2;
   google.protobuf.Timestamp createdAt = 3;
+  string source = 4;
 }
 
 message CancelShipmentRequest {
