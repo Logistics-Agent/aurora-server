@@ -2,7 +2,7 @@
 
 ## Status
 
-Not Started
+Completed
 
 ## Goal
 
@@ -22,7 +22,7 @@ Phase 11 completed.
 
 ## Existing State
 
-CreateShipment vertical slice is complete through Phase 10. Full Shipment Workflow MVP remains in progress.
+CreateShipment vertical slice is complete through Phase 11. Full Shipment Workflow MVP remains in progress.
 
 ## Scope
 
@@ -57,32 +57,62 @@ git diff --check
 
 ### Completed
 
-Not started.
+* Added MVP workflow statuses while preserving existing enum numeric compatibility for `Created`, customs, transit, delivery, completion, and cancellation values.
+* Implemented explicit allowed transition map in the Shipment aggregate.
+* Added domain methods for submit, planning, negotiation, confirm, picked up, in transit, customs processing, delivered, completed, cancelled, route assignment, and vehicle assignment.
+* Every successful transition creates status history and a business milestone.
+* Pickup and delivery transitions record actual timestamps.
+* Completed and Cancelled states are terminal.
+* Existing `Created` status remains compatible as the Draft starting state.
 
 ### Files Changed
 
-None.
+* `src/dotnet/ShipmentWorkflow/Domain/Enums/ShipmentStatus.cs`
+* `src/dotnet/ShipmentWorkflow/Domain/Shipment.cs`
+* `tests/dotnet/ShipmentWorkflow.Tests/ShipmentWorkflowStateMachineTests.cs`
+* `codex/tasks/shipment-workflow/phase-12-workflow-state-machine.md`
+* `codex/plan.md`
+* `codex/specs/shipment-workflow-gap-analysis.md`
 
 ### Commands Executed
 
-None.
+```bash
+git status --short
+git branch --show-current
+git log --oneline --decorate -20
+dotnet build src/dotnet/ShipmentWorkflow/ShipmentWorkflow.csproj
+dotnet test tests/dotnet/ShipmentWorkflow.Tests/ShipmentWorkflow.Tests.csproj
+rg --files src/dotnet/ShipmentWorkflow tests/dotnet/ShipmentWorkflow.Tests src/dotnet/Contracts/Shipment.Contracts protos
+dotnet build src/dotnet/ShipmentWorkflow/ShipmentWorkflow.csproj
+dotnet test tests/dotnet/ShipmentWorkflow.Tests/ShipmentWorkflow.Tests.csproj
+dotnet build src/dotnet/ShipmentWorkflow/ShipmentWorkflow.csproj
+```
 
 ### Build Result
 
-Not started.
+Passed. Latest validation:
+
+```text
+ok dotnet build: 3 projects, 0 errors, 0 warnings
+```
 
 ### Test Result
 
-Not started.
+Passed. Latest validation:
+
+```text
+ok dotnet test: 41 tests passed, 0 warnings in 1 projects
+```
 
 ### Runtime Result
 
-Not started.
+Not run. Phase 12 is domain state-machine behavior and does not add runtime endpoints.
 
 ### Migration Result
 
-Not started.
+No migration generated or applied in Phase 12. Enum storage remains string-based and schema expansion remains Phase 19 scope.
 
 ### Remaining Issues
 
-Phase has not started.
+* Outbox event creation for transition commands is implemented in later command/event phases.
+* Query and command APIs remain out of scope for Phase 12.

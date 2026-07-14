@@ -2,7 +2,7 @@
 
 ## Baseline
 
-Inspected source under `src/dotnet/ShipmentWorkflow`, `src/dotnet/Contracts/Shipment.Contracts`, `protos/shipment_workflow.proto`, and `tests/dotnet/ShipmentWorkflow.Tests` after Phase 11.
+Inspected source under `src/dotnet/ShipmentWorkflow`, `src/dotnet/Contracts/Shipment.Contracts`, `protos/shipment_workflow.proto`, and `tests/dotnet/ShipmentWorkflow.Tests` after Phase 12.
 
 ## Capability Matrix
 
@@ -24,7 +24,7 @@ Inspected source under `src/dotnet/ShipmentWorkflow`, `src/dotnet/Contracts/Ship
 | VehicleId | Implemented | Nullable external vehicle ID exists on Shipment and is indexed with TenantId. |
 | Pickup/delivery timestamps | Implemented | Estimated and actual pickup/delivery timestamps exist on Shipment. |
 | Notes | Implemented | Optional notes field exists on Shipment. |
-| State-machine transition validation | Partially Implemented | `ChangeStatus` exists but full allowed transition map is intentionally deferred to Phase 12. |
+| State-machine transition validation | Implemented | Shipment aggregate enforces explicit allowed transitions, terminal states, cancellation rules, status history, milestones, and pickup/delivery timestamps. |
 | CreateShipment | Implemented | gRPC maps to command, command persists shipment/cargo/history/outbox, tests pass. |
 | GetShipment | Not Implemented | gRPC method throws Unimplemented. |
 | ListShipments | Not Implemented | RPC declared; service method not implemented. |
@@ -42,8 +42,8 @@ Inspected source under `src/dotnet/ShipmentWorkflow`, `src/dotnet/Contracts/Ship
 | Required integration events | Partially Implemented | ShipmentCreated, ShipmentStatusChanged, ShipmentCancelled contracts exist. Remaining events missing. |
 | Outbox publication coverage | Partially Implemented | CreateShipment writes ShipmentCreated outbox record. Worker/publisher not implemented. |
 | Expanded schema migration | Not Implemented | Phase 11 mapped the expanded model, but migration generation/application is intentionally deferred to Phase 19. |
-| Integration tests for full MVP | Partially Implemented | 24 tests cover CreateShipment, validation, outbox, tenant isolation, and Phase 11 aggregate child behavior. Full MVP test coverage remains later scope. |
+| Integration tests for full MVP | Partially Implemented | 41 tests cover CreateShipment, validation, outbox, tenant isolation, Phase 11 aggregate child behavior, and Phase 12 state-machine behavior. Full MVP test coverage remains later scope. |
 
 ## Summary
 
-CreateShipment vertical slice remains implemented and tested. Phase 11 expanded the aggregate model and EF mappings for the full logistics MVP shape without changing gRPC contracts or generating the Phase 19 migration. Full Shipment Workflow MVP remains in progress and still requires state machine, query/command implementation, cargo/location/document/milestone management APIs, import, expanded contracts/events, migrations, and full test coverage.
+CreateShipment vertical slice remains implemented and tested. Phase 11 expanded the aggregate model and EF mappings, and Phase 12 implemented the workflow state machine. Full Shipment Workflow MVP remains in progress and still requires query/command implementation, cargo/location/document/milestone management APIs, import, expanded contracts/events, migrations, and full test coverage.
