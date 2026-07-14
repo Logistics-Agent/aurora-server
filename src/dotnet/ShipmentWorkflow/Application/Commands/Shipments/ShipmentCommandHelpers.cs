@@ -112,6 +112,79 @@ internal static class ShipmentCommandHelpers
         }
     }
 
+    internal static void AddShipmentSubmittedOutbox(
+        ShipmentWorkflowDbContext dbContext,
+        ShipmentEntity shipment)
+    {
+        var submittedAt = DateTimeOffset.UtcNow;
+        AddOutbox(dbContext, nameof(ShipmentSubmittedEvent), new ShipmentSubmittedEvent
+        {
+            ShipmentId = shipment.Id,
+            TenantId = shipment.TenantId,
+            ShipmentNumber = shipment.ShipmentNo,
+            CurrentStatus = shipment.Status.ToString(),
+            SubmittedAt = submittedAt
+        }, submittedAt);
+    }
+
+    internal static void AddShipmentUpdatedOutbox(
+        ShipmentWorkflowDbContext dbContext,
+        ShipmentEntity shipment,
+        IReadOnlyCollection<string> changedFields)
+    {
+        var updatedAt = DateTimeOffset.UtcNow;
+        AddOutbox(dbContext, nameof(ShipmentUpdatedEvent), new ShipmentUpdatedEvent
+        {
+            ShipmentId = shipment.Id,
+            TenantId = shipment.TenantId,
+            ShipmentNumber = shipment.ShipmentNo,
+            CurrentStatus = shipment.Status.ToString(),
+            ChangedFields = changedFields,
+            UpdatedAt = updatedAt
+        }, updatedAt);
+    }
+
+    internal static void AddLifecycleOutbox(
+        ShipmentWorkflowDbContext dbContext,
+        ShipmentEntity shipment)
+    {
+        var occurredAt = DateTimeOffset.UtcNow;
+        switch (shipment.Status)
+        {
+            case ShipmentStatus.PickedUp:
+                AddOutbox(dbContext, nameof(ShipmentPickedUpEvent), new ShipmentPickedUpEvent
+                {
+                    ShipmentId = shipment.Id,
+                    TenantId = shipment.TenantId,
+                    ShipmentNumber = shipment.ShipmentNo,
+                    CurrentStatus = shipment.Status.ToString(),
+                    PickedUpAt = shipment.ActualPickupTime ?? occurredAt
+                }, occurredAt);
+                break;
+            case ShipmentStatus.Delivered:
+                AddOutbox(dbContext, nameof(ShipmentDeliveredEvent), new ShipmentDeliveredEvent
+                {
+                    ShipmentId = shipment.Id,
+                    TenantId = shipment.TenantId,
+                    ShipmentNumber = shipment.ShipmentNo,
+                    CurrentStatus = shipment.Status.ToString(),
+                    DeliveredAt = shipment.ActualDeliveryTime ?? occurredAt
+                }, occurredAt);
+                break;
+            case ShipmentStatus.Completed:
+                AddOutbox(dbContext, nameof(ShipmentCompletedEvent), new ShipmentCompletedEvent
+                {
+                    ShipmentId = shipment.Id,
+                    TenantId = shipment.TenantId,
+                    ShipmentNumber = shipment.ShipmentNo,
+                    CurrentStatus = shipment.Status.ToString(),
+                    CompletedAt = occurredAt
+                }, occurredAt);
+                break;
+        }
+    }
+
+
     internal static void AddCancelledOutbox(
         ShipmentWorkflowDbContext dbContext,
         ShipmentEntity shipment,
@@ -202,6 +275,20 @@ internal static class ShipmentCommandHelpers
             EventType = nameof(DocumentAttachedEvent),
             Payload = JsonSerializer.Serialize(integrationEvent),
             CreatedAt = attachedAt
+        });
+    }
+
+    private static void AddOutbox(
+        ShipmentWorkflowDbContext dbContext,
+        string eventType,
+        object integrationEvent,
+        DateTimeOffset createdAt)
+    {
+        dbContext.OutboxMessages.Add(new OutboxMessage
+        {
+            EventType = eventType,
+            Payload = JsonSerializer.Serialize(integrationEvent),
+            CreatedAt = createdAt
         });
     }
 

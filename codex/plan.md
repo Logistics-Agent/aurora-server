@@ -13,7 +13,7 @@ Regulatory Compliance RAG: Not Started
 ## Active Work
 
 Active Service: Shipment Workflow
-Active Phase: Phase 18 — Contracts and Integration Events
+Active Phase: Phase 19 — Migration and Full MVP Testing
 Current Branch: feat/shipment-workflow
 
 ## Service Progress
@@ -47,7 +47,7 @@ Current Branch: feat/shipment-workflow
 | 15 | Cargo and Location Management | Completed |
 | 16 | Document and Milestone Management | Completed |
 | 17 | Shipment Import | Completed |
-| 18 | Contracts and Integration Events | Not Started |
+| 18 | Contracts and Integration Events | Completed |
 | 19 | Migration and Full MVP Testing | Not Started |
 
 ## Future Service Phase Progress
@@ -74,10 +74,11 @@ All future-service phases are `Not Started`.
 * Phase 15 implemented tenant-safe cargo and location management commands/RPCs, submit prerequisites, CargoUpdated outbox records, and PostgreSQL-backed tests.
 * Phase 16 implemented document metadata commands/RPCs, controlled OCR metadata updates, business milestone creation, DocumentAttached outbox records, timeline regression coverage, and lifecycle history persistence fixes.
 * Phase 17 implemented synchronous CSV shipment import with row-level results, limits, TenantId rejection, partial-success transaction policy, and ShipmentCreated outbox writes.
+* Phase 18 completed Shipment event contracts with EventId/version fields, added missing lifecycle/update event contracts, and wired outbox writes for submit/update/pickup/delivery/completion flows.
 
 ## Current Work
 
-Phase 18 — Contracts and Integration Events is the next allowed Shipment Workflow phase. Do not start Notification, GPS, OCR, or Compliance implementation yet.
+Phase 19 — Migration and Full MVP Testing is the next allowed Shipment Workflow phase. Do not start Notification, GPS, OCR, or Compliance implementation yet.
 
 ## Blocked Work
 
@@ -85,12 +86,11 @@ No active blocker. Phases 11, 15, and 16 deliberately did not create the expande
 
 ## Remaining Work
 
-* Expand contracts and integration events.
 * Add incremental migration and full MVP test suite.
 
 ## Build Results
 
-Latest verified Phase 17 validation:
+Latest verified Phase 18 validation:
 
 ```bash
 dotnet build src/dotnet/ShipmentWorkflow/ShipmentWorkflow.csproj
@@ -100,13 +100,13 @@ Result: Passed, 3 projects, 0 errors, 0 warnings.
 
 ## Test Results
 
-Latest verified Phase 17 validation:
+Latest verified Phase 18 validation:
 
 ```bash
 dotnet test tests/dotnet/ShipmentWorkflow.Tests/ShipmentWorkflow.Tests.csproj
 ```
 
-Result: Passed, 78 tests, 0 warnings.
+Result: Passed, 83 tests, 0 warnings.
 
 ## Migration Results
 
@@ -124,7 +124,7 @@ Recent phase commits:
 
 ## Immediate Next Action
 
-Implement `codex/tasks/shipment-workflow/phase-18-contracts-and-integration-events.md` only after Phase 17 commit is created and the user request remains in scope.
+Implement `codex/tasks/shipment-workflow/phase-19-migration-and-full-mvp-testing.md` only after Phase 18 commit is created and the user request remains in scope.
 
 ## Branch Strategy
 

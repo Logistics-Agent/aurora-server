@@ -34,6 +34,7 @@ public sealed class UpdateShipmentStatusCommandHandler(
         }
 
         ShipmentCommandHelpers.AddStatusChangedOutbox(dbContext, shipment, oldStatus, request.Note);
+        ShipmentCommandHelpers.AddLifecycleOutbox(dbContext, shipment);
         await ShipmentCommandHelpers.PersistLifecycleStateAsync(dbContext, shipment, currentUser, cancellationToken);
 
         await dbContext.SaveChangesAsync(cancellationToken);

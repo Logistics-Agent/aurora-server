@@ -37,6 +37,11 @@ public sealed class UpdateShipmentCommandHandler(
         shipment.TransportMode = request.TransportMode;
         shipment.Notes = string.IsNullOrWhiteSpace(request.Notes) ? null : request.Notes.Trim();
 
+        ShipmentCommandHelpers.AddShipmentUpdatedOutbox(
+            dbContext,
+            shipment,
+            [nameof(shipment.CustomerName), nameof(shipment.DestinationAddress), nameof(shipment.Priority), nameof(shipment.TransportMode), nameof(shipment.Notes)]);
+
         await dbContext.SaveChangesAsync(cancellationToken);
         return ShipmentDto.FromEntity(shipment);
     }

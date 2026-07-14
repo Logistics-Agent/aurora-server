@@ -2,7 +2,7 @@
 
 ## Status
 
-Not Started
+Completed
 
 ## Goal
 
@@ -57,32 +57,66 @@ git diff --check
 
 ### Completed
 
-Not started.
+* Added versioned, consumer-safe event contracts for ShipmentSubmitted, ShipmentUpdated, RouteAssigned, ShipmentPickedUp, ShipmentDelivered, and ShipmentCompleted.
+* Added EventId and ContractVersion to existing ShipmentCreated, ShipmentStatusChanged, ShipmentCancelled, CargoUpdated, and DocumentAttached events without removing existing fields.
+* Added ShipmentSubmitted outbox writes to submit command flow.
+* Added ShipmentUpdated outbox writes to update command flow.
+* Added lifecycle-specific outbox writes for picked up, delivered, and completed status transitions.
+* Preserved existing ShipmentCreated, ShipmentStatusChanged, ShipmentCancelled, CargoUpdated, and DocumentAttached outbox behavior.
+* Added serialization and outbox tests for event IDs, versions, tenant preservation, status-change behavior, update behavior, and lifecycle event behavior.
+
+### Implementation Notes
+
+RouteAssignedEvent is defined for consumers, but no route-assignment command exists in the current Shipment Workflow command surface. Route assignment publishing remains available for a future command path without implementing Route Planning service behavior.
 
 ### Files Changed
 
-None.
+* `src/dotnet/Contracts/Shipment.Contracts/Events/CargoUpdatedEvent.cs`
+* `src/dotnet/Contracts/Shipment.Contracts/Events/DocumentAttachedEvent.cs`
+* `src/dotnet/Contracts/Shipment.Contracts/Events/RouteAssignedEvent.cs`
+* `src/dotnet/Contracts/Shipment.Contracts/Events/ShipmentCancelledEvent.cs`
+* `src/dotnet/Contracts/Shipment.Contracts/Events/ShipmentCompletedEvent.cs`
+* `src/dotnet/Contracts/Shipment.Contracts/Events/ShipmentCreatedEvent.cs`
+* `src/dotnet/Contracts/Shipment.Contracts/Events/ShipmentDeliveredEvent.cs`
+* `src/dotnet/Contracts/Shipment.Contracts/Events/ShipmentPickedUpEvent.cs`
+* `src/dotnet/Contracts/Shipment.Contracts/Events/ShipmentStatusChangedEvent.cs`
+* `src/dotnet/Contracts/Shipment.Contracts/Events/ShipmentSubmittedEvent.cs`
+* `src/dotnet/Contracts/Shipment.Contracts/Events/ShipmentUpdatedEvent.cs`
+* `src/dotnet/ShipmentWorkflow/Application/Commands/Shipments/ShipmentCommandHelpers.cs`
+* `src/dotnet/ShipmentWorkflow/Application/Commands/Shipments/SubmitShipmentCommand.cs`
+* `src/dotnet/ShipmentWorkflow/Application/Commands/Shipments/UpdateShipmentCommand.cs`
+* `src/dotnet/ShipmentWorkflow/Application/Commands/Shipments/UpdateShipmentStatusCommand.cs`
+* `tests/dotnet/ShipmentWorkflow.Tests/ShipmentIntegrationEventTests.cs`
 
 ### Commands Executed
 
-None.
+```bash
+git status --short
+dotnet build src/dotnet/ShipmentWorkflow/ShipmentWorkflow.csproj
+dotnet test tests/dotnet/ShipmentWorkflow.Tests/ShipmentWorkflow.Tests.csproj
+dotnet test tests/dotnet/ShipmentWorkflow.Tests/ShipmentWorkflow.Tests.csproj --filter ShipmentIntegrationEventTests
+```
 
 ### Build Result
 
-Not started.
+Passed: `dotnet build src/dotnet/ShipmentWorkflow/ShipmentWorkflow.csproj` completed with 3 projects, 0 errors, 0 warnings.
 
 ### Test Result
 
-Not started.
+Passed: `dotnet test tests/dotnet/ShipmentWorkflow.Tests/ShipmentWorkflow.Tests.csproj` completed with 83 tests passed, 0 warnings.
 
 ### Runtime Result
 
-Not started.
+Not run in Phase 18. Runtime smoke validation remains planned for Phase 19.
 
 ### Migration Result
 
-Not started.
+No migration generated or applied in Phase 18. Contract/event changes do not require a database migration.
 
 ### Remaining Issues
 
-Phase has not started.
+* Incremental expanded-schema migration and full MVP validation remain Phase 19 scope.
+
+### Commit Hash
+
+Recorded in final report from `git log` after the Phase 18 commit is finalized.

@@ -2,7 +2,7 @@
 
 ## Baseline
 
-Inspected source under `src/dotnet/ShipmentWorkflow`, `src/dotnet/Contracts/Shipment.Contracts`, `protos/shipment_workflow.proto`, and `tests/dotnet/ShipmentWorkflow.Tests` after Phase 17.
+Inspected source under `src/dotnet/ShipmentWorkflow`, `src/dotnet/Contracts/Shipment.Contracts`, `protos/shipment_workflow.proto`, and `tests/dotnet/ShipmentWorkflow.Tests` after Phase 18.
 
 ## Capability Matrix
 
@@ -39,11 +39,11 @@ Inspected source under `src/dotnet/ShipmentWorkflow`, `src/dotnet/Contracts/Ship
 | Document metadata attachment | Implemented | Attach, update OCR metadata, and remove document metadata commands/RPCs exist with validation, tenant isolation, and DocumentAttached outbox messages. |
 | Milestone creation | Implemented | Business milestone command/RPC exists with source, recorded time, coordinate validation, tenant isolation, and timeline coverage. |
 | CSV/Excel import | Implemented | CSV import command/RPC exists with row-level results, file/row limits, TenantId rejection, partial-success policy, tenant isolation, and ShipmentCreated outbox writes. Excel remains out of scope for MVP. |
-| Required integration events | Partially Implemented | ShipmentCreated, ShipmentStatusChanged, ShipmentCancelled, CargoUpdated, and DocumentAttached contracts exist. Remaining events are Phase 18 scope. |
-| Outbox publication coverage | Partially Implemented | CreateShipment writes ShipmentCreated outbox record. Worker/publisher not implemented. |
+| Required integration events | Implemented | ShipmentCreated, ShipmentSubmitted, ShipmentUpdated, ShipmentCancelled, ShipmentStatusChanged, CargoUpdated, DocumentAttached, RouteAssigned, ShipmentPickedUp, ShipmentDelivered, and ShipmentCompleted contracts exist with EventId and ContractVersion fields. |
+| Outbox publication coverage | Implemented | Shipment command flows write required outbox records for create, submit, update, cancel, status changes, cargo updates, document attachment, pickup, delivery, and completion. RouteAssigned contract exists; no route assignment command is in current scope. |
 | Expanded schema migration | Not Implemented | Phase 11 mapped the expanded model, but migration generation/application is intentionally deferred to Phase 19. |
-| Integration tests for full MVP | Partially Implemented | 78 tests cover CreateShipment, validation, outbox, tenant isolation, aggregate child behavior, state-machine behavior, query behavior, command behavior, cargo/location management, document/milestone management, and CSV import. Full MVP test coverage remains Phase 19 scope. |
+| Integration tests for full MVP | Partially Implemented | 83 tests cover CreateShipment, validation, outbox, tenant isolation, aggregate child behavior, state-machine behavior, query behavior, command behavior, cargo/location management, document/milestone management, CSV import, and event serialization/outbox behavior. Full MVP test coverage remains Phase 19 scope. |
 
 ## Summary
 
-CreateShipment vertical slice remains implemented and tested. Phase 11 expanded the aggregate model and EF mappings, and Phase 12 implemented the workflow state machine. Full Shipment Workflow MVP remains in progress and still requires expanded contracts/events, migrations, and full test coverage.
+CreateShipment vertical slice remains implemented and tested. Phase 11 expanded the aggregate model and EF mappings, and Phase 12 implemented the workflow state machine. Full Shipment Workflow MVP remains in progress and still requires migrations and full Phase 19 validation.

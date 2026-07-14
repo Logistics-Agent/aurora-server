@@ -31,6 +31,7 @@ public sealed class SubmitShipmentCommandHandler(
         var oldStatus = shipment.Status;
         shipment.Submit(currentUser.UserId);
         ShipmentCommandHelpers.AddStatusChangedOutbox(dbContext, shipment, oldStatus, "Shipment submitted.");
+        ShipmentCommandHelpers.AddShipmentSubmittedOutbox(dbContext, shipment);
         await ShipmentCommandHelpers.PersistLifecycleStateAsync(dbContext, shipment, currentUser, cancellationToken);
 
         await dbContext.SaveChangesAsync(cancellationToken);
