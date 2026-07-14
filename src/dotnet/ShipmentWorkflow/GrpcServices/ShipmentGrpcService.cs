@@ -285,6 +285,78 @@ public sealed class ShipmentGrpcService(ISender sender)
         return MapToResponse(shipment);
     }
 
+    public override async Task<ShipmentResponse> AttachShipmentDocument(
+        AttachShipmentDocumentRequest request,
+        ServerCallContext context)
+    {
+        var shipmentId = ParseGuid(request.ShipmentId, "Invalid shipment id.");
+        var shipment = await sender.Send(
+            new AttachShipmentDocumentCommand(
+                shipmentId,
+                request.FileName,
+                ParseEnum<DocumentType>(request.DocumentType, DocumentType.Other),
+                request.StorageUrl,
+                ParseEnum<OCRStatus>(request.OcrStatus, OCRStatus.Pending),
+                request.HasOcrConfidence ? (decimal)request.OcrConfidence : null,
+                request.ExtractedDataJson),
+            context.CancellationToken);
+
+        return MapToResponse(shipment);
+    }
+
+    public override async Task<ShipmentResponse> UpdateShipmentDocumentOcr(
+        UpdateShipmentDocumentOcrRequest request,
+        ServerCallContext context)
+    {
+        var shipmentId = ParseGuid(request.ShipmentId, "Invalid shipment id.");
+        var documentId = ParseGuid(request.DocumentId, "Invalid document id.");
+        var shipment = await sender.Send(
+            new UpdateShipmentDocumentOcrCommand(
+                shipmentId,
+                documentId,
+                ParseEnum<OCRStatus>(request.OcrStatus, OCRStatus.Pending),
+                request.HasOcrConfidence ? (decimal)request.OcrConfidence : null,
+                request.ExtractedDataJson),
+            context.CancellationToken);
+
+        return MapToResponse(shipment);
+    }
+
+    public override async Task<ShipmentResponse> RemoveShipmentDocument(
+        RemoveShipmentDocumentRequest request,
+        ServerCallContext context)
+    {
+        var shipmentId = ParseGuid(request.ShipmentId, "Invalid shipment id.");
+        var documentId = ParseGuid(request.DocumentId, "Invalid document id.");
+        var shipment = await sender.Send(
+            new RemoveShipmentDocumentCommand(shipmentId, documentId),
+            context.CancellationToken);
+
+        return MapToResponse(shipment);
+    }
+
+    public override async Task<ShipmentResponse> AddShipmentMilestone(
+        AddShipmentMilestoneRequest request,
+        ServerCallContext context)
+    {
+        var shipmentId = ParseGuid(request.ShipmentId, "Invalid shipment id.");
+        var recordedAt = request.RecordedAt is null
+            ? throw new RpcException(new Status(StatusCode.InvalidArgument, "RecordedAt is required."))
+            : request.RecordedAt.ToDateTimeOffset();
+        var shipment = await sender.Send(
+            new AddShipmentMilestoneCommand(
+                shipmentId,
+                ParseEnum<ShipmentStatus>(request.Status, ShipmentStatus.Draft),
+                request.Description,
+                recordedAt,
+                ParseEnum<MilestoneSource>(request.Source, MilestoneSource.User),
+                request.HasLatitude ? request.Latitude : null,
+                request.HasLongitude ? request.Longitude : null),
+            context.CancellationToken);
+
+        return MapToResponse(shipment);
+    }
+
     private static double? ToOptionalCoordinate(double value)
     {
         return value == 0 ? null : value;

@@ -60,6 +60,20 @@ public class ShipmentDocument : TenantAuditableEntity
     public DateTimeOffset UploadedAt { get; private set; }
     public string? ExtractedDataJson { get; private set; }
 
+    internal void UpdateOcrMetadata(
+        OCRStatus ocrStatus,
+        decimal? ocrConfidence = null,
+        string? extractedDataJson = null)
+    {
+        ValidateOcrConfidence(ocrConfidence);
+
+        OCRStatus = ocrStatus;
+        OCRConfidence = ocrConfidence;
+        ExtractedDataJson = string.IsNullOrWhiteSpace(extractedDataJson)
+            ? null
+            : extractedDataJson.Trim();
+    }
+
     private static void ValidateTenantAndShipment(Guid tenantId, Guid shipmentId)
     {
         if (tenantId == Guid.Empty)

@@ -280,6 +280,26 @@ public class Shipment : TenantAuditableEntity
             extractedDataJson));
     }
 
+    public void UpdateDocumentOcrMetadata(
+        Guid documentId,
+        OCRStatus ocrStatus,
+        decimal? ocrConfidence = null,
+        string? extractedDataJson = null)
+    {
+        var document = Documents.SingleOrDefault(document => document.Id == documentId)
+            ?? throw new InvalidOperationException("Shipment document was not found.");
+
+        document.UpdateOcrMetadata(ocrStatus, ocrConfidence, extractedDataJson);
+    }
+
+    public void RemoveDocumentMetadata(Guid documentId)
+    {
+        var document = Documents.SingleOrDefault(document => document.Id == documentId)
+            ?? throw new InvalidOperationException("Shipment document was not found.");
+
+        Documents.Remove(document);
+    }
+
     public void AddMilestone(
         ShipmentStatus status,
         string? description,

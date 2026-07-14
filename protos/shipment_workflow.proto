@@ -50,6 +50,17 @@ service ShipmentWorkflowService {
 
     rpc RemoveShipmentLocation(RemoveShipmentLocationRequest)
     returns (ShipmentResponse);
+    rpc AttachShipmentDocument(AttachShipmentDocumentRequest)
+    returns (ShipmentResponse);
+
+    rpc UpdateShipmentDocumentOcr(UpdateShipmentDocumentOcrRequest)
+    returns (ShipmentResponse);
+
+    rpc RemoveShipmentDocument(RemoveShipmentDocumentRequest)
+    returns (ShipmentResponse);
+
+    rpc AddShipmentMilestone(AddShipmentMilestoneRequest)
+    returns (ShipmentResponse);
 }
 
 message CreateShipmentRequest {
@@ -269,4 +280,37 @@ message UpdateShipmentLocationRequest {
 message RemoveShipmentLocationRequest {
   string shipmentId = 1;
   string locationId = 2;
+}
+
+message AttachShipmentDocumentRequest {
+  string shipmentId = 1;
+  string fileName = 2;
+  string documentType = 3;
+  string storageUrl = 4;
+  string ocrStatus = 5;
+  optional double ocrConfidence = 6;
+  string extractedDataJson = 7;
+}
+
+message UpdateShipmentDocumentOcrRequest {
+  string shipmentId = 1;
+  string documentId = 2;
+  string ocrStatus = 3;
+  optional double ocrConfidence = 4;
+  string extractedDataJson = 5;
+}
+
+message RemoveShipmentDocumentRequest {
+  string shipmentId = 1;
+  string documentId = 2;
+}
+
+message AddShipmentMilestoneRequest {
+  string shipmentId = 1;
+  string status = 2;
+  string description = 3;
+  google.protobuf.Timestamp recordedAt = 4;
+  string source = 5;
+  optional double latitude = 6;
+  optional double longitude = 7;
 }

@@ -68,6 +68,24 @@ internal static class ShipmentCommandHelpers
         var now = DateTimeOffset.UtcNow;
         var actor = currentUser.UserId?.ToString() ?? "system";
 
+        var existingHistoryIds = await dbContext.ShipmentStatusHistories
+            .IgnoreQueryFilters()
+            .Where(history => history.ShipmentId == shipment.Id)
+            .Select(history => history.Id)
+            .ToListAsync(cancellationToken);
+        var newHistories = shipment.StatusHistories
+            .Where(history => !existingHistoryIds.Contains(history.Id))
+            .ToArray();
+
+        var existingMilestoneIds = await dbContext.ShipmentMilestones
+            .IgnoreQueryFilters()
+            .Where(milestone => milestone.ShipmentId == shipment.Id)
+            .Select(milestone => milestone.Id)
+            .ToListAsync(cancellationToken);
+        var newMilestones = shipment.Milestones
+            .Where(milestone => !existingMilestoneIds.Contains(milestone.Id))
+            .ToArray();
+
         await dbContext.Shipments
             .IgnoreQueryFilters()
             .Where(existing =>
@@ -82,6 +100,16 @@ internal static class ShipmentCommandHelpers
                 .SetProperty(existing => existing.UpdatedBy, actor), cancellationToken);
 
         dbContext.Entry(shipment).State = EntityState.Detached;
+
+        foreach (var history in newHistories)
+        {
+            dbContext.Entry(history).State = EntityState.Added;
+        }
+
+        foreach (var milestone in newMilestones)
+        {
+            dbContext.Entry(milestone).State = EntityState.Added;
+        }
     }
 
     internal static void AddCancelledOutbox(
@@ -121,6 +149,14 @@ internal static class ShipmentCommandHelpers
         dbContext.Entry(shipment).State = EntityState.Unchanged;
     }
 
+    internal static void EnsureNonTerminalMutation(ShipmentEntity shipment)
+    {
+        if (shipment.IsTerminal)
+        {
+            throw new DomainException("Terminal shipments cannot be changed.");
+        }
+    }
+
     internal static void AddCargoUpdatedOutbox(
         ShipmentWorkflowDbContext dbContext,
         ShipmentEntity shipment,
@@ -142,6 +178,30 @@ internal static class ShipmentCommandHelpers
             EventType = nameof(CargoUpdatedEvent),
             Payload = JsonSerializer.Serialize(integrationEvent),
             CreatedAt = updatedAt
+        });
+    }
+
+    internal static void AddDocumentAttachedOutbox(
+        ShipmentWorkflowDbContext dbContext,
+        ShipmentEntity shipment,
+        ShipmentDocument document)
+    {
+        var attachedAt = DateTimeOffset.UtcNow;
+        var integrationEvent = new DocumentAttachedEvent
+        {
+            ShipmentId = shipment.Id,
+            TenantId = shipment.TenantId,
+            DocumentId = document.Id,
+            DocumentType = document.DocumentType.ToString(),
+            FileName = document.FileName,
+            AttachedAt = attachedAt
+        };
+
+        dbContext.OutboxMessages.Add(new OutboxMessage
+        {
+            EventType = nameof(DocumentAttachedEvent),
+            Payload = JsonSerializer.Serialize(integrationEvent),
+            CreatedAt = attachedAt
         });
     }
 
