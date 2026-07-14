@@ -2,15 +2,15 @@
 
 ## Baseline
 
-Inspected source under `src/dotnet/ShipmentWorkflow`, `src/dotnet/Contracts/Shipment.Contracts`, `protos/shipment_workflow.proto`, and `tests/dotnet/ShipmentWorkflow.Tests` after Phase 14.
+Inspected source under `src/dotnet/ShipmentWorkflow`, `src/dotnet/Contracts/Shipment.Contracts`, `protos/shipment_workflow.proto`, and `tests/dotnet/ShipmentWorkflow.Tests` after Phase 15.
 
 ## Capability Matrix
 
 | Capability | Status | Evidence |
 | --- | --- | --- |
 | Shipment aggregate | Partially Implemented | `Shipment` has CreateShipment-compatible fields plus Phase 11 MVP fields, child collections, and aggregate add methods. Full lifecycle behavior remains incomplete. |
-| Cargo/CargoItem | Partially Implemented | `CargoItem` remains compatible with CreateShipment. Full cargo fields and management commands remain later scope. |
-| ShipmentLocation | Implemented | Entity, tenant ownership, validation, aggregate add method, DbSet, relationship, indexes, and tests exist. Management APIs are later scope. |
+| Cargo/CargoItem | Implemented | Cargo items support create/update/remove through tenant-safe commands and gRPC endpoints, validation, and CargoUpdated outbox records. |
+| ShipmentLocation | Implemented | Entity, tenant ownership, validation, aggregate add/update/remove commands, gRPC endpoints, DbSet, relationship, indexes, and tests exist. |
 | ShipmentDocument | Implemented | Entity stores metadata/reference only, OCR status/confidence, optional extracted JSON, tenant ownership, DbSet, relationship, indexes, and tests. OCR processing is out of scope. |
 | ShipmentMilestone | Implemented | Entity stores business milestone metadata with source, recorded time, optional coordinates, tenant ownership, DbSet, relationship, indexes, and tests. Detailed GPS history remains out of scope. |
 | ShipmentPriority | Implemented | Enum exists and is mapped as a string. |
@@ -34,16 +34,16 @@ Inspected source under `src/dotnet/ShipmentWorkflow`, `src/dotnet/Contracts/Ship
 | GetShipmentTimeline | Implemented | Tenant-safe timeline combines status histories and business milestones in deterministic order. |
 | CancelShipment | Implemented | Command and gRPC method cancel allowed states and write status/cancellation outbox records. |
 | Draft deletion | Implemented | Command and gRPC method delete only draft/created shipments. |
-| Cargo update | Not Implemented | Create-only cargo behavior exists. |
-| Location management | Not Implemented | Domain entity exists, but command/RPC management endpoints are not implemented. |
+| Cargo update | Implemented | Add, update, and remove cargo commands/RPCs exist with validation, tenant isolation, mutation restrictions, and CargoUpdated outbox messages. |
+| Location management | Implemented | Add, update, and remove location commands/RPCs exist with sequence validation, coordinate validation, tenant isolation, and mutation restrictions. |
 | Document metadata attachment | Not Implemented | Domain entity exists, but command/RPC attachment flow is not implemented. |
 | Milestone creation | Partially Implemented | Business milestone entity exists; command/RPC creation flow remains later scope. |
 | CSV/Excel import | Not Implemented | No import command/API found. |
-| Required integration events | Partially Implemented | ShipmentCreated, ShipmentStatusChanged, ShipmentCancelled contracts exist. Remaining events missing. |
+| Required integration events | Partially Implemented | ShipmentCreated, ShipmentStatusChanged, ShipmentCancelled, and CargoUpdated contracts exist. Remaining events are Phase 18 scope. |
 | Outbox publication coverage | Partially Implemented | CreateShipment writes ShipmentCreated outbox record. Worker/publisher not implemented. |
 | Expanded schema migration | Not Implemented | Phase 11 mapped the expanded model, but migration generation/application is intentionally deferred to Phase 19. |
-| Integration tests for full MVP | Partially Implemented | 56 tests cover CreateShipment, validation, outbox, tenant isolation, aggregate child behavior, state-machine behavior, query behavior, and Phase 14 command behavior. Full MVP test coverage remains later scope. |
+| Integration tests for full MVP | Partially Implemented | 65 tests cover CreateShipment, validation, outbox, tenant isolation, aggregate child behavior, state-machine behavior, query behavior, Phase 14 command behavior, and Phase 15 cargo/location management. Full MVP test coverage remains later scope. |
 
 ## Summary
 
-CreateShipment vertical slice remains implemented and tested. Phase 11 expanded the aggregate model and EF mappings, and Phase 12 implemented the workflow state machine. Full Shipment Workflow MVP remains in progress and still requires cargo/location/document/milestone management APIs, import, expanded contracts/events, migrations, and full test coverage.
+CreateShipment vertical slice remains implemented and tested. Phase 11 expanded the aggregate model and EF mappings, and Phase 12 implemented the workflow state machine. Full Shipment Workflow MVP remains in progress and still requires document/milestone management APIs, import, expanded contracts/events, migrations, and full test coverage.

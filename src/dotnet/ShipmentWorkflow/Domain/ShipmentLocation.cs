@@ -56,6 +56,32 @@ public class ShipmentLocation : TenantAuditableEntity
     public string? ContactPhone { get; private set; }
     public int Sequence { get; private set; }
 
+
+    internal void Update(
+        LocationType type,
+        string name,
+        string address,
+        int sequence,
+        double? latitude = null,
+        double? longitude = null,
+        string? contactName = null,
+        string? contactPhone = null)
+    {
+        ValidateRequiredText(name, nameof(name), NameMaxLength);
+        ValidateRequiredText(address, nameof(address), AddressMaxLength);
+        ValidateSequence(sequence);
+        ValidateCoordinates(latitude, longitude);
+
+        Type = type;
+        Name = name.Trim();
+        Address = address.Trim();
+        Latitude = latitude;
+        Longitude = longitude;
+        ContactName = NormalizeOptionalText(contactName, ContactNameMaxLength, nameof(contactName));
+        ContactPhone = NormalizeOptionalText(contactPhone, ContactPhoneMaxLength, nameof(contactPhone));
+        Sequence = sequence;
+    }
+
     private static void ValidateTenantAndShipment(Guid tenantId, Guid shipmentId)
     {
         if (tenantId == Guid.Empty)

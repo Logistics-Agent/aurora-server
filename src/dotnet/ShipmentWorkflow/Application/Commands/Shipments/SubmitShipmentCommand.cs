@@ -17,6 +17,17 @@ public sealed class SubmitShipmentCommandHandler(
     {
         ShipmentCommandHelpers.RequireTenantId(currentUser);
         var shipment = await ShipmentCommandHelpers.GetShipmentAsync(dbContext, request.ShipmentId, cancellationToken);
+        if (!shipment.CargoItems.Any())
+        {
+            throw new Shared.Exceptions.DomainException("Shipment must include at least one cargo item before submission.");
+        }
+
+        if (!shipment.Locations.Any(location => location.Type == ShipmentWorkflow.Domain.Enums.LocationType.Pickup) ||
+            !shipment.Locations.Any(location => location.Type == ShipmentWorkflow.Domain.Enums.LocationType.Delivery))
+        {
+            throw new Shared.Exceptions.DomainException("Shipment must include pickup and delivery locations before submission.");
+        }
+
         var oldStatus = shipment.Status;
         shipment.Submit(currentUser.UserId);
         ShipmentCommandHelpers.AddStatusChangedOutbox(dbContext, shipment, oldStatus, "Shipment submitted.");

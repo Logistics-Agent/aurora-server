@@ -32,6 +32,24 @@ service ShipmentWorkflowService {
 
     rpc DeleteDraftShipment(DeleteDraftShipmentRequest)
     returns (DeleteDraftShipmentResponse);
+
+    rpc AddCargoItem(AddCargoItemRequest)
+    returns (ShipmentResponse);
+
+    rpc UpdateCargoItem(UpdateCargoItemRequest)
+    returns (ShipmentResponse);
+
+    rpc RemoveCargoItem(RemoveCargoItemRequest)
+    returns (ShipmentResponse);
+
+    rpc AddShipmentLocation(AddShipmentLocationRequest)
+    returns (ShipmentResponse);
+
+    rpc UpdateShipmentLocation(UpdateShipmentLocationRequest)
+    returns (ShipmentResponse);
+
+    rpc RemoveShipmentLocation(RemoveShipmentLocationRequest)
+    returns (ShipmentResponse);
 }
 
 message CreateShipmentRequest {
@@ -86,6 +104,13 @@ message CargoItemResponse {
   int32 quantity = 3;
   double weightKg = 4;
   string hsCode = 5;
+  string description = 6;
+  string unit = 7;
+  double volumeM3 = 8;
+  double declaredValue = 9;
+  string currency = 10;
+  bool isDangerousGoods = 11;
+  string packageType = 12;
 }
 
 message ShipmentLocationResponse {
@@ -191,4 +216,57 @@ message DeleteDraftShipmentRequest {
 
 message DeleteDraftShipmentResponse {
   bool deleted = 1;
+}
+
+
+message AddCargoItemRequest {
+  string shipmentId = 1;
+  string name = 2;
+  int32 quantity = 3;
+  double weightKg = 4;
+  string hsCode = 5;
+}
+
+message UpdateCargoItemRequest {
+  string shipmentId = 1;
+  string cargoItemId = 2;
+  string name = 3;
+  int32 quantity = 4;
+  double weightKg = 5;
+  string hsCode = 6;
+}
+
+message RemoveCargoItemRequest {
+  string shipmentId = 1;
+  string cargoItemId = 2;
+}
+
+message AddShipmentLocationRequest {
+  string shipmentId = 1;
+  string type = 2;
+  string name = 3;
+  string address = 4;
+  int32 sequence = 5;
+  double latitude = 6;
+  double longitude = 7;
+  string contactName = 8;
+  string contactPhone = 9;
+}
+
+message UpdateShipmentLocationRequest {
+  string shipmentId = 1;
+  string locationId = 2;
+  string type = 3;
+  string name = 4;
+  string address = 5;
+  int32 sequence = 6;
+  double latitude = 7;
+  double longitude = 8;
+  string contactName = 9;
+  string contactPhone = 10;
+}
+
+message RemoveShipmentLocationRequest {
+  string shipmentId = 1;
+  string locationId = 2;
 }

@@ -183,8 +183,25 @@ public sealed class ShipmentWorkflowDbContext(
             entity.Property(cargoItem => cargoItem.WeightKg)
                 .IsRequired();
 
+            entity.Property(cargoItem => cargoItem.Description)
+                .HasMaxLength(500);
+
             entity.Property(cargoItem => cargoItem.HsCode)
                 .HasMaxLength(50);
+
+            entity.Property(cargoItem => cargoItem.Unit)
+                .HasMaxLength(50);
+
+            entity.Property(cargoItem => cargoItem.VolumeM3);
+
+            entity.Property(cargoItem => cargoItem.DeclaredValue)
+                .HasPrecision(18, 2);
+
+            entity.Property(cargoItem => cargoItem.Currency)
+                .HasMaxLength(3);
+
+            entity.Property(cargoItem => cargoItem.PackageType)
+                .HasMaxLength(100);
         });
     }
 

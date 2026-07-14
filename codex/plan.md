@@ -13,7 +13,7 @@ Regulatory Compliance RAG: Not Started
 ## Active Work
 
 Active Service: Shipment Workflow
-Active Phase: Phase 15 — Cargo and Location Management
+Active Phase: Phase 16 — Document and Milestone Management
 Current Branch: feat/shipment-workflow
 
 ## Service Progress
@@ -44,7 +44,7 @@ Current Branch: feat/shipment-workflow
 | 12 | Workflow State Machine | Completed |
 | 13 | Shipment Queries | Completed |
 | 14 | Shipment Commands | Completed |
-| 15 | Cargo and Location Management | Not Started |
+| 15 | Cargo and Location Management | Completed |
 | 16 | Document and Milestone Management | Not Started |
 | 17 | Shipment Import | Not Started |
 | 18 | Contracts and Integration Events | Not Started |
@@ -71,25 +71,26 @@ All future-service phases are `Not Started`.
 * Phase 12 implemented the Shipment workflow state machine with validated transitions, terminal states, transition history, milestone creation, and pickup/delivery timestamps.
 * Phase 13 implemented tenant-safe GetShipment, ListShipments, and GetShipmentTimeline query behavior and gRPC mapping.
 * Phase 14 implemented shipment submit, update, status transition, cancellation, and draft deletion commands with tenant-safe mutation and outbox records.
+* Phase 15 implemented tenant-safe cargo and location management commands/RPCs, submit prerequisites, CargoUpdated outbox records, and PostgreSQL-backed tests.
 
 ## Current Work
 
-Phase 15 — Cargo and Location Management is the next allowed Shipment Workflow phase. Do not start Phase 15 until explicitly requested. Do not start Notification, GPS, OCR, or Compliance implementation yet.
+Phase 16 — Document and Milestone Management is the next allowed Shipment Workflow phase. Do not start Notification, GPS, OCR, or Compliance implementation yet.
 
 ## Blocked Work
 
-No active blocker. Phase 11 deliberately did not create the expanded-schema migration because migration work is planned for Phase 19. The migrated database needs that later migration before the new Phase 11 tables and columns can be used at runtime.
+No active blocker. Phases 11 and 15 deliberately did not create the expanded-schema migration because migration work is planned for Phase 19. The migrated database needs that later migration before the expanded MVP tables and columns can be used at runtime.
 
 ## Remaining Work
 
-* Add cargo/location/document/milestone management commands.
+* Add document/milestone management commands.
 * Add shipment import MVP.
 * Expand contracts and integration events.
 * Add incremental migration and full MVP test suite.
 
 ## Build Results
 
-Latest verified Phase 11 validation:
+Latest verified Phase 15 validation:
 
 ```bash
 dotnet build src/dotnet/ShipmentWorkflow/ShipmentWorkflow.csproj
@@ -99,17 +100,17 @@ Result: Passed, 3 projects, 0 errors, 0 warnings.
 
 ## Test Results
 
-Latest verified Phase 11 validation:
+Latest verified Phase 15 validation:
 
 ```bash
 dotnet test tests/dotnet/ShipmentWorkflow.Tests/ShipmentWorkflow.Tests.csproj
 ```
 
-Result: Passed, 56 tests, 0 warnings.
+Result: Passed, 65 tests, 0 warnings.
 
 ## Migration Results
 
-Initial Shipment Workflow migration `20260713201248_InitialShipmentWorkflow` is applied to local `aurora_shipment_workflow`. Phase 11 did not generate or apply a new migration; expanded-schema migration remains planned for Phase 19.
+Initial Shipment Workflow migration `20260713201248_InitialShipmentWorkflow` is applied to local `aurora_shipment_workflow`. Phases 11 through 15 did not generate or apply a new migration; expanded-schema migration remains planned for Phase 19.
 
 ## Commit History
 
@@ -123,7 +124,7 @@ Recent phase commits:
 
 ## Immediate Next Action
 
-Implement `codex/tasks/shipment-workflow/phase-15-cargo-and-location-management.md` only after the user explicitly requests implementation of Phase 15.
+Implement `codex/tasks/shipment-workflow/phase-16-document-and-milestone-management.md` only after Phase 15 commit is created and the user request remains in scope.
 
 ## Branch Strategy
 

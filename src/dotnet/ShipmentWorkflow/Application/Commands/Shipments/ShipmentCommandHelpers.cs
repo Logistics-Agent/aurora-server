@@ -106,6 +106,45 @@ internal static class ShipmentCommandHelpers
         });
     }
 
+    internal static void EnsurePreOperationalMutation(ShipmentEntity shipment)
+    {
+        if (shipment.Status is not (ShipmentStatus.Draft or ShipmentStatus.Created or ShipmentStatus.Submitted))
+        {
+            throw new DomainException("Shipment can only be changed before operational processing starts.");
+        }
+    }
+
+    internal static void MarkAggregateRootUnchanged(
+        ShipmentWorkflowDbContext dbContext,
+        ShipmentEntity shipment)
+    {
+        dbContext.Entry(shipment).State = EntityState.Unchanged;
+    }
+
+    internal static void AddCargoUpdatedOutbox(
+        ShipmentWorkflowDbContext dbContext,
+        ShipmentEntity shipment,
+        Guid cargoItemId,
+        string action)
+    {
+        var updatedAt = DateTimeOffset.UtcNow;
+        var integrationEvent = new CargoUpdatedEvent
+        {
+            ShipmentId = shipment.Id,
+            TenantId = shipment.TenantId,
+            CargoItemId = cargoItemId,
+            Action = action,
+            UpdatedAt = updatedAt
+        };
+
+        dbContext.OutboxMessages.Add(new OutboxMessage
+        {
+            EventType = nameof(CargoUpdatedEvent),
+            Payload = JsonSerializer.Serialize(integrationEvent),
+            CreatedAt = updatedAt
+        });
+    }
+
     internal static void ApplyStatusTransition(
         ShipmentEntity shipment,
         ShipmentStatus requestedStatus,

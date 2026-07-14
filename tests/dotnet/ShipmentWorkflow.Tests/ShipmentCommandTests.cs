@@ -165,6 +165,9 @@ public sealed class ShipmentCommandTests
             customerName: "Acme",
             destinationAddress: "Warehouse 9");
 
+        shipment.AddCargoItem("Laptop", 1, 2.5, "8471");
+        shipment.AddLocation(LocationType.Pickup, "Factory", "Factory address", 1);
+        shipment.AddLocation(LocationType.Delivery, "Warehouse", "Warehouse address", 2);
         configure?.Invoke(shipment);
         dbContext.Shipments.Add(shipment);
         await dbContext.SaveChangesAsync();

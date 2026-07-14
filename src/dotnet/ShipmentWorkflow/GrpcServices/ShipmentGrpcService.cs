@@ -179,6 +179,117 @@ public sealed class ShipmentGrpcService(ISender sender)
         return new DeleteDraftShipmentResponse { Deleted = true };
     }
 
+    public override async Task<ShipmentResponse> AddCargoItem(
+        AddCargoItemRequest request,
+        ServerCallContext context)
+    {
+        var shipmentId = ParseGuid(request.ShipmentId, "Invalid shipment id.");
+        var shipment = await sender.Send(
+            new AddCargoItemCommand(
+                shipmentId,
+                request.Name,
+                request.Quantity,
+                request.WeightKg,
+                request.HsCode),
+            context.CancellationToken);
+
+        return MapToResponse(shipment);
+    }
+
+    public override async Task<ShipmentResponse> UpdateCargoItem(
+        UpdateCargoItemRequest request,
+        ServerCallContext context)
+    {
+        var shipmentId = ParseGuid(request.ShipmentId, "Invalid shipment id.");
+        var cargoItemId = ParseGuid(request.CargoItemId, "Invalid cargo item id.");
+        var shipment = await sender.Send(
+            new UpdateCargoItemCommand(
+                shipmentId,
+                cargoItemId,
+                request.Name,
+                request.Quantity,
+                request.WeightKg,
+                request.HsCode),
+            context.CancellationToken);
+
+        return MapToResponse(shipment);
+    }
+
+    public override async Task<ShipmentResponse> RemoveCargoItem(
+        RemoveCargoItemRequest request,
+        ServerCallContext context)
+    {
+        var shipmentId = ParseGuid(request.ShipmentId, "Invalid shipment id.");
+        var cargoItemId = ParseGuid(request.CargoItemId, "Invalid cargo item id.");
+        var shipment = await sender.Send(
+            new RemoveCargoItemCommand(shipmentId, cargoItemId),
+            context.CancellationToken);
+
+        return MapToResponse(shipment);
+    }
+
+    public override async Task<ShipmentResponse> AddShipmentLocation(
+        AddShipmentLocationRequest request,
+        ServerCallContext context)
+    {
+        var shipmentId = ParseGuid(request.ShipmentId, "Invalid shipment id.");
+        var shipment = await sender.Send(
+            new AddShipmentLocationCommand(
+                shipmentId,
+                ParseEnum<LocationType>(request.Type, LocationType.Stop),
+                request.Name,
+                request.Address,
+                request.Sequence,
+                ToOptionalCoordinate(request.Latitude),
+                ToOptionalCoordinate(request.Longitude),
+                request.ContactName,
+                request.ContactPhone),
+            context.CancellationToken);
+
+        return MapToResponse(shipment);
+    }
+
+    public override async Task<ShipmentResponse> UpdateShipmentLocation(
+        UpdateShipmentLocationRequest request,
+        ServerCallContext context)
+    {
+        var shipmentId = ParseGuid(request.ShipmentId, "Invalid shipment id.");
+        var locationId = ParseGuid(request.LocationId, "Invalid location id.");
+        var shipment = await sender.Send(
+            new UpdateShipmentLocationCommand(
+                shipmentId,
+                locationId,
+                ParseEnum<LocationType>(request.Type, LocationType.Stop),
+                request.Name,
+                request.Address,
+                request.Sequence,
+                ToOptionalCoordinate(request.Latitude),
+                ToOptionalCoordinate(request.Longitude),
+                request.ContactName,
+                request.ContactPhone),
+            context.CancellationToken);
+
+        return MapToResponse(shipment);
+    }
+
+    public override async Task<ShipmentResponse> RemoveShipmentLocation(
+        RemoveShipmentLocationRequest request,
+        ServerCallContext context)
+    {
+        var shipmentId = ParseGuid(request.ShipmentId, "Invalid shipment id.");
+        var locationId = ParseGuid(request.LocationId, "Invalid location id.");
+        var shipment = await sender.Send(
+            new RemoveShipmentLocationCommand(shipmentId, locationId),
+            context.CancellationToken);
+
+        return MapToResponse(shipment);
+    }
+
+    private static double? ToOptionalCoordinate(double value)
+    {
+        return value == 0 ? null : value;
+    }
+
     private static Guid ParseGuid(string value, string errorMessage)
     {
         return Guid.TryParse(value, out var id)
@@ -228,7 +339,14 @@ public sealed class ShipmentGrpcService(ISender sender)
                 Name = cargoItem.Name,
                 Quantity = cargoItem.Quantity,
                 WeightKg = cargoItem.WeightKg,
-                HsCode = cargoItem.HsCode ?? string.Empty
+                HsCode = cargoItem.HsCode ?? string.Empty,
+                Description = cargoItem.Description ?? string.Empty,
+                Unit = cargoItem.Unit ?? string.Empty,
+                VolumeM3 = cargoItem.VolumeM3 ?? 0,
+                DeclaredValue = cargoItem.DeclaredValue.HasValue ? (double)cargoItem.DeclaredValue.Value : 0,
+                Currency = cargoItem.Currency ?? string.Empty,
+                IsDangerousGoods = cargoItem.IsDangerousGoods,
+                PackageType = cargoItem.PackageType ?? string.Empty
             }));
 
         response.Locations.AddRange(shipment.Locations.Select(location =>

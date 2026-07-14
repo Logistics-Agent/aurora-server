@@ -176,20 +176,7 @@ public class Shipment : TenantAuditableEntity
         double weightKg,
         string? hsCode = null)
     {
-        if (string.IsNullOrWhiteSpace(name))
-        {
-            throw new ArgumentException("Cargo item name is required.", nameof(name));
-        }
-
-        if (quantity <= 0)
-        {
-            throw new ArgumentException("Cargo quantity must be greater than zero.", nameof(quantity));
-        }
-
-        if (weightKg < 0)
-        {
-            throw new ArgumentException("Cargo weight must not be negative.", nameof(weightKg));
-        }
+        ValidateCargo(name, quantity, weightKg);
 
         CargoItems.Add(new CargoItem
         {
@@ -197,8 +184,49 @@ public class Shipment : TenantAuditableEntity
             Name = name.Trim(),
             Quantity = quantity,
             WeightKg = weightKg,
-            HsCode = string.IsNullOrWhiteSpace(hsCode) ? null : hsCode.Trim()
+            HsCode = NormalizeOptionalText(hsCode)
         });
+    }
+
+
+    public void UpdateCargoItem(
+        Guid cargoItemId,
+        string name,
+        int quantity,
+        double weightKg,
+        string? hsCode = null,
+        string? description = null,
+        string? unit = null,
+        double? volumeM3 = null,
+        decimal? declaredValue = null,
+        string? currency = null,
+        bool isDangerousGoods = false,
+        string? packageType = null)
+    {
+        var cargoItem = CargoItems.SingleOrDefault(item => item.Id == cargoItemId)
+            ?? throw new InvalidOperationException("Cargo item was not found.");
+
+        ValidateCargo(name, quantity, weightKg, volumeM3, declaredValue, currency);
+
+        cargoItem.Name = name.Trim();
+        cargoItem.Quantity = quantity;
+        cargoItem.WeightKg = weightKg;
+        cargoItem.HsCode = NormalizeOptionalText(hsCode);
+        cargoItem.Description = NormalizeOptionalText(description);
+        cargoItem.Unit = NormalizeOptionalText(unit);
+        cargoItem.VolumeM3 = volumeM3;
+        cargoItem.DeclaredValue = declaredValue;
+        cargoItem.Currency = NormalizeCurrency(currency);
+        cargoItem.IsDangerousGoods = isDangerousGoods;
+        cargoItem.PackageType = NormalizeOptionalText(packageType);
+    }
+
+    public void RemoveCargoItem(Guid cargoItemId)
+    {
+        var cargoItem = CargoItems.SingleOrDefault(item => item.Id == cargoItemId)
+            ?? throw new InvalidOperationException("Cargo item was not found.");
+
+        CargoItems.Remove(cargoItem);
     }
 
     public void ChangeStatus(ShipmentStatus newStatus, string? note = null)
@@ -271,6 +299,56 @@ public class Shipment : TenantAuditableEntity
             createdBy,
             latitude,
             longitude));
+    }
+
+
+    private static void ValidateCargo(
+        string name,
+        int quantity,
+        double weightKg,
+        double? volumeM3 = null,
+        decimal? declaredValue = null,
+        string? currency = null)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            throw new ArgumentException("Cargo item name is required.", nameof(name));
+        }
+
+        if (quantity <= 0)
+        {
+            throw new ArgumentException("Cargo quantity must be greater than zero.", nameof(quantity));
+        }
+
+        if (weightKg < 0)
+        {
+            throw new ArgumentException("Cargo weight must not be negative.", nameof(weightKg));
+        }
+
+        if (volumeM3 is < 0)
+        {
+            throw new ArgumentException("Cargo volume must not be negative.", nameof(volumeM3));
+        }
+
+        if (declaredValue is < 0)
+        {
+            throw new ArgumentException("Declared value must not be negative.", nameof(declaredValue));
+        }
+
+        if (!string.IsNullOrWhiteSpace(currency) && currency.Trim().Length != 3)
+        {
+            throw new ArgumentException("Currency must be a 3-letter ISO code.", nameof(currency));
+        }
+    }
+
+    private static string? NormalizeOptionalText(string? value)
+    {
+        return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+    }
+
+    private static string? NormalizeCurrency(string? value)
+    {
+        return string.IsNullOrWhiteSpace(value) ? null : value.Trim().ToUpperInvariant();
     }
 
     private void TransitionTo(
