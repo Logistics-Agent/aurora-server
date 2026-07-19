@@ -2,7 +2,7 @@
 
 ## Status
 
-Not Started
+Completed
 
 ## Goal
 
@@ -22,7 +22,7 @@ Phase 03.
 
 ## Existing State
 
-Production implementation has not started for this service.
+ShipmentCreated, ShipmentStatusChanged, and ShipmentCancelled consumers are implemented with tenant-scoped projection and inbox deduplication.
 
 ## Scope
 
@@ -43,8 +43,7 @@ Consumers are idempotent and do not query Shipment DB.
 ## Validation Commands
 
 ```bash
-# Replace with the service project path once created.
-dotnet build
+dotnet build src/dotnet/Notification/Notification.csproj
 ```
 
 ## Completion Criteria
@@ -58,32 +57,54 @@ dotnet build
 
 ### Completed
 
-Not started.
+* Added MassTransit consumers for ShipmentCreatedEvent, ShipmentStatusChangedEvent, and ShipmentCancelledEvent.
+* Added contract-to-notification mapping without querying Shipment Workflow data.
+* Added tenant-scoped preference projection and atomic inbox receipt persistence.
+* Added duplicate-event, cross-tenant preference, disabled-preference, and event-mapping tests.
 
 ### Files Changed
 
-None.
+* src/dotnet/Notification/Application/Consumers/ShipmentNotificationConsumer.cs
+* src/dotnet/Notification/Application/Services/ShipmentEventNotificationFactory.cs
+* src/dotnet/Notification/Application/Services/ShipmentNotificationProjector.cs
+* tests/dotnet/Notification.Tests/Application/ShipmentEventNotificationFactoryTests.cs
+* tests/dotnet/Notification.Tests/Application/ShipmentNotificationProjectorTests.cs
+* tests/dotnet/Notification.Tests/Notification.Tests.csproj
+* codex/tasks/notification/phase-04-shipment-event-consumers.md
+* codex/plan.md
 
 ### Commands Executed
 
-None.
+```bash
+git status --short
+git branch --show-current
+git log --oneline --decorate -6
+dotnet build src/dotnet/Notification/Notification.csproj
+dotnet test tests/dotnet/Notification.Tests/Notification.Tests.csproj
+git diff --check
+```
 
 ### Build Result
 
-Not started.
+Passed: 3 projects, 0 errors, 0 warnings.
 
 ### Test Result
 
-Not started.
+Passed: 15 tests, 0 warnings.
 
 ### Runtime Result
 
-Not started.
+Not run; broker and dependency registration are Phase 07 scope.
 
 ### Migration Result
 
-Not started.
+No migration generated; migration creation and application are Phase 08 scope.
 
 ### Remaining Issues
 
-Phase has not started.
+* Live delivery depends on Shipment outbox publication by the integration owner.
+* Notification delivery providers and background processing remain Phase 05 scope.
+
+### Commit Hash
+
+Recorded by the Phase 04 Git commit.

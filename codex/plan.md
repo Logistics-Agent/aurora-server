@@ -13,7 +13,7 @@ Regulatory Compliance RAG: Not Started
 ## Active Work
 
 Active Service: Notification
-Active Phase: Phase 04 - Shipment Event Consumers
+Active Phase: Phase 05 - Notification Delivery
 Current Branch: feat/notification-service
 
 ## Service Progress
@@ -59,7 +59,7 @@ Future-service phase plans exist under:
 * `codex/tasks/document-ocr/`
 * `codex/tasks/regulatory-compliance-rag/`
 
-Notification Phases 01-03 are Completed; all remaining future-service phases are `Not Started`.
+Notification Phases 01-04 are Completed; Phases 05-09 are `Not Started`.
 
 ## Completed Work
 
@@ -79,8 +79,7 @@ Notification Phases 01-03 are Completed; all remaining future-service phases are
 
 ## Current Work
 
-Shipment Workflow MVP is complete. Notification Phase 01 established the independent project,
-initial gRPC contract, development configuration, contract test, and domain model. Phase 04 is next.
+Shipment Workflow MVP is complete. Notification Phases 01-04 established the independent service, domain and persistence models, and idempotent tenant-scoped Shipment event consumers. Phase 05 is next.
 
 ## Blocked Work
 
@@ -88,29 +87,29 @@ No active blocker.
 
 ## Remaining Work
 
-* Complete Notification phases 04 through 09 in order.
+* Complete Notification phases 05 through 09 in order.
 * Live Shipment-to-Notification broker delivery requires the Shipment outbox publisher;
   this is an integration handoff and does not authorize Notification to read Shipment data.
 
 ## Build Results
 
-Latest verified Phase 19 validation:
+Latest verified Notification Phase 04 validation:
 
 ```bash
-dotnet build src/dotnet/ShipmentWorkflow/ShipmentWorkflow.csproj
+dotnet build src/dotnet/Notification/Notification.csproj
 ```
 
 Result: Passed, 3 projects, 0 errors, 0 warnings.
 
 ## Test Results
 
-Latest verified Phase 19 validation:
+Latest verified Notification Phase 04 validation:
 
 ```bash
-dotnet test tests/dotnet/ShipmentWorkflow.Tests/ShipmentWorkflow.Tests.csproj
+dotnet test tests/dotnet/Notification.Tests/Notification.Tests.csproj
 ```
 
-Result: Passed, 83 tests, 0 warnings.
+Result: Passed, 15 tests, 0 warnings.
 
 ## Migration Results
 
@@ -128,11 +127,11 @@ Recent phase commits:
 
 ## Immediate Next Action
 
-Execute Notification Phase 04 - Shipment Event Consumers.
+Execute Notification Phase 05 - Notification Delivery.
 
 ## Branch Strategy
 
-Remain on current Shipment branch until full Shipment Workflow MVP is complete.
+Remain on the current Notification branch until the Notification service is complete.
 
 Future stacked branch strategy:
 
