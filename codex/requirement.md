@@ -45,12 +45,11 @@ Shipment Workflow is the Shipment aggregate owner and source of truth for Shipme
 
 Current implemented state:
 
-* CreateShipment vertical slice: Completed
-* Initial Shipment Workflow migration: Applied locally
-* PostgreSQL-backed CreateShipment tests: Passing
-* Full Shipment Workflow MVP: In Progress
+* Full Shipment Workflow MVP: Completed.
+* Shipment Workflow migrations are applied locally.
+* Latest verified Shipment Workflow regression: 83 tests passing.
 
-The full MVP is not complete yet. Remaining capabilities are planned in `codex/tasks/shipment-workflow/phase-11-*` through `phase-19-*`.
+Notification is the next active service. Its execution plan is under `codex/tasks/notification/`.
 
 ## Tenant Isolation
 
@@ -58,7 +57,10 @@ Tenant-owned entities must contain or inherit tenant ownership. Tenant access is
 
 ## Integration Events
 
-Reliable event publication must use the outbox pattern. Initial Shipment event support currently covers ShipmentCreated outbox records. Expanded event coverage is planned in the remaining Shipment Workflow phases.
+Reliable event publication must use the outbox pattern. Shipment Workflow persists versioned
+Shipment events in its outbox. A broker-publishing worker remains an integration prerequisite
+for live cross-service event delivery; Notification must not read the Shipment database as a
+workaround.
 
 ## Documentation Map
 

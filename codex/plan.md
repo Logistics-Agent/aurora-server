@@ -5,23 +5,23 @@
 Shipment Workflow CreateShipment vertical slice: Completed
 Shipment Workflow Aggregate Expansion: Completed
 Shipment Workflow full MVP: Completed
-Notification Service: Not Started
+Notification Service: In Progress
 GPS Tracking and Monitoring: Not Started
 Document OCR Agent: Not Started
 Regulatory Compliance RAG: Not Started
 
 ## Active Work
 
-Active Service: Shipment Workflow
-Active Phase: Completed
-Current Branch: feat/shipment-workflow
+Active Service: Notification
+Active Phase: Phase 02 - Domain Model
+Current Branch: feat/notification-service
 
 ## Service Progress
 
 | Service | Status |
 | --- | --- |
 | Shipment Workflow | Completed |
-| Notification | Not Started |
+| Notification | In Progress |
 | GPS Tracking and Monitoring | Not Started |
 | Document OCR Agent | Not Started |
 | Regulatory Compliance RAG | Not Started |
@@ -59,7 +59,7 @@ Future-service phase plans exist under:
 * `codex/tasks/document-ocr/`
 * `codex/tasks/regulatory-compliance-rag/`
 
-All future-service phases are `Not Started`.
+Notification Phase 01 is Completed; all remaining future-service phases are `Not Started`.
 
 ## Completed Work
 
@@ -79,7 +79,8 @@ All future-service phases are `Not Started`.
 
 ## Current Work
 
-Shipment Workflow MVP is complete. The next allowed service branch is `feat/notification-service`; do not create it until explicitly requested.
+Shipment Workflow MVP is complete. Notification Phase 01 established the independent project,
+initial gRPC contract, development configuration, and contract test. Phase 02 is next.
 
 ## Blocked Work
 
@@ -87,7 +88,9 @@ No active blocker.
 
 ## Remaining Work
 
-No Shipment Workflow MVP implementation work remains.
+* Complete Notification phases 02 through 09 in order.
+* Live Shipment-to-Notification broker delivery requires the Shipment outbox publisher;
+  this is an integration handoff and does not authorize Notification to read Shipment data.
 
 ## Build Results
 
@@ -125,7 +128,7 @@ Recent phase commits:
 
 ## Immediate Next Action
 
-Stop Shipment Workflow implementation. Next allowed action after explicit request: create `feat/notification-service`.
+Execute Notification Phase 02 - Domain Model.
 
 ## Branch Strategy
 

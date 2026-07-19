@@ -2,7 +2,7 @@
 
 ## Status
 
-Not Started
+Completed
 
 ## Goal
 
@@ -22,7 +22,7 @@ None.
 
 ## Existing State
 
-Production implementation has not started for this service.
+The independent Notification project and initial gRPC contract are established.
 
 ## Scope
 
@@ -43,8 +43,7 @@ Project builds and remains independent from Shipment database.
 ## Validation Commands
 
 ```bash
-# Replace with the service project path once created.
-dotnet build
+dotnet build src/dotnet/Notification/Notification.csproj
 ```
 
 ## Completion Criteria
@@ -58,32 +57,56 @@ dotnet build
 
 ### Completed
 
-Not started.
+* Created the independent .NET 10 Notification service project.
+* Added the initial gRPC contract for notification listing, read state, and caller-owned preferences.
+* Added an isolated Notification test project and contract regression test.
+* Added development configuration for the dedicated aurora_notification database; no Shipment database configuration or access was introduced.
+* Created feat/notification-service from the verified Shipment branch.
 
 ### Files Changed
 
-None.
+* protos/notification.proto
+* src/dotnet/Notification/Notification.csproj
+* src/dotnet/Notification/Program.cs
+* src/dotnet/Notification/appsettings.json
+* src/dotnet/Notification/appsettings.Development.json
+* src/dotnet/Notification/Properties/launchSettings.json
+* tests/dotnet/Notification.Tests/Notification.Tests.csproj
+* tests/dotnet/Notification.Tests/NotificationContractTests.cs
 
 ### Commands Executed
 
-None.
+```bash
+git status --short
+git log --oneline --decorate -20
+dotnet build src/dotnet/ShipmentWorkflow/ShipmentWorkflow.csproj
+dotnet test tests/dotnet/ShipmentWorkflow.Tests/ShipmentWorkflow.Tests.csproj
+git switch -c feat/notification-service
+dotnet test tests/dotnet/Notification.Tests/Notification.Tests.csproj
+dotnet build src/dotnet/Notification/Notification.csproj
+```
 
 ### Build Result
 
-Not started.
+Passed: dotnet build src/dotnet/Notification/Notification.csproj completed with 3 projects, 0 errors, 0 warnings.
 
 ### Test Result
 
-Not started.
+Passed: dotnet test tests/dotnet/Notification.Tests/Notification.Tests.csproj completed with 1 test passing, 0 warnings.
 
 ### Runtime Result
 
-Not started.
+Not run. Runtime registration is Phase 07 scope.
 
 ### Migration Result
 
-Not started.
+Not run. Initial database migration is Phase 08 scope.
 
 ### Remaining Issues
 
-Phase has not started.
+* Phase 02 must define the domain model and its invariants before persistence is introduced.
+* A live Shipment-to-Notification flow remains dependent on Shipment's broker-publishing outbox worker; this phase does not access or change the Shipment database.
+
+### Commit Hash
+
+Recorded by the Phase 01 Git commit.
