@@ -13,7 +13,7 @@ Regulatory Compliance RAG: Not Started
 ## Active Work
 
 Active Service: Notification
-Active Phase: Phase 02 - Domain Model
+Active Phase: Phase 03 - Persistence
 Current Branch: feat/notification-service
 
 ## Service Progress
@@ -59,7 +59,7 @@ Future-service phase plans exist under:
 * `codex/tasks/document-ocr/`
 * `codex/tasks/regulatory-compliance-rag/`
 
-Notification Phase 01 is Completed; all remaining future-service phases are `Not Started`.
+Notification Phases 01-02 are Completed; all remaining future-service phases are `Not Started`.
 
 ## Completed Work
 
@@ -80,7 +80,7 @@ Notification Phase 01 is Completed; all remaining future-service phases are `Not
 ## Current Work
 
 Shipment Workflow MVP is complete. Notification Phase 01 established the independent project,
-initial gRPC contract, development configuration, and contract test. Phase 02 is next.
+initial gRPC contract, development configuration, contract test, and domain model. Phase 03 is next.
 
 ## Blocked Work
 
@@ -88,7 +88,7 @@ No active blocker.
 
 ## Remaining Work
 
-* Complete Notification phases 02 through 09 in order.
+* Complete Notification phases 03 through 09 in order.
 * Live Shipment-to-Notification broker delivery requires the Shipment outbox publisher;
   this is an integration handoff and does not authorize Notification to read Shipment data.
 
@@ -128,7 +128,7 @@ Recent phase commits:
 
 ## Immediate Next Action
 
-Execute Notification Phase 02 - Domain Model.
+Execute Notification Phase 03 - Persistence.
 
 ## Branch Strategy
 
