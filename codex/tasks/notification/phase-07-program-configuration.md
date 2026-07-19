@@ -2,7 +2,7 @@
 
 ## Status
 
-Not Started
+Completed
 
 ## Goal
 
@@ -22,7 +22,7 @@ Phase 06.
 
 ## Existing State
 
-Production implementation has not started for this service.
+Notification startup now registers gRPC, PostgreSQL, shared auth services, MassTransit consumers, delivery providers, retry policy, and the delivery worker.
 
 ## Scope
 
@@ -43,8 +43,7 @@ Service starts with local dependencies.
 ## Validation Commands
 
 ```bash
-# Replace with the service project path once created.
-dotnet build
+dotnet build src/dotnet/Notification/Notification.csproj
 ```
 
 ## Completion Criteria
@@ -58,32 +57,57 @@ dotnet build
 
 ### Completed
 
-Not started.
+* Configured gRPC with shared auth and exception interceptors.
+* Registered NotificationDbContext against the service-owned PostgreSQL connection.
+* Registered the Shipment event consumer with MassTransit/RabbitMQ.
+* Registered provider-neutral delivery, retry policy, SMTP/in-app providers, and the hosted delivery worker.
+* Implemented all Notification gRPC methods with tenant- and user-scoped queries and mutation.
+* Added safe local RabbitMQ credentials and secret-free SMTP/worker/retry configuration.
+* Verified host startup, gRPC port binding, and RabbitMQ bus connection.
 
 ### Files Changed
 
-None.
+* src/dotnet/Notification/Program.cs
+* src/dotnet/Notification/GrpcServices/NotificationGrpcService.cs
+* src/dotnet/Notification/Infrastructure/BackgroundJobs/NotificationDeliveryWorker.cs
+* src/dotnet/Notification/Infrastructure/Providers/SmtpEmailNotificationProvider.cs
+* src/dotnet/Notification/appsettings.json
+* src/dotnet/Notification/appsettings.Development.json
+* codex/tasks/notification/phase-07-program-configuration.md
+* codex/plan.md
 
 ### Commands Executed
 
-None.
+```bash
+git status --short
+dotnet build src/dotnet/Notification/Notification.csproj
+dotnet test tests/dotnet/Notification.Tests/Notification.Tests.csproj
+docker compose -f docker-compose.dev.yml ps
+timeout 15s dotnet run --project src/dotnet/Notification/Notification.csproj --no-build
+git diff --check
+```
 
 ### Build Result
 
-Not started.
+Passed: 3 projects, 0 errors, 0 warnings.
 
 ### Test Result
 
-Not started.
+Passed: 22 tests, 0 warnings.
 
 ### Runtime Result
 
-Not started.
+Host started on http://localhost:5090 and RabbitMQ bus started. The 15-second smoke command ended by intentional timeout (exit 124). Delivery polling logged connection refused for the not-yet-created Notification PostgreSQL endpoint at localhost:5434; this is resolved by Phase 08 Docker and migration scope.
 
 ### Migration Result
 
-Not started.
+No migration generated or applied; Phase 08 owns the initial Notification migration.
 
 ### Remaining Issues
 
-Phase has not started.
+* Notification PostgreSQL container and schema remain Phase 08 scope.
+* SMTP credentials are intentionally absent; deployment integration must provide them through configuration.
+
+### Commit Hash
+
+Recorded by the Phase 07 Git commit.

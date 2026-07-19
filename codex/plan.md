@@ -13,7 +13,7 @@ Regulatory Compliance RAG: Not Started
 ## Active Work
 
 Active Service: Notification
-Active Phase: Phase 07 - Program Configuration
+Active Phase: Phase 08 - Migration
 Current Branch: feat/notification-service
 
 ## Service Progress
@@ -59,7 +59,7 @@ Future-service phase plans exist under:
 * `codex/tasks/document-ocr/`
 * `codex/tasks/regulatory-compliance-rag/`
 
-Notification Phases 01-06 are Completed; Phases 07-09 are `Not Started`.
+Notification Phases 01-07 are Completed; Phases 08-09 are `Not Started`.
 
 ## Completed Work
 
@@ -79,7 +79,7 @@ Notification Phases 01-06 are Completed; Phases 07-09 are `Not Started`.
 
 ## Current Work
 
-Shipment Workflow MVP is complete. Notification Phases 01-06 established the independent service, Shipment consumers, provider-neutral delivery, persisted attempts, and bounded retry/idempotency behavior. Phase 07 is next.
+Shipment Workflow MVP is complete. Notification Phases 01-07 established the independent service, consumers, delivery and retry behavior, complete gRPC APIs, and runtime registrations. Phase 08 is next.
 
 ## Blocked Work
 
@@ -87,13 +87,13 @@ No active blocker.
 
 ## Remaining Work
 
-* Complete Notification phases 07 through 09 in order.
+* Complete Notification phases 08 through 09 in order.
 * Live Shipment-to-Notification broker delivery requires the Shipment outbox publisher;
   this is an integration handoff and does not authorize Notification to read Shipment data.
 
 ## Build Results
 
-Latest verified Notification Phase 06 validation:
+Latest verified Notification Phase 07 validation:
 
 ```bash
 dotnet build src/dotnet/Notification/Notification.csproj
@@ -103,7 +103,7 @@ Result: Passed, 3 projects, 0 errors, 0 warnings.
 
 ## Test Results
 
-Latest verified Notification Phase 06 validation:
+Latest verified Notification Phase 07 validation:
 
 ```bash
 dotnet test tests/dotnet/Notification.Tests/Notification.Tests.csproj
@@ -127,7 +127,7 @@ Recent phase commits:
 
 ## Immediate Next Action
 
-Execute Notification Phase 07 - Program Configuration.
+Execute Notification Phase 08 - Migration.
 
 ## Branch Strategy
 
