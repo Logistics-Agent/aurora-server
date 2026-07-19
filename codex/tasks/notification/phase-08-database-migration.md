@@ -2,7 +2,7 @@
 
 ## Status
 
-Not Started
+Completed
 
 ## Goal
 
@@ -22,7 +22,7 @@ Phase 07.
 
 ## Existing State
 
-Production implementation has not started for this service.
+The initial Notification migration is generated, applied, and verified against the service-owned local PostgreSQL database.
 
 ## Scope
 
@@ -43,8 +43,7 @@ Migration applies to Notification DB only.
 ## Validation Commands
 
 ```bash
-# Replace with the service project path once created.
-dotnet build
+dotnet build src/dotnet/Notification/Notification.csproj
 ```
 
 ## Completion Criteria
@@ -58,32 +57,58 @@ dotnet build
 
 ### Completed
 
-Not started.
+* Added an isolated PostgreSQL 16 development container for aurora_notification on host port 5434.
+* Generated the InitialNotification EF Core migration and reviewed tables, nullability, indexes, unique constraints, and cascade behavior.
+* Confirmed the target database identity before applying the migration.
+* Applied and re-listed the migration, then verified tables, indexes, and migration history through PostgreSQL.
+* Re-ran runtime smoke validation with successful database polling and RabbitMQ connection.
 
 ### Files Changed
 
-None.
+* docker-compose.dev.yml
+* src/dotnet/Notification/Infrastructure/Persistences/Migrations/20260719124939_InitialNotification.cs
+* src/dotnet/Notification/Infrastructure/Persistences/Migrations/20260719124939_InitialNotification.Designer.cs
+* src/dotnet/Notification/Infrastructure/Persistences/Migrations/NotificationDbContextModelSnapshot.cs
+* codex/tasks/notification/phase-08-database-migration.md
+* codex/plan.md
 
 ### Commands Executed
 
-None.
+```bash
+git status --short
+dotnet build src/dotnet/Notification/Notification.csproj
+dotnet test tests/dotnet/Notification.Tests/Notification.Tests.csproj
+docker compose -f docker-compose.dev.yml config
+docker compose -f docker-compose.dev.yml up -d notification-postgres
+docker exec aurora-notification-postgres psql -U postgres -d aurora_notification -c "SELECT current_database(), current_user;"
+dotnet ef migrations add InitialNotification --project src/dotnet/Notification/Notification.csproj --startup-project src/dotnet/Notification/Notification.csproj --output-dir Infrastructure/Persistences/Migrations
+dotnet ef migrations list --project src/dotnet/Notification/Notification.csproj --startup-project src/dotnet/Notification/Notification.csproj
+dotnet ef database update --project src/dotnet/Notification/Notification.csproj --startup-project src/dotnet/Notification/Notification.csproj
+timeout 10s dotnet run --project src/dotnet/Notification/Notification.csproj --no-build
+git diff --check
+```
 
 ### Build Result
 
-Not started.
+Passed: 3 projects, 0 errors, 0 warnings.
 
 ### Test Result
 
-Not started.
+Passed: 22 tests, 0 warnings.
 
 ### Runtime Result
 
-Not started.
+Passed smoke validation: host listened on http://localhost:5090, RabbitMQ bus started, and the delivery worker queried Notification PostgreSQL successfully. The bounded command ended by intentional timeout (exit 124).
 
 ### Migration Result
 
-Not started.
+Applied 20260719124939_InitialNotification to confirmed database aurora_notification. Verified __EFMigrationsHistory plus notifications, notification_preferences, notification_delivery_attempts, and consumed_integration_events tables and their indexes.
 
 ### Remaining Issues
 
-Phase has not started.
+* Full PostgreSQL-backed behavior and gRPC coverage remain Phase 09 scope.
+* SMTP credentials remain deployment configuration and were not committed.
+
+### Commit Hash
+
+Recorded by the Phase 08 Git commit.

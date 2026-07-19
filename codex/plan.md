@@ -13,7 +13,7 @@ Regulatory Compliance RAG: Not Started
 ## Active Work
 
 Active Service: Notification
-Active Phase: Phase 08 - Migration
+Active Phase: Phase 09 - Testing
 Current Branch: feat/notification-service
 
 ## Service Progress
@@ -59,7 +59,7 @@ Future-service phase plans exist under:
 * `codex/tasks/document-ocr/`
 * `codex/tasks/regulatory-compliance-rag/`
 
-Notification Phases 01-07 are Completed; Phases 08-09 are `Not Started`.
+Notification Phases 01-08 are Completed; Phase 09 is `Not Started`.
 
 ## Completed Work
 
@@ -79,7 +79,7 @@ Notification Phases 01-07 are Completed; Phases 08-09 are `Not Started`.
 
 ## Current Work
 
-Shipment Workflow MVP is complete. Notification Phases 01-07 established the independent service, consumers, delivery and retry behavior, complete gRPC APIs, and runtime registrations. Phase 08 is next.
+Shipment Workflow MVP is complete. Notification Phases 01-08 established the independent service, complete runtime behavior, and an applied service-owned PostgreSQL migration. Phase 09 is next.
 
 ## Blocked Work
 
@@ -87,13 +87,13 @@ No active blocker.
 
 ## Remaining Work
 
-* Complete Notification phases 08 through 09 in order.
+* Complete Notification Phase 09.
 * Live Shipment-to-Notification broker delivery requires the Shipment outbox publisher;
   this is an integration handoff and does not authorize Notification to read Shipment data.
 
 ## Build Results
 
-Latest verified Notification Phase 07 validation:
+Latest verified Notification Phase 08 validation:
 
 ```bash
 dotnet build src/dotnet/Notification/Notification.csproj
@@ -103,7 +103,7 @@ Result: Passed, 3 projects, 0 errors, 0 warnings.
 
 ## Test Results
 
-Latest verified Notification Phase 07 validation:
+Latest verified Notification Phase 08 validation:
 
 ```bash
 dotnet test tests/dotnet/Notification.Tests/Notification.Tests.csproj
@@ -113,7 +113,7 @@ Result: Passed, 22 tests, 0 warnings.
 
 ## Migration Results
 
-Initial Shipment Workflow migration `20260713201248_InitialShipmentWorkflow` and expanded MVP migration `20260714042938_ExpandShipmentWorkflowMvp` are applied to local `aurora_shipment_workflow`.
+Initial Shipment Workflow migration `20260713201248_InitialShipmentWorkflow` and expanded MVP migration `20260714042938_ExpandShipmentWorkflowMvp` are applied to local `aurora_shipment_workflow`. Notification migration `20260719124939_InitialNotification` is applied to local `aurora_notification`.
 
 ## Commit History
 
@@ -127,7 +127,7 @@ Recent phase commits:
 
 ## Immediate Next Action
 
-Execute Notification Phase 08 - Migration.
+Execute Notification Phase 09 - Testing.
 
 ## Branch Strategy
 
