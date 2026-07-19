@@ -13,7 +13,7 @@ Regulatory Compliance RAG: Not Started
 ## Active Work
 
 Active Service: Notification
-Active Phase: Phase 05 - Notification Delivery
+Active Phase: Phase 06 - Retry and Idempotency
 Current Branch: feat/notification-service
 
 ## Service Progress
@@ -59,7 +59,7 @@ Future-service phase plans exist under:
 * `codex/tasks/document-ocr/`
 * `codex/tasks/regulatory-compliance-rag/`
 
-Notification Phases 01-04 are Completed; Phases 05-09 are `Not Started`.
+Notification Phases 01-05 are Completed; Phases 06-09 are `Not Started`.
 
 ## Completed Work
 
@@ -79,7 +79,7 @@ Notification Phases 01-04 are Completed; Phases 05-09 are `Not Started`.
 
 ## Current Work
 
-Shipment Workflow MVP is complete. Notification Phases 01-04 established the independent service, domain and persistence models, and idempotent tenant-scoped Shipment event consumers. Phase 05 is next.
+Shipment Workflow MVP is complete. Notification Phases 01-05 established the independent service, persistence and Shipment consumers, plus provider-neutral email and in-app delivery with recorded attempts. Phase 06 is next.
 
 ## Blocked Work
 
@@ -87,13 +87,13 @@ No active blocker.
 
 ## Remaining Work
 
-* Complete Notification phases 05 through 09 in order.
+* Complete Notification phases 06 through 09 in order.
 * Live Shipment-to-Notification broker delivery requires the Shipment outbox publisher;
   this is an integration handoff and does not authorize Notification to read Shipment data.
 
 ## Build Results
 
-Latest verified Notification Phase 04 validation:
+Latest verified Notification Phase 05 validation:
 
 ```bash
 dotnet build src/dotnet/Notification/Notification.csproj
@@ -103,13 +103,13 @@ Result: Passed, 3 projects, 0 errors, 0 warnings.
 
 ## Test Results
 
-Latest verified Notification Phase 04 validation:
+Latest verified Notification Phase 05 validation:
 
 ```bash
 dotnet test tests/dotnet/Notification.Tests/Notification.Tests.csproj
 ```
 
-Result: Passed, 15 tests, 0 warnings.
+Result: Passed, 19 tests, 0 warnings.
 
 ## Migration Results
 
@@ -127,7 +127,7 @@ Recent phase commits:
 
 ## Immediate Next Action
 
-Execute Notification Phase 05 - Notification Delivery.
+Execute Notification Phase 06 - Retry and Idempotency.
 
 ## Branch Strategy
 

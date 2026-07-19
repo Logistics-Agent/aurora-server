@@ -2,7 +2,7 @@
 
 ## Status
 
-Not Started
+Completed
 
 ## Goal
 
@@ -22,7 +22,7 @@ Phase 04.
 
 ## Existing State
 
-Production implementation has not started for this service.
+Email and in-app delivery abstractions are implemented with recorded delivery attempts and deterministic test providers.
 
 ## Scope
 
@@ -43,8 +43,7 @@ Delivery attempts are recorded.
 ## Validation Commands
 
 ```bash
-# Replace with the service project path once created.
-dotnet build
+dotnet build src/dotnet/Notification/Notification.csproj
 ```
 
 ## Completion Criteria
@@ -58,32 +57,51 @@ dotnet build
 
 ### Completed
 
-Not started.
+* Added channel-neutral delivery request and result contracts.
+* Added explicit email and in-app provider interfaces.
+* Added the in-app provider with deterministic local delivery IDs.
+* Added the delivery service with persisted in-progress, success, transient-failure, and permanent-failure attempts.
+* Added deterministic fake-email tests for success, failure, and duplicate-delivery prevention.
 
 ### Files Changed
 
-None.
+* src/dotnet/Notification/Application/Delivery/NotificationDeliveryContracts.cs
+* src/dotnet/Notification/Application/Delivery/InAppNotificationProvider.cs
+* src/dotnet/Notification/Application/Delivery/NotificationDeliveryService.cs
+* tests/dotnet/Notification.Tests/Application/NotificationDeliveryServiceTests.cs
+* codex/tasks/notification/phase-05-notification-delivery.md
+* codex/plan.md
 
 ### Commands Executed
 
-None.
+```bash
+git status --short
+dotnet build src/dotnet/Notification/Notification.csproj
+dotnet test tests/dotnet/Notification.Tests/Notification.Tests.csproj
+git diff --check
+```
 
 ### Build Result
 
-Not started.
+Passed: 3 projects, 0 errors, 0 warnings.
 
 ### Test Result
 
-Not started.
+Passed: 19 tests, 0 warnings.
 
 ### Runtime Result
 
-Not started.
+Not run; dependency registration and hosted processing are Phase 07 scope.
 
 ### Migration Result
 
-Not started.
+No migration generated; migration creation and application are Phase 08 scope.
 
 ### Remaining Issues
 
-Phase has not started.
+* Bounded retry scheduling and stale in-progress recovery remain Phase 06 scope.
+* A production email adapter requires provider configuration from the integration owner; tests use a deterministic fake.
+
+### Commit Hash
+
+Recorded by the Phase 05 Git commit.
