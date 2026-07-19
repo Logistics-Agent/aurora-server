@@ -93,7 +93,7 @@ public sealed class NotificationDeliveryServiceTests
     private static NotificationDeliveryService CreateService(
         NotificationDbContext context,
         params INotificationDeliveryProvider[] providers) =>
-        new(context, providers, TimeProvider.System);
+        new(context, providers, new NotificationRetryPolicy(new NotificationRetryOptions()), TimeProvider.System);
 
     private static NotificationMessage CreateEmailNotification() =>
         NotificationMessage.Create(

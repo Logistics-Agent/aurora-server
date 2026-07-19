@@ -2,7 +2,7 @@
 
 ## Status
 
-Not Started
+Completed
 
 ## Goal
 
@@ -22,7 +22,7 @@ Phase 05.
 
 ## Existing State
 
-Production implementation has not started for this service.
+Bounded retry scheduling, delivery failure records, and event/notification dedupe constraints are implemented.
 
 ## Scope
 
@@ -43,8 +43,7 @@ Duplicate events do not duplicate user-visible notifications.
 ## Validation Commands
 
 ```bash
-# Replace with the service project path once created.
-dotnet build
+dotnet build src/dotnet/Notification/Notification.csproj
 ```
 
 ## Completion Criteria
@@ -58,32 +57,54 @@ dotnet build
 
 ### Completed
 
-Not started.
+* Added configurable bounded exponential backoff with a maximum attempt count.
+* Persisted NextAttemptAt and indexed retry eligibility.
+* Prevented provider calls before a retry is due and after permanent or exhausted failures.
+* Preserved event inbox and user-visible notification unique dedupe keys.
+* Normalized provider exceptions into recorded transient failures.
+* Added retry delay, successful retry, permanent failure, and exhausted retry tests.
 
 ### Files Changed
 
-None.
+* src/dotnet/Notification/Application/Delivery/NotificationRetryPolicy.cs
+* src/dotnet/Notification/Application/Delivery/NotificationDeliveryService.cs
+* src/dotnet/Notification/Domain/Entities/NotificationMessage.cs
+* src/dotnet/Notification/Infrastructure/Persistences/NotificationDbContext.cs
+* tests/dotnet/Notification.Tests/Application/NotificationDeliveryServiceTests.cs
+* tests/dotnet/Notification.Tests/Application/NotificationRetryTests.cs
+* codex/tasks/notification/phase-06-retry-and-idempotency.md
+* codex/plan.md
 
 ### Commands Executed
 
-None.
+```bash
+git status --short
+dotnet build src/dotnet/Notification/Notification.csproj
+dotnet test tests/dotnet/Notification.Tests/Notification.Tests.csproj
+git diff --check
+```
 
 ### Build Result
 
-Not started.
+Passed: 3 projects, 0 errors, 0 warnings.
 
 ### Test Result
 
-Not started.
+Passed: 22 tests, 0 warnings.
 
 ### Runtime Result
 
-Not started.
+Not run; hosted processing and dependency registration are Phase 07 scope.
 
 ### Migration Result
 
-Not started.
+NextAttemptAt and its retry index are migration-ready; migration generation remains Phase 08 scope.
 
 ### Remaining Issues
 
-Phase has not started.
+* Hosted polling and runtime registrations remain Phase 07 scope.
+* Concurrent duplicate inserts are guarded by database unique indexes; PostgreSQL integration coverage remains Phase 09 scope.
+
+### Commit Hash
+
+Recorded by the Phase 06 Git commit.

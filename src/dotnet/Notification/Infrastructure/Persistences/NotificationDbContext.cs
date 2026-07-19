@@ -39,6 +39,7 @@ public sealed class NotificationDbContext(
             entity.HasIndex(item => new { item.TenantId, item.RecipientUserId, item.CreatedAt });
             entity.HasIndex(item => new { item.TenantId, item.RecipientUserId, item.ReadAt });
             entity.HasIndex(item => new { item.TenantId, item.RecipientUserId, item.SourceEventId, item.Channel }).IsUnique();
+            entity.HasIndex(item => new { item.Status, item.NextAttemptAt });
             entity.Property(item => item.EventType).HasConversion<string>().HasMaxLength(80).IsRequired();
             entity.Property(item => item.Channel).HasConversion<string>().HasMaxLength(20).IsRequired();
             entity.Property(item => item.Status).HasConversion<string>().HasMaxLength(30).IsRequired();

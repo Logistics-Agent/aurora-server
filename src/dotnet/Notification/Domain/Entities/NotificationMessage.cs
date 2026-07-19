@@ -20,6 +20,7 @@ public sealed class NotificationMessage : TenantAuditableEntity
     public string? RecipientAddress { get; private set; }
     public DateTimeOffset? SentAt { get; private set; }
     public DateTimeOffset? ReadAt { get; private set; }
+    public DateTimeOffset? NextAttemptAt { get; private set; }
     public IReadOnlyCollection<NotificationDeliveryAttempt> DeliveryAttempts => _deliveryAttempts;
 
     public static NotificationMessage Create(
@@ -54,6 +55,9 @@ public sealed class NotificationMessage : TenantAuditableEntity
         if (Status == NotificationStatus.Sent)
             throw new InvalidOperationException("Notification is already sent.");
 
+        if (NextAttemptAt is not null && startedAt < NextAttemptAt)
+            throw new InvalidOperationException("Notification retry is not due yet.");
+
         var attempt = NotificationDeliveryAttempt.Create(TenantId, Id, _deliveryAttempts.Count + 1, startedAt);
         _deliveryAttempts.Add(attempt);
         return attempt;
@@ -65,14 +69,26 @@ public sealed class NotificationMessage : TenantAuditableEntity
         attempt.Succeed(providerMessageId, completedAt);
         Status = NotificationStatus.Sent;
         SentAt = completedAt;
+        NextAttemptAt = null;
         UpdatedAt = completedAt;
     }
 
-    public void FailDelivery(NotificationDeliveryAttempt attempt, string error, bool transient, DateTimeOffset completedAt)
+    public void FailDelivery(
+        NotificationDeliveryAttempt attempt,
+        string error,
+        bool transient,
+        DateTimeOffset completedAt,
+        DateTimeOffset? nextAttemptAt = null)
     {
         EnsureOwned(attempt);
+        if (nextAttemptAt is not null && (!transient || nextAttemptAt < completedAt))
+            throw new ArgumentException(
+                "Only transient failures can schedule a future retry.",
+                nameof(nextAttemptAt));
+
         attempt.Fail(error, transient, completedAt);
         Status = NotificationStatus.Failed;
+        NextAttemptAt = nextAttemptAt;
         UpdatedAt = completedAt;
     }
 
