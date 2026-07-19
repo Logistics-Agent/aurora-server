@@ -40,7 +40,7 @@ Do not allow clients to assign arbitrary statuses.
 
 ```bash
 dotnet build src/dotnet/ShipmentWorkflow/ShipmentWorkflow.csproj
-dotnet test tests/dotnet/ShipmentWorkflow.Tests/ShipmentWorkflow.Tests.csproj
+dotnet test src/dotnet/ShipmentWorkflow/Tests/ShipmentWorkflow.Tests.csproj
 git diff --check
 ```
 
@@ -78,7 +78,7 @@ git diff --check
 * `src/dotnet/ShipmentWorkflow/Application/Commands/Shipments/CancelShipmentCommand.cs`
 * `src/dotnet/ShipmentWorkflow/Application/Commands/Shipments/DeleteDraftShipmentCommand.cs`
 * `src/dotnet/ShipmentWorkflow/Domain/Shipment.cs`
-* `tests/dotnet/ShipmentWorkflow.Tests/ShipmentCommandTests.cs`
+* `src/dotnet/ShipmentWorkflow/Tests/ShipmentCommandTests.cs`
 * `codex/tasks/shipment-workflow/phase-14-shipment-commands.md`
 * `codex/plan.md`
 * `codex/specs/shipment-workflow-gap-analysis.md`
@@ -88,9 +88,9 @@ git diff --check
 ```bash
 git status --short
 dotnet build src/dotnet/ShipmentWorkflow/ShipmentWorkflow.csproj
-dotnet test tests/dotnet/ShipmentWorkflow.Tests/ShipmentWorkflow.Tests.csproj
+dotnet test src/dotnet/ShipmentWorkflow/Tests/ShipmentWorkflow.Tests.csproj
 dotnet build src/dotnet/ShipmentWorkflow/ShipmentWorkflow.csproj
-dotnet test tests/dotnet/ShipmentWorkflow.Tests/ShipmentWorkflow.Tests.csproj
+dotnet test src/dotnet/ShipmentWorkflow/Tests/ShipmentWorkflow.Tests.csproj
 dotnet build src/dotnet/ShipmentWorkflow/ShipmentWorkflow.csproj
 ```
 

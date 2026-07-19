@@ -40,7 +40,7 @@ Do not implement unrelated query/list/import features.
 
 ```bash
 dotnet build src/dotnet/ShipmentWorkflow/ShipmentWorkflow.csproj
-dotnet test tests/dotnet/ShipmentWorkflow.Tests/ShipmentWorkflow.Tests.csproj
+dotnet test src/dotnet/ShipmentWorkflow/Tests/ShipmentWorkflow.Tests.csproj
 git diff --check
 ```
 
@@ -69,7 +69,7 @@ git diff --check
 
 * `src/dotnet/ShipmentWorkflow/Domain/Enums/ShipmentStatus.cs`
 * `src/dotnet/ShipmentWorkflow/Domain/Shipment.cs`
-* `tests/dotnet/ShipmentWorkflow.Tests/ShipmentWorkflowStateMachineTests.cs`
+* `src/dotnet/ShipmentWorkflow/Tests/ShipmentWorkflowStateMachineTests.cs`
 * `codex/tasks/shipment-workflow/phase-12-workflow-state-machine.md`
 * `codex/plan.md`
 * `codex/specs/shipment-workflow-gap-analysis.md`
@@ -81,10 +81,10 @@ git status --short
 git branch --show-current
 git log --oneline --decorate -20
 dotnet build src/dotnet/ShipmentWorkflow/ShipmentWorkflow.csproj
-dotnet test tests/dotnet/ShipmentWorkflow.Tests/ShipmentWorkflow.Tests.csproj
-rg --files src/dotnet/ShipmentWorkflow tests/dotnet/ShipmentWorkflow.Tests src/dotnet/Contracts/Shipment.Contracts protos
+dotnet test src/dotnet/ShipmentWorkflow/Tests/ShipmentWorkflow.Tests.csproj
+rg --files src/dotnet/ShipmentWorkflow src/dotnet/ShipmentWorkflow/Tests src/dotnet/Contracts/Shipment.Contracts protos
 dotnet build src/dotnet/ShipmentWorkflow/ShipmentWorkflow.csproj
-dotnet test tests/dotnet/ShipmentWorkflow.Tests/ShipmentWorkflow.Tests.csproj
+dotnet test src/dotnet/ShipmentWorkflow/Tests/ShipmentWorkflow.Tests.csproj
 dotnet build src/dotnet/ShipmentWorkflow/ShipmentWorkflow.csproj
 ```
 

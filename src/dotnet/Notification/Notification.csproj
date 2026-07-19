@@ -6,6 +6,10 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Remove="Tests/**/*.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
     <Protobuf Include="../../../protos/notification.proto" GrpcServices="Server" />
   </ItemGroup>
 

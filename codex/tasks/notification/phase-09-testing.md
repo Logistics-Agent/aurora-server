@@ -65,9 +65,9 @@ dotnet build src/dotnet/Notification/Notification.csproj
 
 ### Files Changed
 
-* tests/dotnet/Notification.Tests/Grpc/TestServerCallContext.cs
-* tests/dotnet/Notification.Tests/Grpc/NotificationGrpcServiceTests.cs
-* tests/dotnet/Notification.Tests/Integration/NotificationPostgresIntegrationTests.cs
+* src/dotnet/Notification/Tests/Grpc/TestServerCallContext.cs
+* src/dotnet/Notification/Tests/Grpc/NotificationGrpcServiceTests.cs
+* src/dotnet/Notification/Tests/Integration/NotificationPostgresIntegrationTests.cs
 * codex/tasks/notification/phase-09-testing.md
 * codex/requirement.md
 * codex/specs/notification.md
@@ -78,7 +78,7 @@ dotnet build src/dotnet/Notification/Notification.csproj
 ```bash
 git status --short
 dotnet build src/dotnet/Notification/Notification.csproj
-dotnet test tests/dotnet/Notification.Tests/Notification.Tests.csproj
+dotnet test src/dotnet/Notification/Tests/Notification.Tests.csproj
 dotnet ef migrations list --project src/dotnet/Notification/Notification.csproj --startup-project src/dotnet/Notification/Notification.csproj
 docker compose -f docker-compose.dev.yml ps
 docker exec aurora-notification-postgres psql -U postgres -d aurora_notification -c "SELECT notifications AS table_name, count(*) FROM notifications UNION ALL SELECT preferences, count(*) FROM notification_preferences UNION ALL SELECT attempts, count(*) FROM notification_delivery_attempts UNION ALL SELECT consumed_events, count(*) FROM consumed_integration_events;"

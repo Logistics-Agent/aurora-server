@@ -81,7 +81,7 @@ dotnet build src/dotnet/Notification/Notification.csproj
 ```bash
 git status --short
 dotnet build src/dotnet/Notification/Notification.csproj
-dotnet test tests/dotnet/Notification.Tests/Notification.Tests.csproj
+dotnet test src/dotnet/Notification/Tests/Notification.Tests.csproj
 docker compose -f docker-compose.dev.yml ps
 timeout 15s dotnet run --project src/dotnet/Notification/Notification.csproj --no-build
 git diff --check

@@ -40,7 +40,7 @@ Do not add route geometry ownership.
 
 ```bash
 dotnet build src/dotnet/ShipmentWorkflow/ShipmentWorkflow.csproj
-dotnet test tests/dotnet/ShipmentWorkflow.Tests/ShipmentWorkflow.Tests.csproj
+dotnet test src/dotnet/ShipmentWorkflow/Tests/ShipmentWorkflow.Tests.csproj
 git diff --check
 ```
 
@@ -86,8 +86,8 @@ EF Core treated child entities added through an already-tracked aggregate graph 
 * `src/dotnet/ShipmentWorkflow/Domain/ShipmentLocation.cs`
 * `src/dotnet/ShipmentWorkflow/GrpcServices/ShipmentGrpcService.cs`
 * `src/dotnet/ShipmentWorkflow/Infrastructure/Persistences/ShipmentWorkflowDbContext.cs`
-* `tests/dotnet/ShipmentWorkflow.Tests/ShipmentCargoLocationManagementTests.cs`
-* `tests/dotnet/ShipmentWorkflow.Tests/ShipmentCommandTests.cs`
+* `src/dotnet/ShipmentWorkflow/Tests/ShipmentCargoLocationManagementTests.cs`
+* `src/dotnet/ShipmentWorkflow/Tests/ShipmentCommandTests.cs`
 
 ### Commands Executed
 
@@ -95,8 +95,8 @@ EF Core treated child entities added through an already-tracked aggregate graph 
 git status --short
 git diff --stat
 dotnet build src/dotnet/ShipmentWorkflow/ShipmentWorkflow.csproj
-dotnet test tests/dotnet/ShipmentWorkflow.Tests/ShipmentWorkflow.Tests.csproj --filter ShipmentCargoLocationManagementTests
-dotnet test tests/dotnet/ShipmentWorkflow.Tests/ShipmentWorkflow.Tests.csproj
+dotnet test src/dotnet/ShipmentWorkflow/Tests/ShipmentWorkflow.Tests.csproj --filter ShipmentCargoLocationManagementTests
+dotnet test src/dotnet/ShipmentWorkflow/Tests/ShipmentWorkflow.Tests.csproj
 ```
 
 ### Build Result
@@ -105,7 +105,7 @@ Passed: `dotnet build src/dotnet/ShipmentWorkflow/ShipmentWorkflow.csproj` compl
 
 ### Test Result
 
-Passed: `dotnet test tests/dotnet/ShipmentWorkflow.Tests/ShipmentWorkflow.Tests.csproj` completed with 65 tests passed, 0 warnings.
+Passed: `dotnet test src/dotnet/ShipmentWorkflow/Tests/ShipmentWorkflow.Tests.csproj` completed with 65 tests passed, 0 warnings.
 
 ### Runtime Result
 

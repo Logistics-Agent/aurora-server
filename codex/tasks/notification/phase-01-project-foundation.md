@@ -71,8 +71,8 @@ dotnet build src/dotnet/Notification/Notification.csproj
 * src/dotnet/Notification/appsettings.json
 * src/dotnet/Notification/appsettings.Development.json
 * src/dotnet/Notification/Properties/launchSettings.json
-* tests/dotnet/Notification.Tests/Notification.Tests.csproj
-* tests/dotnet/Notification.Tests/NotificationContractTests.cs
+* src/dotnet/Notification/Tests/Notification.Tests.csproj
+* src/dotnet/Notification/Tests/NotificationContractTests.cs
 
 ### Commands Executed
 
@@ -80,9 +80,9 @@ dotnet build src/dotnet/Notification/Notification.csproj
 git status --short
 git log --oneline --decorate -20
 dotnet build src/dotnet/ShipmentWorkflow/ShipmentWorkflow.csproj
-dotnet test tests/dotnet/ShipmentWorkflow.Tests/ShipmentWorkflow.Tests.csproj
+dotnet test src/dotnet/ShipmentWorkflow/Tests/ShipmentWorkflow.Tests.csproj
 git switch -c feat/notification-service
-dotnet test tests/dotnet/Notification.Tests/Notification.Tests.csproj
+dotnet test src/dotnet/Notification/Tests/Notification.Tests.csproj
 dotnet build src/dotnet/Notification/Notification.csproj
 ```
 
@@ -92,7 +92,7 @@ Passed: dotnet build src/dotnet/Notification/Notification.csproj completed with 
 
 ### Test Result
 
-Passed: dotnet test tests/dotnet/Notification.Tests/Notification.Tests.csproj completed with 1 test passing, 0 warnings.
+Passed: dotnet test src/dotnet/Notification/Tests/Notification.Tests.csproj completed with 1 test passing, 0 warnings.
 
 ### Runtime Result
 

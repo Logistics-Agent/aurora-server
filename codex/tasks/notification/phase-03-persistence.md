@@ -66,13 +66,13 @@ dotnet build src/dotnet/Notification/Notification.csproj
 * src/dotnet/Notification/Domain/Entities/ConsumedIntegrationEvent.cs
 * src/dotnet/Notification/Infrastructure/Persistences/NotificationDbContext.cs
 * src/dotnet/Notification/Notification.csproj
-* tests/dotnet/Notification.Tests/Notification.Tests.csproj
-* tests/dotnet/Notification.Tests/NotificationPersistenceModelTests.cs
+* src/dotnet/Notification/Tests/Notification.Tests.csproj
+* src/dotnet/Notification/Tests/NotificationPersistenceModelTests.cs
 
 ### Commands Executed
 
 ```bash
-dotnet test tests/dotnet/Notification.Tests/Notification.Tests.csproj
+dotnet test src/dotnet/Notification/Tests/Notification.Tests.csproj
 dotnet build src/dotnet/Notification/Notification.csproj
 ```
 

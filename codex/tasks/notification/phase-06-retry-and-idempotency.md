@@ -70,8 +70,8 @@ dotnet build src/dotnet/Notification/Notification.csproj
 * src/dotnet/Notification/Application/Delivery/NotificationDeliveryService.cs
 * src/dotnet/Notification/Domain/Entities/NotificationMessage.cs
 * src/dotnet/Notification/Infrastructure/Persistences/NotificationDbContext.cs
-* tests/dotnet/Notification.Tests/Application/NotificationDeliveryServiceTests.cs
-* tests/dotnet/Notification.Tests/Application/NotificationRetryTests.cs
+* src/dotnet/Notification/Tests/Application/NotificationDeliveryServiceTests.cs
+* src/dotnet/Notification/Tests/Application/NotificationRetryTests.cs
 * codex/tasks/notification/phase-06-retry-and-idempotency.md
 * codex/plan.md
 
@@ -80,7 +80,7 @@ dotnet build src/dotnet/Notification/Notification.csproj
 ```bash
 git status --short
 dotnet build src/dotnet/Notification/Notification.csproj
-dotnet test tests/dotnet/Notification.Tests/Notification.Tests.csproj
+dotnet test src/dotnet/Notification/Tests/Notification.Tests.csproj
 git diff --check
 ```
 

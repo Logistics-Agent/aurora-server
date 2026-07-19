@@ -65,13 +65,13 @@ dotnet build src/dotnet/Notification/Notification.csproj
 
 * src/dotnet/Notification/Domain/Entities
 * src/dotnet/Notification/Domain/Enums
-* tests/dotnet/Notification.Tests/NotificationDomainTests.cs
+* src/dotnet/Notification/Tests/NotificationDomainTests.cs
 
 ### Commands Executed
 
 ```bash
-dotnet test tests/dotnet/Notification.Tests/Notification.Tests.csproj --filter NotificationDomainTests
-dotnet test tests/dotnet/Notification.Tests/Notification.Tests.csproj
+dotnet test src/dotnet/Notification/Tests/Notification.Tests.csproj --filter NotificationDomainTests
+dotnet test src/dotnet/Notification/Tests/Notification.Tests.csproj
 dotnet build src/dotnet/Notification/Notification.csproj
 ```
 

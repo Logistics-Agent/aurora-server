@@ -67,9 +67,9 @@ dotnet build src/dotnet/Notification/Notification.csproj
 * src/dotnet/Notification/Application/Consumers/ShipmentNotificationConsumer.cs
 * src/dotnet/Notification/Application/Services/ShipmentEventNotificationFactory.cs
 * src/dotnet/Notification/Application/Services/ShipmentNotificationProjector.cs
-* tests/dotnet/Notification.Tests/Application/ShipmentEventNotificationFactoryTests.cs
-* tests/dotnet/Notification.Tests/Application/ShipmentNotificationProjectorTests.cs
-* tests/dotnet/Notification.Tests/Notification.Tests.csproj
+* src/dotnet/Notification/Tests/Application/ShipmentEventNotificationFactoryTests.cs
+* src/dotnet/Notification/Tests/Application/ShipmentNotificationProjectorTests.cs
+* src/dotnet/Notification/Tests/Notification.Tests.csproj
 * codex/tasks/notification/phase-04-shipment-event-consumers.md
 * codex/plan.md
 
@@ -80,7 +80,7 @@ git status --short
 git branch --show-current
 git log --oneline --decorate -6
 dotnet build src/dotnet/Notification/Notification.csproj
-dotnet test tests/dotnet/Notification.Tests/Notification.Tests.csproj
+dotnet test src/dotnet/Notification/Tests/Notification.Tests.csproj
 git diff --check
 ```
 

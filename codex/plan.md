@@ -80,7 +80,7 @@ Notification Phases 01-09 are Completed.
 
 ## Current Work
 
-Shipment Workflow and Notification Service are complete. Notification includes tenant-safe gRPC APIs, Shipment event consumers, persisted delivery/retry behavior, an applied database migration, and 29 passing tests.
+Shipment Workflow and Notification Service are complete. Notification includes tenant-safe gRPC APIs, Shipment event consumers, persisted delivery/retry behavior, an applied database migration, and 29 passing tests. Service test projects are colocated under `src/dotnet/<Service>/Tests`; future owned services will follow this layout when their implementation phases begin.
 
 ## Blocked Work
 
@@ -106,7 +106,7 @@ Result: Passed, 3 projects, 0 errors, 0 warnings.
 Latest verified Notification Phase 09 validation:
 
 ```bash
-dotnet test tests/dotnet/Notification.Tests/Notification.Tests.csproj
+dotnet test src/dotnet/Notification/Tests/Notification.Tests.csproj
 ```
 
 Result: Passed, 29 tests, 0 warnings, including PostgreSQL integration.

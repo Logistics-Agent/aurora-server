@@ -205,8 +205,8 @@ dotnet build src/dotnet/ShipmentWorkflow/ShipmentWorkflow.csproj
 
 ### Files Changed
 
-* `tests/dotnet/ShipmentWorkflow.Tests/ShipmentWorkflow.Tests.csproj`
-* `tests/dotnet/ShipmentWorkflow.Tests/CreateShipmentCommandHandlerTests.cs`
+* `src/dotnet/ShipmentWorkflow/Tests/ShipmentWorkflow.Tests.csproj`
+* `src/dotnet/ShipmentWorkflow/Tests/CreateShipmentCommandHandlerTests.cs`
 * `src/dotnet/ShipmentWorkflow/Infrastructure/Persistences/ShipmentWorkflowDbContext.cs`
 * `codex/tasks/shipment-workflow/phase-10-testing.md`
 * `codex/plan.md`
@@ -216,8 +216,8 @@ dotnet build src/dotnet/ShipmentWorkflow/ShipmentWorkflow.csproj
 * `git status --short`
 * `find . -type f \( -name '*Tests.csproj' -o -name '*Test.csproj' \) -not -path '*/bin/*' -not -path '*/obj/*'`
 * `dotnet build src/dotnet/ShipmentWorkflow/ShipmentWorkflow.csproj`
-* `dotnet new xunit -n ShipmentWorkflow.Tests -o tests/dotnet/ShipmentWorkflow.Tests --framework net10.0`
-* `dotnet test tests/dotnet/ShipmentWorkflow.Tests/ShipmentWorkflow.Tests.csproj`
+* `dotnet new xunit -n ShipmentWorkflow.Tests -o src/dotnet/ShipmentWorkflow/Tests --framework net10.0`
+* `dotnet test src/dotnet/ShipmentWorkflow/Tests/ShipmentWorkflow.Tests.csproj`
 * `git diff --check`
 
 ### Build Result
@@ -226,7 +226,7 @@ Passed. `dotnet build src/dotnet/ShipmentWorkflow/ShipmentWorkflow.csproj` compl
 
 ### Test Result
 
-Passed. `dotnet test tests/dotnet/ShipmentWorkflow.Tests/ShipmentWorkflow.Tests.csproj` completed with 11 tests passed, 0 failed, and 0 warnings.
+Passed. `dotnet test src/dotnet/ShipmentWorkflow/Tests/ShipmentWorkflow.Tests.csproj` completed with 11 tests passed, 0 failed, and 0 warnings.
 
 ### Remaining Issues
 

@@ -2,7 +2,7 @@
 
 ## Baseline
 
-Inspected source under `src/dotnet/ShipmentWorkflow`, `src/dotnet/Contracts/Shipment.Contracts`, `protos/shipment_workflow.proto`, and `tests/dotnet/ShipmentWorkflow.Tests` after Phase 19.
+Inspected source under `src/dotnet/ShipmentWorkflow`, `src/dotnet/Contracts/Shipment.Contracts`, `protos/shipment_workflow.proto`, and `src/dotnet/ShipmentWorkflow/Tests` after Phase 19.
 
 ## Capability Matrix
 

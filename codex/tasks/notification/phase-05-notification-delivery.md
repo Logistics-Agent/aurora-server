@@ -68,7 +68,7 @@ dotnet build src/dotnet/Notification/Notification.csproj
 * src/dotnet/Notification/Application/Delivery/NotificationDeliveryContracts.cs
 * src/dotnet/Notification/Application/Delivery/InAppNotificationProvider.cs
 * src/dotnet/Notification/Application/Delivery/NotificationDeliveryService.cs
-* tests/dotnet/Notification.Tests/Application/NotificationDeliveryServiceTests.cs
+* src/dotnet/Notification/Tests/Application/NotificationDeliveryServiceTests.cs
 * codex/tasks/notification/phase-05-notification-delivery.md
 * codex/plan.md
 
@@ -77,7 +77,7 @@ dotnet build src/dotnet/Notification/Notification.csproj
 ```bash
 git status --short
 dotnet build src/dotnet/Notification/Notification.csproj
-dotnet test tests/dotnet/Notification.Tests/Notification.Tests.csproj
+dotnet test src/dotnet/Notification/Tests/Notification.Tests.csproj
 git diff --check
 ```
 

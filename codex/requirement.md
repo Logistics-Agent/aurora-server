@@ -27,6 +27,8 @@ Services must never directly query or update another service database. Cross-ser
 * AWS Cognito
 * YARP API Gateway
 
+Service test projects are colocated under `src/dotnet/<Service>/Tests`. Future service test projects are created with their active implementation phase rather than scaffolded in advance.
+
 ## Assigned Services
 
 Ngoc Khoa owns:

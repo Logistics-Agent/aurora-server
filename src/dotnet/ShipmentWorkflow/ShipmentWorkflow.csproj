@@ -7,6 +7,10 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Remove="Tests/**/*.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
     <Protobuf Include="../../../protos/shipment_workflow.proto" GrpcServices="Server" />
     <Protobuf Include="../../../protos/common.proto" GrpcServices="None" />
   </ItemGroup>
