@@ -80,4 +80,4 @@ Billing, payment, detailed GPS history, route planning, OCR execution, complianc
 
 ## Implementation Status
 
-Shipment Workflow full MVP is completed through Phase 19. Current verified regression: `dotnet build src/dotnet/ShipmentWorkflow/ShipmentWorkflow.csproj` passes and `dotnet test src/dotnet/ShipmentWorkflow/Tests/ShipmentWorkflow.Tests.csproj` passes with 83 tests.
+Shipment Workflow full MVP and Phase 20 outbox publishing are completed. Pending events are published through MassTransit/RabbitMQ with bounded retry and PostgreSQL skip-locked batching. Current verified regression: `dotnet build src/dotnet/ShipmentWorkflow/ShipmentWorkflow.csproj` passes and `dotnet test src/dotnet/ShipmentWorkflow/Tests/ShipmentWorkflow.Tests.csproj` passes with 99 tests.

@@ -49,7 +49,7 @@ Current implemented state:
 
 * Full Shipment Workflow MVP: Completed.
 * Shipment Workflow migrations are applied locally.
-* Latest verified Shipment Workflow regression: 83 tests passing.
+* Latest verified Shipment Workflow regression: 99 tests passing.
 
 Notification Service is completed with its initial migration applied locally and 29 tests passing. GPS Tracking is the next planned service but is not active until explicitly authorized.
 
@@ -59,10 +59,10 @@ Tenant-owned entities must contain or inherit tenant ownership. Tenant access is
 
 ## Integration Events
 
-Reliable event publication must use the outbox pattern. Shipment Workflow persists versioned
-Shipment events in its outbox. A broker-publishing worker remains an integration prerequisite
-for live cross-service event delivery; Notification must not read the Shipment database as a
-workaround.
+Reliable event publication uses the outbox pattern. Shipment Workflow persists versioned
+Shipment events and its background publisher sends pending rows through MassTransit and
+RabbitMQ with bounded retry. Consumers remain responsible for idempotency and must not read
+the Shipment database as a workaround.
 
 ## Documentation Map
 

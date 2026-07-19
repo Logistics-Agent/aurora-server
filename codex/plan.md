@@ -12,8 +12,8 @@ Regulatory Compliance RAG: Not Started
 
 ## Active Work
 
-Active Service: Notification
-Active Phase: None - Notification Service Completed
+Active Service: Shipment Workflow
+Active Phase: None - Phase 20 Completed
 Current Branch: feat/notification-service
 
 ## Service Progress
@@ -49,6 +49,7 @@ Current Branch: feat/notification-service
 | 17 | Shipment Import | Completed |
 | 18 | Contracts and Integration Events | Completed |
 | 19 | Migration and Full MVP Testing | Completed |
+| 20 | Outbox Publishing and Notification Integration | Completed |
 
 ## Future Service Phase Progress
 
@@ -76,11 +77,12 @@ Notification Phases 01-09 are Completed.
 * Phase 17 implemented synchronous CSV shipment import with row-level results, limits, TenantId rejection, partial-success transaction policy, and ShipmentCreated outbox writes.
 * Phase 18 completed Shipment event contracts with EventId/version fields, added missing lifecycle/update event contracts, and wired outbox writes for submit/update/pickup/delivery/completion flows.
 * Phase 19 generated and applied `20260714042938_ExpandShipmentWorkflowMvp`, verified local PostgreSQL schema, ran runtime smoke validation, and completed full Shipment Workflow regression.
+* Phase 20 added a PostgreSQL skip-locked outbox publisher for all Shipment event contracts, bounded retry diagnostics, and verified real RabbitMQ delivery into Notification.
 * Notification Phases 01-09 completed the standalone service, Shipment event consumers, tenant-safe gRPC APIs, provider-neutral delivery, bounded retry, `20260719124939_InitialNotification`, runtime smoke validation, and 29 passing tests.
 
 ## Current Work
 
-Shipment Workflow and Notification Service are complete. Notification includes tenant-safe gRPC APIs, Shipment event consumers, persisted delivery/retry behavior, an applied database migration, and 29 passing tests. Service test projects are colocated under `src/dotnet/<Service>/Tests`; future owned services will follow this layout when their implementation phases begin.
+Shipment Workflow and Notification Service are complete and connected through RabbitMQ. Shipment publishes persisted outbox events with bounded retry; Notification consumes supported events idempotently. Service test projects are colocated under `src/dotnet/<Service>/Tests`; future owned services will follow this layout when their implementation phases begin.
 
 ## Blocked Work
 
@@ -88,32 +90,38 @@ No active blocker.
 
 ## Remaining Work
 
-* Live Shipment-to-Notification broker delivery requires the Shipment outbox publisher;
-  this is an integration handoff and does not authorize Notification to read Shipment data.
+No remaining Shipment-to-Notification integration gap. Additional consumers must implement their own inbox/idempotency behavior when their service phases begin.
 
 ## Build Results
 
-Latest verified Notification Phase 09 validation:
+Latest verified Phase 20 validation:
 
 ```bash
+dotnet build src/dotnet/ShipmentWorkflow/ShipmentWorkflow.csproj
 dotnet build src/dotnet/Notification/Notification.csproj
 ```
 
-Result: Passed, 3 projects, 0 errors, 0 warnings.
+Result: Both passed, 0 errors, 0 warnings.
 
 ## Test Results
 
-Latest verified Notification Phase 09 validation:
+Latest verified Phase 20 validation:
 
 ```bash
+dotnet test src/dotnet/ShipmentWorkflow/Tests/ShipmentWorkflow.Tests.csproj
 dotnet test src/dotnet/Notification/Tests/Notification.Tests.csproj
 ```
 
-Result: Passed, 29 tests, 0 warnings, including PostgreSQL integration.
+Result: Shipment passed 99 tests; Notification passed 29 tests; 0 warnings.
 
 ## Migration Results
 
 Initial Shipment Workflow migration `20260713201248_InitialShipmentWorkflow` and expanded MVP migration `20260714042938_ExpandShipmentWorkflowMvp` are applied to local `aurora_shipment_workflow`. Notification migration `20260719124939_InitialNotification` is applied to local `aurora_notification`.
+
+Part of the validation also produced supporting repository commits:
+
+* `0ebc652` - colocate Shipment and Notification test projects.
+* `e574f54` - exclude colocated test artifacts from production Web SDK items.
 
 ## Commit History
 
