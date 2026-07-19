@@ -8,6 +8,9 @@
 
   <ItemGroup>
     <Compile Remove="Tests/**/*.cs" />
+    <Content Remove="Tests/**/*" />
+    <EmbeddedResource Remove="Tests/**/*" />
+    <None Remove="Tests/**/*" />
   </ItemGroup>
 
   <ItemGroup>
