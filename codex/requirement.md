@@ -49,7 +49,7 @@ Current implemented state:
 * Shipment Workflow migrations are applied locally.
 * Latest verified Shipment Workflow regression: 83 tests passing.
 
-Notification is the next active service. Its execution plan is under `codex/tasks/notification/`.
+Notification Service is completed with its initial migration applied locally and 29 tests passing. GPS Tracking is the next planned service but is not active until explicitly authorized.
 
 ## Tenant Isolation
 

@@ -5,7 +5,7 @@
 Shipment Workflow CreateShipment vertical slice: Completed
 Shipment Workflow Aggregate Expansion: Completed
 Shipment Workflow full MVP: Completed
-Notification Service: In Progress
+Notification Service: Completed
 GPS Tracking and Monitoring: Not Started
 Document OCR Agent: Not Started
 Regulatory Compliance RAG: Not Started
@@ -13,7 +13,7 @@ Regulatory Compliance RAG: Not Started
 ## Active Work
 
 Active Service: Notification
-Active Phase: Phase 09 - Testing
+Active Phase: None - Notification Service Completed
 Current Branch: feat/notification-service
 
 ## Service Progress
@@ -21,7 +21,7 @@ Current Branch: feat/notification-service
 | Service | Status |
 | --- | --- |
 | Shipment Workflow | Completed |
-| Notification | In Progress |
+| Notification | Completed |
 | GPS Tracking and Monitoring | Not Started |
 | Document OCR Agent | Not Started |
 | Regulatory Compliance RAG | Not Started |
@@ -59,7 +59,7 @@ Future-service phase plans exist under:
 * `codex/tasks/document-ocr/`
 * `codex/tasks/regulatory-compliance-rag/`
 
-Notification Phases 01-08 are Completed; Phase 09 is `Not Started`.
+Notification Phases 01-09 are Completed.
 
 ## Completed Work
 
@@ -76,10 +76,11 @@ Notification Phases 01-08 are Completed; Phase 09 is `Not Started`.
 * Phase 17 implemented synchronous CSV shipment import with row-level results, limits, TenantId rejection, partial-success transaction policy, and ShipmentCreated outbox writes.
 * Phase 18 completed Shipment event contracts with EventId/version fields, added missing lifecycle/update event contracts, and wired outbox writes for submit/update/pickup/delivery/completion flows.
 * Phase 19 generated and applied `20260714042938_ExpandShipmentWorkflowMvp`, verified local PostgreSQL schema, ran runtime smoke validation, and completed full Shipment Workflow regression.
+* Notification Phases 01-09 completed the standalone service, Shipment event consumers, tenant-safe gRPC APIs, provider-neutral delivery, bounded retry, `20260719124939_InitialNotification`, runtime smoke validation, and 29 passing tests.
 
 ## Current Work
 
-Shipment Workflow MVP is complete. Notification Phases 01-08 established the independent service, complete runtime behavior, and an applied service-owned PostgreSQL migration. Phase 09 is next.
+Shipment Workflow and Notification Service are complete. Notification includes tenant-safe gRPC APIs, Shipment event consumers, persisted delivery/retry behavior, an applied database migration, and 29 passing tests.
 
 ## Blocked Work
 
@@ -87,13 +88,12 @@ No active blocker.
 
 ## Remaining Work
 
-* Complete Notification Phase 09.
 * Live Shipment-to-Notification broker delivery requires the Shipment outbox publisher;
   this is an integration handoff and does not authorize Notification to read Shipment data.
 
 ## Build Results
 
-Latest verified Notification Phase 08 validation:
+Latest verified Notification Phase 09 validation:
 
 ```bash
 dotnet build src/dotnet/Notification/Notification.csproj
@@ -103,13 +103,13 @@ Result: Passed, 3 projects, 0 errors, 0 warnings.
 
 ## Test Results
 
-Latest verified Notification Phase 08 validation:
+Latest verified Notification Phase 09 validation:
 
 ```bash
 dotnet test tests/dotnet/Notification.Tests/Notification.Tests.csproj
 ```
 
-Result: Passed, 22 tests, 0 warnings.
+Result: Passed, 29 tests, 0 warnings, including PostgreSQL integration.
 
 ## Migration Results
 
@@ -117,21 +117,25 @@ Initial Shipment Workflow migration `20260713201248_InitialShipmentWorkflow` and
 
 ## Commit History
 
-Recent phase commits:
+Recent Notification phase commits:
 
-* `de4150f` — Phase 06 proto contract
-* `cedea06` — Phase 07 program configuration
-* `72e4409` — Phase 08 CreateShipment flow
-* `5620d58` — Phase 09 migration
-* `f33c5a8` — Phase 10 tests
+* `e89550a` — Phase 01 project foundation
+* `4baed46` — Phase 02 domain model
+* `dfcbdb5` — Phase 03 persistence model
+* `52d8456` — Phase 04 Shipment event consumers
+* `42a06d2` — Phase 05 notification delivery
+* `8f237ff` — Phase 06 retry and idempotency
+* `ffb10c9` — Phase 07 program configuration
+* `2fc547d` — Phase 08 initial migration
+* Phase 09 testing commit is the final local Notification commit
 
 ## Immediate Next Action
 
-Execute Notification Phase 09 - Testing.
+No active implementation phase. Await explicit authorization before creating the GPS Tracking service branch.
 
 ## Branch Strategy
 
-Remain on the current Notification branch until the Notification service is complete.
+Notification is complete; remain on this branch until the user explicitly authorizes the next service branch.
 
 Future stacked branch strategy:
 
