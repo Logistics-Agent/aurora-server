@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore;
 using ShipmentWorkflow.Infrastructure.Persistences;
 using ShipmentWorkflow.Application.Interfaces;
 using ShipmentWorkflow.Infrastructure.Services;
+using ShipmentWorkflow.Infrastructure.BackgroundJobs;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -30,6 +31,21 @@ builder.Services.AddDbContext<ShipmentWorkflowDbContext>(options =>
 builder.Services.AddScoped<
     IShipmentNumberGenerator,
     ShipmentNumberGenerator>();
+
+builder.Services.AddOptions<ShipmentOutboxPublisherOptions>()
+    .Bind(builder.Configuration.GetSection(ShipmentOutboxPublisherOptions.SectionName))
+    .Validate(options => options.BatchSize > 0, "ShipmentOutbox:BatchSize must be positive.")
+    .Validate(options => options.MaxRetries > 0, "ShipmentOutbox:MaxRetries must be positive.")
+    .Validate(
+        options => options.PollingInterval > TimeSpan.Zero,
+        "ShipmentOutbox:PollingInterval must be positive.")
+    .ValidateOnStart();
+builder.Services.AddSingleton(TimeProvider.System);
+builder.Services.AddScoped<
+    IShipmentIntegrationEventPublisher,
+    ShipmentIntegrationEventPublisher>();
+builder.Services.AddScoped<ShipmentOutboxProcessor>();
+builder.Services.AddHostedService<ShipmentOutboxPublisherBackgroundService>();
 
 var app = builder.Build();
 

@@ -40,7 +40,7 @@ Do not generate another initial migration. Stop before destructive DB actions.
 
 ```bash
 dotnet build src/dotnet/ShipmentWorkflow/ShipmentWorkflow.csproj
-dotnet test tests/dotnet/ShipmentWorkflow.Tests/ShipmentWorkflow.Tests.csproj
+dotnet test src/dotnet/ShipmentWorkflow/Tests/ShipmentWorkflow.Tests.csproj
 git diff --check
 ```
 
@@ -82,7 +82,7 @@ git diff --check
 ```bash
 git status --short
 dotnet build src/dotnet/ShipmentWorkflow/ShipmentWorkflow.csproj
-dotnet test tests/dotnet/ShipmentWorkflow.Tests/ShipmentWorkflow.Tests.csproj
+dotnet test src/dotnet/ShipmentWorkflow/Tests/ShipmentWorkflow.Tests.csproj
 find src/dotnet/ShipmentWorkflow/Infrastructure/Persistences/Migrations -maxdepth 1 -type f
 dotnet ef migrations list --project src/dotnet/ShipmentWorkflow/ShipmentWorkflow.csproj --startup-project src/dotnet/ShipmentWorkflow/ShipmentWorkflow.csproj
 dotnet ef migrations add ExpandShipmentWorkflowMvp --project src/dotnet/ShipmentWorkflow/ShipmentWorkflow.csproj --startup-project src/dotnet/ShipmentWorkflow/ShipmentWorkflow.csproj --output-dir Infrastructure/Persistences/Migrations
@@ -99,7 +99,7 @@ Passed: `dotnet build src/dotnet/ShipmentWorkflow/ShipmentWorkflow.csproj` compl
 
 ### Test Result
 
-Passed: `dotnet test tests/dotnet/ShipmentWorkflow.Tests/ShipmentWorkflow.Tests.csproj` completed with 83 tests passed, 0 warnings.
+Passed: `dotnet test src/dotnet/ShipmentWorkflow/Tests/ShipmentWorkflow.Tests.csproj` completed with 83 tests passed, 0 warnings.
 
 ### Runtime Result
 

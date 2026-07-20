@@ -40,7 +40,7 @@ Do not implement OCR execution or object storage ownership unless explicitly ass
 
 ```bash
 dotnet build src/dotnet/ShipmentWorkflow/ShipmentWorkflow.csproj
-dotnet test tests/dotnet/ShipmentWorkflow.Tests/ShipmentWorkflow.Tests.csproj
+dotnet test src/dotnet/ShipmentWorkflow/Tests/ShipmentWorkflow.Tests.csproj
 git diff --check
 ```
 
@@ -82,16 +82,16 @@ Shipment Workflow stores only document metadata and storage references. OCR serv
 * `src/dotnet/ShipmentWorkflow/Domain/Shipment.cs`
 * `src/dotnet/ShipmentWorkflow/Domain/ShipmentDocument.cs`
 * `src/dotnet/ShipmentWorkflow/GrpcServices/ShipmentGrpcService.cs`
-* `tests/dotnet/ShipmentWorkflow.Tests/ShipmentDocumentMilestoneManagementTests.cs`
+* `src/dotnet/ShipmentWorkflow/Tests/ShipmentDocumentMilestoneManagementTests.cs`
 
 ### Commands Executed
 
 ```bash
 git status --short
 dotnet build src/dotnet/ShipmentWorkflow/ShipmentWorkflow.csproj
-dotnet test tests/dotnet/ShipmentWorkflow.Tests/ShipmentWorkflow.Tests.csproj
-dotnet test tests/dotnet/ShipmentWorkflow.Tests/ShipmentWorkflow.Tests.csproj --filter ShipmentDocumentMilestoneManagementTests
-dotnet test tests/dotnet/ShipmentWorkflow.Tests/ShipmentWorkflow.Tests.csproj --filter "ShipmentCommandTests|ShipmentDocumentMilestoneManagementTests"
+dotnet test src/dotnet/ShipmentWorkflow/Tests/ShipmentWorkflow.Tests.csproj
+dotnet test src/dotnet/ShipmentWorkflow/Tests/ShipmentWorkflow.Tests.csproj --filter ShipmentDocumentMilestoneManagementTests
+dotnet test src/dotnet/ShipmentWorkflow/Tests/ShipmentWorkflow.Tests.csproj --filter "ShipmentCommandTests|ShipmentDocumentMilestoneManagementTests"
 ```
 
 ### Build Result
@@ -100,7 +100,7 @@ Passed: `dotnet build src/dotnet/ShipmentWorkflow/ShipmentWorkflow.csproj` compl
 
 ### Test Result
 
-Passed: `dotnet test tests/dotnet/ShipmentWorkflow.Tests/ShipmentWorkflow.Tests.csproj` completed with 73 tests passed, 0 warnings.
+Passed: `dotnet test src/dotnet/ShipmentWorkflow/Tests/ShipmentWorkflow.Tests.csproj` completed with 73 tests passed, 0 warnings.
 
 ### Runtime Result
 

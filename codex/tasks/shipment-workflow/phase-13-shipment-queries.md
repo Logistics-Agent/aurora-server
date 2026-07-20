@@ -40,7 +40,7 @@ Do not implement write commands in this phase.
 
 ```bash
 dotnet build src/dotnet/ShipmentWorkflow/ShipmentWorkflow.csproj
-dotnet test tests/dotnet/ShipmentWorkflow.Tests/ShipmentWorkflow.Tests.csproj
+dotnet test src/dotnet/ShipmentWorkflow/Tests/ShipmentWorkflow.Tests.csproj
 git diff --check
 ```
 
@@ -79,7 +79,7 @@ git diff --check
 * `src/dotnet/ShipmentWorkflow/Application/Queries/Shipments/GetShipmentQuery.cs`
 * `src/dotnet/ShipmentWorkflow/Application/Queries/Shipments/ListShipmentsQuery.cs`
 * `src/dotnet/ShipmentWorkflow/Application/Queries/Shipments/GetShipmentTimelineQuery.cs`
-* `tests/dotnet/ShipmentWorkflow.Tests/ShipmentQueryTests.cs`
+* `src/dotnet/ShipmentWorkflow/Tests/ShipmentQueryTests.cs`
 * `codex/tasks/shipment-workflow/phase-13-shipment-queries.md`
 * `codex/plan.md`
 * `codex/specs/shipment-workflow-gap-analysis.md`
@@ -90,10 +90,10 @@ git diff --check
 git status --short
 git log --oneline --decorate -5
 dotnet build src/dotnet/ShipmentWorkflow/ShipmentWorkflow.csproj
-dotnet test tests/dotnet/ShipmentWorkflow.Tests/ShipmentWorkflow.Tests.csproj
+dotnet test src/dotnet/ShipmentWorkflow/Tests/ShipmentWorkflow.Tests.csproj
 dotnet build src/dotnet/ShipmentWorkflow/ShipmentWorkflow.csproj
 dotnet build src/dotnet/ShipmentWorkflow/ShipmentWorkflow.csproj
-dotnet test tests/dotnet/ShipmentWorkflow.Tests/ShipmentWorkflow.Tests.csproj
+dotnet test src/dotnet/ShipmentWorkflow/Tests/ShipmentWorkflow.Tests.csproj
 ```
 
 ### Build Result

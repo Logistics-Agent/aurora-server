@@ -5,7 +5,7 @@
 Shipment Workflow CreateShipment vertical slice: Completed
 Shipment Workflow Aggregate Expansion: Completed
 Shipment Workflow full MVP: Completed
-Notification Service: Not Started
+Notification Service: Completed
 GPS Tracking and Monitoring: Not Started
 Document OCR Agent: Not Started
 Regulatory Compliance RAG: Not Started
@@ -13,15 +13,15 @@ Regulatory Compliance RAG: Not Started
 ## Active Work
 
 Active Service: Shipment Workflow
-Active Phase: Completed
-Current Branch: feat/shipment-workflow
+Active Phase: None - Phase 20 Completed
+Current Branch: feat/notification-service
 
 ## Service Progress
 
 | Service | Status |
 | --- | --- |
 | Shipment Workflow | Completed |
-| Notification | Not Started |
+| Notification | Completed |
 | GPS Tracking and Monitoring | Not Started |
 | Document OCR Agent | Not Started |
 | Regulatory Compliance RAG | Not Started |
@@ -49,6 +49,7 @@ Current Branch: feat/shipment-workflow
 | 17 | Shipment Import | Completed |
 | 18 | Contracts and Integration Events | Completed |
 | 19 | Migration and Full MVP Testing | Completed |
+| 20 | Outbox Publishing and Notification Integration | Completed |
 
 ## Future Service Phase Progress
 
@@ -59,7 +60,7 @@ Future-service phase plans exist under:
 * `codex/tasks/document-ocr/`
 * `codex/tasks/regulatory-compliance-rag/`
 
-All future-service phases are `Not Started`.
+Notification Phases 01-09 are Completed.
 
 ## Completed Work
 
@@ -76,10 +77,12 @@ All future-service phases are `Not Started`.
 * Phase 17 implemented synchronous CSV shipment import with row-level results, limits, TenantId rejection, partial-success transaction policy, and ShipmentCreated outbox writes.
 * Phase 18 completed Shipment event contracts with EventId/version fields, added missing lifecycle/update event contracts, and wired outbox writes for submit/update/pickup/delivery/completion flows.
 * Phase 19 generated and applied `20260714042938_ExpandShipmentWorkflowMvp`, verified local PostgreSQL schema, ran runtime smoke validation, and completed full Shipment Workflow regression.
+* Phase 20 added a PostgreSQL skip-locked outbox publisher for all Shipment event contracts, bounded retry diagnostics, and verified real RabbitMQ delivery into Notification.
+* Notification Phases 01-09 completed the standalone service, Shipment event consumers, tenant-safe gRPC APIs, provider-neutral delivery, bounded retry, `20260719124939_InitialNotification`, runtime smoke validation, and 29 passing tests.
 
 ## Current Work
 
-Shipment Workflow MVP is complete. The next allowed service branch is `feat/notification-service`; do not create it until explicitly requested.
+Shipment Workflow and Notification Service are complete and connected through RabbitMQ. Shipment publishes persisted outbox events with bounded retry; Notification consumes supported events idempotently. Service test projects are colocated under `src/dotnet/<Service>/Tests`; future owned services will follow this layout when their implementation phases begin.
 
 ## Blocked Work
 
@@ -87,49 +90,60 @@ No active blocker.
 
 ## Remaining Work
 
-No Shipment Workflow MVP implementation work remains.
+No remaining Shipment-to-Notification integration gap. Additional consumers must implement their own inbox/idempotency behavior when their service phases begin.
 
 ## Build Results
 
-Latest verified Phase 19 validation:
+Latest verified Phase 20 validation:
 
 ```bash
 dotnet build src/dotnet/ShipmentWorkflow/ShipmentWorkflow.csproj
+dotnet build src/dotnet/Notification/Notification.csproj
 ```
 
-Result: Passed, 3 projects, 0 errors, 0 warnings.
+Result: Both passed, 0 errors, 0 warnings.
 
 ## Test Results
 
-Latest verified Phase 19 validation:
+Latest verified Phase 20 validation:
 
 ```bash
-dotnet test tests/dotnet/ShipmentWorkflow.Tests/ShipmentWorkflow.Tests.csproj
+dotnet test src/dotnet/ShipmentWorkflow/Tests/ShipmentWorkflow.Tests.csproj
+dotnet test src/dotnet/Notification/Tests/Notification.Tests.csproj
 ```
 
-Result: Passed, 83 tests, 0 warnings.
+Result: Shipment passed 99 tests; Notification passed 29 tests; 0 warnings.
 
 ## Migration Results
 
-Initial Shipment Workflow migration `20260713201248_InitialShipmentWorkflow` and expanded MVP migration `20260714042938_ExpandShipmentWorkflowMvp` are applied to local `aurora_shipment_workflow`.
+Initial Shipment Workflow migration `20260713201248_InitialShipmentWorkflow` and expanded MVP migration `20260714042938_ExpandShipmentWorkflowMvp` are applied to local `aurora_shipment_workflow`. Notification migration `20260719124939_InitialNotification` is applied to local `aurora_notification`.
+
+Part of the validation also produced supporting repository commits:
+
+* `0ebc652` - colocate Shipment and Notification test projects.
+* `e574f54` - exclude colocated test artifacts from production Web SDK items.
 
 ## Commit History
 
-Recent phase commits:
+Recent Notification phase commits:
 
-* `de4150f` — Phase 06 proto contract
-* `cedea06` — Phase 07 program configuration
-* `72e4409` — Phase 08 CreateShipment flow
-* `5620d58` — Phase 09 migration
-* `f33c5a8` — Phase 10 tests
+* `e89550a` — Phase 01 project foundation
+* `4baed46` — Phase 02 domain model
+* `dfcbdb5` — Phase 03 persistence model
+* `52d8456` — Phase 04 Shipment event consumers
+* `42a06d2` — Phase 05 notification delivery
+* `8f237ff` — Phase 06 retry and idempotency
+* `ffb10c9` — Phase 07 program configuration
+* `2fc547d` — Phase 08 initial migration
+* Phase 09 testing commit is the final local Notification commit
 
 ## Immediate Next Action
 
-Stop Shipment Workflow implementation. Next allowed action after explicit request: create `feat/notification-service`.
+No active implementation phase. Await explicit authorization before creating the GPS Tracking service branch.
 
 ## Branch Strategy
 
-Remain on current Shipment branch until full Shipment Workflow MVP is complete.
+Notification is complete; remain on this branch until the user explicitly authorizes the next service branch.
 
 Future stacked branch strategy:
 

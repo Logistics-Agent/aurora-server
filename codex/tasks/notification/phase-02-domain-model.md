@@ -2,7 +2,7 @@
 
 ## Status
 
-Not Started
+Completed
 
 ## Goal
 
@@ -22,7 +22,7 @@ Phase 01.
 
 ## Existing State
 
-Production implementation has not started for this service.
+Notification domain entities and enums are implemented.
 
 ## Scope
 
@@ -43,8 +43,7 @@ Domain supports email and in-app abstractions.
 ## Validation Commands
 
 ```bash
-# Replace with the service project path once created.
-dotnet build
+dotnet build src/dotnet/Notification/Notification.csproj
 ```
 
 ## Completion Criteria
@@ -58,32 +57,44 @@ dotnet build
 
 ### Completed
 
-Not started.
+* Added NotificationMessage, NotificationPreference, and NotificationDeliveryAttempt.
+* Added channel, event, notification, and delivery-attempt enums.
+* Enforced tenant, user, event, recipient, text, attempt, and transition invariants.
 
 ### Files Changed
 
-None.
+* src/dotnet/Notification/Domain/Entities
+* src/dotnet/Notification/Domain/Enums
+* src/dotnet/Notification/Tests/NotificationDomainTests.cs
 
 ### Commands Executed
 
-None.
+```bash
+dotnet test src/dotnet/Notification/Tests/Notification.Tests.csproj --filter NotificationDomainTests
+dotnet test src/dotnet/Notification/Tests/Notification.Tests.csproj
+dotnet build src/dotnet/Notification/Notification.csproj
+```
 
 ### Build Result
 
-Not started.
+Passed: 3 projects, 0 errors, 0 warnings.
 
 ### Test Result
 
-Not started.
+Passed: 6 tests, 0 warnings.
 
 ### Runtime Result
 
-Not started.
+Not run; runtime configuration is Phase 07 scope.
 
 ### Migration Result
 
-Not started.
+Not run; persistence and migrations are later phases.
 
 ### Remaining Issues
 
-Phase has not started.
+Persistence mapping remains Phase 03 scope.
+
+### Commit Hash
+
+Recorded by the Phase 02 Git commit.
