@@ -6,15 +6,15 @@ Shipment Workflow CreateShipment vertical slice: Completed
 Shipment Workflow Aggregate Expansion: Completed
 Shipment Workflow full MVP: Completed
 Notification Service: Completed
-GPS Tracking and Monitoring: Not Started
+GPS Tracking and Monitoring: In Progress
 Document OCR Agent: Not Started
 Regulatory Compliance RAG: Not Started
 
 ## Active Work
 
-Active Service: Shipment Workflow
-Active Phase: None - Phase 20 Completed
-Current Branch: feat/notification-service
+Active Service: GPS Tracking and Monitoring
+Active Phase: Phase 01 - Project Foundation
+Current Branch: feat/gps-tracking
 
 ## Service Progress
 
@@ -22,7 +22,7 @@ Current Branch: feat/notification-service
 | --- | --- |
 | Shipment Workflow | Completed |
 | Notification | Completed |
-| GPS Tracking and Monitoring | Not Started |
+| GPS Tracking and Monitoring | In Progress |
 | Document OCR Agent | Not Started |
 | Regulatory Compliance RAG | Not Started |
 
@@ -61,6 +61,21 @@ Future-service phase plans exist under:
 * `codex/tasks/regulatory-compliance-rag/`
 
 Notification Phases 01-09 are Completed.
+
+## GPS Tracking Phase Progress
+
+| Phase | Name | Status |
+| --- | --- | --- |
+| 01 | Project Foundation | In Progress |
+| 02 | Contracts and Domain Model | Not Started |
+| 03 | Persistence | Not Started |
+| 04 | Location Ingestion | Not Started |
+| 05 | Current Location and History | Not Started |
+| 06 | Shipment Event Consumers | Not Started |
+| 07 | Monitoring Rules | Not Started |
+| 08 | Realtime Integration | Not Started |
+| 09 | Program and Migration | Not Started |
+| 10 | Testing and Runtime Validation | Not Started |
 
 ## Completed Work
 
@@ -139,11 +154,13 @@ Recent Notification phase commits:
 
 ## Immediate Next Action
 
-No active implementation phase. Await explicit authorization before creating the GPS Tracking service branch.
+Complete GPS Tracking Phase 01 on `feat/gps-tracking`. Do not begin Document OCR until
+all GPS phases build, migrate, test, run, and are committed.
 
 ## Branch Strategy
 
-Notification is complete; remain on this branch until the user explicitly authorizes the next service branch.
+GPS Tracking was explicitly authorized and its branch was created from the current
+`integration` branch before merging the completed Notification branch.
 
 Future stacked branch strategy:
 
@@ -155,4 +172,4 @@ current Shipment branch
             └── feat/regulatory-compliance-rag
 ```
 
-Do not create these branches yet.
+Do not create Document OCR or later branches yet.

@@ -26,11 +26,18 @@ Production implementation has not started for this service.
 
 ## Scope
 
-Current location and history retrieval.
+Implement `GetCurrentLocation` and `ListPositionHistory` application/query and gRPC paths.
 
 ## Required Behavior
 
-Tenant-safe query behavior.
+* Require exactly one vehicle or shipment selector and current tenant context.
+* Return NotFound without revealing another tenant's data.
+* Use no-tracking queries and indexed predicates.
+* Validate UTC range ordering, maximum seven-day window, page >= 1, and page size 1-500.
+* Order history deterministically by `RecordedAt DESC, Id DESC` and return total/page
+  metadata.
+* Return current location only from the snapshot table; do not scan all history.
+* Do not expose route geometry, ETA, or detailed Shipment data.
 
 ## Constraints
 
@@ -43,8 +50,8 @@ Tenant-safe query behavior.
 ## Validation Commands
 
 ```bash
-# Replace with the service project path once created.
-dotnet build
+dotnet build src/dotnet/GpsTracking/GpsTracking.csproj
+dotnet test src/dotnet/GpsTracking/Tests/GpsTracking.Tests.csproj
 ```
 
 ## Completion Criteria
@@ -53,6 +60,9 @@ dotnet build
 * Build succeeds.
 * Relevant tests pass or absence is recorded for early foundation phases.
 * Task file and plan are updated with real command evidence.
+* Tests cover selectors, paging/range bounds, stable ordering, not-found semantics, and
+  cross-tenant isolation.
+* Create local commit `feat(gps): implement location queries`.
 
 ## Work Log
 

@@ -26,11 +26,20 @@ Production implementation has not started for this service.
 
 ## Scope
 
-DbContext, location history, indexes, tenant filters.
+Implement `GpsTrackingDbContext`, entity mappings, relationships, tenant query filters,
+and model-level tests. Do not generate a migration in this phase.
 
 ## Required Behavior
 
-Persistence handles high-volume reads/writes.
+* Map separate tables for positions, current locations, assignments, geofences,
+  geofence presence, alerts, consumed events, and outbox messages.
+* Add unique indexes for reading idempotency, one current snapshot per vehicle, active
+  assignment lookup, consumed event identity, geofence presence, and outbox event IDs.
+* Add tenant/time indexes supporting vehicle/shipment history, active alerts, signal-loss
+  scans, and outbox batches.
+* Apply tenant filters to every tenant-owned table. A missing tenant must match no rows.
+* Configure only GPS-owned relationships and conservative cascade behavior.
+* Use decimal precision suitable for coordinates and speed; keep event content as text.
 
 ## Constraints
 
@@ -43,8 +52,8 @@ Persistence handles high-volume reads/writes.
 ## Validation Commands
 
 ```bash
-# Replace with the service project path once created.
-dotnet build
+dotnet build src/dotnet/GpsTracking/GpsTracking.csproj
+dotnet test src/dotnet/GpsTracking/Tests/GpsTracking.Tests.csproj
 ```
 
 ## Completion Criteria
@@ -53,6 +62,8 @@ dotnet build
 * Build succeeds.
 * Relevant tests pass or absence is recorded for early foundation phases.
 * Task file and plan are updated with real command evidence.
+* EF model tests verify filters, keys, indexes, precision, and delete behavior.
+* Create local commit `feat(gps): configure persistence`.
 
 ## Work Log
 

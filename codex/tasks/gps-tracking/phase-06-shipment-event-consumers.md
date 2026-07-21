@@ -26,11 +26,19 @@ Production implementation has not started for this service.
 
 ## Scope
 
-Shipment created/assigned/cancelled events where relevant.
+Consume `RouteAssignedEvent`, `ShipmentCancelledEvent`, and `ShipmentCompletedEvent` to
+maintain local vehicle-shipment assignment references.
 
 ## Required Behavior
 
-No Shipment DB access.
+* Validate non-empty trusted event IDs, TenantId, ShipmentId, and required assignment data.
+* Create or replace an active assignment on route assignment; close matching assignments
+  on cancellation/completion without deleting GPS history.
+* Record one inbox receipt in the same transaction as the projection.
+* Deduplicate by `(SourceEventType, SourceEventId)` across broker redelivery.
+* Query with explicit TenantId under background consumers; never rely on missing request
+  context and never query Shipment Workflow.
+* Keep out-of-order terminal events safe and idempotent.
 
 ## Constraints
 
@@ -43,8 +51,8 @@ No Shipment DB access.
 ## Validation Commands
 
 ```bash
-# Replace with the service project path once created.
-dotnet build
+dotnet build src/dotnet/GpsTracking/GpsTracking.csproj
+dotnet test src/dotnet/GpsTracking/Tests/GpsTracking.Tests.csproj
 ```
 
 ## Completion Criteria
@@ -53,6 +61,9 @@ dotnet build
 * Build succeeds.
 * Relevant tests pass or absence is recorded for early foundation phases.
 * Task file and plan are updated with real command evidence.
+* Tests cover duplicate, cross-tenant, reassignment, cancellation, completion, and
+  out-of-order behavior.
+* Create local commit `feat(gps): consume shipment events`.
 
 ## Work Log
 

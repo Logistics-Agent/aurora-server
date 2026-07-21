@@ -26,11 +26,22 @@ Production implementation has not started for this service.
 
 ## Scope
 
-Signal loss, abnormal stop, geofence rules.
+Implement circular geofence APIs/state, ingestion-time abnormal-stop/geofence evaluation,
+and a bounded signal-loss background scan.
 
 ## Required Behavior
 
-Alerts are recorded/published.
+* Geofences validate name, centre, radius (0-100 km), optional vehicle/shipment scope,
+  active state, and tenant ownership.
+* Use a deterministic Haversine calculation and persisted presence state to emit entry or
+  exit only when state changes.
+* Track stationary time from current snapshots; raise abnormal-stop only after configured
+  low-speed duration.
+* Raise signal-loss only for active assignments whose latest reading exceeds the configured
+  threshold.
+* Deduplicate active alerts and allow tenant users to list and resolve them.
+* Persist alert plus `GpsMonitoringAlertRaisedEvent` outbox message atomically.
+* Keep thresholds/options validated on startup and scans bounded.
 
 ## Constraints
 
@@ -43,8 +54,8 @@ Alerts are recorded/published.
 ## Validation Commands
 
 ```bash
-# Replace with the service project path once created.
-dotnet build
+dotnet build src/dotnet/GpsTracking/GpsTracking.csproj
+dotnet test src/dotnet/GpsTracking/Tests/GpsTracking.Tests.csproj
 ```
 
 ## Completion Criteria
@@ -53,6 +64,9 @@ dotnet build
 * Build succeeds.
 * Relevant tests pass or absence is recorded for early foundation phases.
 * Task file and plan are updated with real command evidence.
+* Tests cover geofence transitions, distance boundaries, abnormal-stop timing, signal loss,
+  deduplication, resolution, and tenant filtering.
+* Create local commit `feat(gps): add monitoring rules`.
 
 ## Work Log
 

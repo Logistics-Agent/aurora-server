@@ -26,11 +26,23 @@ Production implementation has not started for this service.
 
 ## Scope
 
-Program.cs, migration, DB update.
+Wire production startup, add local Docker PostgreSQL infrastructure, generate/review the
+initial GPS migration, apply it only to the confirmed GPS database, and smoke-start the
+service.
 
 ## Required Behavior
 
-Service starts and migrates.
+* Register gRPC interceptors, shared services, DbContext, application services, Shipment
+  consumers, MassTransit, monitoring worker, outbox publisher, options, and TimeProvider.
+* Configure secrets through environment/connection-string providers; commit placeholders
+  only.
+* Add a dedicated `aurora_gps_tracking` PostgreSQL container/database and non-conflicting
+  local port.
+* Generate exactly one initial migration and review tables, precision, filters, indexes,
+  constraints, and cascade behavior.
+* Confirm the target connection before applying; never reset/drop another service DB.
+* Run migration list before/after update and inspect PostgreSQL tables/indexes.
+* Start the service with available Docker dependencies and record actual logs/result.
 
 ## Constraints
 
@@ -43,8 +55,10 @@ Service starts and migrates.
 ## Validation Commands
 
 ```bash
-# Replace with the service project path once created.
-dotnet build
+dotnet ef migrations add InitialGpsTracking --project src/dotnet/GpsTracking/GpsTracking.csproj --startup-project src/dotnet/GpsTracking/GpsTracking.csproj --output-dir Infrastructure/Persistences/Migrations
+dotnet ef migrations list --project src/dotnet/GpsTracking/GpsTracking.csproj --startup-project src/dotnet/GpsTracking/GpsTracking.csproj
+dotnet ef database update --project src/dotnet/GpsTracking/GpsTracking.csproj --startup-project src/dotnet/GpsTracking/GpsTracking.csproj
+dotnet build src/dotnet/GpsTracking/GpsTracking.csproj
 ```
 
 ## Completion Criteria
@@ -53,6 +67,8 @@ dotnet build
 * Build succeeds.
 * Relevant tests pass or absence is recorded for early foundation phases.
 * Task file and plan are updated with real command evidence.
+* Migration and runtime results are recorded truthfully.
+* Create local commit `feat(gps): configure startup and migration`.
 
 ## Work Log
 
