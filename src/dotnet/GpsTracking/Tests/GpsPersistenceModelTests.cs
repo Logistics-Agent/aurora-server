@@ -12,6 +12,7 @@ public sealed class GpsPersistenceModelTests
     private static readonly Type[] TenantEntityTypes =
     [
         typeof(GpsPosition), typeof(CurrentLocation), typeof(VehicleShipmentAssignment),
+        typeof(ShipmentTrackingState),
         typeof(Geofence), typeof(GeofencePresence), typeof(MonitoringAlert),
         typeof(ConsumedIntegrationEvent), typeof(OutboxMessage)
     ];

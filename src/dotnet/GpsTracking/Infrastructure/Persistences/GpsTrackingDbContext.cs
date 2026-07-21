@@ -16,6 +16,7 @@ public sealed class GpsTrackingDbContext(
     public DbSet<GpsPosition> Positions => Set<GpsPosition>();
     public DbSet<CurrentLocation> CurrentLocations => Set<CurrentLocation>();
     public DbSet<VehicleShipmentAssignment> VehicleShipmentAssignments => Set<VehicleShipmentAssignment>();
+    public DbSet<ShipmentTrackingState> ShipmentTrackingStates => Set<ShipmentTrackingState>();
     public DbSet<Geofence> Geofences => Set<Geofence>();
     public DbSet<GeofencePresence> GeofencePresences => Set<GeofencePresence>();
     public DbSet<MonitoringAlert> MonitoringAlerts => Set<MonitoringAlert>();
@@ -30,6 +31,7 @@ public sealed class GpsTrackingDbContext(
         ConfigurePosition(modelBuilder);
         ConfigureCurrentLocation(modelBuilder);
         ConfigureAssignment(modelBuilder);
+        ConfigureShipmentTrackingState(modelBuilder);
         ConfigureGeofence(modelBuilder);
         ConfigureGeofencePresence(modelBuilder);
         ConfigureMonitoringAlert(modelBuilder);
@@ -118,6 +120,18 @@ public sealed class GpsTrackingDbContext(
             entity.Property(item => item.VehicleId).HasMaxLength(100);
             ConfigureCoordinates(entity.Property(item => item.Latitude), entity.Property(item => item.Longitude));
             entity.Property(item => item.RadiusMeters).HasPrecision(12, 2);
+        });
+    }
+
+    private void ConfigureShipmentTrackingState(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<ShipmentTrackingState>(entity =>
+        {
+            entity.ToTable("shipment_tracking_states");
+            entity.HasKey(item => item.Id);
+            entity.HasQueryFilter(item => item.TenantId == _currentUser.TenantId);
+            entity.HasIndex(item => new { item.TenantId, item.ShipmentId }).IsUnique();
+            entity.HasIndex(item => new { item.TenantId, item.IsClosed, item.LastEventAt });
         });
     }
 
