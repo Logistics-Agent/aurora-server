@@ -2,7 +2,7 @@
 
 ## Status
 
-Not Started
+Completed
 
 ## Goal
 
@@ -70,32 +70,51 @@ dotnet test src/dotnet/GpsTracking/Tests/GpsTracking.Tests.csproj
 
 ### Completed
 
-Not started.
+Implemented an allowlisted GPS integration-event registry, MassTransit publisher adapter,
+PostgreSQL outbox batch store, processor, validated options, and polling background worker.
+The batch store holds a transaction while selecting ordered messages with
+`FOR UPDATE SKIP LOCKED`; success marks `ProcessedAt`, failures increment bounded retry
+state, and all logs omit payload and coordinates. Event payloads preserve producer-created
+IDs and contract fields for idempotent future consumers.
 
 ### Files Changed
 
-None.
+* `src/dotnet/GpsTracking/Infrastructure/BackgroundJobs/GpsIntegrationEventPublisher.cs`
+* `src/dotnet/GpsTracking/Infrastructure/BackgroundJobs/GpsIntegrationEventTypeRegistry.cs`
+* `src/dotnet/GpsTracking/Infrastructure/BackgroundJobs/GpsOutboxBatchStore.cs`
+* `src/dotnet/GpsTracking/Infrastructure/BackgroundJobs/GpsOutboxProcessor.cs`
+* `src/dotnet/GpsTracking/Infrastructure/BackgroundJobs/GpsOutboxPublisherBackgroundService.cs`
+* `src/dotnet/GpsTracking/Infrastructure/BackgroundJobs/GpsOutboxPublisherOptions.cs`
+* `src/dotnet/GpsTracking/Tests/Infrastructure/GpsOutboxPublisherTests.cs`
 
 ### Commands Executed
 
-None.
+* `dotnet test src/dotnet/GpsTracking/Tests/GpsTracking.Tests.csproj --no-restore --filter FullyQualifiedName~GpsOutboxPublisherTests`
+* `dotnet test src/dotnet/GpsTracking/Tests/GpsTracking.Tests.csproj --no-restore --logger console;verbosity=minimal`
+* `dotnet build src/dotnet/GpsTracking/GpsTracking.csproj --no-restore --verbosity minimal`
+* `git diff --check`
 
 ### Build Result
 
-Not started.
+Passed: 4 projects built with 0 errors and 0 warnings.
 
 ### Test Result
 
-Not started.
+Passed: 45 tests, 0 failed, 0 skipped. Seven Phase 08 tests cover both allowlisted types,
+serialization identity, successful publish, unknown type, publisher failure, retry limit,
+and duplicate-safe event IDs.
 
 ### Runtime Result
 
-Not started.
+MassTransit and hosted-worker registration plus RabbitMQ smoke validation are deferred to
+Phase 09 startup configuration.
 
 ### Migration Result
 
-Not started.
+No migration generated. The outbox schema is already in the model and will be created by
+the initial GPS migration in Phase 09.
 
 ### Remaining Issues
 
-Phase has not started.
+No Phase 08 blocker. PostgreSQL lock behavior and real RabbitMQ publication remain explicit
+integration/runtime validation work for Phases 09-10.
