@@ -2,7 +2,7 @@
 
 ## Status
 
-Not Started
+Completed
 
 ## Goal
 
@@ -68,32 +68,40 @@ dotnet test src/dotnet/GpsTracking/Tests/GpsTracking.Tests.csproj
 
 ### Completed
 
-Not started.
+Implemented tenant-safe current-location and bounded history application services and
+gRPC methods. Queries use snapshot/no-tracking reads, exactly one normalized selector,
+seven-day ranges, page-size cap 500, stable descending timestamp/ID ordering, and generic
+NotFound behavior for missing or cross-tenant data.
 
 ### Files Changed
 
-None.
+* `src/dotnet/GpsTracking/Application/Queries/LocationQueryService.cs`
+* `src/dotnet/GpsTracking/GrpcServices/GpsTrackingGrpcService.cs`
+* `src/dotnet/GpsTracking/Tests/Application/LocationQueryServiceTests.cs`
+* `src/dotnet/GpsTracking/Tests/Grpc/GpsTrackingGrpcServiceTests.cs`
 
 ### Commands Executed
 
-None.
+* `dotnet test src/dotnet/GpsTracking/Tests/GpsTracking.Tests.csproj --no-restore` (expected RED: missing query service)
+* `dotnet build src/dotnet/GpsTracking/GpsTracking.csproj --no-restore --verbosity minimal`
+* `dotnet test src/dotnet/GpsTracking/Tests/GpsTracking.Tests.csproj --no-restore --logger console;verbosity=minimal`
 
 ### Build Result
 
-Not started.
+Passed: 4 projects built with 0 errors and 0 warnings.
 
 ### Test Result
 
-Not started.
+Passed: 26 tests, 0 failed, 0 skipped, 0 warnings.
 
 ### Runtime Result
 
-Not started.
+Not started as a process; both query RPC methods compile and application behavior is tested.
 
 ### Migration Result
 
-Not started.
+No migration generated; existing Phase 03 model supports the indexed query shapes.
 
 ### Remaining Issues
 
-Phase has not started.
+No Phase 05 issues. Detailed GPS history remains owned here and is not copied into Shipment.

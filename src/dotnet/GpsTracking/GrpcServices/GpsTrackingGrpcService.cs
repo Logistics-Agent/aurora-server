@@ -1,6 +1,7 @@
 using Google.Protobuf.WellKnownTypes;
 using Grpc.Core;
 using GpsTracking.Application.Ingestion;
+using GpsTracking.Application.Queries;
 using GpsTracking.Domain.Entities;
 using Shared.Security;
 using GpsGrpc = GpsTracking.Grpc;
@@ -9,6 +10,7 @@ namespace GpsTracking.GrpcServices;
 
 public sealed class GpsTrackingGrpcService(
     IPositionIngestionService ingestionService,
+    ILocationQueryService locationQueries,
     ICurrentUserService currentUser)
     : GpsGrpc.GpsTrackingService.GpsTrackingServiceBase
 {
@@ -46,6 +48,50 @@ public sealed class GpsTrackingGrpcService(
         }
     }
 
+    public override async Task<GpsGrpc.CurrentLocationResponse> GetCurrentLocation(
+        GpsGrpc.GetCurrentLocationRequest request,
+        ServerCallContext context)
+    {
+        RequireTenant();
+        var current = await locationQueries.GetCurrentAsync(
+            ParseSelector(request.SelectorCase, request.VehicleId, request.ShipmentId),
+            context.CancellationToken);
+        return MapCurrent(current);
+    }
+
+    public override async Task<GpsGrpc.ListPositionHistoryResponse> ListPositionHistory(
+        GpsGrpc.ListPositionHistoryRequest request,
+        ServerCallContext context)
+    {
+        RequireTenant();
+        if (request.From is null || request.To is null)
+            throw InvalidArgument("History from and to timestamps are required.");
+
+        try
+        {
+            var page = await locationQueries.ListHistoryAsync(
+                ParseSelector(request.SelectorCase, request.VehicleId, request.ShipmentId),
+                request.From.ToDateTimeOffset(),
+                request.To.ToDateTimeOffset(),
+                request.Page,
+                request.PageSize,
+                context.CancellationToken);
+            var response = new GpsGrpc.ListPositionHistoryResponse
+            {
+                Page = page.Page,
+                PageSize = page.PageSize,
+                TotalItems = page.TotalItems,
+                TotalPages = page.TotalPages
+            };
+            response.Positions.AddRange(page.Items.Select(MapPosition));
+            return response;
+        }
+        catch (FormatException exception)
+        {
+            throw InvalidArgument(exception.Message);
+        }
+    }
+
     internal static GpsGrpc.PositionResponse MapPosition(GpsPosition position)
     {
         var response = new GpsGrpc.PositionResponse
@@ -67,6 +113,44 @@ public sealed class GpsTrackingGrpcService(
         if (position.AccuracyMeters.HasValue)
             response.AccuracyMeters = Convert.ToDouble(position.AccuracyMeters.Value);
         return response;
+    }
+
+    internal static GpsGrpc.CurrentLocationResponse MapCurrent(CurrentLocation current)
+    {
+        var response = new GpsGrpc.CurrentLocationResponse
+        {
+            PositionId = current.PositionId.ToString(),
+            VehicleId = current.VehicleId,
+            ShipmentId = current.ShipmentId?.ToString() ?? string.Empty,
+            Latitude = Convert.ToDouble(current.Latitude),
+            Longitude = Convert.ToDouble(current.Longitude),
+            RecordedAt = Timestamp.FromDateTimeOffset(current.RecordedAt),
+            ReceivedAt = Timestamp.FromDateTimeOffset(current.ReceivedAt)
+        };
+        if (current.SpeedKph.HasValue)
+            response.SpeedKph = Convert.ToDouble(current.SpeedKph.Value);
+        if (current.HeadingDegrees.HasValue)
+            response.HeadingDegrees = Convert.ToDouble(current.HeadingDegrees.Value);
+        if (current.AccuracyMeters.HasValue)
+            response.AccuracyMeters = Convert.ToDouble(current.AccuracyMeters.Value);
+        return response;
+    }
+
+    private static LocationSelector ParseSelector<TSelector>(
+        TSelector selectorCase,
+        string vehicleId,
+        string shipmentId)
+        where TSelector : struct, System.Enum
+    {
+        var name = selectorCase.ToString();
+        if (name.Equals("VehicleId", StringComparison.Ordinal))
+            return new LocationSelector(vehicleId, null);
+        if (name.Equals("ShipmentId", StringComparison.Ordinal)
+            && Guid.TryParse(shipmentId, out var parsedShipmentId))
+        {
+            return new LocationSelector(null, parsedShipmentId);
+        }
+        throw InvalidArgument("Exactly one valid vehicle or shipment selector is required.");
     }
 
     private void RequireTenant()

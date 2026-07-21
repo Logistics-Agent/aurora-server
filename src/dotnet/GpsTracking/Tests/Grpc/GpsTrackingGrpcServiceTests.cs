@@ -1,5 +1,6 @@
 using Grpc.Core;
 using GpsTracking.Application.Ingestion;
+using GpsTracking.Application.Queries;
 using GpsTracking.Domain.Entities;
 using GpsTracking.Grpc;
 using GpsTracking.GrpcServices;
@@ -14,6 +15,7 @@ public sealed class GpsTrackingGrpcServiceTests
     {
         var service = new GpsTrackingGrpcService(
             new StubIngestionService(_ => throw new InvalidOperationException()),
+            new StubLocationQueryService(),
             new CurrentUserService());
 
         var exception = await Assert.ThrowsAsync<RpcException>(() =>
@@ -29,6 +31,7 @@ public sealed class GpsTrackingGrpcServiceTests
         currentUser.Populate(Guid.CreateVersion7(), Guid.CreateVersion7(), null, null, [], []);
         var service = new GpsTrackingGrpcService(
             new StubIngestionService(_ => throw new ArgumentOutOfRangeException("latitude")),
+            new StubLocationQueryService(),
             currentUser);
         var request = new IngestPositionRequest
         {
@@ -50,5 +53,20 @@ public sealed class GpsTrackingGrpcServiceTests
         public Task<GpsPosition> IngestAsync(
             IngestPositionInput input,
             CancellationToken cancellationToken = default) => Task.FromResult(handler(input));
+    }
+
+    private sealed class StubLocationQueryService : ILocationQueryService
+    {
+        public Task<CurrentLocation> GetCurrentAsync(
+            LocationSelector selector,
+            CancellationToken cancellationToken = default) => throw new NotSupportedException();
+
+        public Task<LocationHistoryPage> ListHistoryAsync(
+            LocationSelector selector,
+            DateTimeOffset from,
+            DateTimeOffset to,
+            int page,
+            int pageSize,
+            CancellationToken cancellationToken = default) => throw new NotSupportedException();
     }
 }
