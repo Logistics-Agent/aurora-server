@@ -13,11 +13,16 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Protobuf Include="../../../protos/gps_tracking.proto" GrpcServices="Server" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="Grpc.AspNetCore" Version="2.64.0" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="../shared/shared.csproj" />
     <ProjectReference Include="../Contracts/Shipment.Contracts/Shipment.Contracts.csproj" />
+    <ProjectReference Include="../Contracts/GpsTracking.Contracts/GpsTracking.Contracts.csproj" />
   </ItemGroup>
 </Project>
