@@ -2,7 +2,7 @@
 
 ## Status
 
-Not Started
+Completed
 
 ## Goal
 
@@ -74,32 +74,58 @@ git diff --check
 
 ### Completed
 
-Not started.
+Audited all GPS coverage and added a serialized PostgreSQL integration collection backed by
+the dedicated `aurora_gps_tracking_tests` database. Tests now prove migration compatibility,
+ingestion/query behavior, sequential and concurrent device idempotency, missing/cross-tenant
+isolation, Shipment inbox projection, relationship delete behavior, PostgreSQL skip-locked
+outbox processing, and actual RabbitMQ delivery. Rebuilt and reran GPS, Shipment, and
+Notification regression suites.
 
 ### Files Changed
 
-None.
+* `src/dotnet/GpsTracking/Tests/Integration/GpsPostgresCollection.cs`
+* `src/dotnet/GpsTracking/Tests/Integration/GpsPostgresIntegrationTests.cs`
+* `codex/specs/gps-tracking.md`
 
 ### Commands Executed
 
-None.
+* `dotnet test src/dotnet/GpsTracking/Tests/GpsTracking.Tests.csproj --no-restore --filter FullyQualifiedName~GpsPostgresIntegrationTests --logger console;verbosity=normal`
+* `dotnet test src/dotnet/GpsTracking/Tests/GpsTracking.Tests.csproj --no-restore --logger console;verbosity=minimal`
+* `dotnet build src/dotnet/Contracts/GpsTracking.Contracts/GpsTracking.Contracts.csproj --no-restore --verbosity minimal`
+* `dotnet build src/dotnet/GpsTracking/GpsTracking.csproj --no-restore --verbosity minimal`
+* `dotnet build src/dotnet/ShipmentWorkflow/ShipmentWorkflow.csproj --no-restore --verbosity minimal`
+* `dotnet test src/dotnet/ShipmentWorkflow/Tests/ShipmentWorkflow.Tests.csproj --no-restore --logger console;verbosity=minimal`
+* `dotnet build src/dotnet/Notification/Notification.csproj --no-restore --verbosity minimal`
+* `dotnet test src/dotnet/Notification/Tests/Notification.Tests.csproj --no-restore --logger console;verbosity=minimal`
+* `dotnet ef migrations list --project src/dotnet/GpsTracking/GpsTracking.csproj --startup-project src/dotnet/GpsTracking/GpsTracking.csproj --no-build`
+* `docker compose -f docker-compose.dev.yml ps`
+* `git diff --check`
 
 ### Build Result
 
-Not started.
+Passed: GPS, GPS contracts, Shipment Workflow, and Notification built with 0 errors and
+0 warnings.
 
 ### Test Result
 
-Not started.
+Passed: GPS 50 tests, Shipment Workflow 99 tests, Notification 29 tests; 0 failed and
+0 skipped. Five GPS integration tests use PostgreSQL, including one real RabbitMQ delivery.
 
 ### Runtime Result
 
-Not started.
+Passed. Docker PostgreSQL, Redis, and RabbitMQ dependencies were healthy. The real outbox
+processor selected a PostgreSQL batch, published `GpsPositionUpdatedEvent` through RabbitMQ,
+the temporary consumer received the same EventId/TenantId, and `ProcessedAt` was persisted.
+Phase 09 process smoke also confirmed port 5091, Shipment consumer endpoint, signal-loss SQL,
+and clean shutdown.
 
 ### Migration Result
 
-Not started.
+Both development and test databases report only
+`20260721042104_InitialGpsTracking` as applied with no Pending marker. Integration tests run
+against the migration-created schema and do not drop either database.
 
 ### Remaining Issues
 
-Phase has not started.
+No unresolved GPS MVP issue. Realtime Hub and other downstream GPS event consumers remain
+separate service ownership and are intentionally not implemented here.
