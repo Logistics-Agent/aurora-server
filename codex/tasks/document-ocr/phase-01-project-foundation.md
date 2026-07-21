@@ -26,11 +26,18 @@ Production implementation has not started for this service.
 
 ## Scope
 
-Project, contracts, config.
+Create the .NET 10 `DocumentOcr` Web/gRPC project, colocated test project, and
+`DocumentOcr.Contracts` project using the repository layout and shared project conventions.
+Add only the minimum package references and configuration skeleton needed by later phases.
 
 ## Required Behavior
 
-Project builds.
+* Target .NET 10 and exclude `Tests/**/*` from production Web SDK items.
+* Reference `shared` from the service and keep cross-service DTOs in the contracts project.
+* Add a minimal `Program.cs`, `appsettings.json`, launch profile, and root diagnostic endpoint.
+* Reserve `protos/document_ocr.proto`; do not define the final RPC surface before Phase 02.
+* Create one foundation test proving the production and test assemblies load.
+* Do not add OCR vendors, persistence, background workers, object storage, or business logic.
 
 ## Constraints
 
@@ -43,8 +50,8 @@ Project builds.
 ## Validation Commands
 
 ```bash
-# Replace with the service project path once created.
-dotnet build
+dotnet build src/dotnet/DocumentOcr/DocumentOcr.csproj
+dotnet test src/dotnet/DocumentOcr/Tests/DocumentOcr.Tests.csproj
 ```
 
 ## Completion Criteria
@@ -53,6 +60,8 @@ dotnet build
 * Build succeeds.
 * Relevant tests pass or absence is recorded for early foundation phases.
 * Task file and plan are updated with real command evidence.
+* Project layout matches `src/dotnet/<Service>/Tests` and builds without secrets.
+* Create local commit `feat(ocr): create service foundation`.
 
 ## Work Log
 

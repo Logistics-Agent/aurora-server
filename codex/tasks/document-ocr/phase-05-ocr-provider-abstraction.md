@@ -26,11 +26,21 @@ Production implementation has not started for this service.
 
 ## Scope
 
-Provider abstraction and deterministic fake provider.
+Define provider-neutral OCR and document-content interfaces, normalized provider request/response
+models, error classification, and deterministic fakes. Add a real adapter only when the repository
+already supplies the provider dependency and local configuration can remain secret-free.
 
 ## Required Behavior
 
-Tests need no paid credentials.
+* Define `IOcrProvider` without leaking vendor SDK types into application/domain layers.
+* Define a controlled `IDocumentContentReader` or equivalent that resolves approved object-storage
+  references; never fetch arbitrary client URLs or local filesystem paths.
+* Provider responses include detected type, text/layout references, extracted fields, confidence,
+  provider request ID, and diagnostics with strict size limits.
+* Classify transient, permanent, invalid-document, unsupported-format, and cancellation failures.
+* Enforce supported MIME types/extensions and maximum document bytes/pages before provider calls.
+* Add a deterministic fake provider/content reader for all automated tests.
+* Do not embed paid credentials, choose a provider through domain code, or implement compliance rules.
 
 ## Constraints
 
@@ -43,8 +53,8 @@ Tests need no paid credentials.
 ## Validation Commands
 
 ```bash
-# Replace with the service project path once created.
-dotnet build
+dotnet build src/dotnet/DocumentOcr/DocumentOcr.csproj
+dotnet test src/dotnet/DocumentOcr/Tests/DocumentOcr.Tests.csproj
 ```
 
 ## Completion Criteria
@@ -53,6 +63,9 @@ dotnet build
 * Build succeeds.
 * Relevant tests pass or absence is recorded for early foundation phases.
 * Task file and plan are updated with real command evidence.
+* Tests cover provider success, cancellation, transient/permanent errors, size/type rejection,
+  and prevention of arbitrary URL/path access.
+* Create local commit `feat(ocr): add provider abstraction`.
 
 ## Work Log
 

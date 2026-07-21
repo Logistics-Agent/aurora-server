@@ -26,11 +26,18 @@ Production implementation has not started for this service.
 
 ## Scope
 
-Project/app scaffold, configuration, contracts.
+Create the .NET 10 `RegulatoryCompliance` Web/gRPC project, colocated test project, and
+`RegulatoryCompliance.Contracts` project using the repository and shared-service conventions.
+Add only the minimal configuration and package skeleton required by later phases.
 
 ## Required Behavior
 
-Project starts locally.
+* Target .NET 10 and exclude `Tests/**/*` from production Web SDK items.
+* Reference `shared` from the service and isolate cross-service DTOs in the contracts project.
+* Add minimal `Program.cs`, `appsettings.json`, launch profile, and root diagnostic endpoint.
+* Reserve `protos/regulatory_compliance.proto`; define final RPCs only in Phase 02.
+* Add one foundation test proving production and test assemblies load.
+* Do not add LLM/embedding vendors, vector storage, persistence, ingestion, or evaluation logic.
 
 ## Constraints
 
@@ -43,8 +50,8 @@ Project starts locally.
 ## Validation Commands
 
 ```bash
-# Replace with the service project path once created.
-dotnet build
+dotnet build src/dotnet/RegulatoryCompliance/RegulatoryCompliance.csproj
+dotnet test src/dotnet/RegulatoryCompliance/Tests/RegulatoryCompliance.Tests.csproj
 ```
 
 ## Completion Criteria
@@ -53,6 +60,8 @@ dotnet build
 * Build succeeds.
 * Relevant tests pass or absence is recorded for early foundation phases.
 * Task file and plan are updated with real command evidence.
+* Project layout is repository-compatible and contains no provider credentials.
+* Create local commit `feat(compliance): create service foundation`.
 
 ## Work Log
 

@@ -51,7 +51,10 @@ Current implemented state:
 * Shipment Workflow migrations are applied locally.
 * Latest verified Shipment Workflow regression: 99 tests passing.
 
-Notification Service is completed with its initial migration applied locally and 29 tests passing. GPS Tracking is the next planned service but is not active until explicitly authorized.
+Notification Service is completed with its initial migration applied locally and 29 tests passing.
+GPS Tracking and Monitoring is completed with `20260721042104_InitialGpsTracking` applied
+locally and 50 tests passing, including PostgreSQL and RabbitMQ integration coverage.
+Document OCR Agent is the next planned service but is not active until explicitly authorized.
 
 ## Tenant Isolation
 
@@ -70,3 +73,4 @@ the Shipment database as a workaround.
 * Shipment Workflow spec: `codex/specs/shipment-workflow.md`
 * Future service specs: `codex/specs/notification.md`, `codex/specs/gps-tracking.md`, `codex/specs/document-ocr.md`, `codex/specs/regulatory-compliance-rag.md`
 * Active execution plan: `codex/plan.md`
+* Owned-service phase map: `codex/tasks/README.md`

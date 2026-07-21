@@ -55,6 +55,7 @@ Current Branch: feat/gps-tracking
 
 Future-service phase plans exist under:
 
+* `codex/tasks/README.md` (all owned-service phase outputs and gates)
 * `codex/tasks/notification/`
 * `codex/tasks/gps-tracking/`
 * `codex/tasks/document-ocr/`
@@ -102,6 +103,9 @@ Notification Phases 01-09 are Completed.
   applied `20260721042104_InitialGpsTracking`, and passed startup/Rabbit/worker smoke validation.
 * GPS Phase 10 completed PostgreSQL integration, concurrent idempotency, tenant/cascade,
   real RabbitMQ outbox delivery, and full Shipment/Notification regression validation.
+* Audited the complete owned-service task map and expanded all Document OCR and Regulatory
+  Compliance RAG phases with explicit contracts, boundaries, persistence, provider, migration,
+  security, test, runtime, evidence, and per-phase commit criteria.
 
 ## Current Work
 

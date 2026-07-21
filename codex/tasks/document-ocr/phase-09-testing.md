@@ -26,11 +26,24 @@ Production implementation has not started for this service.
 
 ## Scope
 
-Provider fake, pipeline, retry, persistence tests.
+Audit and complete domain, application, contract, PostgreSQL, messaging, security, and runtime
+coverage for the full Document OCR MVP, then verify owned-service regressions.
 
 ## Required Behavior
 
-Tests pass without real OCR credentials.
+* Cover domain transitions, validation, confidence/review rules, normalization, provider error
+  classification, retries, leases, cancellation, idempotency, and tenant isolation.
+* Add PostgreSQL-backed tests for migration schema, unique keys, restrictive missing-tenant filter,
+  concurrent job claim, JSON persistence, relationships, and outbox locking.
+* Test Submit/Get/List gRPC mappings, no client TenantId, cross-tenant NotFound behavior, document
+  limits, unsupported formats, and unsafe storage reference rejection.
+* Test deterministic fake extraction end-to-end from submission through completed result/outbox.
+* With RabbitMQ available, prove one completion event and one permanent-failure event are delivered
+  with matching EventId/TenantId and marked processed.
+* Smoke-start the service with Docker dependencies; tests must not need paid provider credentials.
+* Rebuild/rerun Shipment, Notification, and GPS regressions and document unrelated failures without
+  modifying those services unless OCR caused the regression.
+* Inspect migration state, complete diff, secrets, generated artifacts, and working tree.
 
 ## Constraints
 
@@ -43,8 +56,10 @@ Tests pass without real OCR credentials.
 ## Validation Commands
 
 ```bash
-# Replace with the service project path once created.
-dotnet build
+dotnet build src/dotnet/DocumentOcr/DocumentOcr.csproj
+dotnet test src/dotnet/DocumentOcr/Tests/DocumentOcr.Tests.csproj
+dotnet ef migrations list --project src/dotnet/DocumentOcr/DocumentOcr.csproj --startup-project src/dotnet/DocumentOcr/DocumentOcr.csproj
+git diff --check
 ```
 
 ## Completion Criteria
@@ -53,6 +68,8 @@ dotnet build
 * Build succeeds.
 * Relevant tests pass or absence is recorded for early foundation phases.
 * Task file and plan are updated with real command evidence.
+* Full OCR definition of done passes with actual test count, migration, runtime, and broker evidence.
+* Create local commit `test(ocr): complete service validation`.
 
 ## Work Log
 
