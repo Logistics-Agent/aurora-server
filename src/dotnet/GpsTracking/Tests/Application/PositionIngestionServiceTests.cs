@@ -1,4 +1,5 @@
 using GpsTracking.Application.Ingestion;
+using GpsTracking.Application.Monitoring;
 using GpsTracking.Domain.Entities;
 using GpsTracking.Infrastructure.Persistences;
 using Microsoft.EntityFrameworkCore;
@@ -11,6 +12,7 @@ namespace GpsTracking.Tests.Application;
 public sealed class PositionIngestionServiceTests
 {
     private static readonly DateTimeOffset Now = new(2026, 7, 21, 10, 0, 0, TimeSpan.Zero);
+    private static readonly MonitoringOptions Options = new();
 
     [Fact]
     public async Task IngestDerivesShipmentAndPersistsHistorySnapshotAndOutbox()
@@ -22,7 +24,7 @@ public sealed class PositionIngestionServiceTests
         context.VehicleShipmentAssignments.Add(VehicleShipmentAssignment.Create(
             tenantId, shipmentId, "route-1", "vehicle-1", Now.AddHours(-1)));
         await context.SaveChangesAsync();
-        var service = new PositionIngestionService(context, currentUser, new FixedTimeProvider(Now));
+        var service = CreateService(context, currentUser);
 
         var result = await service.IngestAsync(Input("reading-1", Now.AddMinutes(-1)));
 
@@ -38,7 +40,7 @@ public sealed class PositionIngestionServiceTests
     {
         var currentUser = CurrentUser(Guid.CreateVersion7());
         await using var context = CreateContext(currentUser);
-        var service = new PositionIngestionService(context, currentUser, new FixedTimeProvider(Now));
+        var service = CreateService(context, currentUser);
 
         var first = await service.IngestAsync(Input("reading-1", Now.AddMinutes(-1)));
         var replay = await service.IngestAsync(Input("reading-1", Now.AddMinutes(-1)));
@@ -54,7 +56,8 @@ public sealed class PositionIngestionServiceTests
     {
         var currentUser = CurrentUser(Guid.CreateVersion7());
         await using var context = CreateContext(currentUser);
-        var service = new PositionIngestionService(context, currentUser, new FixedTimeProvider(Now));
+        var monitor = new RecordingMonitoringService();
+        var service = CreateService(context, currentUser, monitor);
 
         var latest = await service.IngestAsync(Input("latest", Now.AddMinutes(-1), 12));
         await service.IngestAsync(Input("late", Now.AddMinutes(-2), 11));
@@ -63,6 +66,7 @@ public sealed class PositionIngestionServiceTests
         var current = await context.CurrentLocations.SingleAsync();
         Assert.Equal(latest.Id, current.PositionId);
         Assert.Equal(12, current.Latitude);
+        Assert.Equal([latest.Id], monitor.PositionIds);
     }
 
     [Fact]
@@ -70,7 +74,7 @@ public sealed class PositionIngestionServiceTests
     {
         var currentUser = new CurrentUserService();
         await using var context = CreateContext(currentUser);
-        var service = new PositionIngestionService(context, currentUser, new FixedTimeProvider(Now));
+        var service = CreateService(context, currentUser);
 
         await Assert.ThrowsAsync<DomainException>(() =>
             service.IngestAsync(Input("reading-1", Now.AddMinutes(-1))));
@@ -88,7 +92,7 @@ public sealed class PositionIngestionServiceTests
         context.VehicleShipmentAssignments.Add(VehicleShipmentAssignment.Create(
             otherTenantId, Guid.CreateVersion7(), "route-2", "vehicle-1", Now.AddHours(-1)));
         await context.SaveChangesAsync();
-        var service = new PositionIngestionService(context, currentUser, new FixedTimeProvider(Now));
+        var service = CreateService(context, currentUser);
 
         var result = await service.IngestAsync(Input("reading-1", Now.AddMinutes(-1)));
 
@@ -113,6 +117,31 @@ public sealed class PositionIngestionServiceTests
             .Options;
         return new GpsTrackingDbContext(
             options, currentUser, new AuditSaveChangesInterceptor(currentUser));
+    }
+
+    private static PositionIngestionService CreateService(
+        GpsTrackingDbContext context,
+        CurrentUserService currentUser,
+        IPositionMonitoringService? monitoringService = null) =>
+        new(
+            context,
+            currentUser,
+            new FixedTimeProvider(Now),
+            Options,
+            monitoringService ?? new RecordingMonitoringService());
+
+    private sealed class RecordingMonitoringService : IPositionMonitoringService
+    {
+        public List<Guid> PositionIds { get; } = [];
+
+        public Task EvaluateAsync(
+            GpsPosition position,
+            CurrentLocation current,
+            CancellationToken cancellationToken = default)
+        {
+            PositionIds.Add(position.Id);
+            return Task.CompletedTask;
+        }
     }
 
     private sealed class FixedTimeProvider(DateTimeOffset now) : TimeProvider

@@ -2,6 +2,7 @@ using System.Text.Json;
 using GpsTracking.Contracts.Events;
 using GpsTracking.Domain.Entities;
 using GpsTracking.Infrastructure.Persistences;
+using GpsTracking.Application.Monitoring;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
 using Shared.Exceptions;
@@ -30,7 +31,9 @@ public interface IPositionIngestionService
 public sealed class PositionIngestionService(
     GpsTrackingDbContext dbContext,
     ICurrentUserService currentUser,
-    TimeProvider timeProvider) : IPositionIngestionService
+    TimeProvider timeProvider,
+    MonitoringOptions monitoringOptions,
+    IPositionMonitoringService monitoringService) : IPositionIngestionService
 {
     public async Task<GpsPosition> IngestAsync(
         IngestPositionInput input,
@@ -79,10 +82,20 @@ public sealed class PositionIngestionService(
         var currentLocation = await dbContext.CurrentLocations.SingleOrDefaultAsync(
             item => item.TenantId == tenantId && item.VehicleId == position.VehicleId,
             cancellationToken);
+        var advancesCurrent = currentLocation is null;
         if (currentLocation is null)
-            dbContext.CurrentLocations.Add(CurrentLocation.FromPosition(position));
+        {
+            currentLocation = CurrentLocation.FromPosition(
+                position, monitoringOptions.StationarySpeedKph);
+            dbContext.CurrentLocations.Add(currentLocation);
+        }
         else
-            currentLocation.Apply(position);
+        {
+            advancesCurrent = currentLocation.Apply(
+                position, monitoringOptions.StationarySpeedKph);
+        }
+        if (advancesCurrent)
+            await monitoringService.EvaluateAsync(position, currentLocation, cancellationToken);
 
         var integrationEvent = new GpsPositionUpdatedEvent
         {

@@ -4,8 +4,6 @@ namespace GpsTracking.Domain.Entities;
 
 public sealed class CurrentLocation : TenantAuditableEntity
 {
-    private const decimal StationarySpeedKph = 1;
-
     private CurrentLocation() { }
 
     public Guid PositionId { get; private set; }
@@ -21,7 +19,9 @@ public sealed class CurrentLocation : TenantAuditableEntity
     public DateTimeOffset ReceivedAt { get; private set; }
     public DateTimeOffset? StationarySince { get; private set; }
 
-    public static CurrentLocation FromPosition(GpsPosition position)
+    public static CurrentLocation FromPosition(
+        GpsPosition position,
+        decimal stationarySpeedKph = 1)
     {
         ArgumentNullException.ThrowIfNull(position);
         var current = new CurrentLocation
@@ -30,11 +30,11 @@ public sealed class CurrentLocation : TenantAuditableEntity
             VehicleId = position.VehicleId,
             CreatedAt = position.ReceivedAt
         };
-        current.Copy(position);
+        current.Copy(position, stationarySpeedKph);
         return current;
     }
 
-    public bool Apply(GpsPosition position)
+    public bool Apply(GpsPosition position, decimal stationarySpeedKph = 1)
     {
         ArgumentNullException.ThrowIfNull(position);
         if (position.TenantId != TenantId || position.VehicleId != VehicleId)
@@ -43,14 +43,16 @@ public sealed class CurrentLocation : TenantAuditableEntity
             (position.RecordedAt == RecordedAt && position.Id.CompareTo(PositionId) <= 0))
             return false;
 
-        Copy(position);
+        Copy(position, stationarySpeedKph);
         UpdatedAt = position.ReceivedAt;
         return true;
     }
 
-    private void Copy(GpsPosition position)
+    private void Copy(GpsPosition position, decimal stationarySpeedKph)
     {
-        var wasStationary = SpeedKph is <= StationarySpeedKph;
+        if (stationarySpeedKph < 0)
+            throw new ArgumentOutOfRangeException(nameof(stationarySpeedKph));
+        var wasStationary = SpeedKph is not null && SpeedKph <= stationarySpeedKph;
         PositionId = position.Id;
         DeviceId = position.DeviceId;
         ShipmentId = position.ShipmentId;
@@ -61,7 +63,7 @@ public sealed class CurrentLocation : TenantAuditableEntity
         AccuracyMeters = position.AccuracyMeters;
         RecordedAt = position.RecordedAt;
         ReceivedAt = position.ReceivedAt;
-        StationarySince = position.SpeedKph is <= StationarySpeedKph
+        StationarySince = position.SpeedKph is not null && position.SpeedKph <= stationarySpeedKph
             ? wasStationary && StationarySince.HasValue ? StationarySince : position.RecordedAt
             : null;
     }

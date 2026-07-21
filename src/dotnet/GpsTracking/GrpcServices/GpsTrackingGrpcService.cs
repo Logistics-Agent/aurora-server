@@ -2,6 +2,8 @@ using Google.Protobuf.WellKnownTypes;
 using Grpc.Core;
 using GpsTracking.Application.Ingestion;
 using GpsTracking.Application.Queries;
+using GpsTracking.Application.Monitoring;
+using GpsTracking.Domain.Enums;
 using GpsTracking.Domain.Entities;
 using Shared.Security;
 using GpsGrpc = GpsTracking.Grpc;
@@ -11,6 +13,7 @@ namespace GpsTracking.GrpcServices;
 public sealed class GpsTrackingGrpcService(
     IPositionIngestionService ingestionService,
     ILocationQueryService locationQueries,
+    IMonitoringManagementService monitoringManagement,
     ICurrentUserService currentUser)
     : GpsGrpc.GpsTrackingService.GpsTrackingServiceBase
 {
@@ -46,6 +49,97 @@ public sealed class GpsTrackingGrpcService(
         {
             throw InvalidArgument("Position contains a number outside the supported range.");
         }
+    }
+
+    public override async Task<GpsGrpc.GeofenceResponse> CreateGeofence(
+        GpsGrpc.CreateGeofenceRequest request,
+        ServerCallContext context)
+    {
+        RequireTenant();
+        try
+        {
+            Guid? shipmentId = null;
+            if (request.HasShipmentId)
+            {
+                if (!Guid.TryParse(request.ShipmentId, out var parsedShipmentId))
+                    throw InvalidArgument("ShipmentId is invalid.");
+                shipmentId = parsedShipmentId;
+            }
+            var geofence = await monitoringManagement.CreateGeofenceAsync(
+                new CreateGeofenceInput(
+                    request.Name,
+                    Convert.ToDecimal(request.Latitude),
+                    Convert.ToDecimal(request.Longitude),
+                    Convert.ToDecimal(request.RadiusMeters),
+                    shipmentId,
+                    request.HasVehicleId ? request.VehicleId : null),
+                context.CancellationToken);
+            return MapGeofence(geofence);
+        }
+        catch (ArgumentException exception)
+        {
+            throw InvalidArgument(exception.Message);
+        }
+        catch (OverflowException)
+        {
+            throw InvalidArgument("Geofence contains a number outside the supported range.");
+        }
+    }
+
+    public override async Task<GpsGrpc.ListGeofencesResponse> ListGeofences(
+        GpsGrpc.ListGeofencesRequest request,
+        ServerCallContext context)
+    {
+        RequireTenant();
+        var geofences = await monitoringManagement.ListGeofencesAsync(
+            request.IncludeInactive, context.CancellationToken);
+        var response = new GpsGrpc.ListGeofencesResponse();
+        response.Geofences.AddRange(geofences.Select(MapGeofence));
+        return response;
+    }
+
+    public override async Task<GpsGrpc.GeofenceResponse> SetGeofenceActive(
+        GpsGrpc.SetGeofenceActiveRequest request,
+        ServerCallContext context)
+    {
+        RequireTenant();
+        if (!Guid.TryParse(request.Id, out var geofenceId))
+            throw InvalidArgument("GeofenceId is invalid.");
+        return MapGeofence(await monitoringManagement.SetGeofenceActiveAsync(
+            geofenceId, request.IsActive, context.CancellationToken));
+    }
+
+    public override async Task<GpsGrpc.ListMonitoringAlertsResponse> ListMonitoringAlerts(
+        GpsGrpc.ListMonitoringAlertsRequest request,
+        ServerCallContext context)
+    {
+        RequireTenant();
+        var page = await monitoringManagement.ListAlertsAsync(
+            ParseOptionalEnum<MonitoringAlertType>(request.AlertType, "alert type"),
+            ParseOptionalEnum<MonitoringAlertStatus>(request.Status, "alert status"),
+            request.Page,
+            request.PageSize,
+            context.CancellationToken);
+        var response = new GpsGrpc.ListMonitoringAlertsResponse
+        {
+            Page = page.Page,
+            PageSize = page.PageSize,
+            TotalItems = page.TotalItems,
+            TotalPages = page.TotalPages
+        };
+        response.Alerts.AddRange(page.Items.Select(MapAlert));
+        return response;
+    }
+
+    public override async Task<GpsGrpc.MonitoringAlertResponse> ResolveMonitoringAlert(
+        GpsGrpc.ResolveMonitoringAlertRequest request,
+        ServerCallContext context)
+    {
+        RequireTenant();
+        if (!Guid.TryParse(request.Id, out var alertId))
+            throw InvalidArgument("AlertId is invalid.");
+        return MapAlert(await monitoringManagement.ResolveAlertAsync(
+            alertId, context.CancellationToken));
     }
 
     public override async Task<GpsGrpc.CurrentLocationResponse> GetCurrentLocation(
@@ -134,6 +228,51 @@ public sealed class GpsTrackingGrpcService(
         if (current.AccuracyMeters.HasValue)
             response.AccuracyMeters = Convert.ToDouble(current.AccuracyMeters.Value);
         return response;
+    }
+
+    internal static GpsGrpc.GeofenceResponse MapGeofence(Geofence geofence) => new()
+    {
+        Id = geofence.Id.ToString(),
+        Name = geofence.Name,
+        Latitude = Convert.ToDouble(geofence.Latitude),
+        Longitude = Convert.ToDouble(geofence.Longitude),
+        RadiusMeters = Convert.ToDouble(geofence.RadiusMeters),
+        ShipmentId = geofence.ShipmentId?.ToString() ?? string.Empty,
+        VehicleId = geofence.VehicleId ?? string.Empty,
+        IsActive = geofence.IsActive
+    };
+
+    internal static GpsGrpc.MonitoringAlertResponse MapAlert(MonitoringAlert alert)
+    {
+        var response = new GpsGrpc.MonitoringAlertResponse
+        {
+            Id = alert.Id.ToString(),
+            AlertType = alert.AlertType.ToString(),
+            Status = alert.Status.ToString(),
+            VehicleId = alert.VehicleId,
+            ShipmentId = alert.ShipmentId?.ToString() ?? string.Empty,
+            GeofenceId = alert.GeofenceId?.ToString() ?? string.Empty,
+            PositionId = alert.PositionId?.ToString() ?? string.Empty,
+            Message = alert.Message,
+            OccurredAt = Timestamp.FromDateTimeOffset(alert.OccurredAt)
+        };
+        if (alert.ResolvedAt.HasValue)
+            response.ResolvedAt = Timestamp.FromDateTimeOffset(alert.ResolvedAt.Value);
+        return response;
+    }
+
+    private static TEnum? ParseOptionalEnum<TEnum>(string value, string fieldName)
+        where TEnum : struct, System.Enum
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return null;
+        if (!System.Enum.TryParse<TEnum>(value, true, out var parsed)
+            || !System.Enum.IsDefined(parsed)
+            || int.TryParse(value, out _))
+        {
+            throw InvalidArgument($"Invalid {fieldName}.");
+        }
+        return parsed;
     }
 
     private static LocationSelector ParseSelector<TSelector>(

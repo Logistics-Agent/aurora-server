@@ -1,7 +1,9 @@
 using Grpc.Core;
 using GpsTracking.Application.Ingestion;
+using GpsTracking.Application.Monitoring;
 using GpsTracking.Application.Queries;
 using GpsTracking.Domain.Entities;
+using GpsTracking.Domain.Enums;
 using GpsTracking.Grpc;
 using GpsTracking.GrpcServices;
 using Shared.Security;
@@ -16,6 +18,7 @@ public sealed class GpsTrackingGrpcServiceTests
         var service = new GpsTrackingGrpcService(
             new StubIngestionService(_ => throw new InvalidOperationException()),
             new StubLocationQueryService(),
+            new StubMonitoringManagementService(),
             new CurrentUserService());
 
         var exception = await Assert.ThrowsAsync<RpcException>(() =>
@@ -32,6 +35,7 @@ public sealed class GpsTrackingGrpcServiceTests
         var service = new GpsTrackingGrpcService(
             new StubIngestionService(_ => throw new ArgumentOutOfRangeException("latitude")),
             new StubLocationQueryService(),
+            new StubMonitoringManagementService(),
             currentUser);
         var request = new IngestPositionRequest
         {
@@ -67,6 +71,33 @@ public sealed class GpsTrackingGrpcServiceTests
             DateTimeOffset to,
             int page,
             int pageSize,
+            CancellationToken cancellationToken = default) => throw new NotSupportedException();
+    }
+
+    private sealed class StubMonitoringManagementService : IMonitoringManagementService
+    {
+        public Task<Geofence> CreateGeofenceAsync(
+            CreateGeofenceInput input,
+            CancellationToken cancellationToken = default) => throw new NotSupportedException();
+
+        public Task<IReadOnlyList<Geofence>> ListGeofencesAsync(
+            bool includeInactive,
+            CancellationToken cancellationToken = default) => throw new NotSupportedException();
+
+        public Task<Geofence> SetGeofenceActiveAsync(
+            Guid geofenceId,
+            bool isActive,
+            CancellationToken cancellationToken = default) => throw new NotSupportedException();
+
+        public Task<MonitoringAlertPage> ListAlertsAsync(
+            MonitoringAlertType? alertType,
+            MonitoringAlertStatus? status,
+            int page,
+            int pageSize,
+            CancellationToken cancellationToken = default) => throw new NotSupportedException();
+
+        public Task<MonitoringAlert> ResolveAlertAsync(
+            Guid alertId,
             CancellationToken cancellationToken = default) => throw new NotSupportedException();
     }
 }
