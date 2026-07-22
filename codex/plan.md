@@ -13,7 +13,7 @@ Regulatory Compliance RAG: Not Started
 ## Active Work
 
 Active Service: Document OCR Agent
-Active Phase: Phase 02 - Contracts and API
+Active Phase: Phase 03 - Document Job Model
 Current Branch: feat/document-ocr-agent
 
 ## Service Progress
@@ -68,7 +68,7 @@ Notification Phases 01-09 are Completed.
 | Phase | Name | Status |
 | --- | --- | --- |
 | 01 | Project Foundation | Completed |
-| 02 | Contracts and API | Not Started |
+| 02 | Contracts and API | Completed |
 | 03 | Document Job Model | Not Started |
 | 04 | Persistence | Not Started |
 | 05 | OCR Provider Abstraction | Not Started |
@@ -122,6 +122,8 @@ Notification Phases 01-09 are Completed.
   security, test, runtime, evidence, and per-phase commit criteria.
 * Document OCR Phase 01 created the .NET 10 Web/gRPC service, colocated test project, contracts
   assembly, reserved protobuf file, and secret-free configuration skeleton.
+* Document OCR Phase 02 defined tenant-safe submit/get/list RPCs, stable enums and timestamps,
+  and versioned completed/failed integration-event contracts.
 
 ## Current Work
 
@@ -136,8 +138,8 @@ No active blocker.
 
 ## Remaining Work
 
-No remaining GPS MVP work. Document OCR Agent is explicitly authorized; Phase 01 is complete and
-Phase 02 is active.
+No remaining GPS MVP work. Document OCR Agent is explicitly authorized; Phases 01-02 are complete
+and Phase 03 is active.
 Regulatory Compliance remains a separate planned service and must not begin automatically.
 
 ## Build Results
@@ -189,7 +191,7 @@ Recent Notification phase commits:
 
 ## Immediate Next Action
 
-Complete Document OCR Phase 02 on `feat/document-ocr-agent`, then continue sequentially through
+Complete Document OCR Phase 03 on `feat/document-ocr-agent`, then continue sequentially through
 the remaining OCR phases only after each phase passes its completion criteria.
 
 ## Branch Strategy
