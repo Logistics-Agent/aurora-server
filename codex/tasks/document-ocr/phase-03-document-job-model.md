@@ -2,7 +2,7 @@
 
 ## Status
 
-Not Started
+Completed
 
 ## Goal
 
@@ -71,32 +71,48 @@ dotnet test src/dotnet/DocumentOcr/Tests/DocumentOcr.Tests.csproj
 
 ### Completed
 
-Not started.
+Implemented the tenant-owned OCR job aggregate, provider attempt history, stable domain enums,
+inbox/outbox records, bounded validation, JSON validation, and guarded start/complete/fail/retry/
+cancel transitions. Only transient attempt outcomes can return a failed job to the queue.
 
 ### Files Changed
 
-None.
+* `src/dotnet/DocumentOcr/Domain/Entities/DocumentOcrJob.cs`
+* `src/dotnet/DocumentOcr/Domain/Entities/OcrProviderAttempt.cs`
+* `src/dotnet/DocumentOcr/Domain/Entities/InboxMessage.cs`
+* `src/dotnet/DocumentOcr/Domain/Entities/OutboxMessage.cs`
+* `src/dotnet/DocumentOcr/Domain/Entities/DocumentOcrValidation.cs`
+* `src/dotnet/DocumentOcr/Domain/Enums/DocumentOcrJobStatus.cs`
+* `src/dotnet/DocumentOcr/Domain/Enums/OcrDocumentType.cs`
+* `src/dotnet/DocumentOcr/Domain/Enums/OcrAttemptOutcome.cs`
+* `src/dotnet/DocumentOcr/Tests/DocumentOcrJobTests.cs`
+* `codex/plan.md`
 
 ### Commands Executed
 
-None.
+```bash
+git status --short
+dotnet build src/dotnet/DocumentOcr/DocumentOcr.csproj
+dotnet test src/dotnet/DocumentOcr/Tests/DocumentOcr.Tests.csproj
+```
 
 ### Build Result
 
-Not started.
+Passed: 3 projects built with 0 errors and 0 warnings.
 
 ### Test Result
 
-Not started.
+Passed: 17 tests, 0 failed, 0 warnings. Coverage includes required IDs/metadata, guarded state
+transitions, terminal states, transient retry, confidence bounds, valid JSON, and error limits.
 
 ### Runtime Result
 
-Not started.
+Not required; background execution begins in Phase 07.
 
 ### Migration Result
 
-Not started.
+Not required; EF mapping begins in Phase 04 and migration remains owned by Phase 08.
 
 ### Remaining Issues
 
-Phase has not started.
+None.

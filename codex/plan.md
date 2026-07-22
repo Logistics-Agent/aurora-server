@@ -13,7 +13,7 @@ Regulatory Compliance RAG: Not Started
 ## Active Work
 
 Active Service: Document OCR Agent
-Active Phase: Phase 03 - Document Job Model
+Active Phase: Phase 04 - Persistence
 Current Branch: feat/document-ocr-agent
 
 ## Service Progress
@@ -69,7 +69,7 @@ Notification Phases 01-09 are Completed.
 | --- | --- | --- |
 | 01 | Project Foundation | Completed |
 | 02 | Contracts and API | Completed |
-| 03 | Document Job Model | Not Started |
+| 03 | Document Job Model | Completed |
 | 04 | Persistence | Not Started |
 | 05 | OCR Provider Abstraction | Not Started |
 | 06 | Extraction Pipeline | Not Started |
@@ -124,6 +124,8 @@ Notification Phases 01-09 are Completed.
   assembly, reserved protobuf file, and secret-free configuration skeleton.
 * Document OCR Phase 02 defined tenant-safe submit/get/list RPCs, stable enums and timestamps,
   and versioned completed/failed integration-event contracts.
+* Document OCR Phase 03 implemented the tenant-owned job aggregate, provider attempts, guarded
+  lifecycle transitions, bounded errors/JSON, retry semantics, and inbox/outbox domain records.
 
 ## Current Work
 
@@ -138,8 +140,8 @@ No active blocker.
 
 ## Remaining Work
 
-No remaining GPS MVP work. Document OCR Agent is explicitly authorized; Phases 01-02 are complete
-and Phase 03 is active.
+No remaining GPS MVP work. Document OCR Agent is explicitly authorized; Phases 01-03 are complete
+and Phase 04 is active.
 Regulatory Compliance remains a separate planned service and must not begin automatically.
 
 ## Build Results
@@ -191,7 +193,7 @@ Recent Notification phase commits:
 
 ## Immediate Next Action
 
-Complete Document OCR Phase 03 on `feat/document-ocr-agent`, then continue sequentially through
+Complete Document OCR Phase 04 on `feat/document-ocr-agent`, then continue sequentially through
 the remaining OCR phases only after each phase passes its completion criteria.
 
 ## Branch Strategy
