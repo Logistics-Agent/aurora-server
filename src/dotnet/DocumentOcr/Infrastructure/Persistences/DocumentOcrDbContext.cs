@@ -51,7 +51,7 @@ public sealed class DocumentOcrDbContext(
             entity.Property(job => job.MimeType).HasMaxLength(150).IsRequired();
             entity.Property(job => job.DocumentTypeHint).HasConversion<string>().HasMaxLength(50).IsRequired();
             entity.Property(job => job.DetectedDocumentType).HasConversion<string>().HasMaxLength(50);
-            entity.Property(job => job.Status).HasConversion<string>().HasMaxLength(30).IsRequired();
+            entity.Property(job => job.Status).HasConversion<string>().HasMaxLength(30).IsRequired().IsConcurrencyToken();
             entity.Property(job => job.NormalizedJson).HasColumnType("jsonb");
             entity.Property(job => job.FieldConfidenceJson).HasColumnType("jsonb");
             entity.Property(job => job.Confidence).HasPrecision(5, 4);
