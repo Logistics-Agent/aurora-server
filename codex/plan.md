@@ -7,14 +7,14 @@ Shipment Workflow Aggregate Expansion: Completed
 Shipment Workflow full MVP: Completed
 Notification Service: Completed
 GPS Tracking and Monitoring: Completed
-Document OCR Agent: Not Started
+Document OCR Agent: In Progress
 Regulatory Compliance RAG: Not Started
 
 ## Active Work
 
-Active Service: GPS Tracking and Monitoring
-Active Phase: Phase 10 - Completed
-Current Branch: feat/gps-tracking
+Active Service: Document OCR Agent
+Active Phase: Phase 02 - Contracts and API
+Current Branch: feat/document-ocr-agent
 
 ## Service Progress
 
@@ -23,7 +23,7 @@ Current Branch: feat/gps-tracking
 | Shipment Workflow | Completed |
 | Notification | Completed |
 | GPS Tracking and Monitoring | Completed |
-| Document OCR Agent | Not Started |
+| Document OCR Agent | In Progress |
 | Regulatory Compliance RAG | Not Started |
 
 ## Shipment Phase Progress
@@ -62,6 +62,20 @@ Future-service phase plans exist under:
 * `codex/tasks/regulatory-compliance-rag/`
 
 Notification Phases 01-09 are Completed.
+
+## Document OCR Phase Progress
+
+| Phase | Name | Status |
+| --- | --- | --- |
+| 01 | Project Foundation | Completed |
+| 02 | Contracts and API | Not Started |
+| 03 | Document Job Model | Not Started |
+| 04 | Persistence | Not Started |
+| 05 | OCR Provider Abstraction | Not Started |
+| 06 | Extraction Pipeline | Not Started |
+| 07 | Retry and Job Processing | Not Started |
+| 08 | Program and Migration | Not Started |
+| 09 | Testing | Not Started |
 
 ## GPS Tracking Phase Progress
 
@@ -106,6 +120,8 @@ Notification Phases 01-09 are Completed.
 * Audited the complete owned-service task map and expanded all Document OCR and Regulatory
   Compliance RAG phases with explicit contracts, boundaries, persistence, provider, migration,
   security, test, runtime, evidence, and per-phase commit criteria.
+* Document OCR Phase 01 created the .NET 10 Web/gRPC service, colocated test project, contracts
+  assembly, reserved protobuf file, and secret-free configuration skeleton.
 
 ## Current Work
 
@@ -120,8 +136,9 @@ No active blocker.
 
 ## Remaining Work
 
-No remaining GPS MVP work. Document OCR and Regulatory Compliance remain separate planned
-services and must not begin without explicit authorization.
+No remaining GPS MVP work. Document OCR Agent is explicitly authorized; Phase 01 is complete and
+Phase 02 is active.
+Regulatory Compliance remains a separate planned service and must not begin automatically.
 
 ## Build Results
 
@@ -172,8 +189,8 @@ Recent Notification phase commits:
 
 ## Immediate Next Action
 
-GPS Tracking is complete on `feat/gps-tracking`. The next planned service is Document OCR,
-but its branch and Phase 01 require an explicit user instruction.
+Complete Document OCR Phase 02 on `feat/document-ocr-agent`, then continue sequentially through
+the remaining OCR phases only after each phase passes its completion criteria.
 
 ## Branch Strategy
 
@@ -190,4 +207,5 @@ current Shipment branch
             └── feat/regulatory-compliance-rag
 ```
 
-Do not create Document OCR or later branches yet.
+Document OCR is active on `feat/document-ocr-agent`. Do not create the Regulatory Compliance
+branch until the OCR service is fully completed and explicitly authorized.
