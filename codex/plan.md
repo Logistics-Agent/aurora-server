@@ -13,7 +13,7 @@ Regulatory Compliance RAG: In Progress
 ## Active Work
 
 Active Service: Regulatory Compliance RAG
-Active Phase: Phase 02 - Contracts and API
+Active Phase: Phase 03 - Regulatory Document Model
 Current Branch: feat/regulatory-compliance-rag
 
 ## Service Progress
@@ -97,7 +97,7 @@ Notification Phases 01-09 are Completed.
 | Phase | Name | Status |
 | --- | --- | --- |
 | 01 | Project Foundation | Completed |
-| 02 | Contracts and API | Not Started |
+| 02 | Contracts and API | Completed |
 | 03 | Regulatory Document Model | Not Started |
 | 04 | Ingestion and Chunking | Not Started |
 | 05 | Embedding and Vector Storage | Not Started |
@@ -157,6 +157,8 @@ Notification Phases 01-09 are Completed.
   regression. OCR passes 63 tests; Shipment 99, Notification 29, and GPS 50 also pass.
 * Regulatory Compliance Phase 01 created the .NET 10 Web/gRPC service, separate contracts
   assembly, colocated tests, reserved protobuf, and secret-free configuration skeleton.
+* Regulatory Compliance Phase 02 defined the tenant-safe compliance evaluation, lookup,
+  evidence query, and controlled ingestion protobuf API plus versioned completion/failure events.
 
 ## Current Work
 
@@ -171,8 +173,8 @@ No active blocker.
 
 ## Remaining Work
 
-No remaining Document OCR MVP work. Regulatory Compliance RAG is explicitly authorized; Phase 01
-is complete and Phase 02 is active.
+No remaining Document OCR MVP work. Regulatory Compliance RAG is explicitly authorized; Phases
+01-02 are complete and Phase 03 is active.
 
 ## Build Results
 
@@ -225,7 +227,7 @@ Recent Notification phase commits:
 
 ## Immediate Next Action
 
-Complete Regulatory Compliance RAG Phase 02 on `feat/regulatory-compliance-rag`, then proceed
+Complete Regulatory Compliance RAG Phase 03 on `feat/regulatory-compliance-rag`, then proceed
 sequentially only after each phase passes its completion criteria.
 
 ## Branch Strategy

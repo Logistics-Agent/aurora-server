@@ -2,7 +2,7 @@
 
 ## Status
 
-Not Started
+Completed
 
 ## Goal
 
@@ -74,32 +74,51 @@ dotnet test src/dotnet/RegulatoryCompliance/Tests/RegulatoryCompliance.Tests.csp
 
 ### Completed
 
-Not started.
+* Defined the four approved MVP RPCs for compliance evaluation, evaluation lookup,
+  evidence-backed regulatory queries, and controlled source ingestion.
+* Added immutable shipment/cargo/OCR snapshots without a client-controlled TenantId.
+* Added explicit evidence sufficiency, findings, citations, lifecycle timestamps, and
+  ingestion status contract shapes.
+* Added versioned completion and failure integration-event contracts with unique event IDs.
+* Added contract tests for the approved RPC surface, tenant/provider field exclusion,
+  evidence shapes, protobuf timestamps, and event versioning.
 
 ### Files Changed
 
-None.
+* `protos/regulatory_compliance.proto`
+* `src/dotnet/RegulatoryCompliance/RegulatoryCompliance.csproj`
+* `src/dotnet/RegulatoryCompliance/Tests/RegulatoryComplianceContractTests.cs`
+* `src/dotnet/Contracts/RegulatoryCompliance.Contracts/Events/ComplianceEvaluationCompletedEvent.cs`
+* `src/dotnet/Contracts/RegulatoryCompliance.Contracts/Events/ComplianceEvaluationFailedEvent.cs`
+* `codex/tasks/regulatory-compliance-rag/phase-02-contracts-and-api.md`
+* `codex/tasks/README.md`
+* `codex/plan.md`
 
 ### Commands Executed
 
-None.
+* `git status --short`
+* `dotnet build src/dotnet/Contracts/RegulatoryCompliance.Contracts/RegulatoryCompliance.Contracts.csproj`
+* `dotnet build src/dotnet/RegulatoryCompliance/RegulatoryCompliance.csproj`
+* `dotnet test src/dotnet/RegulatoryCompliance/Tests/RegulatoryCompliance.Tests.csproj`
+* `git diff --check`
 
 ### Build Result
 
-Not started.
+Passed: contracts assembly and service build completed with 0 errors and 0 warnings.
 
 ### Test Result
 
-Not started.
+Passed: 6 tests, 0 failed.
 
 ### Runtime Result
 
-Not started.
+Not required for this contract-only phase.
 
 ### Migration Result
 
-Not started.
+Not required; no persistence model or migration changed.
 
 ### Remaining Issues
 
-Phase has not started.
+None. Provider implementations, persistence, ingestion, retrieval, and evaluation remain
+intentionally assigned to Phases 03-07.
