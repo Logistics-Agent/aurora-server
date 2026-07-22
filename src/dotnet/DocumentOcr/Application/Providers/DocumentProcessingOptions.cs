@@ -7,6 +7,7 @@ public sealed class DocumentProcessingOptions
     public long MaxDocumentBytes { get; init; } = 10 * 1024 * 1024;
     public int MaxPages { get; init; } = 50;
     public decimal ReviewConfidenceThreshold { get; init; } = 0.85m;
+    public string Provider { get; init; } = "Deterministic";
     public string[] SupportedMimeTypes { get; init; } =
     [
         "application/pdf", "image/jpeg", "image/png", "image/tiff"
@@ -24,6 +25,8 @@ public sealed class DocumentProcessingOptions
             throw new InvalidOperationException("DocumentProcessing:MaxPages must be positive.");
         if (ReviewConfidenceThreshold is < 0 or > 1)
             throw new InvalidOperationException("DocumentProcessing:ReviewConfidenceThreshold must be between 0 and 1.");
+        if (!string.Equals(Provider, "Deterministic", StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("DocumentProcessing:Provider must name a registered OCR provider.");
         if (SupportedMimeTypes.Length == 0 || SupportedExtensions.Length == 0)
             throw new InvalidOperationException("DocumentProcessing supported types cannot be empty.");
     }

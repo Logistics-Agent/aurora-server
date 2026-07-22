@@ -13,7 +13,7 @@ Regulatory Compliance RAG: Not Started
 ## Active Work
 
 Active Service: Document OCR Agent
-Active Phase: Phase 08 - Program and Migration
+Active Phase: Phase 09 - Testing
 Current Branch: feat/document-ocr-agent
 
 ## Service Progress
@@ -74,7 +74,7 @@ Notification Phases 01-09 are Completed.
 | 05 | OCR Provider Abstraction | Completed |
 | 06 | Extraction Pipeline | Completed |
 | 07 | Retry and Job Processing | Completed |
-| 08 | Program and Migration | Not Started |
+| 08 | Program and Migration | Completed |
 | 09 | Testing | Not Started |
 
 ## GPS Tracking Phase Progress
@@ -135,6 +135,9 @@ Notification Phases 01-09 are Completed.
 * Document OCR Phase 07 added skip-locked job claims, leases and heartbeats, expired-claim
   recovery, bounded deterministic retries, terminal failure events, and an allowlisted
   transactional outbox publisher; the service now passes 55 tests.
+* Document OCR Phase 08 configured the complete service process and dedicated local PostgreSQL,
+  applied `20260722035404_InitialDocumentOcr`, and passed HTTP/2, RabbitMQ, worker, build, and
+  55-test smoke validation without paid OCR credentials.
 
 ## Current Work
 
@@ -149,13 +152,13 @@ No active blocker.
 
 ## Remaining Work
 
-No remaining GPS MVP work. Document OCR Agent is explicitly authorized; Phases 01-07 are complete
-and Phase 08 is active.
+No remaining GPS MVP work. Document OCR Agent is explicitly authorized; Phases 01-08 are complete
+and Phase 09 is active.
 Regulatory Compliance remains a separate planned service and must not begin automatically.
 
 ## Build Results
 
-Latest verified Document OCR Phase 07 validation:
+Latest verified Document OCR Phase 08 validation:
 
 ```bash
 dotnet build src/dotnet/DocumentOcr/DocumentOcr.csproj
@@ -165,7 +168,7 @@ Result: Passed, 3 projects built with 0 errors and 0 warnings.
 
 ## Test Results
 
-Latest verified Document OCR Phase 07 validation:
+Latest verified Document OCR Phase 08 validation:
 
 ```bash
 dotnet test src/dotnet/DocumentOcr/Tests/DocumentOcr.Tests.csproj
@@ -175,7 +178,7 @@ Result: Document OCR passed 55 tests with 0 failed and 0 warnings.
 
 ## Migration Results
 
-Initial Shipment Workflow migration `20260713201248_InitialShipmentWorkflow` and expanded MVP migration `20260714042938_ExpandShipmentWorkflowMvp` are applied to local `aurora_shipment_workflow`. Notification migration `20260719124939_InitialNotification` is applied to local `aurora_notification`. GPS migration `20260721042104_InitialGpsTracking` is applied to local `aurora_gps_tracking`.
+Initial Shipment Workflow migration `20260713201248_InitialShipmentWorkflow` and expanded MVP migration `20260714042938_ExpandShipmentWorkflowMvp` are applied to local `aurora_shipment_workflow`. Notification migration `20260719124939_InitialNotification` is applied to local `aurora_notification`. GPS migration `20260721042104_InitialGpsTracking` is applied to local `aurora_gps_tracking`. Document OCR migration `20260722035404_InitialDocumentOcr` is applied to local `aurora_document_ocr`.
 
 Part of the validation also produced supporting repository commits:
 
@@ -198,8 +201,8 @@ Recent Notification phase commits:
 
 ## Immediate Next Action
 
-Complete Document OCR Phase 08 on `feat/document-ocr-agent`, then continue sequentially through
-the remaining OCR phases only after each phase passes its completion criteria.
+Complete Document OCR Phase 09 on `feat/document-ocr-agent`; do not begin Regulatory Compliance
+until OCR passes its full service completion criteria.
 
 ## Branch Strategy
 
