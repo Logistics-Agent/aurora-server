@@ -50,14 +50,24 @@ public interface IDocumentOcrJobService
         CancellationToken cancellationToken = default);
 }
 
+public interface IDocumentOcrJobProcessor
+{
+    Task<DocumentOcrJob?> ProcessClaimedAsync(
+        Guid tenantId,
+        Guid jobId,
+        Guid attemptId,
+        CancellationToken cancellationToken = default);
+}
+
 public sealed class DocumentOcrJobService(
     DocumentOcrDbContext dbContext,
     ICurrentUserService currentUser,
     TimeProvider timeProvider,
     DocumentProcessingOptions options,
+    DocumentOcrWorkerOptions workerOptions,
     DocumentInputPolicy inputPolicy,
     IDocumentContentReader contentReader,
-    IOcrProvider provider) : IDocumentOcrJobService
+    IOcrProvider provider) : IDocumentOcrJobService, IDocumentOcrJobProcessor
 {
     public async Task<DocumentOcrJob> SubmitAsync(
         SubmitDocumentJobInput input,
@@ -169,23 +179,55 @@ public sealed class DocumentOcrJobService(
         if (job is null || job.Status != DocumentOcrJobStatus.Queued || job.NextAttemptAt > now)
             return null;
 
-        var attempt = job.Start(provider.Name, now, now.AddMinutes(2));
+        var attempt = job.Start(provider.Name, now, now.Add(workerOptions.LeaseDuration));
         dbContext.ProviderAttempts.Add(attempt);
         try
         {
             await dbContext.SaveChangesAsync(cancellationToken);
         }
-        catch (DbUpdateConcurrencyException) when (dbContext.Database.IsRelational())
+        catch (DbUpdateConcurrencyException)
         {
             dbContext.ChangeTracker.Clear();
             return null;
         }
 
+        return await ProcessClaimedJobAsync(job, attempt, cancellationToken);
+    }
+
+    public async Task<DocumentOcrJob?> ProcessClaimedAsync(
+        Guid tenantId,
+        Guid jobId,
+        Guid attemptId,
+        CancellationToken cancellationToken = default)
+    {
+        RequiredId(tenantId, nameof(tenantId));
+        RequiredId(jobId, nameof(jobId));
+        RequiredId(attemptId, nameof(attemptId));
+        var job = await dbContext.Jobs
+            .IgnoreQueryFilters()
+            .Include(item => item.Attempts)
+            .SingleOrDefaultAsync(
+                item => item.TenantId == tenantId && item.Id == jobId,
+                cancellationToken);
+        if (job is null || job.Status != DocumentOcrJobStatus.Processing)
+            return null;
+        var attempt = job.Attempts.SingleOrDefault(item =>
+            item.Id == attemptId && item.Outcome == OcrAttemptOutcome.Processing);
+        return attempt is null
+            ? null
+            : await ProcessClaimedJobAsync(job, attempt, cancellationToken);
+    }
+
+    private async Task<DocumentOcrJob> ProcessClaimedJobAsync(
+        DocumentOcrJob job,
+        OcrProviderAttempt attempt,
+        CancellationToken cancellationToken)
+    {
         try
         {
             var content = await contentReader.ReadAsync(
                 new DocumentContentRequest(
-                    tenantId,
+                    job.TenantId,
                     job.StorageReference,
                     job.FileName,
                     job.MimeType,
@@ -195,7 +237,7 @@ public sealed class DocumentOcrJobService(
             var result = await provider.ExtractAsync(
                 new OcrProviderRequest(
                     job.Id,
-                    tenantId,
+                    job.TenantId,
                     job.FileName,
                     job.MimeType,
                     job.DocumentTypeHint,
@@ -221,28 +263,55 @@ public sealed class DocumentOcrJobService(
             job.Cancel(timeProvider.GetUtcNow());
             await dbContext.SaveChangesAsync(cancellationToken);
         }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            job.Cancel(timeProvider.GetUtcNow());
+            await dbContext.SaveChangesAsync(cancellationToken);
+        }
         catch (OcrProviderException exception)
         {
-            job.RecordFailure(
+            await RecordFailureAsync(
+                job,
                 attempt.Id,
                 MapFailure(exception.Kind),
                 exception.Code,
                 exception.Message,
-                timeProvider.GetUtcNow());
-            await dbContext.SaveChangesAsync(cancellationToken);
+                cancellationToken);
         }
         catch (ArgumentException exception)
         {
-            job.RecordFailure(
+            await RecordFailureAsync(
+                job,
                 attempt.Id,
                 OcrAttemptOutcome.InvalidDocument,
                 "invalid_document",
                 BoundedError(exception.Message),
-                timeProvider.GetUtcNow());
-            await dbContext.SaveChangesAsync(cancellationToken);
+                cancellationToken);
         }
 
         return job;
+    }
+
+    private async Task RecordFailureAsync(
+        DocumentOcrJob job,
+        Guid attemptId,
+        OcrAttemptOutcome outcome,
+        string errorCode,
+        string errorMessage,
+        CancellationToken cancellationToken)
+    {
+        var failedAt = timeProvider.GetUtcNow();
+        job.RecordFailure(attemptId, outcome, errorCode, errorMessage, failedAt);
+        if (outcome == OcrAttemptOutcome.TransientFailure && job.AttemptCount < workerOptions.MaxAttempts)
+        {
+            var delay = DocumentOcrRetryPolicy.GetDelay(job.Id, job.AttemptCount, workerOptions);
+            job.ScheduleRetry(failedAt.Add(delay), failedAt);
+        }
+        else
+        {
+            dbContext.OutboxMessages.Add(DocumentOcrOutboxFactory.CreateFailed(job, failedAt));
+        }
+        await dbContext.SaveChangesAsync(cancellationToken);
     }
 
     private void AddCompletedOutbox(DocumentOcrJob job, DateTimeOffset occurredAt)

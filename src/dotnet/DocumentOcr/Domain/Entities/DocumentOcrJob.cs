@@ -173,6 +173,19 @@ public sealed class DocumentOcrJob : TenantAuditableEntity
         UpdatedAt = scheduledAt;
     }
 
+    public void RenewLease(DateTimeOffset heartbeatAt, DateTimeOffset leaseExpiresAt)
+    {
+        EnsureStatus(DocumentOcrJobStatus.Processing);
+        if (heartbeatAt == default)
+            throw new ArgumentException("HeartbeatAt is required.", nameof(heartbeatAt));
+        if (leaseExpiresAt <= heartbeatAt)
+            throw new ArgumentOutOfRangeException(nameof(leaseExpiresAt));
+
+        HeartbeatAt = heartbeatAt;
+        LeaseExpiresAt = leaseExpiresAt;
+        UpdatedAt = heartbeatAt;
+    }
+
     public void Cancel(DateTimeOffset cancelledAt)
     {
         if (Status is not (DocumentOcrJobStatus.Queued or DocumentOcrJobStatus.Processing))

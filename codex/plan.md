@@ -13,7 +13,7 @@ Regulatory Compliance RAG: Not Started
 ## Active Work
 
 Active Service: Document OCR Agent
-Active Phase: Phase 07 - Retry and Job Processing
+Active Phase: Phase 08 - Program and Migration
 Current Branch: feat/document-ocr-agent
 
 ## Service Progress
@@ -73,7 +73,7 @@ Notification Phases 01-09 are Completed.
 | 04 | Persistence | Completed |
 | 05 | OCR Provider Abstraction | Completed |
 | 06 | Extraction Pipeline | Completed |
-| 07 | Retry and Job Processing | Not Started |
+| 07 | Retry and Job Processing | Completed |
 | 08 | Program and Migration | Not Started |
 | 09 | Testing | Not Started |
 
@@ -132,6 +132,9 @@ Notification Phases 01-09 are Completed.
   bounded provider results/failures, and deterministic local adapters without external access.
 * Document OCR Phase 06 completed tenant-safe submit/get/list gRPC behavior and the extraction
   pipeline with stable normalized JSON, confidence/review rules, and atomic completion outbox.
+* Document OCR Phase 07 added skip-locked job claims, leases and heartbeats, expired-claim
+  recovery, bounded deterministic retries, terminal failure events, and an allowlisted
+  transactional outbox publisher; the service now passes 55 tests.
 
 ## Current Work
 
@@ -146,33 +149,29 @@ No active blocker.
 
 ## Remaining Work
 
-No remaining GPS MVP work. Document OCR Agent is explicitly authorized; Phases 01-06 are complete
-and Phase 07 is active.
+No remaining GPS MVP work. Document OCR Agent is explicitly authorized; Phases 01-07 are complete
+and Phase 08 is active.
 Regulatory Compliance remains a separate planned service and must not begin automatically.
 
 ## Build Results
 
-Latest verified GPS Phase 10 validation:
+Latest verified Document OCR Phase 07 validation:
 
 ```bash
-dotnet build src/dotnet/GpsTracking/GpsTracking.csproj
-dotnet build src/dotnet/ShipmentWorkflow/ShipmentWorkflow.csproj
-dotnet build src/dotnet/Notification/Notification.csproj
+dotnet build src/dotnet/DocumentOcr/DocumentOcr.csproj
 ```
 
-Result: All passed, 0 errors, 0 warnings.
+Result: Passed, 3 projects built with 0 errors and 0 warnings.
 
 ## Test Results
 
-Latest verified GPS Phase 10 validation:
+Latest verified Document OCR Phase 07 validation:
 
 ```bash
-dotnet test src/dotnet/GpsTracking/Tests/GpsTracking.Tests.csproj
-dotnet test src/dotnet/ShipmentWorkflow/Tests/ShipmentWorkflow.Tests.csproj
-dotnet test src/dotnet/Notification/Tests/Notification.Tests.csproj
+dotnet test src/dotnet/DocumentOcr/Tests/DocumentOcr.Tests.csproj
 ```
 
-Result: GPS passed 50 tests; Shipment passed 99 tests; Notification passed 29 tests.
+Result: Document OCR passed 55 tests with 0 failed and 0 warnings.
 
 ## Migration Results
 
@@ -199,7 +198,7 @@ Recent Notification phase commits:
 
 ## Immediate Next Action
 
-Complete Document OCR Phase 07 on `feat/document-ocr-agent`, then continue sequentially through
+Complete Document OCR Phase 08 on `feat/document-ocr-agent`, then continue sequentially through
 the remaining OCR phases only after each phase passes its completion criteria.
 
 ## Branch Strategy

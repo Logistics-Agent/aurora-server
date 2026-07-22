@@ -78,7 +78,7 @@ public sealed class DocumentOcrJobServiceTests
     }
 
     [Fact]
-    public async Task ProviderFailureIsClassifiedWithoutCompletionOutbox()
+    public async Task TransientProviderFailureIsScheduledForRetryWithoutOutbox()
     {
         var tenantId = Guid.CreateVersion7();
         var currentUser = CreateCurrentUser(tenantId);
@@ -91,9 +91,68 @@ public sealed class DocumentOcrJobServiceTests
 
         var processed = await service.ProcessAsync(tenantId, job.Id);
 
-        Assert.Equal(DocumentOcrJobStatus.Failed, processed!.Status);
+        Assert.Equal(DocumentOcrJobStatus.Queued, processed!.Status);
         Assert.Equal(OcrAttemptOutcome.TransientFailure, Assert.Single(processed.Attempts).Outcome);
+        Assert.True(processed.NextAttemptAt > Now);
         Assert.Empty(await context.OutboxMessages.ToListAsync());
+    }
+
+    [Fact]
+    public async Task PermanentProviderFailureWritesTerminalFailureOutbox()
+    {
+        var tenantId = Guid.CreateVersion7();
+        var currentUser = CreateCurrentUser(tenantId);
+        await using var context = CreateContext(currentUser);
+        var service = CreateService(
+            context,
+            currentUser,
+            new DeterministicOcrProvider(OcrProviderFailureKind.Permanent));
+        var job = await service.SubmitAsync(CreateInput("request-001"));
+
+        var processed = await service.ProcessAsync(tenantId, job.Id);
+
+        Assert.Equal(DocumentOcrJobStatus.Failed, processed!.Status);
+        Assert.Equal(OcrAttemptOutcome.PermanentFailure, Assert.Single(processed.Attempts).Outcome);
+        var outbox = Assert.Single(await context.OutboxMessages.ToListAsync());
+        Assert.Equal("DocumentOcrFailedEvent", outbox.EventType);
+        Assert.Contains(job.Id.ToString(), outbox.Content);
+    }
+
+    [Fact]
+    public async Task CancelledProviderCallIsNotRetriedOrPublished()
+    {
+        var tenantId = Guid.CreateVersion7();
+        var currentUser = CreateCurrentUser(tenantId);
+        await using var context = CreateContext(currentUser);
+        var service = CreateService(
+            context,
+            currentUser,
+            new DeterministicOcrProvider(OcrProviderFailureKind.Cancelled));
+        var job = await service.SubmitAsync(CreateInput("request-001"));
+
+        var processed = await service.ProcessAsync(tenantId, job.Id);
+
+        Assert.Equal(DocumentOcrJobStatus.Cancelled, processed!.Status);
+        Assert.Null(processed.NextAttemptAt);
+        Assert.Empty(await context.OutboxMessages.ToListAsync());
+    }
+
+    [Fact]
+    public async Task HostCancellationLeavesClaimForLeaseRecovery()
+    {
+        var tenantId = Guid.CreateVersion7();
+        var currentUser = CreateCurrentUser(tenantId);
+        await using var context = CreateContext(currentUser);
+        using var cancellation = new CancellationTokenSource();
+        var service = CreateService(context, currentUser, new HostCancellationProvider(cancellation));
+        var job = await service.SubmitAsync(CreateInput("request-001"));
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            service.ProcessAsync(tenantId, job.Id, cancellation.Token));
+
+        var persisted = await context.Jobs.IgnoreQueryFilters().SingleAsync();
+        Assert.Equal(DocumentOcrJobStatus.Processing, persisted.Status);
+        Assert.Empty(await context.OutboxMessages.IgnoreQueryFilters().ToListAsync());
     }
 
     [Fact]
@@ -130,6 +189,7 @@ public sealed class DocumentOcrJobServiceTests
             currentUser,
             new FixedTimeProvider(Now),
             options,
+            new DocumentOcrWorkerOptions(),
             policy,
             new DeterministicDocumentContentReader(policy),
             provider ?? new DeterministicOcrProvider());
@@ -178,6 +238,20 @@ public sealed class DocumentOcrJobServiceTests
                 null,
                 null,
                 null));
+        }
+    }
+
+    private sealed class HostCancellationProvider(CancellationTokenSource cancellation) : IOcrProvider
+    {
+        public string Name => "host-cancellation";
+
+        public Task<OcrProviderResult> ExtractAsync(
+            OcrProviderRequest request,
+            CancellationToken cancellationToken)
+        {
+            cancellation.Cancel();
+            cancellationToken.ThrowIfCancellationRequested();
+            throw new InvalidOperationException("The cancellation token was expected to stop processing.");
         }
     }
 
