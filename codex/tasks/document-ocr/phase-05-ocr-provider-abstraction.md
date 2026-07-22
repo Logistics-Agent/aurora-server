@@ -2,7 +2,7 @@
 
 ## Status
 
-Not Started
+Completed
 
 ## Goal
 
@@ -71,32 +71,48 @@ dotnet test src/dotnet/DocumentOcr/Tests/DocumentOcr.Tests.csproj
 
 ### Completed
 
-Not started.
+Defined vendor-neutral OCR/content interfaces, bounded provider models, explicit failure kinds,
+document limits, and an approved object-key policy. Added deterministic local adapters that do not
+access network, object storage, or the local filesystem and require no paid credentials.
 
 ### Files Changed
 
-None.
+* `src/dotnet/DocumentOcr/Application/Providers/DocumentProcessingOptions.cs`
+* `src/dotnet/DocumentOcr/Application/Providers/DocumentInputPolicy.cs`
+* `src/dotnet/DocumentOcr/Application/Providers/IDocumentContentReader.cs`
+* `src/dotnet/DocumentOcr/Application/Providers/IOcrProvider.cs`
+* `src/dotnet/DocumentOcr/Application/Providers/ProviderModels.cs`
+* `src/dotnet/DocumentOcr/Infrastructure/Providers/DeterministicDocumentContentReader.cs`
+* `src/dotnet/DocumentOcr/Infrastructure/Providers/DeterministicOcrProvider.cs`
+* `src/dotnet/DocumentOcr/Tests/OcrProviderAbstractionTests.cs`
+* `codex/plan.md`
 
 ### Commands Executed
 
-None.
+```bash
+git status --short
+dotnet build src/dotnet/DocumentOcr/DocumentOcr.csproj
+dotnet test src/dotnet/DocumentOcr/Tests/DocumentOcr.Tests.csproj --filter FullyQualifiedName~OcrProviderAbstractionTests
+dotnet test src/dotnet/DocumentOcr/Tests/DocumentOcr.Tests.csproj
+```
 
 ### Build Result
 
-Not started.
+Passed: 3 projects built with 0 errors and 0 warnings.
 
 ### Test Result
 
-Not started.
+Passed: 16 focused provider/security cases and 36 total tests, 0 failed, 0 warnings.
 
 ### Runtime Result
 
-Not started.
+Not required; adapters are wired into the process in Phase 08.
 
 ### Migration Result
 
-Not started.
+Not required; no persistence changes in this phase.
 
 ### Remaining Issues
 
-Phase has not started.
+None. A real provider adapter remains intentionally deferred until an approved provider and
+secret-backed runtime configuration are supplied; the deterministic adapter supports local/tests.

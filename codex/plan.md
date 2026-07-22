@@ -13,7 +13,7 @@ Regulatory Compliance RAG: Not Started
 ## Active Work
 
 Active Service: Document OCR Agent
-Active Phase: Phase 05 - OCR Provider Abstraction
+Active Phase: Phase 06 - Extraction Pipeline
 Current Branch: feat/document-ocr-agent
 
 ## Service Progress
@@ -71,7 +71,7 @@ Notification Phases 01-09 are Completed.
 | 02 | Contracts and API | Completed |
 | 03 | Document Job Model | Completed |
 | 04 | Persistence | Completed |
-| 05 | OCR Provider Abstraction | Not Started |
+| 05 | OCR Provider Abstraction | Completed |
 | 06 | Extraction Pipeline | Not Started |
 | 07 | Retry and Job Processing | Not Started |
 | 08 | Program and Migration | Not Started |
@@ -128,6 +128,8 @@ Notification Phases 01-09 are Completed.
   lifecycle transitions, bounded errors/JSON, retry semantics, and inbox/outbox domain records.
 * Document OCR Phase 04 configured tenant-filtered PostgreSQL persistence, JSON/confidence fields,
   operational indexes, inbox/outbox storage, and tenant-safe aggregate relationships.
+* Document OCR Phase 05 added vendor-neutral OCR/content interfaces, strict document policy,
+  bounded provider results/failures, and deterministic local adapters without external access.
 
 ## Current Work
 
@@ -142,8 +144,8 @@ No active blocker.
 
 ## Remaining Work
 
-No remaining GPS MVP work. Document OCR Agent is explicitly authorized; Phases 01-04 are complete
-and Phase 05 is active.
+No remaining GPS MVP work. Document OCR Agent is explicitly authorized; Phases 01-05 are complete
+and Phase 06 is active.
 Regulatory Compliance remains a separate planned service and must not begin automatically.
 
 ## Build Results
@@ -195,7 +197,7 @@ Recent Notification phase commits:
 
 ## Immediate Next Action
 
-Complete Document OCR Phase 05 on `feat/document-ocr-agent`, then continue sequentially through
+Complete Document OCR Phase 06 on `feat/document-ocr-agent`, then continue sequentially through
 the remaining OCR phases only after each phase passes its completion criteria.
 
 ## Branch Strategy
