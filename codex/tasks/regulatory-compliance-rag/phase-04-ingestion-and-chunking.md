@@ -2,7 +2,7 @@
 
 ## Status
 
-Not Started
+Completed
 
 ## Goal
 
@@ -76,32 +76,43 @@ dotnet test src/dotnet/RegulatoryCompliance/Tests/RegulatoryCompliance.Tests.csp
 
 ### Completed
 
-Not started.
+* Implemented permission-gated tenant/platform source ingestion without client TenantId.
+* Added bounded UTF-8 text/Markdown upload, HTTPS provenance and safe storage-key validation,
+  SHA-256/size validation, and explicit rejection of OCR/binary inputs.
+* Added idempotent immutable versions, supersession, deterministic normalized chunks,
+  citation labels/offsets, and pending-embedding state.
+* Implemented the ingestion gRPC mapping and atomic EF save behavior.
+* Added authorization, replay/new-version, malformed/oversized/unsafe content, deterministic
+  chunking, and atomic-failure tests.
 
 ### Files Changed
 
-None.
+Application ingestion models/service/chunker, ingestion gRPC service, protobuf ingestion fields,
+chunk/version domain and EF mapping updates, tests, and phase/plan documentation.
 
 ### Commands Executed
 
-None.
+* `git status --short --branch`
+* `dotnet build src/dotnet/RegulatoryCompliance/RegulatoryCompliance.csproj`
+* `dotnet test src/dotnet/RegulatoryCompliance/Tests/RegulatoryCompliance.Tests.csproj`
+* `git diff --check`
 
 ### Build Result
 
-Not started.
+Passed: 3 projects, 0 errors, 0 warnings.
 
 ### Test Result
 
-Not started.
+Passed: 22 tests, 0 failed, 0 warnings.
 
 ### Runtime Result
 
-Not started.
+Not required until Phase 08 startup configuration.
 
 ### Migration Result
 
-Not started.
+No migration generated; Phase 08 owns the initial migration.
 
 ### Remaining Issues
 
-Phase has not started.
+None. Embedding generation/storage is intentionally deferred to Phase 05.

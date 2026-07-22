@@ -17,7 +17,7 @@ public sealed class RegulatoryComplianceDomainTests
         version.StartIngestion(Now.AddMinutes(1));
         var chunk = version.AddChunk(
             1, "Section 4", "12", "Dangerous goods require a declaration.",
-            7, Hash('b'), Now.AddMinutes(2));
+            7, 0, 38, Hash('b'), Now.AddMinutes(2));
         version.CompleteIngestion(Now.AddMinutes(3));
 
         Assert.Equal(tenantId, document.ScopeKey);
@@ -39,7 +39,7 @@ public sealed class RegulatoryComplianceDomainTests
 
         version.StartIngestion(Now.AddMinutes(1));
         Assert.Throws<ArgumentOutOfRangeException>(() => version.AddChunk(
-            2, null, null, "Out of sequence.", 3, Hash('c'), Now.AddMinutes(2)));
+            2, null, null, "Out of sequence.", 3, 0, 16, Hash('c'), Now.AddMinutes(2)));
         Assert.Throws<InvalidOperationException>(() => version.CompleteIngestion(Now.AddMinutes(3)));
     }
 
@@ -50,6 +50,7 @@ public sealed class RegulatoryComplianceDomainTests
         var original = AddVersion(document);
 
         var replacement = document.AddVersion(
+            "ingestion-002",
             "2026.2",
             Now.AddDays(-1),
             Now,
@@ -173,6 +174,7 @@ public sealed class RegulatoryComplianceDomainTests
 
     private static RegulatoryDocumentVersion AddVersion(RegulatoryDocument document) =>
         document.AddVersion(
+            "ingestion-001",
             "2026.1",
             Now.AddDays(-30),
             Now.AddDays(-1),

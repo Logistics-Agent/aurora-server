@@ -44,6 +44,7 @@ public sealed class RegulatoryDocument : AuditableEntity
             authority, title, canonicalSourceUri, jurisdictionCode, regulationType, languageCode, createdAt);
 
     public RegulatoryDocumentVersion AddVersion(
+        string ingestionKey,
         string versionLabel,
         DateTimeOffset publishedAt,
         DateTimeOffset effectiveFrom,
@@ -61,8 +62,12 @@ public sealed class RegulatoryDocument : AuditableEntity
         if (sizeBytes <= 0)
             throw new ArgumentOutOfRangeException(nameof(sizeBytes), "SizeBytes must be positive.");
 
+        var normalizedIngestionKey = ComplianceValidation.RequiredText(
+            ingestionKey, nameof(ingestionKey), 150);
         var normalizedLabel = ComplianceValidation.RequiredText(versionLabel, nameof(versionLabel), 100);
         var normalizedHash = ComplianceValidation.Sha256(contentSha256, nameof(contentSha256));
+        if (_versions.Any(version => version.IngestionKey == normalizedIngestionKey))
+            throw new InvalidOperationException("The ingestion key already exists for this document.");
         if (_versions.Any(version => version.VersionLabel == normalizedLabel))
             throw new InvalidOperationException("The version label already exists for this document.");
         if (_versions.Any(version => version.ContentSha256 == normalizedHash))
@@ -78,6 +83,7 @@ public sealed class RegulatoryDocument : AuditableEntity
             ScopeKey,
             Visibility,
             Id,
+            normalizedIngestionKey,
             normalizedLabel,
             publishedAt,
             effectiveFrom,

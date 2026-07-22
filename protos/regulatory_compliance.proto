@@ -64,6 +64,12 @@ enum RegulatoryIngestionStatus {
   REGULATORY_INGESTION_STATUS_FAILED = 4;
 }
 
+enum RegulatorySourceVisibility {
+  REGULATORY_SOURCE_VISIBILITY_UNSPECIFIED = 0;
+  REGULATORY_SOURCE_VISIBILITY_TENANT = 1;
+  REGULATORY_SOURCE_VISIBILITY_PLATFORM = 2;
+}
+
 message EvaluateComplianceRequest {
   string idempotency_key = 1;
   string external_shipment_id = 2;
@@ -184,6 +190,8 @@ message IngestRegulatorySourceRequest {
   string mime_type = 14;
   int64 size_bytes = 15;
   string content_sha256 = 16;
+  bytes content = 17;
+  RegulatorySourceVisibility visibility = 18;
 }
 
 message IngestRegulatorySourceResponse {

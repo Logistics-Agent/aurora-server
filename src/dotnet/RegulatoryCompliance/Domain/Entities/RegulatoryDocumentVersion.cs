@@ -13,6 +13,7 @@ public sealed class RegulatoryDocumentVersion : AuditableEntity
     public Guid ScopeKey { get; private set; }
     public SourceVisibility Visibility { get; private set; }
     public Guid RegulatoryDocumentId { get; private set; }
+    public string IngestionKey { get; private set; } = string.Empty;
     public string VersionLabel { get; private set; } = string.Empty;
     public DateTimeOffset PublishedAt { get; private set; }
     public DateTimeOffset EffectiveFrom { get; private set; }
@@ -38,6 +39,7 @@ public sealed class RegulatoryDocumentVersion : AuditableEntity
         Guid scopeKey,
         SourceVisibility visibility,
         Guid regulatoryDocumentId,
+        string ingestionKey,
         string versionLabel,
         DateTimeOffset publishedAt,
         DateTimeOffset effectiveFrom,
@@ -61,6 +63,7 @@ public sealed class RegulatoryDocumentVersion : AuditableEntity
             ScopeKey = scopeKey,
             Visibility = visibility,
             RegulatoryDocumentId = regulatoryDocumentId,
+            IngestionKey = ingestionKey,
             VersionLabel = versionLabel,
             PublishedAt = publishedAt,
             EffectiveFrom = effectiveFrom,
@@ -92,6 +95,8 @@ public sealed class RegulatoryDocumentVersion : AuditableEntity
         string? pageLabel,
         string normalizedText,
         int tokenCount,
+        int startOffset,
+        int endOffset,
         string contentSha256,
         DateTimeOffset createdAt)
     {
@@ -110,6 +115,8 @@ public sealed class RegulatoryDocumentVersion : AuditableEntity
             pageLabel,
             normalizedText,
             tokenCount,
+            startOffset,
+            endOffset,
             contentSha256,
             createdAt);
         _chunks.Add(chunk);

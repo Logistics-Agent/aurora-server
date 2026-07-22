@@ -95,6 +95,7 @@ public sealed class RegulatoryComplianceDbContext(
                 (_currentUser.TenantId.HasValue && version.TenantId == _currentUser.TenantId));
             entity.HasIndex(version => new { version.RegulatoryDocumentId, version.VersionLabel }).IsUnique();
             entity.HasIndex(version => new { version.RegulatoryDocumentId, version.ContentSha256 }).IsUnique();
+            entity.HasIndex(version => new { version.ScopeKey, version.IngestionKey }).IsUnique();
             entity.HasIndex(version => new
             {
                 version.ScopeKey,
@@ -107,6 +108,7 @@ public sealed class RegulatoryComplianceDbContext(
             entity.Property(version => version.ScopeKey).IsRequired();
             entity.Property(version => version.Visibility).HasConversion<string>().HasMaxLength(20).IsRequired();
             entity.Property(version => version.VersionLabel).HasMaxLength(100).IsRequired();
+            entity.Property(version => version.IngestionKey).HasMaxLength(150).IsRequired();
             entity.Property(version => version.ContentSha256).HasMaxLength(64).IsRequired();
             entity.Property(version => version.ContentReference).HasMaxLength(1_000).IsRequired();
             entity.Property(version => version.FileName).HasMaxLength(255).IsRequired();
@@ -140,6 +142,7 @@ public sealed class RegulatoryComplianceDbContext(
                 (_currentUser.TenantId.HasValue && chunk.TenantId == _currentUser.TenantId));
             entity.HasIndex(chunk => new { chunk.RegulatoryDocumentVersionId, chunk.Sequence }).IsUnique();
             entity.HasIndex(chunk => new { chunk.ScopeKey, chunk.ContentSha256 });
+            entity.HasIndex(chunk => new { chunk.ScopeKey, chunk.EmbeddingStatus, chunk.CreatedAt });
 
             entity.Property(chunk => chunk.ScopeKey).IsRequired();
             entity.Property(chunk => chunk.Visibility).HasConversion<string>().HasMaxLength(20).IsRequired();
@@ -147,6 +150,8 @@ public sealed class RegulatoryComplianceDbContext(
             entity.Property(chunk => chunk.PageLabel).HasMaxLength(50);
             entity.Property(chunk => chunk.NormalizedText).HasMaxLength(20_000).IsRequired();
             entity.Property(chunk => chunk.ContentSha256).HasMaxLength(64).IsRequired();
+            entity.Property(chunk => chunk.EmbeddingStatus)
+                .HasConversion<string>().HasMaxLength(30).IsRequired();
             ConfigureAudit(entity);
         });
     }

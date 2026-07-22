@@ -17,7 +17,10 @@ public sealed class RegulatoryChunk : AuditableEntity
     public string NormalizedText { get; private set; } = string.Empty;
     public int TokenCount { get; private set; }
     public int CharacterCount { get; private set; }
+    public int StartOffset { get; private set; }
+    public int EndOffset { get; private set; }
     public string ContentSha256 { get; private set; } = string.Empty;
+    public ChunkEmbeddingStatus EmbeddingStatus { get; private set; }
 
     internal static RegulatoryChunk Create(
         Guid? tenantId,
@@ -29,6 +32,8 @@ public sealed class RegulatoryChunk : AuditableEntity
         string? pageLabel,
         string normalizedText,
         int tokenCount,
+        int startOffset,
+        int endOffset,
         string contentSha256,
         DateTimeOffset createdAt)
     {
@@ -37,6 +42,8 @@ public sealed class RegulatoryChunk : AuditableEntity
             throw new ArgumentOutOfRangeException(nameof(sequence));
         if (tokenCount <= 0)
             throw new ArgumentOutOfRangeException(nameof(tokenCount));
+        if (startOffset < 0 || endOffset <= startOffset)
+            throw new ArgumentOutOfRangeException(nameof(startOffset), "Chunk offsets are invalid.");
         ComplianceValidation.RequiredTimestamp(createdAt, nameof(createdAt));
         var text = ComplianceValidation.RequiredText(normalizedText, nameof(normalizedText), 20_000);
 
@@ -52,7 +59,10 @@ public sealed class RegulatoryChunk : AuditableEntity
             NormalizedText = text,
             TokenCount = tokenCount,
             CharacterCount = text.Length,
+            StartOffset = startOffset,
+            EndOffset = endOffset,
             ContentSha256 = ComplianceValidation.Sha256(contentSha256, nameof(contentSha256)),
+            EmbeddingStatus = ChunkEmbeddingStatus.Pending,
             CreatedAt = createdAt
         };
     }

@@ -100,7 +100,7 @@ Status: In Progress. Owns regulatory sources, retrieval evidence, and compliance
 | 01 | Create `RegulatoryCompliance`, contracts, configuration skeleton, and tests. | Completed |
 | 02 | Define evaluation/query/ingestion gRPC and completed/failed event contracts. | Completed |
 | 03 | Model and persist source versions, chunks, evaluations, findings, citations, traces, inbox/outbox. | Completed |
-| 04 | Implement authorized, idempotent regulatory ingestion and deterministic chunking. | Not Started |
+| 04 | Implement authorized, idempotent regulatory ingestion and deterministic chunking. | Completed |
 | 05 | Implement provider-neutral embeddings and tenant-safe vector persistence/search primitives. | Not Started |
 | 06 | Implement effective-date-aware retrieval, deterministic ranking, and immutable citations. | Not Started |
 | 07 | Implement idempotent evidence-backed compliance evaluation and atomic events. | Not Started |
@@ -109,5 +109,5 @@ Status: In Progress. Owns regulatory sources, retrieval evidence, and compliance
 
 ## Next Gate
 
-The active implementation is Regulatory Compliance RAG Phase 04 on
+The active implementation is Regulatory Compliance RAG Phase 05 on
 `feat/regulatory-compliance-rag`. Later phases remain sequentially gated.
