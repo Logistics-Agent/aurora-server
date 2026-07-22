@@ -8,13 +8,13 @@ Shipment Workflow full MVP: Completed
 Notification Service: Completed
 GPS Tracking and Monitoring: Completed
 Document OCR Agent: Completed
-Regulatory Compliance RAG: Not Started
+Regulatory Compliance RAG: In Progress
 
 ## Active Work
 
-Active Service: None
-Active Phase: None - Document OCR Agent completed
-Current Branch: feat/document-ocr-agent
+Active Service: Regulatory Compliance RAG
+Active Phase: Phase 02 - Contracts and API
+Current Branch: feat/regulatory-compliance-rag
 
 ## Service Progress
 
@@ -24,7 +24,7 @@ Current Branch: feat/document-ocr-agent
 | Notification | Completed |
 | GPS Tracking and Monitoring | Completed |
 | Document OCR Agent | Completed |
-| Regulatory Compliance RAG | Not Started |
+| Regulatory Compliance RAG | In Progress |
 
 ## Shipment Phase Progress
 
@@ -92,6 +92,20 @@ Notification Phases 01-09 are Completed.
 | 09 | Program and Migration | Completed |
 | 10 | Testing and Runtime Validation | Completed |
 
+## Regulatory Compliance RAG Phase Progress
+
+| Phase | Name | Status |
+| --- | --- | --- |
+| 01 | Project Foundation | Completed |
+| 02 | Contracts and API | Not Started |
+| 03 | Regulatory Document Model | Not Started |
+| 04 | Ingestion and Chunking | Not Started |
+| 05 | Embedding and Vector Storage | Not Started |
+| 06 | Retrieval and Citations | Not Started |
+| 07 | Compliance Evaluation | Not Started |
+| 08 | Program Configuration | Not Started |
+| 09 | Testing | Not Started |
+
 ## Completed Work
 
 * Shipment Workflow project and contract project created.
@@ -141,6 +155,8 @@ Notification Phases 01-09 are Completed.
 * Document OCR Phase 09 added PostgreSQL migration/schema/concurrency/tenant tests, real RabbitMQ
   completion/failure delivery proof, complete gRPC mapping coverage, and final owned-service
   regression. OCR passes 63 tests; Shipment 99, Notification 29, and GPS 50 also pass.
+* Regulatory Compliance Phase 01 created the .NET 10 Web/gRPC service, separate contracts
+  assembly, colocated tests, reserved protobuf, and secret-free configuration skeleton.
 
 ## Current Work
 
@@ -155,8 +171,8 @@ No active blocker.
 
 ## Remaining Work
 
-No remaining Document OCR MVP work. Regulatory Compliance remains a separate planned service and
-must not begin without explicit authorization.
+No remaining Document OCR MVP work. Regulatory Compliance RAG is explicitly authorized; Phase 01
+is complete and Phase 02 is active.
 
 ## Build Results
 
@@ -209,7 +225,8 @@ Recent Notification phase commits:
 
 ## Immediate Next Action
 
-Await explicit authorization before creating or starting the Regulatory Compliance service branch.
+Complete Regulatory Compliance RAG Phase 02 on `feat/regulatory-compliance-rag`, then proceed
+sequentially only after each phase passes its completion criteria.
 
 ## Branch Strategy
 
@@ -226,5 +243,5 @@ current Shipment branch
             └── feat/regulatory-compliance-rag
 ```
 
-Document OCR is active on `feat/document-ocr-agent`. Do not create the Regulatory Compliance
-branch until the OCR service is fully completed and explicitly authorized.
+Regulatory Compliance RAG is active on `feat/regulatory-compliance-rag`, stacked from the completed
+Document OCR branch. Do not start another service automatically after Compliance completes.

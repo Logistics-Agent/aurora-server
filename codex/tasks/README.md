@@ -77,27 +77,27 @@ Status: Completed. Consumes Shipment assignment events and owns vehicle position
 
 ## Document OCR Agent
 
-Status: Not Started. Owns extraction jobs/results, not object storage or compliance decisions.
+Status: Completed. Owns extraction jobs/results, not object storage or compliance decisions.
 
 | Phase | Output | Status |
 | --- | --- | --- |
-| 01 | Create `DocumentOcr`, contracts, configuration skeleton, and colocated tests. | Not Started |
-| 02 | Define submit/get/list gRPC and completed/failed integration-event contracts. | Not Started |
-| 03 | Model tenant-owned OCR jobs, attempts, results, confidence, review state, inbox/outbox. | Not Started |
-| 04 | Configure persistence, restrictive tenant filters, worker/idempotency/outbox indexes. | Not Started |
-| 05 | Define secure content/OCR provider boundaries and deterministic fakes. | Not Started |
-| 06 | Implement idempotent extraction, normalization, confidence/review, API, and atomic outbox. | Not Started |
-| 07 | Add skip-locked workers, leases, bounded retry, terminal failure, and outbox publisher. | Not Started |
-| 08 | Wire startup, dedicated PostgreSQL, initial migration, Docker, and runtime smoke. | Not Started |
-| 09 | Complete PostgreSQL/RabbitMQ/security/runtime tests and owned-service regressions. | Not Started |
+| 01 | Create `DocumentOcr`, contracts, configuration skeleton, and colocated tests. | Completed |
+| 02 | Define submit/get/list gRPC and completed/failed integration-event contracts. | Completed |
+| 03 | Model tenant-owned OCR jobs, attempts, results, confidence, review state, inbox/outbox. | Completed |
+| 04 | Configure persistence, restrictive tenant filters, worker/idempotency/outbox indexes. | Completed |
+| 05 | Define secure content/OCR provider boundaries and deterministic fakes. | Completed |
+| 06 | Implement idempotent extraction, normalization, confidence/review, API, and atomic outbox. | Completed |
+| 07 | Add skip-locked workers, leases, bounded retry, terminal failure, and outbox publisher. | Completed |
+| 08 | Wire startup, dedicated PostgreSQL, initial migration, Docker, and runtime smoke. | Completed |
+| 09 | Complete PostgreSQL/RabbitMQ/security/runtime tests and owned-service regressions. | Completed |
 
 ## Regulatory Compliance RAG
 
-Status: Not Started. Owns regulatory sources, retrieval evidence, and compliance evaluations.
+Status: In Progress. Owns regulatory sources, retrieval evidence, and compliance evaluations.
 
 | Phase | Output | Status |
 | --- | --- | --- |
-| 01 | Create `RegulatoryCompliance`, contracts, configuration skeleton, and tests. | Not Started |
+| 01 | Create `RegulatoryCompliance`, contracts, configuration skeleton, and tests. | Completed |
 | 02 | Define evaluation/query/ingestion gRPC and completed/failed event contracts. | Not Started |
 | 03 | Model and persist source versions, chunks, evaluations, findings, citations, traces, inbox/outbox. | Not Started |
 | 04 | Implement authorized, idempotent regulatory ingestion and deterministic chunking. | Not Started |
@@ -109,5 +109,5 @@ Status: Not Started. Owns regulatory sources, retrieval evidence, and compliance
 
 ## Next Gate
 
-The next planned implementation is Document OCR Agent Phase 01. Do not create its branch or start
-production code until explicitly requested and the branch base/merge sequence is confirmed.
+The active implementation is Regulatory Compliance RAG Phase 02 on
+`feat/regulatory-compliance-rag`. Later phases remain sequentially gated.

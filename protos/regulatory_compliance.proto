@@ -1,0 +1,7 @@
+syntax = "proto3";
+
+package regulatory_compliance;
+
+option csharp_namespace = "RegulatoryCompliance.Grpc";
+
+// The service contract is defined in Phase 02.

@@ -54,7 +54,8 @@ Current implemented state:
 Notification Service is completed with its initial migration applied locally and 29 tests passing.
 GPS Tracking and Monitoring is completed with `20260721042104_InitialGpsTracking` applied
 locally and 50 tests passing, including PostgreSQL and RabbitMQ integration coverage.
-Document OCR Agent is the next planned service but is not active until explicitly authorized.
+Document OCR Agent is completed with `20260722035404_InitialDocumentOcr` applied locally and
+63 tests passing. Regulatory Compliance RAG is now explicitly authorized as the active service.
 
 ## Tenant Isolation
 
