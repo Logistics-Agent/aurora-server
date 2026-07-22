@@ -65,6 +65,51 @@ public sealed class DocumentOcrGrpcServiceTests
         Assert.Equal(StatusCode.InvalidArgument, exception.StatusCode);
     }
 
+    [Fact]
+    public async Task GetMapsPersistedJobFields()
+    {
+        var tenantId = Guid.CreateVersion7();
+        var fake = new FakeJobService(tenantId);
+        var job = fake.SeedJob("get-job");
+        var service = new DocumentOcrGrpcService(fake, CreateCurrentUser(tenantId));
+
+        var response = await service.GetDocumentJob(
+            new OcrGrpc.GetDocumentJobRequest { JobId = job.Id.ToString() },
+            TestServerCallContext.Create());
+
+        Assert.Equal(job.Id.ToString(), response.JobId);
+        Assert.Equal(job.ExternalDocumentId.ToString(), response.ExternalDocumentId);
+        Assert.Equal(OcrGrpc.DocumentOcrJobStatus.Queued, response.Status);
+        Assert.Equal(Now.UtcDateTime, response.CreatedAt.ToDateTime());
+    }
+
+    [Fact]
+    public async Task ListMapsFiltersAndPaginationMetadata()
+    {
+        var tenantId = Guid.CreateVersion7();
+        var fake = new FakeJobService(tenantId);
+        var job = fake.SeedJob("list-job");
+        var service = new DocumentOcrGrpcService(fake, CreateCurrentUser(tenantId));
+
+        var response = await service.ListDocumentJobs(
+            new OcrGrpc.ListDocumentJobsRequest
+            {
+                Page = 2,
+                PageSize = 10,
+                Status = OcrGrpc.DocumentOcrJobStatus.Queued,
+                ExternalDocumentId = job.ExternalDocumentId.ToString()
+            },
+            TestServerCallContext.Create());
+
+        Assert.Equal(2, fake.LastListInput!.Page);
+        Assert.Equal(10, fake.LastListInput.PageSize);
+        Assert.Equal(DocumentOcrJobStatus.Queued, fake.LastListInput.Status);
+        Assert.Equal(job.ExternalDocumentId, fake.LastListInput.ExternalDocumentId);
+        Assert.Single(response.Jobs);
+        Assert.Equal(1, response.TotalItems);
+        Assert.Equal(2, response.Page);
+    }
+
     private static CurrentUserService CreateCurrentUser(Guid tenantId)
     {
         var currentUser = new CurrentUserService();
@@ -75,6 +120,23 @@ public sealed class DocumentOcrGrpcServiceTests
     private sealed class FakeJobService(Guid tenantId) : IDocumentOcrJobService
     {
         public DocumentOcrJob? LastSubmittedJob { get; private set; }
+        public ListDocumentJobsInput? LastListInput { get; private set; }
+
+        public DocumentOcrJob SeedJob(string key)
+        {
+            LastSubmittedJob = DocumentOcrJob.Create(
+                tenantId,
+                key,
+                "objects/tenant/invoice.pdf",
+                "invoice.pdf",
+                "application/pdf",
+                1_024,
+                OcrDocumentType.CommercialInvoice,
+                Guid.CreateVersion7(),
+                null,
+                Now);
+            return LastSubmittedJob;
+        }
 
         public Task<DocumentOcrJob> SubmitAsync(
             SubmitDocumentJobInput input,
@@ -101,8 +163,12 @@ public sealed class DocumentOcrGrpcServiceTests
 
         public Task<DocumentOcrJobPage> ListAsync(
             ListDocumentJobsInput input,
-            CancellationToken cancellationToken = default) =>
-            Task.FromResult(new DocumentOcrJobPage([], 1, 20, 0, 0));
+            CancellationToken cancellationToken = default)
+        {
+            LastListInput = input;
+            var items = LastSubmittedJob is null ? [] : new[] { LastSubmittedJob };
+            return Task.FromResult(new DocumentOcrJobPage(items, input.Page, input.PageSize, items.Length, 1));
+        }
 
         public Task<DocumentOcrJob?> ProcessAsync(
             Guid tenantId,

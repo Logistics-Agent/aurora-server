@@ -7,13 +7,13 @@ Shipment Workflow Aggregate Expansion: Completed
 Shipment Workflow full MVP: Completed
 Notification Service: Completed
 GPS Tracking and Monitoring: Completed
-Document OCR Agent: In Progress
+Document OCR Agent: Completed
 Regulatory Compliance RAG: Not Started
 
 ## Active Work
 
-Active Service: Document OCR Agent
-Active Phase: Phase 09 - Testing
+Active Service: None
+Active Phase: None - Document OCR Agent completed
 Current Branch: feat/document-ocr-agent
 
 ## Service Progress
@@ -23,7 +23,7 @@ Current Branch: feat/document-ocr-agent
 | Shipment Workflow | Completed |
 | Notification | Completed |
 | GPS Tracking and Monitoring | Completed |
-| Document OCR Agent | In Progress |
+| Document OCR Agent | Completed |
 | Regulatory Compliance RAG | Not Started |
 
 ## Shipment Phase Progress
@@ -75,7 +75,7 @@ Notification Phases 01-09 are Completed.
 | 06 | Extraction Pipeline | Completed |
 | 07 | Retry and Job Processing | Completed |
 | 08 | Program and Migration | Completed |
-| 09 | Testing | Not Started |
+| 09 | Testing | Completed |
 
 ## GPS Tracking Phase Progress
 
@@ -138,13 +138,16 @@ Notification Phases 01-09 are Completed.
 * Document OCR Phase 08 configured the complete service process and dedicated local PostgreSQL,
   applied `20260722035404_InitialDocumentOcr`, and passed HTTP/2, RabbitMQ, worker, build, and
   55-test smoke validation without paid OCR credentials.
+* Document OCR Phase 09 added PostgreSQL migration/schema/concurrency/tenant tests, real RabbitMQ
+  completion/failure delivery proof, complete gRPC mapping coverage, and final owned-service
+  regression. OCR passes 63 tests; Shipment 99, Notification 29, and GPS 50 also pass.
 
 ## Current Work
 
-Shipment Workflow, Notification, and GPS Tracking are complete. Shipment publishes persisted
-events consumed idempotently by Notification and GPS; GPS publishes position and monitoring
-events through its own transactional outbox for future consumers. Service tests remain
-colocated under `src/dotnet/<Service>/Tests`.
+Shipment Workflow, Notification, GPS Tracking, and Document OCR are complete. Shipment publishes
+persisted events consumed idempotently by Notification and GPS; GPS and OCR publish service-owned
+events through transactional outboxes. Service tests remain colocated under
+`src/dotnet/<Service>/Tests`.
 
 ## Blocked Work
 
@@ -152,29 +155,34 @@ No active blocker.
 
 ## Remaining Work
 
-No remaining GPS MVP work. Document OCR Agent is explicitly authorized; Phases 01-08 are complete
-and Phase 09 is active.
-Regulatory Compliance remains a separate planned service and must not begin automatically.
+No remaining Document OCR MVP work. Regulatory Compliance remains a separate planned service and
+must not begin without explicit authorization.
 
 ## Build Results
 
-Latest verified Document OCR Phase 08 validation:
+Latest verified Document OCR Phase 09 and owned-service regression validation:
 
 ```bash
 dotnet build src/dotnet/DocumentOcr/DocumentOcr.csproj
+dotnet build src/dotnet/ShipmentWorkflow/ShipmentWorkflow.csproj
+dotnet build src/dotnet/Notification/Notification.csproj
+dotnet build src/dotnet/GpsTracking/GpsTracking.csproj
 ```
 
-Result: Passed, 3 projects built with 0 errors and 0 warnings.
+Result: All passed with 0 errors and 0 warnings.
 
 ## Test Results
 
-Latest verified Document OCR Phase 08 validation:
+Latest verified Document OCR Phase 09 and owned-service regression validation:
 
 ```bash
 dotnet test src/dotnet/DocumentOcr/Tests/DocumentOcr.Tests.csproj
+dotnet test src/dotnet/ShipmentWorkflow/Tests/ShipmentWorkflow.Tests.csproj
+dotnet test src/dotnet/Notification/Tests/Notification.Tests.csproj
+dotnet test src/dotnet/GpsTracking/Tests/GpsTracking.Tests.csproj
 ```
 
-Result: Document OCR passed 55 tests with 0 failed and 0 warnings.
+Result: Document OCR passed 63 tests; Shipment passed 99; Notification passed 29; GPS passed 50.
 
 ## Migration Results
 
@@ -201,8 +209,7 @@ Recent Notification phase commits:
 
 ## Immediate Next Action
 
-Complete Document OCR Phase 09 on `feat/document-ocr-agent`; do not begin Regulatory Compliance
-until OCR passes its full service completion criteria.
+Await explicit authorization before creating or starting the Regulatory Compliance service branch.
 
 ## Branch Strategy
 

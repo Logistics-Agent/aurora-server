@@ -2,7 +2,7 @@
 
 ## Status
 
-Not Started
+Completed
 
 ## Goal
 
@@ -75,32 +75,66 @@ git diff --check
 
 ### Completed
 
-Not started.
+Completed the full Document OCR MVP validation. Added PostgreSQL-backed coverage for migrated
+schema behavior, JSON persistence, tenant filters, aggregate cascade, concurrent idempotent
+submission, skip-locked job claiming, and concurrent outbox locking. Added real RabbitMQ proof
+for both completion and permanent-failure events, plus missing Get/List gRPC mapping coverage.
+Revalidated runtime startup and every previously completed owned service.
 
 ### Files Changed
 
-None.
+* `src/dotnet/DocumentOcr/Tests/Grpc/DocumentOcrGrpcServiceTests.cs`
+* `src/dotnet/DocumentOcr/Tests/Integration/DocumentOcrPostgresCollection.cs`
+* `src/dotnet/DocumentOcr/Tests/Integration/DocumentOcrPostgresIntegrationTests.cs`
+* `codex/plan.md`
 
 ### Commands Executed
 
-None.
+```bash
+git status --short
+dotnet build src/dotnet/DocumentOcr/DocumentOcr.csproj
+dotnet test src/dotnet/DocumentOcr/Tests/DocumentOcr.Tests.csproj --filter "FullyQualifiedName~DocumentOcrGrpcServiceTests|FullyQualifiedName~DocumentOcrPostgresIntegrationTests"
+dotnet test src/dotnet/DocumentOcr/Tests/DocumentOcr.Tests.csproj
+dotnet ef migrations list --project src/dotnet/DocumentOcr/DocumentOcr.csproj --startup-project src/dotnet/DocumentOcr/DocumentOcr.csproj
+dotnet build src/dotnet/ShipmentWorkflow/ShipmentWorkflow.csproj
+dotnet test src/dotnet/ShipmentWorkflow/Tests/ShipmentWorkflow.Tests.csproj --no-restore
+dotnet build src/dotnet/Notification/Notification.csproj
+dotnet test src/dotnet/Notification/Tests/Notification.Tests.csproj --no-restore
+dotnet build src/dotnet/GpsTracking/GpsTracking.csproj
+dotnet test src/dotnet/GpsTracking/Tests/GpsTracking.Tests.csproj --no-restore
+dotnet run --no-build --project src/dotnet/DocumentOcr/DocumentOcr.csproj --launch-profile http
+curl --http2-prior-knowledge --max-time 5 http://localhost:5092/
+docker compose -f docker-compose.dev.yml ps
+docker exec aurora-rabbitmq rabbitmqctl list_connections name peer_host peer_port state
+git diff --check
+```
 
 ### Build Result
 
-Not started.
+Passed. Document OCR, Shipment Workflow, Notification, and GPS Tracking all built with 0 errors
+and 0 warnings.
 
 ### Test Result
 
-Not started.
+Passed: Document OCR 63, Shipment Workflow 99, Notification 29, and GPS Tracking 50 tests.
+The first Shipment regression attempt had 2 failures with PostgreSQL `57P01` because several
+accidentally overlapping test processes concurrently deleted the same test database. After all
+processes exited, one isolated rerun passed 99/99; no production or Shipment test code changed.
+Real RabbitMQ delivery preserved EventId/TenantId for one completed and one failed OCR event, and
+both corresponding PostgreSQL outbox records were marked processed.
 
 ### Runtime Result
 
-Not started.
+Passed. Document OCR started on port 5092, returned `Document OCR gRPC Service` over HTTP/2,
+connected to RabbitMQ, and stopped cleanly. Dedicated OCR PostgreSQL, Redis, and RabbitMQ were
+healthy. No paid provider credential or external service process was required.
 
 ### Migration Result
 
-Not started.
+`20260722035404_InitialDocumentOcr` remains applied to `aurora_document_ocr` with no pending
+migration. The PostgreSQL test database was created separately and migrated from the committed
+initial migration before integration tests.
 
 ### Remaining Issues
 
-Phase has not started.
+None. Paid OCR vendor adapters remain intentionally outside this deterministic MVP boundary.
