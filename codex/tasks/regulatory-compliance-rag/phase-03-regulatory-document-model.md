@@ -2,7 +2,7 @@
 
 ## Status
 
-Not Started
+Completed
 
 ## Goal
 
@@ -78,32 +78,53 @@ dotnet test src/dotnet/RegulatoryCompliance/Tests/RegulatoryCompliance.Tests.csp
 
 ### Completed
 
-Not started.
+* Added platform and tenant-private regulatory document identities with explicit visibility
+  and deterministic scope keys.
+* Added immutable source versions, supersession metadata, ingestion transitions, and ordered chunks.
+* Added tenant-owned compliance evaluations, findings, immutable citations, retrieval traces,
+  inbox messages, and outbox messages with guarded domain transitions.
+* Added PostgreSQL EF mappings, JSONB/enum/precision configuration, aggregate relationships,
+  restrictive query filters, uniqueness constraints, and operational indexes.
+* Added domain and EF model tests for versioning, chunks, evaluation lifecycle, citation identity,
+  confidence, source visibility, missing-tenant behavior, mappings, and indexes.
 
 ### Files Changed
 
-None.
+* `src/dotnet/RegulatoryCompliance/Domain/Enums/*.cs`
+* `src/dotnet/RegulatoryCompliance/Domain/Entities/*.cs`
+* `src/dotnet/RegulatoryCompliance/Infrastructure/Persistences/RegulatoryComplianceDbContext.cs`
+* `src/dotnet/RegulatoryCompliance/RegulatoryCompliance.csproj`
+* `src/dotnet/RegulatoryCompliance/Tests/RegulatoryCompliance.Tests.csproj`
+* `src/dotnet/RegulatoryCompliance/Tests/RegulatoryComplianceDomainTests.cs`
+* `src/dotnet/RegulatoryCompliance/Tests/RegulatoryCompliancePersistenceModelTests.cs`
+* `codex/tasks/regulatory-compliance-rag/phase-03-regulatory-document-model.md`
+* `codex/tasks/README.md`
+* `codex/plan.md`
 
 ### Commands Executed
 
-None.
+* `git status --short --branch`
+* `dotnet build src/dotnet/RegulatoryCompliance/RegulatoryCompliance.csproj`
+* `dotnet test src/dotnet/RegulatoryCompliance/Tests/RegulatoryCompliance.Tests.csproj`
+* `git diff --check`
 
 ### Build Result
 
-Not started.
+Passed: 3 projects built with 0 errors and 0 warnings.
 
 ### Test Result
 
-Not started.
+Passed: 16 tests, 0 failed, 0 warnings.
 
 ### Runtime Result
 
-Not started.
+Not required for the domain/persistence-model phase.
 
 ### Migration Result
 
-Not started.
+No migration generated; the initial migration remains owned by Phase 08.
 
 ### Remaining Issues
 
-Phase has not started.
+None. Ingestion, embeddings, retrieval, and evaluation orchestration remain sequentially assigned
+to Phases 04-07.

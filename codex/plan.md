@@ -13,7 +13,7 @@ Regulatory Compliance RAG: In Progress
 ## Active Work
 
 Active Service: Regulatory Compliance RAG
-Active Phase: Phase 03 - Regulatory Document Model
+Active Phase: Phase 04 - Ingestion and Chunking
 Current Branch: feat/regulatory-compliance-rag
 
 ## Service Progress
@@ -98,7 +98,7 @@ Notification Phases 01-09 are Completed.
 | --- | --- | --- |
 | 01 | Project Foundation | Completed |
 | 02 | Contracts and API | Completed |
-| 03 | Regulatory Document Model | Not Started |
+| 03 | Regulatory Document Model | Completed |
 | 04 | Ingestion and Chunking | Not Started |
 | 05 | Embedding and Vector Storage | Not Started |
 | 06 | Retrieval and Citations | Not Started |
@@ -159,6 +159,8 @@ Notification Phases 01-09 are Completed.
   assembly, colocated tests, reserved protobuf, and secret-free configuration skeleton.
 * Regulatory Compliance Phase 02 defined the tenant-safe compliance evaluation, lookup,
   evidence query, and controlled ingestion protobuf API plus versioned completion/failure events.
+* Regulatory Compliance Phase 03 modeled platform/tenant regulatory sources, immutable versions
+  and chunks, tenant-owned evaluations/findings/citations/traces, inbox/outbox, and EF persistence.
 
 ## Current Work
 
@@ -174,7 +176,7 @@ No active blocker.
 ## Remaining Work
 
 No remaining Document OCR MVP work. Regulatory Compliance RAG is explicitly authorized; Phases
-01-02 are complete and Phase 03 is active.
+01-03 are complete and Phase 04 is active.
 
 ## Build Results
 
@@ -227,7 +229,7 @@ Recent Notification phase commits:
 
 ## Immediate Next Action
 
-Complete Regulatory Compliance RAG Phase 03 on `feat/regulatory-compliance-rag`, then proceed
+Complete Regulatory Compliance RAG Phase 04 on `feat/regulatory-compliance-rag`, then proceed
 sequentially only after each phase passes its completion criteria.
 
 ## Branch Strategy
