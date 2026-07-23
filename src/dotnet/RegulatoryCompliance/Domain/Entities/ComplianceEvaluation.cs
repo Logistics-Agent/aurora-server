@@ -119,6 +119,18 @@ public sealed class ComplianceEvaluation : TenantAuditableEntity
         return trace;
     }
 
+    public void AttachRetrievalTrace(RetrievalTrace trace)
+    {
+        EnsureStatus(ComplianceEvaluationStatus.Processing);
+        ArgumentNullException.ThrowIfNull(trace);
+        if (trace.TenantId != TenantId)
+            throw new InvalidOperationException("Retrieval trace tenant does not match the evaluation.");
+        if (_retrievalTraces.Any(item => item.Id == trace.Id))
+            return;
+        trace.AttachToEvaluation(Id);
+        _retrievalTraces.Add(trace);
+    }
+
     public void Complete(
         ComplianceRiskLevel riskLevel,
         EvidenceSufficiency evidenceSufficiency,

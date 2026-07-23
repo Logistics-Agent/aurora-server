@@ -13,7 +13,7 @@ Regulatory Compliance RAG: In Progress
 ## Active Work
 
 Active Service: Regulatory Compliance RAG
-Active Phase: Phase 07 - Compliance Evaluation
+Active Phase: Phase 08 - Program Configuration
 Current Branch: feat/regulatory-compliance-rag
 
 ## Service Progress
@@ -102,7 +102,7 @@ Notification Phases 01-09 are Completed.
 | 04 | Ingestion and Chunking | Completed |
 | 05 | Embedding and Vector Storage | Completed |
 | 06 | Retrieval and Citations | Completed |
-| 07 | Compliance Evaluation | Not Started |
+| 07 | Compliance Evaluation | Completed |
 | 08 | Program Configuration | Not Started |
 | 09 | Testing | Not Started |
 
@@ -167,6 +167,8 @@ Notification Phases 01-09 are Completed.
   PostgreSQL `real[]` vector persistence/search, batching, and tenant-safe ranking primitives.
 * Regulatory Compliance Phase 06 added effective-date/jurisdiction-aware retrieval, deterministic
   cited evidence, overlap deduplication, evidence sufficiency, trace persistence, and query RPC.
+* Regulatory Compliance Phase 07 added idempotent snapshot evaluation, cited deterministic checks,
+  risk/confidence/manual review, tenant-safe evaluate/get RPCs, and atomic completion/failure outbox.
 
 ## Current Work
 
@@ -182,7 +184,7 @@ No active blocker.
 ## Remaining Work
 
 No remaining Document OCR MVP work. Regulatory Compliance RAG is explicitly authorized; Phases
-01-06 are complete and Phase 07 is active.
+01-07 are complete and Phase 08 is active.
 
 ## Build Results
 
@@ -235,7 +237,7 @@ Recent Notification phase commits:
 
 ## Immediate Next Action
 
-Complete Regulatory Compliance RAG Phase 07 on `feat/regulatory-compliance-rag`, then proceed
+Complete Regulatory Compliance RAG Phase 08 on `feat/regulatory-compliance-rag`, then proceed
 sequentially only after each phase passes its completion criteria.
 
 ## Branch Strategy

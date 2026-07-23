@@ -2,7 +2,7 @@
 
 ## Status
 
-Not Started
+Completed
 
 ## Goal
 
@@ -79,32 +79,40 @@ dotnet test src/dotnet/RegulatoryCompliance/Tests/RegulatoryCompliance.Tests.csp
 
 ### Completed
 
-Not started.
+* Implemented tenant-derived, idempotent evaluation over validated shipment/cargo/OCR snapshots.
+* Ran evidence retrieval for import, export, required-document, transport, customs, jurisdiction,
+  and dangerous-goods checks with tracked trace references.
+* Added cited requirements/warnings, deterministic missing-document rules, documented risk and
+  confidence calculation, and explicit Unknown/manual-review behavior for weak evidence.
+* Persisted evaluation graph, traces, and allowlisted completion/failure outbox atomically.
+* Implemented evaluate/get gRPC mappings and tenant-safe lookup.
+* Added evaluation, idempotency, validation, failure, event, mapping, and tenant-isolation tests.
 
 ### Files Changed
 
-None.
+Evaluation application service/models, retrieval trace attachment, evaluate/get gRPC mapping,
+evaluation tests, and phase/plan documentation.
 
 ### Commands Executed
 
-None.
+Build, test, Git status/diff validation commands.
 
 ### Build Result
 
-Not started.
+Passed: 3 projects, 0 errors, 0 warnings.
 
 ### Test Result
 
-Not started.
+Passed: 40 tests, 0 failed, 0 warnings.
 
 ### Runtime Result
 
-Not started.
+Not required until Phase 08.
 
 ### Migration Result
 
-Not started.
+No migration generated; Phase 08 owns the initial migration.
 
 ### Remaining Issues
 
-Phase has not started.
+None. Runtime DI, outbox publication worker, migration, and smoke validation remain in Phase 08.

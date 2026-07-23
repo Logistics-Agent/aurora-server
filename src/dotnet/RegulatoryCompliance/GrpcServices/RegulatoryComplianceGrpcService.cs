@@ -2,6 +2,9 @@ using Google.Protobuf.WellKnownTypes;
 using Grpc.Core;
 using RegulatoryCompliance.Application.Ingestion;
 using RegulatoryCompliance.Application.Retrieval;
+using RegulatoryCompliance.Application.Evaluations;
+using RegulatoryCompliance.Domain.Entities;
+using System.Text.Json;
 using ComplianceGrpc = RegulatoryCompliance.Grpc;
 using DomainRegulationType = RegulatoryCompliance.Domain.Enums.RegulationType;
 using DomainVisibility = RegulatoryCompliance.Domain.Enums.SourceVisibility;
@@ -10,9 +13,87 @@ namespace RegulatoryCompliance.GrpcServices;
 
 public sealed class RegulatoryComplianceGrpcService(
     IRegulatoryIngestionService ingestionService,
-    IRegulationRetrievalService retrievalService)
+    IRegulationRetrievalService retrievalService,
+    IComplianceEvaluationService evaluationService)
     : ComplianceGrpc.RegulatoryComplianceService.RegulatoryComplianceServiceBase
 {
+    public override async Task<ComplianceGrpc.ComplianceEvaluationResponse> EvaluateCompliance(
+        ComplianceGrpc.EvaluateComplianceRequest request,
+        ServerCallContext context)
+    {
+        if (request.EffectiveAt is null)
+            throw InvalidArgument("EffectiveAt is required.");
+        try
+        {
+            var input = new ComplianceEvaluationInput(
+                request.IdempotencyKey,
+                ParseRequiredId(request.ExternalShipmentId, "ExternalShipmentId"),
+                request.Cargo.Select(cargo => new CargoEvaluationSnapshot(
+                    cargo.Name,
+                    string.IsNullOrWhiteSpace(cargo.HsCode) ? null : cargo.HsCode,
+                    cargo.Quantity,
+                    cargo.Unit,
+                    Convert.ToDecimal(cargo.WeightKg),
+                    Convert.ToDecimal(cargo.VolumeM3),
+                    cargo.IsDangerousGoods,
+                    string.IsNullOrWhiteSpace(cargo.DangerousGoodsCode) ? null : cargo.DangerousGoodsCode,
+                    string.IsNullOrWhiteSpace(cargo.PackageType) ? null : cargo.PackageType)).ToArray(),
+                request.OriginCountryCode,
+                request.DestinationCountryCode,
+                request.JurisdictionCodes.ToArray(),
+                request.TransportMode,
+                request.Documents.Select(document => new OcrEvaluationSnapshot(
+                    ParseRequiredId(document.ExternalDocumentId, "ExternalDocumentId"),
+                    document.DocumentType,
+                    document.NormalizedJson,
+                    Convert.ToDecimal(document.ExtractionConfidence),
+                    document.NeedsReview)).ToArray(),
+                request.EffectiveAt.ToDateTimeOffset());
+            return MapEvaluation(await evaluationService.EvaluateAsync(input, context.CancellationToken));
+        }
+        catch (InvalidOperationException exception) when (
+            exception.Message.Contains("Tenant context", StringComparison.Ordinal))
+        {
+            throw new RpcException(new Status(StatusCode.Unauthenticated, exception.Message));
+        }
+        catch (InvalidOperationException exception)
+        {
+            throw new RpcException(new Status(StatusCode.AlreadyExists, exception.Message));
+        }
+        catch (ArgumentException exception)
+        {
+            throw InvalidArgument(exception.Message);
+        }
+        catch (OverflowException)
+        {
+            throw InvalidArgument("Evaluation contains a number outside the supported range.");
+        }
+    }
+
+    public override async Task<ComplianceGrpc.ComplianceEvaluationResponse> GetComplianceEvaluation(
+        ComplianceGrpc.GetComplianceEvaluationRequest request,
+        ServerCallContext context)
+    {
+        try
+        {
+            return MapEvaluation(await evaluationService.GetAsync(
+                ParseRequiredId(request.EvaluationId, "EvaluationId"),
+                context.CancellationToken));
+        }
+        catch (InvalidOperationException exception)
+        {
+            throw new RpcException(new Status(StatusCode.Unauthenticated, exception.Message));
+        }
+        catch (KeyNotFoundException exception)
+        {
+            throw new RpcException(new Status(StatusCode.NotFound, exception.Message));
+        }
+        catch (ArgumentException exception)
+        {
+            throw InvalidArgument(exception.Message);
+        }
+    }
+
     public override async Task<ComplianceGrpc.QueryRegulationsResponse> QueryRegulations(
         ComplianceGrpc.QueryRegulationsRequest request,
         ServerCallContext context)
@@ -149,6 +230,77 @@ public sealed class RegulatoryComplianceGrpcService(
             LanguageCode = evidence.LanguageCode
         };
     }
+
+    public static ComplianceGrpc.ComplianceEvaluationResponse MapEvaluation(
+        ComplianceEvaluation evaluation)
+    {
+        var response = new ComplianceGrpc.ComplianceEvaluationResponse
+        {
+            EvaluationId = evaluation.Id.ToString(),
+            ExternalShipmentId = evaluation.ExternalShipmentId.ToString(),
+            Status = (ComplianceGrpc.ComplianceEvaluationStatus)(int)evaluation.Status,
+            RiskLevel = evaluation.RiskLevel.HasValue
+                ? (ComplianceGrpc.ComplianceRiskLevel)(int)evaluation.RiskLevel.Value
+                : ComplianceGrpc.ComplianceRiskLevel.Unspecified,
+            ComplianceConfidence = Convert.ToDouble(evaluation.Confidence ?? 0m),
+            EvidenceSufficiency = evaluation.EvidenceSufficiency.HasValue
+                ? (ComplianceGrpc.EvidenceSufficiency)(int)evaluation.EvidenceSufficiency.Value
+                : ComplianceGrpc.EvidenceSufficiency.Unspecified,
+            RequestedAt = Timestamp.FromDateTimeOffset(evaluation.RequestedAt),
+            ErrorCode = evaluation.ErrorCode ?? string.Empty,
+            ErrorMessage = evaluation.ErrorMessage ?? string.Empty
+        };
+        if (evaluation.CompletedAt.HasValue)
+            response.CompletedAt = Timestamp.FromDateTimeOffset(evaluation.CompletedAt.Value);
+        response.Assumptions.AddRange(DeserializeStrings(evaluation.AssumptionsJson));
+        response.MissingDocuments.AddRange(DeserializeStrings(evaluation.MissingDocumentsJson));
+        response.Findings.AddRange(evaluation.Findings.Select(MapFinding));
+        return response;
+    }
+
+    private static ComplianceGrpc.ComplianceFinding MapFinding(ComplianceFinding finding)
+    {
+        var response = new ComplianceGrpc.ComplianceFinding
+        {
+            FindingId = finding.Id.ToString(),
+            Type = (ComplianceGrpc.ComplianceFindingType)(int)finding.Type,
+            Code = finding.Code,
+            Category = finding.Category,
+            Title = finding.Title,
+            Description = finding.Description,
+            Severity = (ComplianceGrpc.ComplianceRiskLevel)(int)finding.Severity
+        };
+        response.Citations.AddRange(finding.Citations.Select(citation =>
+        {
+            var mapped = new ComplianceGrpc.RegulationCitation
+            {
+                RegulatoryDocumentId = citation.RegulatoryDocumentId.ToString(),
+                DocumentVersionId = citation.RegulatoryDocumentVersionId.ToString(),
+                ChunkId = citation.RegulatoryChunkId.ToString(),
+                Authority = citation.Authority,
+                Title = citation.Title,
+                CanonicalSourceUri = citation.CanonicalSourceUri,
+                VersionLabel = citation.VersionLabel,
+                SectionLabel = citation.SectionLabel ?? string.Empty,
+                PageLabel = citation.PageLabel ?? string.Empty,
+                EffectiveFrom = Timestamp.FromDateTimeOffset(citation.EffectiveFrom),
+                Excerpt = citation.Excerpt,
+                RelevanceScore = Convert.ToDouble(citation.RelevanceScore)
+            };
+            if (citation.EffectiveTo.HasValue)
+                mapped.EffectiveTo = Timestamp.FromDateTimeOffset(citation.EffectiveTo.Value);
+            return mapped;
+        }));
+        return response;
+    }
+
+    private static string[] DeserializeStrings(string json) =>
+        JsonSerializer.Deserialize<string[]>(json) ?? [];
+
+    private static Guid ParseRequiredId(string value, string fieldName) =>
+        Guid.TryParse(value, out var parsed) && parsed != Guid.Empty
+            ? parsed
+            : throw InvalidArgument($"{fieldName} is invalid.");
 
     private static DomainVisibility MapVisibility(ComplianceGrpc.RegulatorySourceVisibility value) =>
         value switch

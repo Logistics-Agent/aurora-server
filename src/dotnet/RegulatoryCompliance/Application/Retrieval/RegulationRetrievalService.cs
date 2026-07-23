@@ -17,7 +17,8 @@ public sealed record RegulationQueryInput(
     string LanguageCode,
     IReadOnlyCollection<RegulationType> RegulationTypes,
     int TopK,
-    decimal MinimumRelevanceScore);
+    decimal MinimumRelevanceScore,
+    bool PersistTrace = true);
 
 public sealed record RegulationEvidenceResult(
     Guid RegulatoryDocumentId,
@@ -160,7 +161,8 @@ public sealed class RegulationRetrievalService(
             sufficiency,
             now);
         dbContext.RetrievalTraces.Add(trace);
-        await dbContext.SaveChangesAsync(cancellationToken);
+        if (input.PersistTrace)
+            await dbContext.SaveChangesAsync(cancellationToken);
 
         var explanation = evidence.Length == 0
             ? "Insufficient regulatory evidence was found for the supplied filters."

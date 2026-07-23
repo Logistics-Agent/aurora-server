@@ -20,7 +20,7 @@ public sealed class RetrievalTrace : TenantAuditableEntity
     public string ScoresJson { get; private set; } = "[]";
     public EvidenceSufficiency EvidenceSufficiency { get; private set; }
 
-    internal static RetrievalTrace Create(
+    public static RetrievalTrace Create(
         Guid tenantId,
         Guid? complianceEvaluationId,
         string queryHash,
@@ -69,5 +69,13 @@ public sealed class RetrievalTrace : TenantAuditableEntity
             EvidenceSufficiency = evidenceSufficiency,
             CreatedAt = createdAt
         };
+    }
+
+    internal void AttachToEvaluation(Guid evaluationId)
+    {
+        ComplianceValidation.RequiredId(evaluationId, nameof(evaluationId));
+        if (ComplianceEvaluationId.HasValue && ComplianceEvaluationId != evaluationId)
+            throw new InvalidOperationException("Retrieval trace is already attached to another evaluation.");
+        ComplianceEvaluationId = evaluationId;
     }
 }
