@@ -2,7 +2,7 @@
 
 ## Status
 
-Not Started
+Completed
 
 ## Goal
 
@@ -74,32 +74,39 @@ dotnet test src/dotnet/RegulatoryCompliance/Tests/RegulatoryCompliance.Tests.csp
 
 ### Completed
 
-Not started.
+* Implemented tenant-required regulation queries with bounded validation and deterministic ranking.
+* Pre-filtered vector candidates by tenant/platform visibility, active version, jurisdiction/global
+  scope, language, regulation type, and effective dates.
+* Added complete immutable citation mapping, bounded excerpts, high-overlap deduplication, and
+  explicit sufficient/insufficient evidence responses without compliance decisions.
+* Persisted retrieval traces containing query hash, filters, model identity, selected IDs/scores.
+* Implemented `QueryRegulations` gRPC mapping and retrieval regression tests.
 
 ### Files Changed
 
-None.
+Retrieval service/models, candidate-aware vector search, query gRPC mapping, retrieval tests,
+and phase/plan documentation.
 
 ### Commands Executed
 
-None.
+Build, test, Git status/diff validation commands.
 
 ### Build Result
 
-Not started.
+Passed: 3 projects, 0 errors, 0 warnings.
 
 ### Test Result
 
-Not started.
+Passed: 32 tests, 0 failed, 0 warnings.
 
 ### Runtime Result
 
-Not started.
+Not required until Phase 08.
 
 ### Migration Result
 
-Not started.
+No migration generated; Phase 08 owns the initial migration.
 
 ### Remaining Issues
 
-Phase has not started.
+None. Shipment-level compliance decisions remain deferred to Phase 07.

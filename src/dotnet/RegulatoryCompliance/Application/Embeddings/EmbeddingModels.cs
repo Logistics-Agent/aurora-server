@@ -16,6 +16,7 @@ public sealed record VectorSearchRequest(
     string ModelName,
     string ModelVersion,
     int Dimension,
+    IReadOnlyCollection<Guid> CandidateChunkIds,
     int TopK,
     decimal MinimumScore);
 

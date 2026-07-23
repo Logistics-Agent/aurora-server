@@ -31,7 +31,9 @@ public sealed class EmbeddingVectorTests
 
         var query = (await provider.GenerateAsync(["dangerous goods declaration"]))[0];
         var results = await store.SearchAsync(new VectorSearchRequest(
-            query, provider.Model.Name, provider.Model.Version, provider.Model.Dimension, 10, 0m));
+            query, provider.Model.Name, provider.Model.Version, provider.Model.Dimension,
+            [dangerous.Id, .. (await context.RegulatoryChunks.Select(chunk => chunk.Id).ToArrayAsync())],
+            10, 0m));
 
         Assert.Equal(dangerous.Id, results[0].ChunkId);
         Assert.True(results[0].Score > results[1].Score);
@@ -59,13 +61,15 @@ public sealed class EmbeddingVectorTests
         await using var tenantContext = CreateContext(CurrentUser(tenantA), databaseName);
         var tenantResults = await new EfRegulationVectorStore(tenantContext).SearchAsync(
             new VectorSearchRequest(
-                query, provider.Model.Name, provider.Model.Version, provider.Model.Dimension, 10, 0m));
+                query, provider.Model.Name, provider.Model.Version, provider.Model.Dimension,
+                await tenantContext.RegulatoryChunks.Select(chunk => chunk.Id).ToArrayAsync(), 10, 0m));
         Assert.Equal(2, tenantResults.Count);
 
         await using var missingTenantContext = CreateContext(new CurrentUserService(), databaseName);
         var anonymousResults = await new EfRegulationVectorStore(missingTenantContext).SearchAsync(
             new VectorSearchRequest(
-                query, provider.Model.Name, provider.Model.Version, provider.Model.Dimension, 10, 0m));
+                query, provider.Model.Name, provider.Model.Version, provider.Model.Dimension,
+                await missingTenantContext.RegulatoryChunks.Select(chunk => chunk.Id).ToArrayAsync(), 10, 0m));
         Assert.Single(anonymousResults);
     }
 

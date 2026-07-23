@@ -51,11 +51,15 @@ public sealed class EfRegulationVectorStore(RegulatoryComplianceDbContext dbCont
             throw new ArgumentOutOfRangeException(nameof(request.TopK));
         if (request.MinimumScore is < 0m or > 1m)
             throw new ArgumentOutOfRangeException(nameof(request.MinimumScore));
+        if (request.CandidateChunkIds.Count is < 1 or > MaximumSearchCandidates)
+            return [];
         ValidateVector(request.QueryVector, request.Dimension);
+        var candidateIds = request.CandidateChunkIds.Distinct().ToArray();
 
         var candidates = await dbContext.RegulatoryChunks
             .AsNoTracking()
             .Where(chunk =>
+                candidateIds.Contains(chunk.Id) &&
                 chunk.EmbeddingStatus == ChunkEmbeddingStatus.Completed &&
                 chunk.EmbeddingModel == request.ModelName &&
                 chunk.EmbeddingModelVersion == request.ModelVersion &&
