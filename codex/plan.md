@@ -13,7 +13,7 @@ Regulatory Compliance RAG: In Progress
 ## Active Work
 
 Active Service: Regulatory Compliance RAG
-Active Phase: Phase 08 - Program Configuration
+Active Phase: Phase 09 - Testing
 Current Branch: feat/regulatory-compliance-rag
 
 ## Service Progress
@@ -103,7 +103,7 @@ Notification Phases 01-09 are Completed.
 | 05 | Embedding and Vector Storage | Completed |
 | 06 | Retrieval and Citations | Completed |
 | 07 | Compliance Evaluation | Completed |
-| 08 | Program Configuration | Not Started |
+| 08 | Program Configuration | Completed |
 | 09 | Testing | Not Started |
 
 ## Completed Work
@@ -169,6 +169,9 @@ Notification Phases 01-09 are Completed.
   cited evidence, overlap deduplication, evidence sufficiency, trace persistence, and query RPC.
 * Regulatory Compliance Phase 07 added idempotent snapshot evaluation, cited deterministic checks,
   risk/confidence/manual review, tenant-safe evaluate/get RPCs, and atomic completion/failure outbox.
+* Regulatory Compliance Phase 08 configured the complete process and dedicated PostgreSQL,
+  applied `20260723135052_InitialRegulatoryCompliance`, and passed HTTP/2 health, RabbitMQ,
+  embedding/outbox worker, vector round-trip, build, and 40-test smoke validation.
 
 ## Current Work
 
@@ -184,37 +187,31 @@ No active blocker.
 ## Remaining Work
 
 No remaining Document OCR MVP work. Regulatory Compliance RAG is explicitly authorized; Phases
-01-07 are complete and Phase 08 is active.
+01-08 are complete and Phase 09 is active.
 
 ## Build Results
 
-Latest verified Document OCR Phase 09 and owned-service regression validation:
+Latest verified Regulatory Compliance Phase 08 validation:
 
 ```bash
-dotnet build src/dotnet/DocumentOcr/DocumentOcr.csproj
-dotnet build src/dotnet/ShipmentWorkflow/ShipmentWorkflow.csproj
-dotnet build src/dotnet/Notification/Notification.csproj
-dotnet build src/dotnet/GpsTracking/GpsTracking.csproj
+dotnet build src/dotnet/RegulatoryCompliance/RegulatoryCompliance.csproj
 ```
 
 Result: All passed with 0 errors and 0 warnings.
 
 ## Test Results
 
-Latest verified Document OCR Phase 09 and owned-service regression validation:
+Latest verified Regulatory Compliance Phase 08 validation:
 
 ```bash
-dotnet test src/dotnet/DocumentOcr/Tests/DocumentOcr.Tests.csproj
-dotnet test src/dotnet/ShipmentWorkflow/Tests/ShipmentWorkflow.Tests.csproj
-dotnet test src/dotnet/Notification/Tests/Notification.Tests.csproj
-dotnet test src/dotnet/GpsTracking/Tests/GpsTracking.Tests.csproj
+dotnet test src/dotnet/RegulatoryCompliance/Tests/RegulatoryCompliance.Tests.csproj
 ```
 
-Result: Document OCR passed 63 tests; Shipment passed 99; Notification passed 29; GPS passed 50.
+Result: Regulatory Compliance passed 40 tests with 0 failures and 0 warnings.
 
 ## Migration Results
 
-Initial Shipment Workflow migration `20260713201248_InitialShipmentWorkflow` and expanded MVP migration `20260714042938_ExpandShipmentWorkflowMvp` are applied to local `aurora_shipment_workflow`. Notification migration `20260719124939_InitialNotification` is applied to local `aurora_notification`. GPS migration `20260721042104_InitialGpsTracking` is applied to local `aurora_gps_tracking`. Document OCR migration `20260722035404_InitialDocumentOcr` is applied to local `aurora_document_ocr`.
+Initial Shipment Workflow migration `20260713201248_InitialShipmentWorkflow` and expanded MVP migration `20260714042938_ExpandShipmentWorkflowMvp` are applied to local `aurora_shipment_workflow`. Notification migration `20260719124939_InitialNotification` is applied to local `aurora_notification`. GPS migration `20260721042104_InitialGpsTracking` is applied to local `aurora_gps_tracking`. Document OCR migration `20260722035404_InitialDocumentOcr` is applied to local `aurora_document_ocr`. Regulatory Compliance migration `20260723135052_InitialRegulatoryCompliance` is applied to local `aurora_regulatory_compliance`.
 
 Part of the validation also produced supporting repository commits:
 
@@ -237,8 +234,8 @@ Recent Notification phase commits:
 
 ## Immediate Next Action
 
-Complete Regulatory Compliance RAG Phase 08 on `feat/regulatory-compliance-rag`, then proceed
-sequentially only after each phase passes its completion criteria.
+Complete Regulatory Compliance RAG Phase 09 on `feat/regulatory-compliance-rag`; do not start
+another service automatically after Compliance passes its final gate.
 
 ## Branch Strategy
 

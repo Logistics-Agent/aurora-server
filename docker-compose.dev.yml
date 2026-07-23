@@ -115,6 +115,35 @@ services:
     networks:
       - aurora-dev
 
+  regulatory-compliance-postgres:
+    image: postgres:16-alpine
+    container_name: aurora-regulatory-compliance-postgres
+    restart: unless-stopped
+
+    environment:
+      POSTGRES_DB: aurora_regulatory_compliance
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+
+    ports:
+      - "5437:5432"
+
+    volumes:
+      - regulatory_compliance_postgres_data:/var/lib/postgresql/data
+
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U postgres -d aurora_regulatory_compliance"
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+    networks:
+      - aurora-dev
+
   redis:
     image: redis:7-alpine
     container_name: aurora-redis
@@ -167,6 +196,7 @@ volumes:
   notification_postgres_data:
   gps_postgres_data:
   document_ocr_postgres_data:
+  regulatory_compliance_postgres_data:
   redis_data:
   rabbitmq_data:
 

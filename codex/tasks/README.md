@@ -104,10 +104,10 @@ Status: In Progress. Owns regulatory sources, retrieval evidence, and compliance
 | 05 | Implement provider-neutral embeddings and tenant-safe vector persistence/search primitives. | Completed |
 | 06 | Implement effective-date-aware retrieval, deterministic ranking, and immutable citations. | Completed |
 | 07 | Implement idempotent evidence-backed compliance evaluation and atomic events. | Completed |
-| 08 | Wire providers/workers, vector-capable PostgreSQL, migration, health, and runtime smoke. | Not Started |
+| 08 | Wire providers/workers, vector-capable PostgreSQL, migration, health, and runtime smoke. | Completed |
 | 09 | Complete deterministic PostgreSQL/vector/RabbitMQ/security/runtime validation. | Not Started |
 
 ## Next Gate
 
-The active implementation is Regulatory Compliance RAG Phase 08 on
+The active implementation is Regulatory Compliance RAG Phase 09 on
 `feat/regulatory-compliance-rag`. Later phases remain sequentially gated.

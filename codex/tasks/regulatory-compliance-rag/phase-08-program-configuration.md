@@ -2,7 +2,7 @@
 
 ## Status
 
-Not Started
+Completed
 
 ## Goal
 
@@ -22,7 +22,8 @@ Phase 07.
 
 ## Existing State
 
-Production implementation has not started for this service.
+Phases 01-07 provide the service host, contracts, model, persistence, ingestion, vector retrieval,
+and deterministic compliance evaluation. Phase 08 wires those components into the runnable process.
 
 ## Scope
 
@@ -79,32 +80,79 @@ dotnet build src/dotnet/RegulatoryCompliance/RegulatoryCompliance.csproj
 
 ### Completed
 
-Not started.
+* Wired gRPC, shared authentication/error interceptors, current-user services, PostgreSQL,
+  MassTransit, deterministic embedding, ingestion, retrieval, evaluation, health checks, and
+  TimeProvider into the service process.
+* Added bounded embedding and transactional outbox background workers. The outbox uses an
+  allowlisted event registry, PostgreSQL `FOR UPDATE SKIP LOCKED`, bounded retries, and MassTransit.
+* Added validated runtime configuration for model dimensions, batches, polling, provider timeout,
+  retrieval thresholds, and outbox retry behavior without committing provider secrets.
+* Added a dedicated PostgreSQL 16 Docker service/database on host port 5437. PostgreSQL `real[]`
+  is the selected bounded local vector representation, so no pgvector extension is required.
+* Generated and reviewed the single initial migration, confirmed the target database, applied it,
+  inspected tables/indexes/vector storage, and proved a transactional vector round trip.
+* Smoke-started the host with PostgreSQL, Redis, and RabbitMQ. Health was `Healthy`; gRPC HTTP/2,
+  embedding/outbox worker queries, RabbitMQ bus startup, and graceful bus shutdown were observed.
 
 ### Files Changed
 
-None.
+* `docker-compose.dev.yml`
+* `src/dotnet/RegulatoryCompliance/Program.cs`
+* `src/dotnet/RegulatoryCompliance/appsettings.json`
+* `src/dotnet/RegulatoryCompliance/appsettings.Development.json`
+* `src/dotnet/RegulatoryCompliance/Infrastructure/BackgroundJobs/RegulatoryComplianceRuntimeOptions.cs`
+* `src/dotnet/RegulatoryCompliance/Infrastructure/BackgroundJobs/ComplianceEmbeddingBackgroundService.cs`
+* `src/dotnet/RegulatoryCompliance/Infrastructure/BackgroundJobs/ComplianceOutboxPublisher.cs`
+* `src/dotnet/RegulatoryCompliance/Infrastructure/BackgroundJobs/RegulatoryComplianceDbHealthCheck.cs`
+* `src/dotnet/RegulatoryCompliance/Infrastructure/Persistences/Migrations/20260723135052_InitialRegulatoryCompliance.cs`
+* `src/dotnet/RegulatoryCompliance/Infrastructure/Persistences/Migrations/20260723135052_InitialRegulatoryCompliance.Designer.cs`
+* `src/dotnet/RegulatoryCompliance/Infrastructure/Persistences/Migrations/RegulatoryComplianceDbContextModelSnapshot.cs`
+* `codex/tasks/regulatory-compliance-rag/phase-08-program-configuration.md`
+* `codex/tasks/README.md`
+* `codex/plan.md`
 
 ### Commands Executed
 
-None.
+```bash
+docker compose -f docker-compose.dev.yml config
+docker compose -f docker-compose.dev.yml up -d regulatory-compliance-postgres
+docker compose -f docker-compose.dev.yml ps regulatory-compliance-postgres
+docker exec aurora-regulatory-compliance-postgres psql -U postgres -d aurora_regulatory_compliance -c "SELECT current_database(), current_user;"
+dotnet ef migrations add InitialRegulatoryCompliance --project src/dotnet/RegulatoryCompliance/RegulatoryCompliance.csproj --startup-project src/dotnet/RegulatoryCompliance/RegulatoryCompliance.csproj --output-dir Infrastructure/Persistences/Migrations -- --environment Development
+dotnet ef migrations list --project src/dotnet/RegulatoryCompliance/RegulatoryCompliance.csproj --startup-project src/dotnet/RegulatoryCompliance/RegulatoryCompliance.csproj -- --environment Development
+dotnet ef database update --project src/dotnet/RegulatoryCompliance/RegulatoryCompliance.csproj --startup-project src/dotnet/RegulatoryCompliance/RegulatoryCompliance.csproj -- --environment Development
+docker exec aurora-regulatory-compliance-postgres psql ...
+dotnet build src/dotnet/RegulatoryCompliance/RegulatoryCompliance.csproj
+dotnet test src/dotnet/RegulatoryCompliance/Tests/RegulatoryCompliance.Tests.csproj --no-restore
+dotnet run --project src/dotnet/RegulatoryCompliance/RegulatoryCompliance.csproj --no-build --launch-profile http
+curl --http2-prior-knowledge --fail http://localhost:5093/health
+curl --http2-prior-knowledge --fail http://localhost:5093/
+```
 
 ### Build Result
 
-Not started.
+Passed: 3 projects built with 0 errors and 0 warnings.
 
 ### Test Result
 
-Not started.
+Passed: 40 tests, 0 failed, 0 warnings.
 
 ### Runtime Result
 
-Not started.
+Passed. The service listened on `http://localhost:5093`; HTTP/2 `/health` returned `Healthy` and
+the root returned `Regulatory Compliance RAG gRPC Service`. Logs proved the MassTransit bus started,
+both workers queried their PostgreSQL queues, and `SIGTERM` produced graceful application and bus
+shutdown. RabbitMQ logs confirmed authentication as application `RegulatoryCompliance`.
 
 ### Migration Result
 
-Not started.
+Applied `20260723135052_InitialRegulatoryCompliance` to the confirmed local
+`aurora_regulatory_compliance` database. Migration list shows it applied. PostgreSQL inspection
+found 9 service tables plus `__EFMigrationsHistory`, 38 indexes/constraints, and embedding storage
+as nullable `real[]`; an insert/select inside a rolled-back transaction returned `{0.25,0.5,0.75}`.
 
 ### Remaining Issues
 
-Phase has not started.
+No Phase 08 blocker. Production embedding/evaluation providers remain intentionally unconfigured;
+the deterministic local providers are the approved default until cloud credentials and adapters
+are supplied through deployment configuration.
