@@ -1,5 +1,13 @@
 # Regulatory Compliance RAG Service Specification
 
+## Implementation Status
+
+Completed on `feat/regulatory-compliance-rag`. The service exposes tenant-safe gRPC ingestion,
+retrieval, evaluation, and lookup APIs; owns a dedicated PostgreSQL schema; uses deterministic local
+embedding/evaluation providers behind replaceable interfaces; and publishes completion/failure
+events through a transactional MassTransit outbox. The final suite passes 51 Compliance tests,
+including PostgreSQL `real[]`, concurrent idempotency, full cited evaluation, and RabbitMQ delivery.
+
 ## Purpose
 
 Regulatory Compliance RAG Service exists to retrieve regulations and evaluate compliance with evidence and citations.
@@ -82,7 +90,8 @@ The service builds, starts, migrates its database, passes tests, enforces tenant
 
 ## Assumptions
 
-Provider integrations are abstracted and can be replaced with fakes in tests.
+Provider integrations are abstracted and currently use deterministic local implementations. Cloud
+providers can replace them through deployment configuration without exposing credentials in source.
 
 ## Explicitly Excluded Responsibilities
 

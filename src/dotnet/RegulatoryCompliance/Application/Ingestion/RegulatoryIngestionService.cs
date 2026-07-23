@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
 using RegulatoryCompliance.Domain.Entities;
 using RegulatoryCompliance.Domain.Enums;
 using RegulatoryCompliance.Infrastructure.Persistences;
@@ -108,9 +109,34 @@ public sealed class RegulatoryIngestionService(
         if (dbContext.Entry(version).State == EntityState.Detached)
             dbContext.RegulatoryDocumentVersions.Add(version);
 
-        await dbContext.SaveChangesAsync(cancellationToken);
-        return new RegulatoryIngestionResult(
-            document.Id, version.Id, version.IngestionStatus, version.ChunkCount, false, receivedAt);
+        try
+        {
+            await dbContext.SaveChangesAsync(cancellationToken);
+            return new RegulatoryIngestionResult(
+                document.Id, version.Id, version.IngestionStatus, version.ChunkCount, false, receivedAt);
+        }
+        catch (DbUpdateException exception) when (IsUniqueViolation(exception))
+        {
+            dbContext.ChangeTracker.Clear();
+            var winner = await dbContext.RegulatoryDocumentVersions
+                .Include(item => item.Chunks)
+                .SingleOrDefaultAsync(item =>
+                        item.ScopeKey == scopeKey &&
+                        item.IngestionKey == input.IdempotencyKey.Trim(),
+                    cancellationToken);
+            if (winner is null)
+                throw;
+            if (winner.ContentSha256 != actualHash || winner.VersionLabel != input.VersionLabel.Trim())
+                throw new InvalidOperationException(
+                    "The idempotency key was already used with different content.", exception);
+            return new RegulatoryIngestionResult(
+                winner.RegulatoryDocumentId,
+                winner.Id,
+                winner.IngestionStatus,
+                winner.ChunkCount,
+                true,
+                receivedAt);
+        }
     }
 
     private void Authorize(SourceVisibility visibility)
@@ -148,4 +174,10 @@ public sealed class RegulatoryIngestionService(
         if (input.EffectiveTo.HasValue && input.EffectiveTo <= input.EffectiveFrom)
             throw new ArgumentOutOfRangeException(nameof(input.EffectiveTo));
     }
+
+    private static bool IsUniqueViolation(DbUpdateException exception) =>
+        exception.InnerException is PostgresException
+        {
+            SqlState: PostgresErrorCodes.UniqueViolation
+        };
 }

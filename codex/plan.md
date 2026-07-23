@@ -8,12 +8,12 @@ Shipment Workflow full MVP: Completed
 Notification Service: Completed
 GPS Tracking and Monitoring: Completed
 Document OCR Agent: Completed
-Regulatory Compliance RAG: In Progress
+Regulatory Compliance RAG: Completed
 
 ## Active Work
 
-Active Service: Regulatory Compliance RAG
-Active Phase: Phase 09 - Testing
+Active Service: None
+Active Phase: None - awaiting explicit authorization
 Current Branch: feat/regulatory-compliance-rag
 
 ## Service Progress
@@ -24,7 +24,7 @@ Current Branch: feat/regulatory-compliance-rag
 | Notification | Completed |
 | GPS Tracking and Monitoring | Completed |
 | Document OCR Agent | Completed |
-| Regulatory Compliance RAG | In Progress |
+| Regulatory Compliance RAG | Completed |
 
 ## Shipment Phase Progress
 
@@ -104,7 +104,7 @@ Notification Phases 01-09 are Completed.
 | 06 | Retrieval and Citations | Completed |
 | 07 | Compliance Evaluation | Completed |
 | 08 | Program Configuration | Completed |
-| 09 | Testing | Not Started |
+| 09 | Testing | Completed |
 
 ## Completed Work
 
@@ -172,12 +172,16 @@ Notification Phases 01-09 are Completed.
 * Regulatory Compliance Phase 08 configured the complete process and dedicated PostgreSQL,
   applied `20260723135052_InitialRegulatoryCompliance`, and passed HTTP/2 health, RabbitMQ,
   embedding/outbox worker, vector round-trip, build, and 40-test smoke validation.
+* Regulatory Compliance Phase 09 added migrated PostgreSQL full-pipeline, vector/JSON/tenant,
+  concurrent idempotency, gRPC mapping, outbox retry/locking, and real RabbitMQ event tests. The
+  service passes 51 tests and all owned-service regressions pass sequentially.
 
 ## Current Work
 
-Shipment Workflow, Notification, GPS Tracking, and Document OCR are complete. Shipment publishes
+Shipment Workflow, Notification, GPS Tracking, Document OCR, and Regulatory Compliance are complete. Shipment publishes
 persisted events consumed idempotently by Notification and GPS; GPS and OCR publish service-owned
-events through transactional outboxes. Service tests remain colocated under
+events through transactional outboxes; Compliance owns cited evaluations and publishes completion
+or failure through its outbox. Service tests remain colocated under
 `src/dotnet/<Service>/Tests`.
 
 ## Blocked Work
@@ -186,12 +190,12 @@ No active blocker.
 
 ## Remaining Work
 
-No remaining Document OCR MVP work. Regulatory Compliance RAG is explicitly authorized; Phases
-01-08 are complete and Phase 09 is active.
+No remaining work in the currently authorized owned-service plans. Do not start another service
+without explicit user or lead authorization.
 
 ## Build Results
 
-Latest verified Regulatory Compliance Phase 08 validation:
+Latest verified Regulatory Compliance Phase 09 validation:
 
 ```bash
 dotnet build src/dotnet/RegulatoryCompliance/RegulatoryCompliance.csproj
@@ -201,13 +205,18 @@ Result: All passed with 0 errors and 0 warnings.
 
 ## Test Results
 
-Latest verified Regulatory Compliance Phase 08 validation:
+Latest verified Regulatory Compliance Phase 09 and owned-service regression validation:
 
 ```bash
 dotnet test src/dotnet/RegulatoryCompliance/Tests/RegulatoryCompliance.Tests.csproj
+dotnet test src/dotnet/ShipmentWorkflow/Tests/ShipmentWorkflow.Tests.csproj
+dotnet test src/dotnet/Notification/Tests/Notification.Tests.csproj
+dotnet test src/dotnet/GpsTracking/Tests/GpsTracking.Tests.csproj
+dotnet test src/dotnet/DocumentOcr/Tests/DocumentOcr.Tests.csproj
 ```
 
-Result: Regulatory Compliance passed 40 tests with 0 failures and 0 warnings.
+Result: Regulatory Compliance passed 51 tests; Shipment 99; Notification 29; GPS 50; Document OCR
+63. Final sequential runs had 0 failures and 0 warnings.
 
 ## Migration Results
 
@@ -234,8 +243,8 @@ Recent Notification phase commits:
 
 ## Immediate Next Action
 
-Complete Regulatory Compliance RAG Phase 09 on `feat/regulatory-compliance-rag`; do not start
-another service automatically after Compliance passes its final gate.
+Stop on `feat/regulatory-compliance-rag`. Await explicit authorization before creating, merging,
+or implementing another service branch.
 
 ## Branch Strategy
 

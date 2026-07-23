@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
 using RegulatoryCompliance.Application.Retrieval;
 using RegulatoryCompliance.Contracts.Events;
 using RegulatoryCompliance.Domain.Entities;
@@ -170,8 +171,28 @@ public sealed class ComplianceEvaluationService(
             AddFailedOutbox(evaluation, input, exception.Message, now);
         }
 
-        await dbContext.SaveChangesAsync(cancellationToken);
-        return evaluation;
+        try
+        {
+            await dbContext.SaveChangesAsync(cancellationToken);
+            return evaluation;
+        }
+        catch (DbUpdateException exception) when (IsUniqueViolation(exception))
+        {
+            dbContext.ChangeTracker.Clear();
+            var winner = await dbContext.ComplianceEvaluations
+                .Include(item => item.Findings)
+                .ThenInclude(item => item.Citations)
+                .Include(item => item.RetrievalTraces)
+                .SingleOrDefaultAsync(
+                    item => item.IdempotencyKey == input.IdempotencyKey.Trim(),
+                    cancellationToken);
+            if (winner is null)
+                throw;
+            if (winner.RequestHash != requestHash)
+                throw new InvalidOperationException(
+                    "The idempotency key was already used with a different request.", exception);
+            return winner;
+        }
     }
 
     public async Task<ComplianceEvaluation> GetAsync(
@@ -422,4 +443,10 @@ public sealed class ComplianceEvaluationService(
 
     private static string Bound(string value, int maxLength) =>
         value.Length <= maxLength ? value : value[..maxLength];
+
+    private static bool IsUniqueViolation(DbUpdateException exception) =>
+        exception.InnerException is PostgresException
+        {
+            SqlState: PostgresErrorCodes.UniqueViolation
+        };
 }

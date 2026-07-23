@@ -93,7 +93,7 @@ Status: Completed. Owns extraction jobs/results, not object storage or complianc
 
 ## Regulatory Compliance RAG
 
-Status: In Progress. Owns regulatory sources, retrieval evidence, and compliance evaluations.
+Status: Completed. Owns regulatory sources, retrieval evidence, and compliance evaluations.
 
 | Phase | Output | Status |
 | --- | --- | --- |
@@ -105,9 +105,9 @@ Status: In Progress. Owns regulatory sources, retrieval evidence, and compliance
 | 06 | Implement effective-date-aware retrieval, deterministic ranking, and immutable citations. | Completed |
 | 07 | Implement idempotent evidence-backed compliance evaluation and atomic events. | Completed |
 | 08 | Wire providers/workers, vector-capable PostgreSQL, migration, health, and runtime smoke. | Completed |
-| 09 | Complete deterministic PostgreSQL/vector/RabbitMQ/security/runtime validation. | Not Started |
+| 09 | Complete deterministic PostgreSQL/vector/RabbitMQ/security/runtime validation. | Completed |
 
 ## Next Gate
 
-The active implementation is Regulatory Compliance RAG Phase 09 on
-`feat/regulatory-compliance-rag`. Later phases remain sequentially gated.
+All currently authorized owned services are completed. No next service is active; remain on
+`feat/regulatory-compliance-rag` until the user or lead explicitly authorizes the next branch.
