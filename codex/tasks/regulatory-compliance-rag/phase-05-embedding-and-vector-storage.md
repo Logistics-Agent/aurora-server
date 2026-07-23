@@ -2,7 +2,7 @@
 
 ## Status
 
-Not Started
+Completed
 
 ## Goal
 
@@ -72,32 +72,41 @@ dotnet test src/dotnet/RegulatoryCompliance/Tests/RegulatoryCompliance.Tests.csp
 
 ### Completed
 
-Not started.
+* Added provider-neutral embedding and vector-store interfaces with fixed model/version/dimension.
+* Added deterministic local embeddings, bounded 64-item processing, timeout/cancellation,
+  idempotent content/model checks, and recorded provider failures.
+* Added tenant/system scope-verified upserts and tenant-filtered deterministic cosine search.
+* Stored vectors as PostgreSQL `real[]` behind the replaceable store because pgvector is not
+  installed in the repository/local image; candidate search is bounded to 2,000 records.
+* Added tests for ranking, dimensions, finite values, model validation, idempotency, batching,
+  cancellation, provider failures, and platform/tenant visibility.
 
 ### Files Changed
 
-None.
+Embedding application interfaces/provider/processor/vector store, chunk vector metadata and EF
+mapping, vector tests, and phase/plan documentation.
 
 ### Commands Executed
 
-None.
+Build, test, Git status/diff, and local pgvector availability inspection commands.
 
 ### Build Result
 
-Not started.
+Passed: 3 projects, 0 errors, 0 warnings.
 
 ### Test Result
 
-Not started.
+Passed: 27 tests, 0 failed, 0 warnings.
 
 ### Runtime Result
 
-Not started.
+Not required until Phase 08.
 
 ### Migration Result
 
-Not started.
+No migration generated; Phase 08 owns the initial migration.
 
 ### Remaining Issues
 
-Phase has not started.
+No blocker. Native pgvector acceleration is not available in the current repository image;
+the replaceable bounded `real[]` store is the approved local fallback for this MVP.

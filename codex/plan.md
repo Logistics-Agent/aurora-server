@@ -13,7 +13,7 @@ Regulatory Compliance RAG: In Progress
 ## Active Work
 
 Active Service: Regulatory Compliance RAG
-Active Phase: Phase 05 - Embedding and Vector Storage
+Active Phase: Phase 06 - Retrieval and Citations
 Current Branch: feat/regulatory-compliance-rag
 
 ## Service Progress
@@ -100,7 +100,7 @@ Notification Phases 01-09 are Completed.
 | 02 | Contracts and API | Completed |
 | 03 | Regulatory Document Model | Completed |
 | 04 | Ingestion and Chunking | Completed |
-| 05 | Embedding and Vector Storage | Not Started |
+| 05 | Embedding and Vector Storage | Completed |
 | 06 | Retrieval and Citations | Not Started |
 | 07 | Compliance Evaluation | Not Started |
 | 08 | Program Configuration | Not Started |
@@ -163,6 +163,8 @@ Notification Phases 01-09 are Completed.
   and chunks, tenant-owned evaluations/findings/citations/traces, inbox/outbox, and EF persistence.
 * Regulatory Compliance Phase 04 added authorized, hash-verified source ingestion, deterministic
   chunking with citation metadata, idempotent versioning, and pending-embedding scheduling.
+* Regulatory Compliance Phase 05 added provider-neutral deterministic embeddings, bounded
+  PostgreSQL `real[]` vector persistence/search, batching, and tenant-safe ranking primitives.
 
 ## Current Work
 
@@ -178,7 +180,7 @@ No active blocker.
 ## Remaining Work
 
 No remaining Document OCR MVP work. Regulatory Compliance RAG is explicitly authorized; Phases
-01-04 are complete and Phase 05 is active.
+01-05 are complete and Phase 06 is active.
 
 ## Build Results
 
@@ -231,7 +233,7 @@ Recent Notification phase commits:
 
 ## Immediate Next Action
 
-Complete Regulatory Compliance RAG Phase 05 on `feat/regulatory-compliance-rag`, then proceed
+Complete Regulatory Compliance RAG Phase 06 on `feat/regulatory-compliance-rag`, then proceed
 sequentially only after each phase passes its completion criteria.
 
 ## Branch Strategy

@@ -21,6 +21,12 @@ public sealed class RegulatoryChunk : AuditableEntity
     public int EndOffset { get; private set; }
     public string ContentSha256 { get; private set; } = string.Empty;
     public ChunkEmbeddingStatus EmbeddingStatus { get; private set; }
+    public float[]? Embedding { get; private set; }
+    public string? EmbeddingModel { get; private set; }
+    public string? EmbeddingModelVersion { get; private set; }
+    public string? EmbeddedContentHash { get; private set; }
+    public DateTimeOffset? EmbeddedAt { get; private set; }
+    public string? EmbeddingError { get; private set; }
 
     internal static RegulatoryChunk Create(
         Guid? tenantId,
@@ -65,5 +71,41 @@ public sealed class RegulatoryChunk : AuditableEntity
             EmbeddingStatus = ChunkEmbeddingStatus.Pending,
             CreatedAt = createdAt
         };
+    }
+
+    public bool NeedsEmbedding(string modelName, string modelVersion) =>
+        EmbeddingStatus != ChunkEmbeddingStatus.Completed ||
+        EmbeddedContentHash != ContentSha256 ||
+        EmbeddingModel != modelName ||
+        EmbeddingModelVersion != modelVersion;
+
+    public void MarkEmbedded(
+        float[] embedding,
+        string modelName,
+        string modelVersion,
+        int expectedDimension,
+        DateTimeOffset embeddedAt)
+    {
+        ArgumentNullException.ThrowIfNull(embedding);
+        if (embedding.Length != expectedDimension || embedding.Any(value => !float.IsFinite(value)))
+            throw new ArgumentException("Embedding dimension or values are invalid.", nameof(embedding));
+        ComplianceValidation.RequiredTimestamp(embeddedAt, nameof(embeddedAt));
+
+        Embedding = [.. embedding];
+        EmbeddingModel = ComplianceValidation.RequiredText(modelName, nameof(modelName), 200);
+        EmbeddingModelVersion = ComplianceValidation.RequiredText(modelVersion, nameof(modelVersion), 100);
+        EmbeddedContentHash = ContentSha256;
+        EmbeddingStatus = ChunkEmbeddingStatus.Completed;
+        EmbeddedAt = embeddedAt;
+        EmbeddingError = null;
+        UpdatedAt = embeddedAt;
+    }
+
+    public void MarkEmbeddingFailed(string error, DateTimeOffset failedAt)
+    {
+        ComplianceValidation.RequiredTimestamp(failedAt, nameof(failedAt));
+        EmbeddingStatus = ChunkEmbeddingStatus.Failed;
+        EmbeddingError = ComplianceValidation.RequiredText(error, nameof(error), 2_000);
+        UpdatedAt = failedAt;
     }
 }

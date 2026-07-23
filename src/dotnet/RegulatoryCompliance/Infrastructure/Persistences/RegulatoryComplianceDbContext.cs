@@ -152,6 +152,11 @@ public sealed class RegulatoryComplianceDbContext(
             entity.Property(chunk => chunk.ContentSha256).HasMaxLength(64).IsRequired();
             entity.Property(chunk => chunk.EmbeddingStatus)
                 .HasConversion<string>().HasMaxLength(30).IsRequired();
+            entity.Property(chunk => chunk.Embedding).HasColumnType("real[]");
+            entity.Property(chunk => chunk.EmbeddingModel).HasMaxLength(200);
+            entity.Property(chunk => chunk.EmbeddingModelVersion).HasMaxLength(100);
+            entity.Property(chunk => chunk.EmbeddedContentHash).HasMaxLength(64);
+            entity.Property(chunk => chunk.EmbeddingError).HasMaxLength(2_000);
             ConfigureAudit(entity);
         });
     }
