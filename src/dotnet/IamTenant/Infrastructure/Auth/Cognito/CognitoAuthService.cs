@@ -23,13 +23,102 @@ public class CognitoAuthService(
         return Convert.ToBase64String(hash);
     }
 
-    public async Task<string> AdminCreateUserAsync(string email, string tempPassword, CancellationToken ct = default)
+    public async Task<TenantCognitoPoolsResult> CreateTenantUserPoolsAsync(string tenantCode, CancellationToken ct = default)
+    {
+        var sanitizedCode = tenantCode.Replace("-", "_").ToUpperInvariant();
+
+        // 1. Create Admin User Pool & App Client
+        var adminPoolReq = new CreateUserPoolRequest
+        {
+            PoolName = $"{sanitizedCode}_Admin_UserPool",
+            AutoVerifiedAttributes = new List<string> { "email" },
+            UsernameAttributes = new List<string> { "email" },
+            Policies = new UserPoolPolicyType
+            {
+                PasswordPolicy = new PasswordPolicyType
+                {
+                    MinimumLength = 8,
+                    RequireUppercase = true,
+                    RequireLowercase = true,
+                    RequireNumbers = true,
+                    RequireSymbols = true
+                }
+            }
+        };
+
+        var adminPoolRes = await cognito.CreateUserPoolAsync(adminPoolReq, ct);
+        var adminUserPoolId = adminPoolRes.UserPool.Id;
+
+        var adminClientReq = new CreateUserPoolClientRequest
+        {
+            UserPoolId = adminUserPoolId,
+            ClientName = $"{sanitizedCode}_Admin_AppClient",
+            GenerateSecret = true,
+            ExplicitAuthFlows = new List<string>
+            {
+                "ALLOW_ADMIN_USER_PASSWORD_AUTH",
+                "ALLOW_REFRESH_TOKEN_AUTH",
+                "ALLOW_USER_PASSWORD_AUTH"
+            }
+        };
+
+        var adminClientRes = await cognito.CreateUserPoolClientAsync(adminClientReq, ct);
+        var adminClientId = adminClientRes.UserPoolClient.ClientId;
+
+        // 2. Create User User Pool & App Client
+        var userPoolReq = new CreateUserPoolRequest
+        {
+            PoolName = $"{sanitizedCode}_User_UserPool",
+            AutoVerifiedAttributes = new List<string> { "email" },
+            UsernameAttributes = new List<string> { "email" },
+            Policies = new UserPoolPolicyType
+            {
+                PasswordPolicy = new PasswordPolicyType
+                {
+                    MinimumLength = 8,
+                    RequireUppercase = true,
+                    RequireLowercase = true,
+                    RequireNumbers = true,
+                    RequireSymbols = true
+                }
+            }
+        };
+
+        var userPoolRes = await cognito.CreateUserPoolAsync(userPoolReq, ct);
+        var userUserPoolId = userPoolRes.UserPool.Id;
+
+        var userClientReq = new CreateUserPoolClientRequest
+        {
+            UserPoolId = userUserPoolId,
+            ClientName = $"{sanitizedCode}_User_AppClient",
+            GenerateSecret = true,
+            ExplicitAuthFlows = new List<string>
+            {
+                "ALLOW_ADMIN_USER_PASSWORD_AUTH",
+                "ALLOW_REFRESH_TOKEN_AUTH",
+                "ALLOW_USER_PASSWORD_AUTH"
+            }
+        };
+
+        var userClientRes = await cognito.CreateUserPoolClientAsync(userClientReq, ct);
+        var userClientId = userClientRes.UserPoolClient.ClientId;
+
+        return new TenantCognitoPoolsResult
+        {
+            AdminUserPoolId = adminUserPoolId,
+            AdminUserPoolClientId = adminClientId,
+            UserUserPoolId = userUserPoolId,
+            UserUserPoolClientId = userClientId
+        };
+    }
+
+    public async Task<string> AdminCreateUserInPoolAsync(string userPoolId, string email, string tempPassword, CancellationToken ct = default)
     {
         var request = new AdminCreateUserRequest
         {
-            UserPoolId = _options.UserPoolId,
+            UserPoolId = userPoolId,
             Username = email,
-            MessageAction = MessageActionType.SUPPRESS, // Don't send default Cognito email, we will handle it
+            MessageAction = MessageActionType.SUPPRESS,
             TemporaryPassword = tempPassword,
             UserAttributes = new List<AttributeType>
             {
@@ -42,6 +131,11 @@ public class CognitoAuthService(
 
         var subAttribute = response.User.Attributes.FirstOrDefault(a => a.Name == "sub");
         return subAttribute?.Value ?? throw new Exception("Sub not found in Cognito response.");
+    }
+
+    public async Task<string> AdminCreateUserAsync(string email, string tempPassword, CancellationToken ct = default)
+    {
+        return await AdminCreateUserInPoolAsync(_options.UserPoolId, email, tempPassword, ct);
     }
 
     public async Task<AuthResult> InitiateAuthAsync(string email, string password, CancellationToken ct = default)

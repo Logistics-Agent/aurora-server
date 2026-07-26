@@ -62,7 +62,7 @@ public class PermissionVersionMiddleware(
             }
 
             // ✅ Version khớp — load permissions từ Redis vào user context
-            currentUser.PopulatePermissions(cached.Permissions, cached.RoleIds);
+            currentUser.PopulatePermissions(cached.Permissions, cached.RoleIds.Select(r => r.ToString()).ToList());
 
             logger.LogDebug(
                 "Permissions loaded for User {UserId}: {PermissionCount} permissions, version {Version}.",

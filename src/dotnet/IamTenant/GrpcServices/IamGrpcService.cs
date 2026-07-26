@@ -10,7 +10,6 @@ using MediatR;
 using IamTenant.Grpc;
 using Common.Grpc;
 
-
 namespace IamTenant.GrpcServices;
 
 public class IamGrpcService(IMediator mediator) : IamService.IamServiceBase
@@ -31,14 +30,15 @@ public class IamGrpcService(IMediator mediator) : IamService.IamServiceBase
                 request.CompanyDomain,
                 request.AdminEmail,
                 idempotencyKey,
-                PlanType: request.PlanType.ToString()), context.CancellationToken);
+                PlanType: MapPlanTypeToDomain(request.PlanType)), context.CancellationToken);
 
             return new TenantResponse
             {
                 Id = dto.Id.ToString(),
                 Name = dto.Name,
                 TenantCode = dto.Code,
-                Status = MapTenantStatus(dto.Status),
+                PlanType = MapPlanTypeToGrpc(dto.PlanType),
+                Status = MapTenantStatusToGrpc(dto.Status),
                 AdminEmail = request.AdminEmail,
                 CreatedAt = Timestamp.FromDateTimeOffset(dto.CreatedAt)
             };
@@ -64,7 +64,8 @@ public class IamGrpcService(IMediator mediator) : IamService.IamServiceBase
                 Id = dto.Id.ToString(),
                 Name = dto.Name,
                 TenantCode = dto.Code,
-                Status = MapTenantStatus(dto.Status),
+                PlanType = MapPlanTypeToGrpc(dto.PlanType),
+                Status = MapTenantStatusToGrpc(dto.Status),
                 CreatedAt = Timestamp.FromDateTimeOffset(dto.CreatedAt)
             };
         }
@@ -82,18 +83,17 @@ public class IamGrpcService(IMediator mediator) : IamService.IamServiceBase
             if (!Guid.TryParse(request.TenantId, out var id))
                 throw new RpcException(new Status(StatusCode.InvalidArgument, "Invalid tenant ID."));
 
-            var dto = await mediator.Send(new UpdateTenantCommand(
+            var dto = await mediator.Send(new UpdateTenantStatusCommand(
                 id,
-                Name: string.Empty, // Status-only update — keep existing via command
-                TaxCode: null,
-                PlanType: string.Empty), context.CancellationToken);
+                MapTenantStatusToDomain(request.Status)), context.CancellationToken);
 
             return new TenantResponse
             {
                 Id = dto.Id.ToString(),
                 Name = dto.Name,
                 TenantCode = dto.Code,
-                Status = MapTenantStatus(dto.Status),
+                PlanType = MapPlanTypeToGrpc(dto.PlanType),
+                Status = MapTenantStatusToGrpc(dto.Status),
                 CreatedAt = Timestamp.FromDateTimeOffset(dto.CreatedAt)
             };
         }
@@ -112,20 +112,27 @@ public class IamGrpcService(IMediator mediator) : IamService.IamServiceBase
     {
         try
         {
-            // InviteUser = CreateStaff — TenantId comes from ICurrentUserService (populated by AuthInterceptor)
+            var roleGuids = request.RoleIds
+                .Select(id => Guid.TryParse(id, out var g) ? g : Guid.Empty)
+                .Where(g => g != Guid.Empty)
+                .ToList();
+
             var dto = await mediator.Send(new CreateStaffCommand(
                 Email: request.Email,
                 FirstName: request.FirstName,
-                LastName: request.LastName), context.CancellationToken);
+                LastName: request.LastName,
+                RoleIds: roleGuids), context.CancellationToken);
 
-            return new UserResponse
+            var userResponse = new UserResponse
             {
                 Id = dto.Id.ToString(),
                 FirstName = dto.FirstName,
                 LastName = dto.LastName,
                 Email = dto.Email,
-                Status = MapUserStatus(dto.Status)
+                Status = MapUserStatusToGrpc(dto.Status)
             };
+            userResponse.RoleIds.AddRange(request.RoleIds);
+            return userResponse;
         }
         catch (Exception ex)
         {
@@ -148,7 +155,7 @@ public class IamGrpcService(IMediator mediator) : IamService.IamServiceBase
                 FirstName = dto.FirstName,
                 LastName = dto.LastName,
                 Email = dto.Email,
-                Status = MapUserStatus(dto.Status)
+                Status = MapUserStatusToGrpc(dto.Status)
             };
         }
         catch (RpcException) { throw; }
@@ -179,7 +186,7 @@ public class IamGrpcService(IMediator mediator) : IamService.IamServiceBase
             FirstName = u.FirstName,
             LastName = u.LastName,
             Email = u.Email,
-            Status = MapUserStatus(u.Status)
+            Status = MapUserStatusToGrpc(u.Status)
         }));
         return response;
     }
@@ -196,14 +203,16 @@ public class IamGrpcService(IMediator mediator) : IamService.IamServiceBase
 
             var dto = await mediator.Send(new AssignRolesCommand(userId, roleIds), context.CancellationToken);
 
-            return new UserResponse
+            var userResponse = new UserResponse
             {
                 Id = dto.Id.ToString(),
                 FirstName = dto.FirstName,
                 LastName = dto.LastName,
                 Email = dto.Email,
-                Status = MapUserStatus(dto.Status)
+                Status = MapUserStatusToGrpc(dto.Status)
             };
+            userResponse.RoleIds.AddRange(request.RoleIds);
+            return userResponse;
         }
         catch (RpcException) { throw; }
         catch (Exception ex)
@@ -229,7 +238,7 @@ public class IamGrpcService(IMediator mediator) : IamService.IamServiceBase
                 FirstName = dto.FirstName,
                 LastName = dto.LastName,
                 Email = dto.Email,
-                Status = MapUserStatus(dto.Status)
+                Status = MapUserStatusToGrpc(dto.Status)
             };
         }
         catch (RpcException) { throw; }
@@ -240,23 +249,13 @@ public class IamGrpcService(IMediator mediator) : IamService.IamServiceBase
     }
 
     // ═══════════════════════════════════════════════════════════════════════
-    // ROLE RPCs
+    // ROLE RPCs (Read-Only as specified: No Write operations)
     // ═══════════════════════════════════════════════════════════════════════
 
-    // public override async Task<RoleResponse> CreateCustomRole(CreateCustomRoleRequest request, ServerCallContext context)
-    // {
-    //     try
-    //     {
-    //         var dto = await mediator.Send(new CreateCustomRoleCommand(
-    //             request.Code, request.Name, request.Description), context.CancellationToken);
-
-    //         return MapRoleResponse(dto);
-    //     }
-    //     catch (Exception ex)
-    //     {
-    //         throw new RpcException(new Status(StatusCode.InvalidArgument, ex.Message));
-    //     }
-    // }
+    public override Task<RoleResponse> CreateCustomRole(CreateCustomRoleRequest request, ServerCallContext context)
+    {
+        throw new RpcException(new Status(StatusCode.Unimplemented, "Role is Read-Only. Custom Role creation is disabled."));
+    }
 
     public override async Task<RoleResponse> GetRole(GetRoleRequest request, ServerCallContext context)
     {
@@ -294,39 +293,15 @@ public class IamGrpcService(IMediator mediator) : IamService.IamServiceBase
         return response;
     }
 
-    // public override async Task<RoleResponse> UpdateRole(UpdateRoleRequest request, ServerCallContext context)
-    // {
-    //     try
-    //     {
-    //         if (!Guid.TryParse(request.Id, out var id))
-    //             throw new RpcException(new Status(StatusCode.InvalidArgument, "Invalid role ID."));
+    public override Task<RoleResponse> UpdateRole(UpdateRoleRequest request, ServerCallContext context)
+    {
+        throw new RpcException(new Status(StatusCode.Unimplemented, "Role is Read-Only. Custom Role update is disabled."));
+    }
 
-    //         var dto = await mediator.Send(new UpdateRoleCommand(id, request.Name, request.Description), context.CancellationToken);
-    //         return MapRoleResponse(dto);
-    //     }
-    //     catch (RpcException) { throw; }
-    //     catch (Exception ex)
-    //     {
-    //         throw new RpcException(new Status(StatusCode.Internal, ex.Message));
-    //     }
-    // }
-
-    // public override async Task<EmptyResponse> DeleteRole(DeleteRoleRequest request, ServerCallContext context)
-    // {
-    //     try
-    //     {
-    //         if (!Guid.TryParse(request.Id, out var id))
-    //             throw new RpcException(new Status(StatusCode.InvalidArgument, "Invalid role ID."));
-
-    //         await mediator.Send(new DeleteRoleCommand(id), context.CancellationToken);
-    //         return new EmptyResponse();
-    //     }
-    //     catch (RpcException) { throw; }
-    //     catch (Exception ex)
-    //     {
-    //         throw new RpcException(new Status(StatusCode.Internal, ex.Message));
-    //     }
-    // }
+    public override Task<EmptyResponse> DeleteRole(DeleteRoleRequest request, ServerCallContext context)
+    {
+        throw new RpcException(new Status(StatusCode.Unimplemented, "Role is Read-Only. Custom Role deletion is disabled."));
+    }
 
     // ═══════════════════════════════════════════════════════════════════════
     // PERMISSION RPCs
@@ -385,19 +360,48 @@ public class IamGrpcService(IMediator mediator) : IamService.IamServiceBase
     // MAPPING HELPERS
     // ═══════════════════════════════════════════════════════════════════════
 
-    private static TenantStatus MapTenantStatus(string status) => status switch
+    private static Common.Grpc.PlanType MapPlanTypeToGrpc(IamTenant.Domain.Enums.PlanType planType) => planType switch
     {
-        "TENANT_STATUS_ACTIVE" or "ACTIVE" => TenantStatus.Active,
-        "TENANT_STATUS_SUSPENDED" or "SUSPENDED" => TenantStatus.Suspended,
-        _ => TenantStatus.Unspecified
+        IamTenant.Domain.Enums.PlanType.Standard => Common.Grpc.PlanType.Standard,
+        IamTenant.Domain.Enums.PlanType.Premium => Common.Grpc.PlanType.Enterprise,
+        _ => Common.Grpc.PlanType.Unspecified
     };
 
-    private static UserStatus MapUserStatus(string status) => status switch
+    private static IamTenant.Domain.Enums.PlanType MapPlanTypeToDomain(Common.Grpc.PlanType planType) => planType switch
     {
-        "USER_STATUS_ACTIVE" or "ACTIVE" => UserStatus.Active,
-        "USER_STATUS_INACTIVE" or "INACTIVE" => UserStatus.Inactive,
-        "USER_STATUS_BLOCKED" or "BLOCKED" => UserStatus.Blocked,
-        _ => UserStatus.Unspecified
+        Common.Grpc.PlanType.Standard => IamTenant.Domain.Enums.PlanType.Standard,
+        Common.Grpc.PlanType.Enterprise => IamTenant.Domain.Enums.PlanType.Premium,
+        _ => IamTenant.Domain.Enums.PlanType.Standard
+    };
+
+    private static Common.Grpc.TenantStatus MapTenantStatusToGrpc(IamTenant.Domain.Enums.TenantStatus status) => status switch
+    {
+        IamTenant.Domain.Enums.TenantStatus.Active => Common.Grpc.TenantStatus.Active,
+        IamTenant.Domain.Enums.TenantStatus.Suspended => Common.Grpc.TenantStatus.Suspended,
+        _ => Common.Grpc.TenantStatus.Unspecified
+    };
+
+    private static IamTenant.Domain.Enums.TenantStatus MapTenantStatusToDomain(Common.Grpc.TenantStatus status) => status switch
+    {
+        Common.Grpc.TenantStatus.Active => IamTenant.Domain.Enums.TenantStatus.Active,
+        Common.Grpc.TenantStatus.Suspended => IamTenant.Domain.Enums.TenantStatus.Suspended,
+        _ => IamTenant.Domain.Enums.TenantStatus.Provisioning
+    };
+
+    private static Common.Grpc.UserStatus MapUserStatusToGrpc(IamTenant.Domain.Enums.UserStatus status) => status switch
+    {
+        IamTenant.Domain.Enums.UserStatus.Active => Common.Grpc.UserStatus.Active,
+        IamTenant.Domain.Enums.UserStatus.Blocked => Common.Grpc.UserStatus.Blocked,
+        IamTenant.Domain.Enums.UserStatus.Invited => Common.Grpc.UserStatus.Unspecified,
+        _ => Common.Grpc.UserStatus.Unspecified
+    };
+
+    private static IamTenant.Domain.Enums.UserStatus MapUserStatusToDomain(Common.Grpc.UserStatus status) => status switch
+    {
+        Common.Grpc.UserStatus.Active => IamTenant.Domain.Enums.UserStatus.Active,
+        Common.Grpc.UserStatus.Blocked => IamTenant.Domain.Enums.UserStatus.Blocked,
+        Common.Grpc.UserStatus.Inactive => IamTenant.Domain.Enums.UserStatus.Invited,
+        _ => IamTenant.Domain.Enums.UserStatus.Invited
     };
 
     private static RoleResponse MapRoleResponse(Application.DTOs.Roles.RoleDto dto)

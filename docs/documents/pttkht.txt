@@ -21,7 +21,8 @@ Service:
 Identity & Tenant Service [CORE] - on going					
 Route Planning Agent Service [AI]
 AI Ops & Monitoring Service [AI + DEVOPS]	
-Audit Log [Core]
+Email Security Service [AI]-TLS Verification-SPF-DKIM-DMARC-Sender Validation-Attachment Scan-Spam Detection-Pub Event-> ORC
+
 
 @Đào Huỳnh:  Financial & Cost Estimation Service [AI + CORE]	- ongoing		
 Billing & Settlement Service [CORE]			
@@ -43,7 +44,7 @@ Docs {
 }
 
 S3 key nên phân tenant:
-s3://hrm-private-docs/tenants/{tenantId}/employees/{employeeId}/documents/{fileId}
+s3://hrm-private-docs/tenants/{tenantId}/department/{departmentId}/employees/{employeeId}/documents/{fileId}
 
 
 azure:
