@@ -3,14 +3,13 @@ using IamTenant.Application.DTOs.Tenants;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Shared.Cache;
-using Shared.Security;
 
 namespace IamTenant.Application.Commands.Users;
 
-// ─────────────────────────────────────────────────────────────────────────────
-// ASSIGN ROLES TO USER
-// Sau khi assign, invalidate Redis cache của user đó.
-// ─────────────────────────────────────────────────────────────────────────────
+/// <summary>
+/// ASSIGN ROLES TO USER
+/// Sau khi assign, invalidate Redis cache của user đó.
+/// </summary>
 public record AssignRolesCommand(Guid UserId, List<Guid> RoleIds) : IRequest<StaffDto>;
 
 public class AssignRolesHandler(
@@ -23,19 +22,41 @@ public class AssignRolesHandler(
         var user = await context.Users.FirstOrDefaultAsync(u => u.Id == request.UserId, cancellationToken)
             ?? throw new Exception("User not found.");
 
-        // Remove existing roles
-        var existingUserRoles = context.UserRoles.Where(ur => ur.UserId == user.Id);
+        var roleIds = request.RoleIds
+            .Distinct()
+            .OrderBy(roleId => roleId)
+            .ToList();
+
+        if (roleIds.Count > 0)
+        {
+            var existingRoles = await context.Roles
+                .Where(r => roleIds.Contains(r.Id))
+                .Select(r => new { r.Id, r.Code })
+                .ToListAsync(cancellationToken);
+
+            if (existingRoles.Count != roleIds.Count)
+            {
+                var existingRoleIds = existingRoles.Select(r => r.Id).ToList();
+                var missingRoleIds = roleIds.Except(existingRoleIds).ToList();
+                throw new Exception($"Role(s) not found: {string.Join(", ", missingRoleIds)}.");
+            }
+
+            var hasAdminRole = existingRoles.Any(r => r.Code == "TENANT_ADMIN");
+            user.UserType = hasAdminRole ? Domain.Enums.UserType.TenantAdmin : Domain.Enums.UserType.TenantStaff;
+        }
+
+        var existingUserRoles = await context.UserRoles
+            .Where(ur => ur.UserId == user.Id)
+            .ToListAsync(cancellationToken);
+
         context.UserRoles.RemoveRange(existingUserRoles);
 
-        foreach (var roleId in request.RoleIds)
+        if (roleIds.Count > 0)
         {
-            var roleExists = await context.Roles.AnyAsync(r => r.Id == roleId, cancellationToken);
-            if (!roleExists) throw new Exception($"Role {roleId} not found.");
-
             context.UserRoles.Add(new Domain.UserRole
             {
                 UserId = user.Id,
-                RoleIds = [roleId]
+                RoleIds = roleIds
             });
         }
 
@@ -51,9 +72,9 @@ public class AssignRolesHandler(
             Email = user.Email,
             FirstName = user.FirstName,
             LastName = user.LastName,
-            UserType = user.UserType.ToString(),
-            Status = user.Status.ToString(),
-            StaffType = user.StaffType.ToString(),
+            UserType = user.UserType,
+            Status = user.Status,
+            StaffType = user.StaffType,
             CreatedAt = user.CreatedAt
         };
     }

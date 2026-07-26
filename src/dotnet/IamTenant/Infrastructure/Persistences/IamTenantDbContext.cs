@@ -33,11 +33,6 @@ public class IamTenantDbContext(
     {
         base.OnModelCreating(modelBuilder);
 
-        // ============================================================
-        // GLOBAL QUERY FILTERS — tham chiếu trực tiếp qua _currentUser
-        // (KHÔNG dùng local variable - EF Core sẽ capture đúng per-request)
-        // ============================================================
-
         modelBuilder.Entity<User>(e =>
         {
             e.HasQueryFilter(u =>
@@ -49,12 +44,11 @@ public class IamTenantDbContext(
             e.HasIndex(u => new { u.TenantId, u.CreatedAt });
             e.HasIndex(u => new { u.TenantId, u.Status });
 
-            // MaxLength để tránh Postgres tạo ra cột 'text'
             e.Property(u => u.Email).HasMaxLength(256).IsRequired();
             e.Property(u => u.FirstName).HasMaxLength(100);
             e.Property(u => u.LastName).HasMaxLength(100);
             e.Property(u => u.CognitoSub).HasMaxLength(128);
-            e.Property(u => u.UserType).HasConversion<string>().HasMaxLength(50);
+            e.Property(u => u.UserType);
             e.Property(u => u.Status).HasConversion<string>().HasMaxLength(50);
         });
 
@@ -70,9 +64,17 @@ public class IamTenantDbContext(
             e.Property(t => t.Code).HasMaxLength(50).IsRequired();
             e.Property(t => t.CompanyDomain).HasMaxLength(100).IsRequired();
             e.Property(t => t.TaxCode).HasMaxLength(50);
-            e.Property(t => t.PlanType).HasMaxLength(50);
-            e.Property(t => t.Status).HasConversion<string>().HasMaxLength(50);
+            e.Property(t => t.PlanType);
+            e.Property(t => t.Status);
+            e.Property(t => t.AdminGroupId).HasMaxLength(128);
+            e.Property(t => t.UserGroupId).HasMaxLength(128);
+            e.Property(t => t.AdminUserPoolId).HasMaxLength(128);
+            e.Property(t => t.AdminUserPoolClientId).HasMaxLength(128);
+            e.Property(t => t.UserUserPoolId).HasMaxLength(128);
+            e.Property(t => t.UserUserPoolClientId).HasMaxLength(128);
         });
+
+
 
         modelBuilder.Entity<Role>(e =>
         {
@@ -97,7 +99,15 @@ public class IamTenantDbContext(
         });
 
         // Composite PKs cho junction tables
-        modelBuilder.Entity<UserRole>().HasKey(ur => new { ur.UserId, ur.RoleIds });
+        modelBuilder.Entity<UserRole>(e =>
+        {
+            e.HasKey(ur => new { ur.UserId, ur.RoleIds });
+            e.Property(ur => ur.RoleIds)
+             .HasConversion(
+                 v => string.Join(",", v),
+                 v => v.Split(',', StringSplitOptions.RemoveEmptyEntries).Select(Guid.Parse).ToList()
+             );
+        });
         modelBuilder.Entity<RolePermission>().HasKey(rp => new { rp.RoleId, rp.PermissionId });
         modelBuilder.Entity<UserPermission>(e =>
         {

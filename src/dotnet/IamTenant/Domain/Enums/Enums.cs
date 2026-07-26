@@ -35,3 +35,9 @@ public enum StaffType
     BillingSettlement,
     Ocr
 }
+
+public enum PlanType
+{
+    Standard,
+    Premium
+}

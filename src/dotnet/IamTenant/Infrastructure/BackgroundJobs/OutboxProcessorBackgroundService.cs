@@ -20,13 +20,29 @@ public class OutboxProcessorBackgroundService(
             try
             {
                 await ProcessOutboxMessagesAsync(stoppingToken);
+                await Task.Delay(_pollingInterval, stoppingToken);
+            }
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+            {
+                logger.LogInformation("OutboxProcessorBackgroundService is stopping.");
+                break;
+            }
+            catch (ObjectDisposedException) when (stoppingToken.IsCancellationRequested)
+            {
+                break;
             }
             catch (Exception ex)
             {
                 logger.LogError(ex, "Error occurred while processing outbox messages.");
+                try
+                {
+                    await Task.Delay(_pollingInterval, stoppingToken);
+                }
+                catch (OperationCanceledException)
+                {
+                    break;
+                }
             }
-
-            await Task.Delay(_pollingInterval, stoppingToken);
         }
     }
 

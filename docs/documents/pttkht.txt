@@ -14,14 +14,16 @@ Agent Gemini:
 	Function Calling
 	RAG
 	AI Assistant
-Cloudflare -> ALB -> BFF gateway
+
+Cloudflare -> ALB -> Yarp -> BFF
 
 Service: 
 @Thanh Tân: API Gateway & BFF [CORE]						
 Identity & Tenant Service [CORE]					
 Route Planning Agent Service [AI]
 AI Ops & Monitoring Service [AI + DEVOPS]	
-Audit Log [Core]
+Email Security Service [AI]-TLS Verification-SPF-DKIM-DMARC-Sender Validation-Attachment Scan-Spam Detection-Pub Event-> ORC
+
 
 @Đào Huỳnh:  Financial & Cost Estimation Service [AI + CORE]			
 Billing & Settlement Service [CORE]			
@@ -35,11 +37,11 @@ Document OCR Agent Service [AI]
 Regulatory Compliance RAG Service [AI]	
 Shipment Workflow Service [Core]
 
-@Hùng Vũ: Email Agent [AI], Tester, Docs
-
-@Minh Huy: FE
+@Hùng Vũ: Audit Log [Core]
+Tester
+Docs
 
 S3 key nên phân tenant:
-s3://hrm-private-docs/tenants/{tenantId}/employees/{employeeId}/documents/{fileId}
+s3://hrm-private-docs/tenants/{tenantId}/department/{departmentId}/employees/{employeeId}/documents/{fileId}
 
 

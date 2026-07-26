@@ -25,7 +25,7 @@ public class ListTenantsHandler(IamTenantDbContext context) : IRequestHandler<Li
                 TaxCode = t.TaxCode,
                 CompanyDomain = t.CompanyDomain,
                 PlanType = t.PlanType,
-                Status = t.Status.ToString(),
+                Status = t.Status,
                 CreatedAt = t.CreatedAt
             });
 
