@@ -8,24 +8,23 @@ Cloudflare: R2, DNS
 MQ: RabbitMQ
 Terraform, ArgoCD
 Redis, PostgreSQL: Db per services.
-Docker, Grafana, Prometheus, Loki
+Docker, Grafana, Prometheus, Loki - Helm heal
 BFF gateway
 Agent Gemini:
 	Function Calling
 	RAG
 	AI Assistant
-
 Cloudflare -> ALB -> Yarp -> BFF
 
 Service: 
-@Thanh Tân: API Gateway & BFF [CORE]						
-Identity & Tenant Service [CORE]					
+@Thanh Tân: API Gateway & BFF [CORE] - ...						
+Identity & Tenant Service [CORE] - on going					
 Route Planning Agent Service [AI]
 AI Ops & Monitoring Service [AI + DEVOPS]	
 Email Security Service [AI]-TLS Verification-SPF-DKIM-DMARC-Sender Validation-Attachment Scan-Spam Detection-Pub Event-> ORC
 
 
-@Đào Huỳnh:  Financial & Cost Estimation Service [AI + CORE]			
+@Đào Huỳnh:  Financial & Cost Estimation Service [AI + CORE]	- ongoing		
 Billing & Settlement Service [CORE]			
 Realtime Hub [Core]										
 Negotiation Agent Service [AI] 						
@@ -35,13 +34,20 @@ Customer Assistant [AI]
 Notification Service [CORE]								
 Document OCR Agent Service [AI]						
 Regulatory Compliance RAG Service [AI]	
-Shipment Workflow Service [Core]
+Shipment Workflow Service [Core] - on going
 
-@Hùng Vũ: Audit Log [Core]
+@Hùng Vũ: Email Agent [AI]
 Tester
-Docs
+Docs {
+- Location facility Json -> Import DB
+
+}
 
 S3 key nên phân tenant:
 s3://hrm-private-docs/tenants/{tenantId}/department/{departmentId}/employees/{employeeId}/documents/{fileId}
 
+
+azure:
+
+làm sao để phân biệt được rules của
 

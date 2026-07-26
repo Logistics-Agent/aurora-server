@@ -1,0 +1,24 @@
+syntax = "proto3";
+
+option csharp_namespace = "RegulatoryComplianceRag.Grpc";
+
+package compliance_rag;
+
+service ComplianceRag {
+  rpc CheckRouteCompliance (CheckRouteComplianceRequest) returns (CheckRouteComplianceResponse);
+}
+
+message CheckRouteComplianceRequest {
+  string tenant_id = 1;
+  string route_json = 2;
+  repeated string risk_reasons = 3;
+}
+
+message CheckRouteComplianceResponse {
+  bool has_violations = 1;
+  repeated string violation_summaries = 2;
+  repeated string document_refs = 3;
+  repeated string applicable_regulations = 4;
+  string merged_context = 5;
+  bool requires_human_approval = 6;
+}
