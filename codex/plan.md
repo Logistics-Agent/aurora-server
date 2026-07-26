@@ -175,6 +175,13 @@ Notification Phases 01-09 are Completed.
 * Regulatory Compliance Phase 09 added migrated PostgreSQL full-pipeline, vector/JSON/tenant,
   concurrent idempotency, gRPC mapping, outbox retry/locking, and real RabbitMQ event tests. The
   service passes 51 tests and all owned-service regressions pass sequentially.
+* Added a fail-closed local development identity fallback in the shared gRPC auth interceptor.
+  The fallback supplies a fixed user and tenant only when both `Development` and
+  `DevelopmentIdentity:Enabled` are active; explicit identity metadata remains authoritative,
+  partial metadata does not trigger fallback, and non-Development environments ignore it.
+* Standardized owned-service local gRPC endpoints as Shipment `6000`, Notification `6001`, GPS
+  `6002`, Document OCR `6003`, and Regulatory Compliance `6004`. Each service continues to use its
+  separate PostgreSQL database and local port `5433` through `5437`.
 
 ## Current Work
 
@@ -183,6 +190,10 @@ persisted events consumed idempotently by Notification and GPS; GPS and OCR publ
 events through transactional outboxes; Compliance owns cited evaluations and publishes completion
 or failure through its outbox. Service tests remain colocated under
 `src/dotnet/<Service>/Tests`.
+
+Direct local Postman testing can omit tenant and user metadata. The Development identity resolves
+to tenant `01920000-0000-7000-8000-000000000001`; Regulatory Compliance additionally receives
+only its controlled source-ingestion permissions. See `docs/owned-services-postman.md`.
 
 ## Blocked Work
 
@@ -195,9 +206,13 @@ without explicit user or lead authorization.
 
 ## Build Results
 
-Latest verified Regulatory Compliance Phase 09 validation:
+Latest verified owned-service development-access validation:
 
 ```bash
+dotnet build src/dotnet/ShipmentWorkflow/ShipmentWorkflow.csproj
+dotnet build src/dotnet/Notification/Notification.csproj
+dotnet build src/dotnet/GpsTracking/GpsTracking.csproj
+dotnet build src/dotnet/DocumentOcr/DocumentOcr.csproj
 dotnet build src/dotnet/RegulatoryCompliance/RegulatoryCompliance.csproj
 ```
 
@@ -215,8 +230,10 @@ dotnet test src/dotnet/GpsTracking/Tests/GpsTracking.Tests.csproj
 dotnet test src/dotnet/DocumentOcr/Tests/DocumentOcr.Tests.csproj
 ```
 
-Result: Regulatory Compliance passed 51 tests; Shipment 99; Notification 29; GPS 50; Document OCR
-63. Final sequential runs had 0 failures and 0 warnings.
+Result: Regulatory Compliance passed 57 tests, including 6 focused development-identity tests;
+Shipment 99; Notification 29; GPS 50; Document OCR 63. Final sequential runs had 0 failures and
+0 warnings. All five service processes returned HTTP/2 200 on ports `6000` through `6004` during
+the runtime smoke test.
 
 ## Migration Results
 

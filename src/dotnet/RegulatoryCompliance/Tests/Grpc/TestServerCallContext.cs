@@ -4,12 +4,18 @@ namespace RegulatoryCompliance.Tests.Grpc;
 
 internal sealed class TestServerCallContext : ServerCallContext
 {
-    private readonly Metadata _requestHeaders = [];
+    private readonly Metadata _requestHeaders;
     private readonly Metadata _responseTrailers = [];
     private Status _status;
     private WriteOptions? _writeOptions;
 
-    internal static TestServerCallContext Create() => new();
+    private TestServerCallContext(Metadata? requestHeaders)
+    {
+        _requestHeaders = requestHeaders ?? [];
+    }
+
+    internal static TestServerCallContext Create(Metadata? requestHeaders = null) =>
+        new(requestHeaders);
 
     protected override string MethodCore => "test";
     protected override string HostCore => "localhost";
