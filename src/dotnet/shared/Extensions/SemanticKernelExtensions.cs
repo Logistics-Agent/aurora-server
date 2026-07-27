@@ -19,12 +19,6 @@ public static class SemanticKernelExtensions
             return new RoundRobinApiKeyPool<string>(opts.KeyPool.GeminiApiKeys);
         });
 
-        services.AddKeyedSingleton<IApiKeyPool<string>>("AwsClaude", (sp, key) =>
-        {
-            var opts = sp.GetRequiredService<IOptions<RoutePlanningOptions>>().Value;
-            return new RoundRobinApiKeyPool<string>(opts.KeyPool.AwsClaudeModelIds);
-        });
-
         services.AddSingleton<IApiKeyPool<AzureOpenAiKeyEntry>>(sp =>
         {
             var opts = sp.GetRequiredService<IOptions<RoutePlanningOptions>>().Value;

@@ -15,5 +15,8 @@ public class ApprovalRequest : TenantAuditableEntity
     public Guid? ReviewedByUserId { get; set; }
     public DateTimeOffset? ReviewedAt { get; set; }
     public string? ReviewerComment { get; set; }
+
+    /// <summary>Lý do từ chối — bắt buộc khi Status = Rejected.</summary>
+    public string? RejectionReason { get; set; }
     public Route Route { get; set; } = default!;
 }

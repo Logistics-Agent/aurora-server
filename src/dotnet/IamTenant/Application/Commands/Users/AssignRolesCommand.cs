@@ -35,7 +35,7 @@ public class AssignRolesHandler(
             context.UserRoles.Add(new Domain.UserRole
             {
                 UserId = user.Id,
-                RoleIds = [roleId]
+                RoleId = roleId
             });
         }
 

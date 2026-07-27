@@ -3,8 +3,11 @@
 ##
 ## Get latest from `dotnet new gitignore`
 
+Migrations*
 # dotenv files
 .env
+src/dotnet/DevopsAgent/
+
 
 # User-specific files
 *.rsuser

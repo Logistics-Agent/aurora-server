@@ -11,5 +11,6 @@ public record ApprovalRequestDto
     public string Reason { get; init; } = string.Empty;
     public string AiSummary { get; init; } = string.Empty;
     public string? ComplianceSummary { get; init; }
+    public string? RejectionReason { get; init; }
     public DateTimeOffset CreatedAt { get; init; }
 }

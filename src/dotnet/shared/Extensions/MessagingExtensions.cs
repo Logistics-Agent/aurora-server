@@ -64,6 +64,13 @@ public static class SharedServiceExtensions
                 // Bắt buộc để NestJS (và bất kỳ service non-.NET nào) đọc được message
                 cfg.UseRawJsonSerializer();
 
+                // Retry theo cấp số nhân cho mọi consumer: 5 lần, 1s → 30s
+                cfg.UseMessageRetry(r => r.Exponential(
+                    5,
+                    TimeSpan.FromSeconds(1),
+                    TimeSpan.FromSeconds(30),
+                    TimeSpan.FromSeconds(2)));
+
                 cfg.ConfigureEndpoints(context);
             });
         });

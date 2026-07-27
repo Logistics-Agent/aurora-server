@@ -4,14 +4,17 @@ using System.Threading.Tasks;
 using MediatR;
 using RoutePlanningAgent.Application.DTOs.Routes;
 using RoutePlanningAgent.Application.Interfaces;
-using RoutePlanningAgent.Domain;
+using RoutePlanningAgent.Application.Mapping;
+using Shared.Exceptions;
 using Shared.Security;
 
 namespace RoutePlanningAgent.Application.Commands.Routes;
 
+/// <summary>
+/// Phê duyệt approval request. Từ chối dùng RejectRouteCommand (tách riêng, bắt buộc Reason).
+/// </summary>
 public record ApproveRouteCommand(
     Guid ApprovalId,
-    bool IsApproved,
     string? Comment
 ) : IRequest<ApprovalRequestDto>;
 
@@ -22,28 +25,12 @@ public class ApproveRouteHandler(
 {
     public async Task<ApprovalRequestDto> Handle(ApproveRouteCommand request, CancellationToken cancellationToken)
     {
-        var userId = currentUser.UserId ?? throw new Exception("User ID context is missing");
+        var userId = currentUser.UserId
+            ?? throw new ForbiddenException("User context is missing");
 
-        ApprovalRequest approval;
-        if (request.IsApproved)
-        {
-            approval = await approvalService.ApproveAsync(request.ApprovalId, userId, request.Comment, cancellationToken);
-        }
-        else
-        {
-            approval = await approvalService.RejectAsync(request.ApprovalId, userId, request.Comment, cancellationToken);
-        }
+        var approval = await approvalService.ApproveAsync(
+            request.ApprovalId, userId, request.Comment, cancellationToken);
 
-        return new ApprovalRequestDto
-        {
-            Id = approval.Id,
-            RouteId = approval.RouteId,
-            RouteName = approval.Route?.Name ?? string.Empty,
-            Status = approval.Status.ToString(),
-            Reason = approval.Reason,
-            AiSummary = approval.AiSummary,
-            ComplianceSummary = approval.ComplianceSummary,
-            CreatedAt = approval.CreatedAt
-        };
+        return RouteMapper.ToApprovalDto(approval);
     }
 }

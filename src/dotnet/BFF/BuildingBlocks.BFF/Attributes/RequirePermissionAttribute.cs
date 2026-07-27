@@ -34,7 +34,8 @@ public class RequirePermissionAttribute(string module, string action) : Attribut
         }
 
         // 4. Nếu user có Role là SYSTEM_ADMIN, tự động bypass (Super Admin)
-        if (currentUser.RoleIds.Contains("SystemAdmin"))
+        // Lưu ý: RoleIds ở đây chứa role CODES (SYSTEM_ADMIN, TENANT_ADMIN, ...) — khớp seed data
+        if (currentUser.RoleIds.Contains("SYSTEM_ADMIN"))
         {
             return Task.CompletedTask;
         }

@@ -57,7 +57,7 @@ public class OutboxProcessorBackgroundService(
                         if (eventObject is RolePermissionsChangedEvent roleEvent)
                         {
                             var affectedUsers = await context.UserRoles
-                                .Where(ur => ur.RoleIds.Contains(roleEvent.RoleId))
+                                .Where(ur => ur.RoleId == roleEvent.RoleId)
                                 .Select(ur => ur.User)
                                 .ToListAsync(stoppingToken);
 

@@ -1,6 +1,6 @@
 using System;
-using RoutePlanningAgent.Domain;
 using RoutePlanningAgent.Application.Interfaces;
+using Route = RoutePlanningAgent.Domain.Route; // tránh nhầm với Microsoft.AspNetCore.Routing.Route
 
 namespace RoutePlanningAgent.Infrastructure.Rules;
 

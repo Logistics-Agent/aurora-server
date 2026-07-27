@@ -54,7 +54,7 @@ public class IamTenantDbContext(
             e.Property(u => u.FirstName).HasMaxLength(100);
             e.Property(u => u.LastName).HasMaxLength(100);
             e.Property(u => u.CognitoSub).HasMaxLength(128);
-            e.Property(u => u.UserType).HasConversion<string>().HasMaxLength(50);
+            // UserType + StaffType lưu int (ordinal) theo quyết định thiết kế — chỉ append, không reorder
             e.Property(u => u.Status).HasConversion<string>().HasMaxLength(50);
         });
 
@@ -97,7 +97,7 @@ public class IamTenantDbContext(
         });
 
         // Composite PKs cho junction tables
-        modelBuilder.Entity<UserRole>().HasKey(ur => new { ur.UserId, ur.RoleIds });
+        modelBuilder.Entity<UserRole>().HasKey(ur => new { ur.UserId, ur.RoleId });
         modelBuilder.Entity<RolePermission>().HasKey(rp => new { rp.RoleId, rp.PermissionId });
         modelBuilder.Entity<UserPermission>(e =>
         {
@@ -163,77 +163,64 @@ public class IamTenantDbContext(
             new Role { Id = tenantStaffRoleId, TenantId = systemTenantId, Code = "TENANT_STAFF", Name = "Tenant Staff", IsSystemRole = true, CreatedAt = DateTimeOffset.UnixEpoch, CreatedBy = "system" }
         );
 
-        // --- Permissions ---
-        var perms = new[]
-        {
-            ("20000000-0000-0000-0000-000000000001", "tenant:create", "IAM"),
-            ("20000000-0000-0000-0000-000000000002", "tenant:read", "IAM"),
-            ("20000000-0000-0000-0000-000000000003", "tenant:update", "IAM"),
-            ("20000000-0000-0000-0000-000000000004", "tenant:delete", "IAM"),
-            ("20000000-0000-0000-0000-000000000011", "staff:create", "IAM"),
-            ("20000000-0000-0000-0000-000000000012", "staff:read", "IAM"),
-            ("20000000-0000-0000-0000-000000000013", "staff:update", "IAM"),
-            ("20000000-0000-0000-0000-000000000014", "staff:delete", "IAM"),
-            ("20000000-0000-0000-0000-000000000015", "staff:activate", "IAM"),
-            ("20000000-0000-0000-0000-000000000016", "staff:reset_password", "IAM"),
-            ("20000000-0000-0000-0000-000000000021", "role:create", "IAM"),
-            ("20000000-0000-0000-0000-000000000022", "role:read", "IAM"),
-            ("20000000-0000-0000-0000-000000000023", "role:update", "IAM"),
-            ("20000000-0000-0000-0000-000000000024", "role:delete", "IAM"),
-            ("20000000-0000-0000-0000-000000000025", "permission:assign", "IAM"),
-        };
+        // --- Permissions: seed ĐÚNG bộ codes của PermissionConstants ("{module}:{action}") ---
+        // [RequirePermission] ở BFF build code từ PermissionConstants — seed lệch bộ này là 403 toàn bộ.
+        var allCodes = Shared.Constants.PermissionConstants.GetAllPermissions();
+        var codeToId = allCodes.ToDictionary(code => code, DeterministicPermissionId);
 
         modelBuilder.Entity<Permission>().HasData(
-            perms.Select(p => new Permission
+            allCodes.Select(code => new Permission
             {
-                Id = Guid.Parse(p.Item1),
-                Code = p.Item2,
-                Module = p.Item3
+                Id = codeToId[code],
+                Code = code,
+                Module = code.Split(':')[0],
+                Description = $"Allows {code.Split(':')[1]} operation on {code.Split(':')[0]}"
             }).ToArray()
         );
 
-        // --- RolePermissions: SYSTEM_ADMIN gets ALL ---
-        var sysAdminPerms = perms.Select(p => new RolePermission
+        // --- RolePermissions ---
+        // SYSTEM_ADMIN: toàn bộ
+        var sysAdminPerms = allCodes.Select(code => new RolePermission
         {
             RoleId = sysAdminRoleId,
-            PermissionId = Guid.Parse(p.Item1)
-        }).ToArray();
+            PermissionId = codeToId[code]
+        });
 
-        // TENANT_ADMIN: manage staff, roles within tenant
-        var tenantAdminPermIds = new[]
-        {
-            "20000000-0000-0000-0000-000000000011",
-            "20000000-0000-0000-0000-000000000012",
-            "20000000-0000-0000-0000-000000000013",
-            "20000000-0000-0000-0000-000000000014",
-            "20000000-0000-0000-0000-000000000015",
-            "20000000-0000-0000-0000-000000000016",
-            "20000000-0000-0000-0000-000000000022",
-            "20000000-0000-0000-0000-000000000023",
-            "20000000-0000-0000-0000-000000000025",
-        };
+        // TENANT_ADMIN: toàn quyền iam:* + route_planning:*
+        var tenantAdminPerms = allCodes
+            .Where(code => code.StartsWith("iam:") || code.StartsWith("route_planning:"))
+            .Select(code => new RolePermission
+            {
+                RoleId = tenantAdminRoleId,
+                PermissionId = codeToId[code]
+            });
 
-        var tenantAdminPerms = tenantAdminPermIds.Select(id => new RolePermission
-        {
-            RoleId = tenantAdminRoleId,
-            PermissionId = Guid.Parse(id)
-        }).ToArray();
+        // TENANT_STAFF: quyền staff mặc định (read/export/import) + route_planning:create
+        var staffCodes = Shared.Constants.PermissionConstants.GetDefaultStaffPermissions()
+            .Append(Shared.Constants.PermissionConstants.Build(
+                Shared.Constants.PermissionConstants.Modules.RoutePlanning,
+                Shared.Constants.PermissionConstants.Create))
+            .Distinct();
 
-        // TENANT_STAFF: read only
-        var staffPermIds = new[]
-        {
-            "20000000-0000-0000-0000-000000000012",
-            "20000000-0000-0000-0000-000000000022",
-        };
-
-        var tenantStaffPerms = staffPermIds.Select(id => new RolePermission
+        var tenantStaffPerms = staffCodes.Select(code => new RolePermission
         {
             RoleId = tenantStaffRoleId,
-            PermissionId = Guid.Parse(id)
-        }).ToArray();
+            PermissionId = codeToId[code]
+        });
 
         modelBuilder.Entity<RolePermission>().HasData(
             [.. sysAdminPerms, .. tenantAdminPerms, .. tenantStaffPerms]);
+    }
+
+    /// <summary>
+    /// Sinh GUID ổn định từ permission code (MD5) — bắt buộc cho HasData
+    /// (giá trị phải giống nhau giữa các lần build model, nếu không migration sẽ churn).
+    /// </summary>
+    private static Guid DeterministicPermissionId(string code)
+    {
+        var hash = System.Security.Cryptography.MD5.HashData(
+            System.Text.Encoding.UTF8.GetBytes($"iam-permission:{code}"));
+        return new Guid(hash);
     }
 
 }

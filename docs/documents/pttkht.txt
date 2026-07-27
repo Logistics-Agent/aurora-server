@@ -2,7 +2,7 @@ Logistic + Muilt-Agent + Muilt-tennant:
 BE: .net + nestjs 
 FE: React - Stitch
 microservices: gRPC - RabbitMQ
-AWS: EKS, ECR, CloudWatch Secrets Manager, EC2 (docker), S3( terraform), NAT, ALB, 2 AZ, EBS volume
+AWS: AKS, ACR, Azure Monitor, Azure Key Vault, Azure VMs (docker), Azure Blob Storage( terraform), Azure NAT Gateway, Azure Application Gateway, 2 AZ, Azure Managed Disks
 Auth: Cognito
 Cloudflare: R2, DNS
 MQ: RabbitMQ
@@ -19,9 +19,9 @@ Cloudflare -> ALB -> Yarp -> BFF
 Service: 
 @Thanh Tân: API Gateway & BFF [CORE] - ...						
 Identity & Tenant Service [CORE] - on going					
-Route Planning Agent Service [AI]
+Route Planning Agent Service [AI] - VRP(OSRM+VROOM) - https://download.geofabrik.de/asia.html
 AI Ops & Monitoring Service [AI + DEVOPS]	
-Audit Log [Core]
+Email Security Service [AI]-TLS Verification-SPF-DKIM-DMARC-Sender Validation-Attachment Scan-Spam Detection-Pub Event-> ORC
 
 @Đào Huỳnh:  Financial & Cost Estimation Service [AI + CORE]	- ongoing		
 Billing & Settlement Service [CORE]			

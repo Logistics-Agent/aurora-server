@@ -23,15 +23,15 @@ public enum UserType
     TenantManager
 }
 
+/// <summary>
+/// Nhóm nghiệp vụ chính của staff (đã rút gọn từ 9 type theo module).
+/// ⚠ Lưu DB dạng int (ordinal) — CHỈ ĐƯỢC APPEND member mới, KHÔNG reorder/xóa.
+/// </summary>
 public enum StaffType
 {
-    Normal,
-    Compliance,
-    Negotiation,
-    CustomerAssistant,
-    RoutePlanning,
-    FinancialTax,
-    GpsTracking,
-    BillingSettlement,
-    Ocr
+    Normal = 0,          // mặc định
+    Operations = 1,      // ← RoutePlanning, GpsTracking
+    Documentation = 2,   // ← Ocr, Compliance
+    CustomerService = 3, // ← CustomerAssistant, Negotiation
+    Finance = 4          // ← FinancialTax, BillingSettlement
 }
