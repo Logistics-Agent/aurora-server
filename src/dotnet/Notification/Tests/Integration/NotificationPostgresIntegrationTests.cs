@@ -38,7 +38,7 @@ public sealed class NotificationPostgresIntegrationTests
 
         try
         {
-            var envelope = new ShipmentNotificationEnvelope(
+            var envelope = new IntegrationEventNotificationEnvelope(
                 eventId,
                 1,
                 tenantId,
@@ -48,7 +48,7 @@ public sealed class NotificationPostgresIntegrationTests
                 "Shipment created",
                 "Shipment SHP-INTEGRATION was created.",
                 DateTimeOffset.UtcNow);
-            var projector = new ShipmentNotificationProjector(
+            var projector = new IntegrationEventNotificationProjector(
                 context,
                 TimeProvider.System);
 

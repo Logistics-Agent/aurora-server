@@ -4,19 +4,19 @@ using Notification.Infrastructure.Persistences;
 
 namespace Notification.Application.Services;
 
-public interface IShipmentNotificationProjector
+public interface IIntegrationEventNotificationProjector
 {
     Task ProjectAsync(
-        ShipmentNotificationEnvelope message,
+        IntegrationEventNotificationEnvelope message,
         CancellationToken cancellationToken = default);
 }
 
-public sealed class ShipmentNotificationProjector(
+public sealed class IntegrationEventNotificationProjector(
     NotificationDbContext dbContext,
-    TimeProvider timeProvider) : IShipmentNotificationProjector
+    TimeProvider timeProvider) : IIntegrationEventNotificationProjector
 {
     public async Task ProjectAsync(
-        ShipmentNotificationEnvelope message,
+        IntegrationEventNotificationEnvelope message,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(message);

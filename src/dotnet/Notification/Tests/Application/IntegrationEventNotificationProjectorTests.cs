@@ -8,7 +8,7 @@ using Shared.Security;
 
 namespace Notification.Tests.Application;
 
-public sealed class ShipmentNotificationProjectorTests
+public sealed class IntegrationEventNotificationProjectorTests
 {
     [Fact]
     public async Task CreatesNotificationsOnlyForEnabledPreferencesInEventTenant()
@@ -32,7 +32,7 @@ public sealed class ShipmentNotificationProjectorTests
         await context.SaveChangesAsync();
 
         var envelope = CreateEnvelope(tenantId);
-        var projector = new ShipmentNotificationProjector(context, TimeProvider.System);
+        var projector = new IntegrationEventNotificationProjector(context, TimeProvider.System);
 
         await projector.ProjectAsync(envelope);
 
@@ -62,7 +62,7 @@ public sealed class ShipmentNotificationProjectorTests
         await context.SaveChangesAsync();
 
         var envelope = CreateEnvelope(tenantId);
-        var projector = new ShipmentNotificationProjector(context, TimeProvider.System);
+        var projector = new IntegrationEventNotificationProjector(context, TimeProvider.System);
 
         await projector.ProjectAsync(envelope);
         await projector.ProjectAsync(envelope);
@@ -76,7 +76,7 @@ public sealed class ShipmentNotificationProjectorTests
     {
         await using var context = CreateContext();
         var envelope = CreateEnvelope(Guid.CreateVersion7());
-        var projector = new ShipmentNotificationProjector(context, TimeProvider.System);
+        var projector = new IntegrationEventNotificationProjector(context, TimeProvider.System);
 
         await projector.ProjectAsync(envelope);
 
@@ -97,7 +97,37 @@ public sealed class ShipmentNotificationProjectorTests
             new AuditSaveChangesInterceptor(currentUser));
     }
 
-    private static ShipmentNotificationEnvelope CreateEnvelope(Guid tenantId) =>
+    [Fact]
+    public async Task CreatesNonShipmentNotificationWithoutShipmentReference()
+    {
+        var tenantId = Guid.CreateVersion7();
+        await using var context = CreateContext();
+        context.NotificationPreferences.Add(NotificationPreference.Create(
+            tenantId, Guid.CreateVersion7(),
+            NotificationEventType.DocumentOcrFailed,
+            NotificationChannel.InApp, true, null));
+        await context.SaveChangesAsync();
+
+        var envelope = new IntegrationEventNotificationEnvelope(
+            Guid.CreateVersion7(),
+            1,
+            tenantId,
+            null,
+            "DocumentOcrFailedEvent",
+            NotificationEventType.DocumentOcrFailed,
+            "Document OCR failed",
+            "OCR processing failed.",
+            DateTimeOffset.UtcNow);
+        var projector = new IntegrationEventNotificationProjector(context, TimeProvider.System);
+
+        await projector.ProjectAsync(envelope);
+
+        var notification = await context.Notifications.IgnoreQueryFilters().SingleAsync();
+        Assert.Null(notification.ShipmentId);
+        Assert.Equal(NotificationEventType.DocumentOcrFailed, notification.EventType);
+    }
+
+    private static IntegrationEventNotificationEnvelope CreateEnvelope(Guid tenantId) =>
         new(
             Guid.CreateVersion7(),
             1,
