@@ -61,7 +61,7 @@ Future-service phase plans exist under:
 * `codex/tasks/document-ocr/`
 * `codex/tasks/regulatory-compliance-rag/`
 
-Notification Phases 01-09 are Completed.
+Notification Phases 01-10 are Completed.
 
 ## Document OCR Phase Progress
 
@@ -123,6 +123,7 @@ Notification Phases 01-09 are Completed.
 * Phase 19 generated and applied `20260714042938_ExpandShipmentWorkflowMvp`, verified local PostgreSQL schema, ran runtime smoke validation, and completed full Shipment Workflow regression.
 * Phase 20 added a PostgreSQL skip-locked outbox publisher for all Shipment event contracts, bounded retry diagnostics, and verified real RabbitMQ delivery into Notification.
 * Notification Phases 01-09 completed the standalone service, Shipment event consumers, tenant-safe gRPC APIs, provider-neutral delivery, bounded retry, `20260719124939_InitialNotification`, runtime smoke validation, and 29 passing tests.
+* Notification Phase 10 completed Shipment lifecycle/document consumption plus GPS alert, Document OCR, and Regulatory Compliance event consumers. Tenant-scoped preferences and inbox idempotency are preserved, and the service passes 41 tests including real RabbitMQ delivery.
 * GPS Phase 07 completed circular geofences, abnormal-stop and signal-loss monitoring,
   tenant-scoped management APIs, alert deduplication/resolution, and atomic alert outbox writes.
 * GPS Phase 08 completed allowlisted integration-event deserialization, MassTransit publishing,
@@ -186,14 +187,14 @@ Notification Phases 01-09 are Completed.
 ## Current Work
 
 Shipment Workflow, Notification, GPS Tracking, Document OCR, and Regulatory Compliance are complete. Shipment publishes
-persisted events consumed idempotently by Notification and GPS; GPS and OCR publish service-owned
-events through transactional outboxes; Compliance owns cited evaluations and publishes completion
-or failure through its outbox. Service tests remain colocated under
+persisted events consumed idempotently by Notification and GPS. Notification also consumes GPS monitoring alerts,
+Document OCR completion/failure events, and Regulatory Compliance completion/failure events. GPS, OCR, and Compliance
+publish service-owned events through transactional outboxes. Service tests remain colocated under
 `src/dotnet/<Service>/Tests`.
 
 Direct local Postman testing can omit tenant and user metadata. The Development identity resolves
 to tenant `01920000-0000-7000-8000-000000000001`; Regulatory Compliance additionally receives
-only its controlled source-ingestion permissions. See `docs/owned-services-postman.md`.
+only its controlled source-ingestion permissions.
 
 ## Blocked Work
 
@@ -231,7 +232,7 @@ dotnet test src/dotnet/DocumentOcr/Tests/DocumentOcr.Tests.csproj
 ```
 
 Result: Regulatory Compliance passed 57 tests, including 6 focused development-identity tests;
-Shipment 99; Notification 29; GPS 50; Document OCR 63. Final sequential runs had 0 failures and
+Shipment 99; Notification 41; GPS 50; Document OCR 63. Final runs had 0 failures and
 0 warnings. All five service processes returned HTTP/2 200 on ports `6000` through `6004` during
 the runtime smoke test.
 
@@ -257,6 +258,7 @@ Recent Notification phase commits:
 * `ffb10c9` — Phase 07 program configuration
 * `2fc547d` — Phase 08 initial migration
 * Phase 09 testing commit is the final local Notification commit
+* Phase 10 owned-service event consumer commit is the current local Notification expansion commit
 
 ## Immediate Next Action
 

@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Notification Service exists to send email and in-application notifications, consume shipment events, track delivery attempts, retry failures.
+Notification Service exists to send email and in-application notifications, consume approved owned-service events, track delivery attempts, and retry failures.
 
 ## Boundaries
 
@@ -14,7 +14,7 @@ Owns notification records, recipient preferences, delivery attempts, inbox recei
 
 ## Data Not Owned
 
-Does not own shipment data, GPS data, OCR jobs, billing transactions.
+Does not own shipment data, GPS data, OCR jobs, compliance evaluations, or billing transactions.
 
 ## Dependencies
 
@@ -82,9 +82,9 @@ The service builds, starts, migrates its database, passes tests, enforces tenant
 
 ## Implementation Status
 
-Completed locally on 2026-07-19. The service has tenant-safe gRPC APIs, Shipment event consumers, inbox and notification dedupe, email and in-app provider abstractions, persisted delivery attempts, bounded retry, an applied PostgreSQL migration, and 29 passing tests including PostgreSQL integration. Runtime smoke validation passed with PostgreSQL, RabbitMQ, and Redis healthy.
+Completed and expanded locally through 2026-07-28. The service has tenant-safe gRPC APIs, inbox and notification dedupe, email and in-app provider abstractions, persisted delivery attempts, bounded retry, and an applied PostgreSQL migration. It consumes approved Shipment lifecycle/document events, GPS monitoring alerts, Document OCR completion/failure events, and Regulatory Compliance completion/failure events. High-volume GPS position updates and raw OCR extracted JSON are intentionally excluded.
 
-Live Shipment event delivery depends on the separately owned Shipment outbox publisher. Real SMTP delivery requires deployment-provided host, sender, and credentials; no secrets are committed.
+The service passes 41 tests, including PostgreSQL projection and real RabbitMQ consumer delivery from GPS, OCR, and Compliance contracts. Runtime smoke validation passed with PostgreSQL, RabbitMQ, and Redis healthy. Real SMTP delivery requires deployment-provided host, sender, and credentials; no secrets are committed.
 
 ## Assumptions
 
