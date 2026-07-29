@@ -22,9 +22,9 @@ public class ListStaffHandler(IamTenantDbContext context) : IRequestHandler<List
                 Email = u.Email,
                 FirstName = u.FirstName,
                 LastName = u.LastName,
-                UserType = u.UserType.ToString(),
-                Status = u.Status.ToString(),
-                StaffType = u.StaffType.ToString(),
+                UserType = u.UserType,
+                Status = u.Status,
+                StaffType = u.StaffType,
                 CreatedAt = u.CreatedAt
             });
 

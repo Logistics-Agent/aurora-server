@@ -1,11 +1,12 @@
 using IamTenant.Infrastructure.Persistences;
 using IamTenant.Application.DTOs.Tenants;
+using IamTenant.Domain.Enums;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 
 namespace IamTenant.Application.Commands.Tenants;
 
-public record UpdateTenantCommand(Guid Id, string Name, string? TaxCode, string PlanType) : IRequest<TenantDto>;
+public record UpdateTenantCommand(Guid Id, string Name, string? TaxCode, PlanType PlanType) : IRequest<TenantDto>;
 
 public class UpdateTenantHandler(IamTenantDbContext context) : IRequestHandler<UpdateTenantCommand, TenantDto>
 {
@@ -29,7 +30,7 @@ public class UpdateTenantHandler(IamTenantDbContext context) : IRequestHandler<U
             TaxCode = tenant.TaxCode,
             CompanyDomain = tenant.CompanyDomain,
             PlanType = tenant.PlanType,
-            Status = tenant.Status.ToString(),
+            Status = tenant.Status,
             CreatedAt = tenant.CreatedAt
         };
     }

@@ -6,9 +6,9 @@
 Migrations*
 # dotenv files
 .env
-src/dotnet/DevopsAgent/
 
-
+=======
+*Migrations
 # User-specific files
 *.rsuser
 *.suo

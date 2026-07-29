@@ -43,7 +43,7 @@ Docs {
 }
 
 S3 key nên phân tenant:
-s3://hrm-private-docs/tenants/{tenantId}/employees/{employeeId}/documents/{fileId}
+s3://hrm-private-docs/tenants/{tenantId}/department/{departmentId}/employees/{employeeId}/documents/{fileId}
 
 
 azure:

@@ -35,3 +35,9 @@ public enum StaffType
     CustomerService = 3, // ← CustomerAssistant, Negotiation
     Finance = 4          // ← FinancialTax, BillingSettlement
 }
+
+public enum PlanType
+{
+    Standard,
+    Premium
+}

@@ -37,7 +37,7 @@ public class UpdateTenantStatusHandler(IamTenantDbContext context)
             TaxCode = tenant.TaxCode,
             CompanyDomain = tenant.CompanyDomain,
             PlanType = tenant.PlanType,
-            Status = tenant.Status.ToString(),
+            Status = tenant.Status,
             CreatedAt = tenant.CreatedAt
         };
     }

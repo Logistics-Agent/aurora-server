@@ -23,6 +23,8 @@ public class AuthController(
 {
     private const string AccessTokenCookie = "access_token";
     private const string RefreshTokenCookie = "refresh_token";
+    private const string TenantCodeCookie = "tenant_code";
+    private const string UserTypeCookie = "user_type";
     private const string RefreshCookiePath = "/api/v1/auth";
 
     /// <summary>Kiểm tra email tồn tại + thuộc tenant nào (bước 1 của flow login).</summary>
@@ -50,16 +52,26 @@ public class AuthController(
     {
         try
         {
+            var identity = await authClient.IdentifyUserAsync(
+                new IdentifyUserRequest { Email = body.Email },
+                GrpcDeadlines.WithDeadline(GrpcDeadlines.DefaultTimeout, HttpContext.RequestAborted));
+
+            if (!string.IsNullOrWhiteSpace(body.TenantCode) &&
+                !string.Equals(identity.TenantCode, body.TenantCode, StringComparison.OrdinalIgnoreCase))
+            {
+                return Unauthorized(new { detail = "Tenant code does not match the account." });
+            }
+
             var response = await authClient.LoginAsync(
                 new LoginRequest
                 {
-                    TenantCode = body.TenantCode ?? string.Empty,
-                    Email      = body.Email,
-                    Password   = body.Password
+                    TenantCode = body.TenantCode ?? identity.TenantCode ?? string.Empty,
+                    Email = body.Email,
+                    Password = body.Password
                 },
                 GrpcDeadlines.WithDeadline(GrpcDeadlines.LoginTimeout, HttpContext.RequestAborted));
 
-            SetAuthCookies(response);
+            SetAuthCookies(response, body.TenantCode ?? identity.TenantCode ?? string.Empty, identity.UserType);
 
             logger.LogInformation("User {Email} logged in (userId={UserId})", body.Email, response.UserId);
 
@@ -68,7 +80,7 @@ public class AuthController(
             {
                 response.UserId,
                 response.TenantId,
-                Roles       = response.Roles.ToList(),
+                Roles = response.Roles.ToList(),
                 Permissions = response.Permissions.ToList(),
                 response.ExpiresIn
             });
@@ -96,16 +108,20 @@ public class AuthController(
     {
         try
         {
+            var identity = await authClient.IdentifyUserAsync(
+                new IdentifyUserRequest { Email = body.Email },
+                GrpcDeadlines.WithDeadline(GrpcDeadlines.DefaultTimeout, HttpContext.RequestAborted));
+
             var response = await authClient.CompleteInvitationAsync(
                 new CompleteInvitationRequest
                 {
-                    Email            = body.Email,
-                    NewPassword      = body.NewPassword,
+                    Email = body.Email,
+                    NewPassword = body.NewPassword,
                     ConfirmationCode = body.ConfirmationCode
                 },
                 GrpcDeadlines.WithDeadline(GrpcDeadlines.LoginTimeout, HttpContext.RequestAborted));
 
-            SetAuthCookies(response);
+            SetAuthCookies(response, identity.TenantCode, identity.UserType);
 
             logger.LogInformation("User {Email} completed invitation", body.Email);
 
@@ -113,7 +129,7 @@ public class AuthController(
             {
                 response.UserId,
                 response.TenantId,
-                Roles       = response.Roles.ToList(),
+                Roles = response.Roles.ToList(),
                 Permissions = response.Permissions.ToList(),
                 response.ExpiresIn
             });
@@ -143,7 +159,12 @@ public class AuthController(
         try
         {
             var response = await authClient.RefreshTokenAsync(
-                new RefreshTokenRequest { RefreshToken = refreshToken },
+                new RefreshTokenRequest
+                {
+                    RefreshToken = refreshToken,
+                    TenantCode = Request.Cookies[TenantCodeCookie] ?? string.Empty,
+                    UserType = Request.Cookies[UserTypeCookie] ?? string.Empty
+                },
                 GrpcDeadlines.WithDeadline(GrpcDeadlines.RefreshTimeout, HttpContext.RequestAborted));
 
             SetAuthCookies(response);
@@ -190,15 +211,15 @@ public class AuthController(
 
     // --- Cookie helpers ---
 
-    private void SetAuthCookies(LoginResponse response)
+    private void SetAuthCookies(LoginResponse response, string tenantCode, string userType)
     {
         Response.Cookies.Append(AccessTokenCookie, response.AccessToken, new CookieOptions
         {
             HttpOnly = true,
-            Secure   = true,
+            Secure = true,
             SameSite = SameSiteMode.Strict,
-            Path     = "/",
-            MaxAge   = TimeSpan.FromSeconds(response.ExpiresIn)
+            Path = "/",
+            MaxAge = TimeSpan.FromSeconds(response.ExpiresIn)
         });
 
         if (!string.IsNullOrEmpty(response.RefreshToken))
@@ -206,10 +227,28 @@ public class AuthController(
             Response.Cookies.Append(RefreshTokenCookie, response.RefreshToken, new CookieOptions
             {
                 HttpOnly = true,
-                Secure   = true,
+                Secure = true,
                 SameSite = SameSiteMode.Strict,
-                Path     = RefreshCookiePath, // chỉ gửi kèm cho /api/v1/auth/*
-                MaxAge   = TimeSpan.FromDays(30)
+                Path = RefreshCookiePath, // chỉ gửi kèm cho /api/v1/auth/*
+                MaxAge = TimeSpan.FromDays(30)
+            });
+
+            Response.Cookies.Append(TenantCodeCookie, tenantCode, new CookieOptions
+            {
+                HttpOnly = true,
+                Secure = true,
+                SameSite = SameSiteMode.Strict,
+                Path = RefreshCookiePath,
+                MaxAge = TimeSpan.FromDays(30)
+            });
+
+            Response.Cookies.Append(UserTypeCookie, userType, new CookieOptions
+            {
+                HttpOnly = true,
+                Secure = true,
+                SameSite = SameSiteMode.Strict,
+                Path = RefreshCookiePath,
+                MaxAge = TimeSpan.FromDays(30)
             });
         }
     }
@@ -218,6 +257,8 @@ public class AuthController(
     {
         Response.Cookies.Delete(AccessTokenCookie, new CookieOptions { Path = "/" });
         Response.Cookies.Delete(RefreshTokenCookie, new CookieOptions { Path = RefreshCookiePath });
+        Response.Cookies.Delete(TenantCodeCookie, new CookieOptions { Path = RefreshCookiePath });
+        Response.Cookies.Delete(UserTypeCookie, new CookieOptions { Path = RefreshCookiePath });
     }
 
     // --- DTOs ---
