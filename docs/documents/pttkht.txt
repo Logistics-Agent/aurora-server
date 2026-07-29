@@ -2,28 +2,28 @@ Logistic + Muilt-Agent + Muilt-tennant:
 BE: .net + nestjs 
 FE: React - Stitch
 microservices: gRPC - RabbitMQ
-AWS: EKS, ECR, CloudWatch Secrets Manager, EC2 (docker), S3( terraform), NAT, ALB, 2 AZ, EBS volume
+AWS: AKS, ACR, Azure Monitor, Azure Key Vault, Azure VMs (docker), Azure Blob Storage( terraform), Azure NAT Gateway, Azure Application Gateway, 2 AZ, Azure Managed Disks
 Auth: Cognito
-Cloudflare: R2, DNS
+Cloudflare: R2, DNS, Tunnel
 MQ: RabbitMQ
 Terraform, ArgoCD
 Redis, PostgreSQL: Db per services.
-Docker, Grafana, Prometheus, Loki
+Docker, Grafana, Prometheus, Loki - Helm heal
 BFF gateway
 Agent Gemini:
 	Function Calling
 	RAG
 	AI Assistant
-Cloudflare -> ALB -> BFF gateway
+Cloudflare -> ALB -> Yarp -> BFF
 
 Service: 
-@Thanh Tân: API Gateway & BFF [CORE]						
-Identity & Tenant Service [CORE]					
-Route Planning Agent Service [AI]
+@Thanh Tân: API Gateway & BFF [CORE] - ...						
+Identity & Tenant Service [CORE] - on going					
+Route Planning Agent Service [AI] - VRP(OSRM+VROOM) - https://download.geofabrik.de/asia.html
 AI Ops & Monitoring Service [AI + DEVOPS]	
-Audit Log [Core]
+Email Security Service [AI]-TLS Verification-SPF-DKIM-DMARC-Sender Validation-Attachment Scan-Spam Detection-Pub Event-> ORC
 
-@Đào Huỳnh:  Financial & Cost Estimation Service [AI + CORE]			
+@Đào Huỳnh:  Financial & Cost Estimation Service [AI + CORE]	- ongoing		
 Billing & Settlement Service [CORE]			
 Realtime Hub [Core]										
 Negotiation Agent Service [AI] 						
@@ -33,13 +33,20 @@ Customer Assistant [AI]
 Notification Service [CORE]								
 Document OCR Agent Service [AI]						
 Regulatory Compliance RAG Service [AI]	
-Shipment Workflow Service [Core]
+Shipment Workflow Service [Core] - on going
 
-@Hùng Vũ: Email Agent [AI], Tester, Docs
+@Hùng Vũ: Email Agent [AI]
+Tester
+Docs {
+- Location facility Json -> Import DB
 
-@Minh Huy: FE
+}
 
 S3 key nên phân tenant:
-s3://hrm-private-docs/tenants/{tenantId}/employees/{employeeId}/documents/{fileId}
+s3://hrm-private-docs/tenants/{tenantId}/department/{departmentId}/employees/{employeeId}/documents/{fileId}
 
+
+azure:
+
+làm sao để phân biệt được rules của
 

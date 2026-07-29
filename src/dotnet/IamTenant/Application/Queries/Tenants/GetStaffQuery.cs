@@ -22,9 +22,9 @@ public class GetStaffHandler(IamTenantDbContext context) : IRequestHandler<GetSt
             Email = staffUser.Email,
             FirstName = staffUser.FirstName,
             LastName = staffUser.LastName,
-            UserType = staffUser.UserType.ToString(),
-            Status = staffUser.Status.ToString(),
-            StaffType = staffUser.StaffType.ToString(),
+            UserType = staffUser.UserType,
+            Status = staffUser.Status,
+            StaffType = staffUser.StaffType,
             CreatedAt = staffUser.CreatedAt
         };
     }

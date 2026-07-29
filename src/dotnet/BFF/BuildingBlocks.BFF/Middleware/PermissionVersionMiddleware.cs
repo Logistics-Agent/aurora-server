@@ -11,10 +11,11 @@ namespace BuildingBlocks.BFF.Middleware;
 /// </summary>
 public class PermissionVersionMiddleware(
     RequestDelegate next,
-    IPermissionCacheService permissionCache,
     ILogger<PermissionVersionMiddleware> logger)
 {
-    public async Task InvokeAsync(HttpContext context, ICurrentUserContext currentUser)
+    // IPermissionCacheService là scoped service → phải inject qua InvokeAsync,
+    // không được inject qua constructor (middleware là singleton).
+    public async Task InvokeAsync(HttpContext context, ICurrentUserContext currentUser, IPermissionCacheService permissionCache)
     {
         // Chỉ kiểm tra với các request authenticated và có UserId + PermissionVersion
         if (context.User.Identity?.IsAuthenticated == true
@@ -62,7 +63,8 @@ public class PermissionVersionMiddleware(
             }
 
             // ✅ Version khớp — load permissions từ Redis vào user context
-            currentUser.PopulatePermissions(cached.Permissions, cached.RoleIds);
+            // Dùng RoleCodes (SYSTEM_ADMIN, ...) — RoleIds là List<Guid> không dùng cho role check
+            currentUser.PopulatePermissions(cached.Permissions, cached.RoleCodes);
 
             logger.LogDebug(
                 "Permissions loaded for User {UserId}: {PermissionCount} permissions, version {Version}.",

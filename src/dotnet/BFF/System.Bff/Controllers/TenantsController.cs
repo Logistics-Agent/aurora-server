@@ -1,3 +1,4 @@
+using Asp.Versioning;
 using Common.Grpc;
 using Grpc.Core;
 using IamTenant.Grpc;
@@ -9,9 +10,9 @@ namespace SystemBff.Controllers;
 /// <summary>
 /// Quản lý Tenant ở cấp độ System.
 /// Route: /api/v1/system/tenants
-/// Quyền: Chỉ dành cho SYSTEM_ADMIN.
+/// Quyền: Chỉ dành cho SYSTEM_ADMIN (role gate ở SystemControllerBase — không cần [RequirePermission]).
 /// </summary>
-[Route("api/v1/system/tenants")]
+[ApiVersion("1.0")]
 public class TenantsController(
     IamService.IamServiceClient iamClient,
     ICurrentUserService currentUser,
@@ -44,6 +45,22 @@ public class TenantsController(
         {
             return Conflict(new { detail = "Tenant code already exists." });
         }
+    }
+
+    [HttpGet]
+    public async Task<IActionResult> ListTenants([FromQuery] int page = 1, [FromQuery] int limit = 10)
+    {
+        var response = await iamClient.ListTenantsAsync(
+            new ListTenantsRequest { Page = page, Limit = limit });
+
+        return Ok(new
+        {
+            Items = response.Tenants.Select(MapTenantResponse),
+            response.Page,
+            response.Limit,
+            response.TotalItems,
+            response.TotalPages
+        });
     }
 
     [HttpGet("{id}")]
@@ -81,6 +98,29 @@ public class TenantsController(
                 id, body.Status, currentUser.UserId);
 
             return Ok(MapTenantResponse(response));
+        }
+        catch (RpcException ex) when (ex.StatusCode == Grpc.Core.StatusCode.NotFound)
+        {
+            return NotFound(new { detail = $"Tenant '{id}' not found." });
+        }
+        catch (RpcException ex) when (ex.StatusCode == Grpc.Core.StatusCode.InvalidArgument)
+        {
+            return BadRequest(new { detail = ex.Status.Detail });
+        }
+    }
+
+    [HttpDelete("{id}")]
+    public async Task<IActionResult> DeleteTenant([FromRoute] string id)
+    {
+        try
+        {
+            await iamClient.DeleteTenantAsync(new DeleteTenantRequest { Id = id });
+
+            logger.LogInformation(
+                "Tenant {TenantId} deleted (soft) by SystemAdmin {UserId}",
+                id, currentUser.UserId);
+
+            return NoContent();
         }
         catch (RpcException ex) when (ex.StatusCode == Grpc.Core.StatusCode.NotFound)
         {

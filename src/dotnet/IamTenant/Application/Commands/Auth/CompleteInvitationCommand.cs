@@ -12,30 +12,38 @@ public class CompleteInvitationCommandHandler(ICognitoAuthService cognitoService
 {
     public async Task<LoginResult> Handle(CompleteInvitationCommand request, CancellationToken cancellationToken)
     {
-        // 1. Send the new password and confirmation code (which acts as session ID in this flow for AdminCreateUser,
-        // or we could use the RespondToAuthChallenge flow if we stored the session.
-        // Assuming the ConfirmationCode here is the session string returned from the first failed login attempt,
-        // OR if using ConfirmSignUp, we would use a different AWS API.
-        // Since we used AdminCreateUser, the user is in FORCE_CHANGE_PASSWORD state. 
-        // They must first login to get the session string, then respond to challenge.
-        // For this command, we assume 'ConfirmationCode' holds the 'Session' string returned by InitiateAuth.
+        var user = await context.Users
+            .IgnoreQueryFilters()
+            .AsNoTracking()
+            .Include(u => u.Tenant)
+            .FirstOrDefaultAsync(u => u.Email == request.Email && !u.IsDeleted, cancellationToken)
+            ?? throw new Exception("User not found in database.");
+
+        var tenant = user.Tenant ?? throw new Exception("Tenant not found for user.");
+
+        var clientId = user.UserType == UserType.TenantAdmin
+            ? tenant.AdminUserPoolClientId
+            : tenant.UserUserPoolClientId;
+
+        if (string.IsNullOrWhiteSpace(clientId))
+        {
+            clientId = tenant.AdminUserPoolClientId ?? tenant.UserUserPoolClientId;
+        }
+
+        if (string.IsNullOrWhiteSpace(clientId))
+            throw new Exception("Tenant auth client is not configured.");
 
         var authResult = await cognitoService.CompleteNewPasswordChallengeAsync(
+            clientId,
             request.Email,
             request.NewPassword,
             request.ConfirmationCode,
             cancellationToken);
 
-        // 2. Fetch User from DB to update status
-        var user = await context.Users
-            .IgnoreQueryFilters()
-            .FirstOrDefaultAsync(u => u.Email == request.Email && !u.IsDeleted, cancellationToken)
-            ?? throw new Exception("User not found in database.");
-
         // Fetch Roles and Permissions via Projection to avoid deep Includes
         var userPermissions = await context.UserRoles
             .Where(ur => ur.UserId == user.Id)
-            .Select(ur => new 
+            .Select(ur => new
             {
                 RoleCode = ur.Role!.Code,
                 Permissions = ur.Role.RolePermissions.Select(rp => rp.Permission!.Code).ToList()

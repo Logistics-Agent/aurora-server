@@ -3,9 +3,12 @@
 ##
 ## Get latest from `dotnet new gitignore`
 
+Migrations*
 # dotenv files
 .env
 
+=======
+*Migrations
 # User-specific files
 *.rsuser
 *.suo
