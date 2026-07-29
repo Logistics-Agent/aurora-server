@@ -1,55 +1,50 @@
-using System.Collections.Generic;
+using System;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 using RoutePlanningAgent.Application.DTOs.Routes;
+using RoutePlanningAgent.Application.Mapping;
+using RoutePlanningAgent.Domain.Enums;
 using RoutePlanningAgent.Infrastructure.Persistences;
+using Shared.Exceptions;
+using Shared.Pagination;
 
 namespace RoutePlanningAgent.Application.Queries.Routes;
 
-public record ListRoutesQuery : IRequest<List<RouteDto>>;
+/// <summary>
+/// Danh sách route có phân trang + filter theo status (rỗng = tất cả).
+/// </summary>
+public record ListRoutesQuery(int Page, int Limit, string? Status) : IRequest<PagedResult<RouteDto>>;
 
-public class ListRoutesHandler(RoutePlanningDbContext context) : IRequestHandler<ListRoutesQuery, List<RouteDto>>
+public class ListRoutesHandler(RoutePlanningDbContext context)
+    : IRequestHandler<ListRoutesQuery, PagedResult<RouteDto>>
 {
-    public async Task<List<RouteDto>> Handle(ListRoutesQuery request, CancellationToken cancellationToken)
+    public async Task<PagedResult<RouteDto>> Handle(ListRoutesQuery request, CancellationToken cancellationToken)
     {
-        var routes = await context.Routes
+        var query = context.Routes
             .Include(r => r.Stops)
             .AsNoTracking()
-            .OrderByDescending(r => r.CreatedAt)
-            .ToListAsync(cancellationToken);
+            .AsSplitQuery();
 
-        return routes.Select(route => new RouteDto
+        if (!string.IsNullOrWhiteSpace(request.Status))
         {
-            Id = route.Id,
-            TenantId = route.TenantId,
-            Name = route.Name,
-            Description = route.Description,
-            RouteType = route.Type.ToString(),
-            Status = route.Status.ToString(),
-            RiskLevel = route.RiskLevel.ToString(),
-            EstimatedDistanceKm = route.EstimatedDistanceKm,
-            EstimatedDurationMinutes = route.EstimatedDurationMinutes,
-            MaxWeightKg = route.MaxWeightKg,
-            MaxVolumeM3 = route.MaxVolumeM3,
-            IsAiGenerated = route.IsAiGenerated,
-            OptimizedAt = route.OptimizedAt,
-            Version = route.Version,
-            CreatedAt = route.CreatedAt,
-            Stops = route.Stops.Select(s => new RouteStopDto
-            {
-                Id = s.Id,
-                Sequence = s.Sequence,
-                StopType = s.StopType.ToString(),
-                LocationName = s.LocationName,
-                Address = s.Address,
-                Latitude = s.Latitude,
-                Longitude = s.Longitude,
-                EstimatedArrivalMinutes = s.EstimatedArrivalMinutes,
-                ServiceDurationMinutes = s.ServiceDurationMinutes
-            }).OrderBy(s => s.Sequence).ToList()
-        }).ToList();
+            if (!Enum.TryParse<RouteStatus>(request.Status, true, out var status))
+                throw new DomainException(
+                    $"RouteStatus '{request.Status}' không hợp lệ. Giá trị cho phép: {string.Join(", ", Enum.GetNames<RouteStatus>())}");
+
+            query = query.Where(r => r.Status == status);
+        }
+
+        var paged = await query
+            .OrderByDescending(r => r.CreatedAt)
+            .ToPagedResultAsync(new PagedRequest { Page = request.Page, Limit = request.Limit }, cancellationToken);
+
+        return new PagedResult<RouteDto>(
+            paged.Items.Select(RouteMapper.ToDto).ToList(),
+            paged.TotalItems,
+            paged.Page,
+            paged.Limit);
     }
 }

@@ -6,23 +6,34 @@ using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Distributed;
 using RoutePlanningAgent.Application.Interfaces;
-using RoutePlanningAgent.Domain;
 using RoutePlanningAgent.Infrastructure.Persistences;
 
 namespace RoutePlanningAgent.Infrastructure.Services;
 
+/// <summary>
+/// Cache-aside cho ngưỡng rule per-tenant, dùng GENERATION KEY để hỗ trợ wildcard invalidation:
+/// - Key dữ liệu:  tenant-rule-config:{tenantId}:{gen}:{ruleName}
+/// - Key gen:      tenant-rule-config-gen:{tenantId}
+/// InvalidateCacheAsync(tenantId, "") tăng gen → toàn bộ key cũ thành "mồ côi" (TTL 1h tự dọn).
+/// </summary>
 public class TenantRuleConfigService(
     RoutePlanningDbContext context,
     IDistributedCache cache)
     : ITenantRuleConfigService
 {
-    private static string CacheKey(Guid tenantId, string ruleName)
-        => $"tenant-rule-config:{tenantId}:{ruleName}";
+    private static readonly DistributedCacheEntryOptions CacheOptions =
+        new() { AbsoluteExpirationRelativeToNow = TimeSpan.FromHours(1) };
+
+    private static string GenKey(Guid tenantId) => $"tenant-rule-config-gen:{tenantId}";
+
+    private static string DataKey(Guid tenantId, long gen, string ruleName)
+        => $"tenant-rule-config:{tenantId}:{gen}:{ruleName}";
 
     public async Task<TenantRuleThresholds> GetThresholdsAsync(
         Guid tenantId, string ruleName, CancellationToken ct = default)
     {
-        var key = CacheKey(tenantId, ruleName);
+        var gen = await GetGenerationAsync(tenantId, ct);
+        var key = DataKey(tenantId, gen, ruleName);
 
         // 1. Cache Aside — Check Redis
         var cached = await cache.GetStringAsync(key, ct);
@@ -57,10 +68,7 @@ public class TenantRuleConfigService(
         }
 
         // 3. Set Redis — TTL 1 hour
-        await cache.SetStringAsync(key,
-            JsonSerializer.Serialize(thresholds),
-            new DistributedCacheEntryOptions { AbsoluteExpirationRelativeToNow = TimeSpan.FromHours(1) },
-            ct);
+        await cache.SetStringAsync(key, JsonSerializer.Serialize(thresholds), CacheOptions, ct);
 
         return thresholds;
     }
@@ -69,16 +77,19 @@ public class TenantRuleConfigService(
     {
         if (string.IsNullOrEmpty(ruleName))
         {
-            // Invalidate all rules for tenant.
-            // Since we can't easily perform wildcard deletes in IDistributedCache,
-            // we will require ruleName for granular cache invalidation or handle ruleName = empty.
-            // If empty, let's do nothing, or we can handle it at a higher level.
-            // For standard MassTransit event, the publisher provides the specific ruleName or we can do nothing.
-            // Let's check ruleName is empty, if so, we can't do wildcard without direct Redis connection.
-            // Since this is standard IDistributedCache, we can log a warning or skip.
+            // Wildcard: tăng generation → mọi key cũ của tenant bị bỏ qua, TTL 1h tự dọn
+            var gen = await GetGenerationAsync(tenantId, ct);
+            await cache.SetStringAsync(GenKey(tenantId), (gen + 1).ToString(), ct);
             return;
         }
 
-        await cache.RemoveAsync(CacheKey(tenantId, ruleName), ct);
+        var currentGen = await GetGenerationAsync(tenantId, ct);
+        await cache.RemoveAsync(DataKey(tenantId, currentGen, ruleName), ct);
+    }
+
+    private async Task<long> GetGenerationAsync(Guid tenantId, CancellationToken ct)
+    {
+        var raw = await cache.GetStringAsync(GenKey(tenantId), ct);
+        return long.TryParse(raw, out var gen) ? gen : 1;
     }
 }

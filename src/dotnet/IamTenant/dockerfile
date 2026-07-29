@@ -1,0 +1,27 @@
+FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
+WORKDIR /src
+
+COPY protos/ protos/
+COPY src/dotnet/shared/shared.csproj src/dotnet/shared/
+COPY src/dotnet/IamTenant/IamTenant.csproj src/dotnet/IamTenant/
+
+RUN dotnet restore src/dotnet/IamTenant/IamTenant.csproj
+
+COPY . .
+
+WORKDIR /src/src/dotnet/IamTenant
+RUN dotnet publish IamTenant.csproj -c Release -o /app/publish /p:UseAppHost=false
+
+FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
+WORKDIR /app
+
+ENV ASPNETCORE_URLS=http://+:5000 \
+    DOTNET_RUNNING_IN_CONTAINER=true \
+    DOTNET_EnableDiagnostics=0
+
+EXPOSE 5000
+
+COPY --from=build /app/publish .
+
+USER app
+ENTRYPOINT ["dotnet", "IamTenant.dll"]

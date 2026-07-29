@@ -1,42 +1,41 @@
+using Asp.Versioning;
 using BuildingBlocks.BFF.Attributes;
 using Grpc.Core;
-using Shared.Constants;
 using IamTenant.Grpc;
 using Microsoft.AspNetCore.Mvc;
+using Shared.Constants;
 using Shared.Security;
 
 namespace AdminBff.Controllers;
 
-[Route("api/v1/admin/roles")]
+/// <summary>
+/// Roles là READ-ONLY theo thiết kế — không hỗ trợ tạo/sửa/xóa role qua API.
+/// (System roles được seed sẵn: SYSTEM_ADMIN, TENANT_ADMIN, TENANT_STAFF.)
+/// Route: /api/v1/admin/roles
+/// </summary>
+[ApiVersion("1.0")]
 public class RolesController(
     IamService.IamServiceClient iamClient,
     ICurrentUserService currentUser,
     ILogger<RolesController> logger) : AdminControllerBase
 {
-    [HttpPost]
-    [RequirePermission(PermissionConstants.Modules.Iam, PermissionConstants.Create)]
-    public async Task<IActionResult> CreateCustomRole([FromBody] CreateRoleBody body)
+    [HttpGet]
+    [RequirePermission(PermissionConstants.Modules.Iam, PermissionConstants.Read)]
+    public async Task<IActionResult> ListRoles([FromQuery] int page = 1, [FromQuery] int limit = 10)
     {
-        try
-        {
-            var response = await iamClient.CreateCustomRoleAsync(
-                new CreateCustomRoleRequest
-                {
-                    Code        = body.Code,
-                    Name        = body.Name,
-                    Description = body.Description ?? string.Empty
-                });
+        var response = await iamClient.GetManyRolesAsync(
+            new GetManyRolesRequest { Page = page, Limit = limit });
 
-            logger.LogInformation(
-                "Custom role '{Code}' created in tenant {TenantId} by {AdminId}",
-                body.Code, currentUser.TenantId, currentUser.UserId);
+        logger.LogDebug("Listed roles for tenant {TenantId} by {AdminId}", currentUser.TenantId, currentUser.UserId);
 
-            return Created($"/api/v1/admin/roles/{response.Id}", MapRoleResponse(response));
-        }
-        catch (RpcException ex) when (ex.StatusCode == Grpc.Core.StatusCode.AlreadyExists)
+        return Ok(new
         {
-            return Conflict(new { detail = $"Role code '{body.Code}' already exists." });
-        }
+            Items = response.Roles.Select(MapRoleResponse),
+            response.Page,
+            response.Limit,
+            response.TotalItems,
+            response.TotalPages
+        });
     }
 
     [HttpGet("{id}")]
@@ -57,8 +56,6 @@ public class RolesController(
     }
 
     // --- DTOs ---
-    public record CreateRoleBody(string Code, string Name, string? Description);
-
     private static object MapRoleResponse(RoleResponse r) => new
     {
         r.Id,

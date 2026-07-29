@@ -1,11 +1,12 @@
 using System;
-using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 using RoutePlanningAgent.Application.DTOs.Routes;
+using RoutePlanningAgent.Application.Mapping;
 using RoutePlanningAgent.Infrastructure.Persistences;
+using Shared.Exceptions;
 
 namespace RoutePlanningAgent.Application.Queries.Routes;
 
@@ -18,38 +19,10 @@ public class GetRouteHandler(RoutePlanningDbContext context) : IRequestHandler<G
         var route = await context.Routes
             .Include(r => r.Stops)
             .AsNoTracking()
+            .AsSplitQuery()
             .FirstOrDefaultAsync(r => r.Id == request.Id, cancellationToken)
-            ?? throw new Exception("Route not found");
+            ?? throw new NotFoundException($"Route '{request.Id}' not found");
 
-        return new RouteDto
-        {
-            Id = route.Id,
-            TenantId = route.TenantId,
-            Name = route.Name,
-            Description = route.Description,
-            RouteType = route.Type.ToString(),
-            Status = route.Status.ToString(),
-            RiskLevel = route.RiskLevel.ToString(),
-            EstimatedDistanceKm = route.EstimatedDistanceKm,
-            EstimatedDurationMinutes = route.EstimatedDurationMinutes,
-            MaxWeightKg = route.MaxWeightKg,
-            MaxVolumeM3 = route.MaxVolumeM3,
-            IsAiGenerated = route.IsAiGenerated,
-            OptimizedAt = route.OptimizedAt,
-            Version = route.Version,
-            CreatedAt = route.CreatedAt,
-            Stops = route.Stops.Select(s => new RouteStopDto
-            {
-                Id = s.Id,
-                Sequence = s.Sequence,
-                StopType = s.StopType.ToString(),
-                LocationName = s.LocationName,
-                Address = s.Address,
-                Latitude = s.Latitude,
-                Longitude = s.Longitude,
-                EstimatedArrivalMinutes = s.EstimatedArrivalMinutes,
-                ServiceDurationMinutes = s.ServiceDurationMinutes
-            }).OrderBy(s => s.Sequence).ToList()
-        };
+        return RouteMapper.ToDto(route);
     }
 }

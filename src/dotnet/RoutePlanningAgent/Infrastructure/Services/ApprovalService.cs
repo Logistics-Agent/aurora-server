@@ -6,6 +6,7 @@ using RoutePlanningAgent.Application.Interfaces;
 using RoutePlanningAgent.Domain;
 using RoutePlanningAgent.Domain.Enums;
 using RoutePlanningAgent.Infrastructure.Persistences;
+using Shared.Exceptions;
 
 namespace RoutePlanningAgent.Infrastructure.Services;
 
@@ -15,7 +16,7 @@ public class ApprovalService(RoutePlanningDbContext context) : IApprovalService
         Guid routeId, string reason, string aiSummary, string? complianceSummary, CancellationToken ct = default)
     {
         var route = await context.Routes.FirstOrDefaultAsync(r => r.Id == routeId, ct)
-            ?? throw new Exception("Route not found");
+            ?? throw new NotFoundException($"Route '{routeId}' not found");
 
         var approval = new ApprovalRequest
         {
@@ -29,28 +30,21 @@ public class ApprovalService(RoutePlanningDbContext context) : IApprovalService
         };
 
         context.ApprovalRequests.Add(approval);
-        await context.SaveChangesAsync(ct);
-
+        // KHÔNG SaveChanges — caller (RequestRouteRecommendationHandler) sở hữu transaction
         return approval;
     }
 
     public async Task<ApprovalRequest> ApproveAsync(
         Guid approvalId, Guid reviewerUserId, string? comment, CancellationToken ct = default)
     {
-        var approval = await context.ApprovalRequests
-            .Include(a => a.Route)
-            .FirstOrDefaultAsync(a => a.Id == approvalId, ct)
-            ?? throw new Exception("Approval request not found");
-
-        if (approval.Status != ApprovalStatus.Pending)
-            throw new Exception("Approval request is already processed");
+        var approval = await LoadPendingAsync(approvalId, ct);
 
         approval.Status = ApprovalStatus.Approved;
         approval.ReviewedByUserId = reviewerUserId;
         approval.ReviewedAt = DateTimeOffset.UtcNow;
         approval.ReviewerComment = comment;
 
-        // If approved, update route status
+        // Phê duyệt → route sẵn sàng vận hành
         if (approval.Route is not null)
         {
             approval.Route.Status = RouteStatus.Ready;
@@ -61,28 +55,39 @@ public class ApprovalService(RoutePlanningDbContext context) : IApprovalService
     }
 
     public async Task<ApprovalRequest> RejectAsync(
-        Guid approvalId, Guid reviewerUserId, string? comment, CancellationToken ct = default)
+        Guid approvalId, Guid reviewerUserId, string reason, string? comment, CancellationToken ct = default)
     {
-        var approval = await context.ApprovalRequests
-            .Include(a => a.Route)
-            .FirstOrDefaultAsync(a => a.Id == approvalId, ct)
-            ?? throw new Exception("Approval request not found");
+        if (string.IsNullOrWhiteSpace(reason))
+            throw new DomainException("Reason là bắt buộc khi reject approval request");
 
-        if (approval.Status != ApprovalStatus.Pending)
-            throw new Exception("Approval request is already processed");
+        var approval = await LoadPendingAsync(approvalId, ct);
 
         approval.Status = ApprovalStatus.Rejected;
         approval.ReviewedByUserId = reviewerUserId;
         approval.ReviewedAt = DateTimeOffset.UtcNow;
+        approval.RejectionReason = reason;
         approval.ReviewerComment = comment;
 
-        // If rejected, update route status
+        // Từ chối → hủy route
         if (approval.Route is not null)
         {
             approval.Route.Status = RouteStatus.Cancelled;
         }
 
         await context.SaveChangesAsync(ct);
+        return approval;
+    }
+
+    private async Task<ApprovalRequest> LoadPendingAsync(Guid approvalId, CancellationToken ct)
+    {
+        var approval = await context.ApprovalRequests
+            .Include(a => a.Route)
+            .FirstOrDefaultAsync(a => a.Id == approvalId, ct)
+            ?? throw new NotFoundException($"Approval request '{approvalId}' not found");
+
+        if (approval.Status != ApprovalStatus.Pending)
+            throw new ConflictException($"Approval request đã được xử lý (trạng thái hiện tại: {approval.Status})");
+
         return approval;
     }
 }

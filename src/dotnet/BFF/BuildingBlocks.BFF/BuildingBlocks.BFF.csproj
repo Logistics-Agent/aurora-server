@@ -8,9 +8,17 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="Asp.Versioning.Mvc" Version="8.1.0" />
+    <PackageReference Include="Asp.Versioning.Mvc.ApiExplorer" Version="8.1.0" />
     <PackageReference Include="FluentValidation.AspNetCore" Version="11.3.0" />
+    <PackageReference Include="Google.Protobuf" Version="3.28.3" />
+    <PackageReference Include="Grpc.Net.ClientFactory" Version="2.64.0" />
+    <PackageReference Include="Grpc.Tools" Version="2.64.0">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.0" />
-    <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.0" />
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.OpenIdConnect" Version="10.0.0" />
     <PackageReference Include="Microsoft.Extensions.Caching.StackExchangeRedis" Version="10.0.0" />
     <PackageReference Include="Microsoft.Extensions.Diagnostics.HealthChecks" Version="10.0.0" />
     <PackageReference Include="Microsoft.Extensions.Http.Resilience" Version="10.0.0" />
@@ -28,14 +36,16 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\Shared\Shared.csproj" />
+    <ProjectReference Include="..\..\shared\shared.csproj" />
   </ItemGroup>
 
+  <!-- BuildingBlocks.BFF là nơi DUY NHẤT generate gRPC client stubs cho toàn bộ BFF.
+       Các BFF project không được include Protobuf riêng (tránh duplicate types CS0436). -->
   <ItemGroup>
-    <Protobuf Include="../../../../protos/iam_tenant.proto" GrpcServices="Server" />
-    <Protobuf Include="../../../../protos/auth.proto" GrpcServices="Server" />
+    <Protobuf Include="../../../../protos/iam_tenant.proto" GrpcServices="Client" />
+    <Protobuf Include="../../../../protos/auth.proto" GrpcServices="Client" />
+    <Protobuf Include="../../../../protos/route-planning-agent.proto" GrpcServices="Client" />
     <Protobuf Include="../../../../protos/common.proto" GrpcServices="None" />
-
   </ItemGroup>
 
 </Project>

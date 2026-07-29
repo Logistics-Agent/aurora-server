@@ -1,1 +1,2 @@
 Cache: Hit (90 days) | Miss (30 minutes)
+Vehicle model hiện đơn giản (1 vehicle/route) 

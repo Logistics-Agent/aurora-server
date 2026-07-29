@@ -1,16 +1,19 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using MediatR;
-using MassTransit;
 using RoutePlanningAgent.Application.DTOs.Routes;
+using RoutePlanningAgent.Application.Interfaces;
+using RoutePlanningAgent.Application.Mapping;
+using RoutePlanningAgent.Application.Validation;
 using RoutePlanningAgent.Domain;
 using RoutePlanningAgent.Domain.Enums;
 using RoutePlanningAgent.Infrastructure.Persistences;
+using Shared.Exceptions;
 using Shared.Security;
 using Shared.Events;
+using Route = RoutePlanningAgent.Domain.Route; // tránh nhầm với Microsoft.AspNetCore.Routing.Route
 
 namespace RoutePlanningAgent.Application.Commands.Routes;
 
@@ -20,21 +23,27 @@ public record CreateRouteCommand(
     string RouteType,
     decimal MaxWeightKg,
     decimal MaxVolumeM3,
+    decimal EstimatedDistanceKm,
+    int EstimatedDurationMinutes,
     List<RouteStopInputDto> Stops
 ) : IRequest<RouteDto>;
 
 public class CreateRouteHandler(
     RoutePlanningDbContext context,
     ICurrentUserService currentUser,
-    IPublishEndpoint publisher)
+    IOutboxWriter outbox)
     : IRequestHandler<CreateRouteCommand, RouteDto>
 {
     public async Task<RouteDto> Handle(CreateRouteCommand request, CancellationToken cancellationToken)
     {
-        var tenantId = currentUser.TenantId ?? throw new Exception("Tenant ID context is missing");
+        var tenantId = currentUser.TenantId
+            ?? throw new ForbiddenException("Tenant context is missing");
 
-        if (!Enum.TryParse<RouteType>(request.RouteType, true, out var routeType))
-            routeType = RouteType.Fixed;
+        RouteValidator.Validate(
+            request.Name, request.MaxWeightKg, request.MaxVolumeM3,
+            request.EstimatedDistanceKm, request.EstimatedDurationMinutes, request.Stops);
+
+        var routeType = RouteValidator.ParseRouteType(request.RouteType);
 
         var route = new Route
         {
@@ -45,19 +54,19 @@ public class CreateRouteHandler(
             RiskLevel = Shared.Enums.RouteRiskLevel.Low,
             MaxWeightKg = request.MaxWeightKg,
             MaxVolumeM3 = request.MaxVolumeM3,
+            // Ước tính ban đầu nhập tay — sẽ bị ghi đè khi OptimizeRoute (OSRM+VROOM) chạy
+            EstimatedDistanceKm = request.EstimatedDistanceKm,
+            EstimatedDurationMinutes = request.EstimatedDurationMinutes,
             IsAiGenerated = false,
             TenantId = tenantId
         };
 
         foreach (var stopInput in request.Stops)
         {
-            if (!Enum.TryParse<StopType>(stopInput.StopType, true, out var stopType))
-                stopType = StopType.Pickup;
-
             route.Stops.Add(new RouteStop
             {
                 Sequence = stopInput.Sequence,
-                StopType = stopType,
+                StopType = RouteValidator.ParseStopType(stopInput.StopType),
                 LocationName = stopInput.LocationName,
                 Address = stopInput.Address,
                 Latitude = stopInput.Latitude,
@@ -69,10 +78,9 @@ public class CreateRouteHandler(
         }
 
         context.Routes.Add(route);
-        await context.SaveChangesAsync(cancellationToken);
 
-        // Publish route created event
-        await publisher.Publish(new RouteCreatedEvent
+        // Outbox: event được ghi CÙNG transaction — OutboxProcessor relay lên RabbitMQ sau
+        outbox.Enqueue(new RouteCreatedEvent
         {
             RouteId = route.Id,
             TenantId = tenantId,
@@ -80,42 +88,10 @@ public class CreateRouteHandler(
             RouteType = route.Type.ToString(),
             RiskLevel = route.RiskLevel.ToString(),
             CreatedByUserId = currentUser.UserId ?? Guid.Empty
-        }, cancellationToken);
+        });
 
-        return MapToDto(route);
-    }
+        await context.SaveChangesAsync(cancellationToken);
 
-    private static RouteDto MapToDto(Route route)
-    {
-        return new RouteDto
-        {
-            Id = route.Id,
-            TenantId = route.TenantId,
-            Name = route.Name,
-            Description = route.Description,
-            RouteType = route.Type.ToString(),
-            Status = route.Status.ToString(),
-            RiskLevel = route.RiskLevel.ToString(),
-            EstimatedDistanceKm = route.EstimatedDistanceKm,
-            EstimatedDurationMinutes = route.EstimatedDurationMinutes,
-            MaxWeightKg = route.MaxWeightKg,
-            MaxVolumeM3 = route.MaxVolumeM3,
-            IsAiGenerated = route.IsAiGenerated,
-            OptimizedAt = route.OptimizedAt,
-            Version = route.Version,
-            CreatedAt = route.CreatedAt,
-            Stops = route.Stops.Select(s => new RouteStopDto
-            {
-                Id = s.Id,
-                Sequence = s.Sequence,
-                StopType = s.StopType.ToString(),
-                LocationName = s.LocationName,
-                Address = s.Address,
-                Latitude = s.Latitude,
-                Longitude = s.Longitude,
-                EstimatedArrivalMinutes = s.EstimatedArrivalMinutes,
-                ServiceDurationMinutes = s.ServiceDurationMinutes
-            }).OrderBy(s => s.Sequence).ToList()
-        };
+        return RouteMapper.ToDto(route);
     }
 }

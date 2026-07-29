@@ -1,38 +1,55 @@
 using IamTenant.Domain;
 using IamTenant.Infrastructure.Persistences;
 using IamTenant.Application.DTOs.Tenants;
+using IamTenant.Application.Interfaces;
 using MassTransit;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Shared.Events;
+using Shared.Exceptions;
 using Shared.Security;
+using IamTenant.Domain.Enums;
 
 namespace IamTenant.Application.Commands.Tenants;
 
-/// <summary>
-/// TenantId không cần truyền vào — được resolve từ ICurrentUserService
-/// (đã được populate bởi AuthInterceptor từ gRPC metadata).
-/// Global Query Filter trên DbContext cũng đảm bảo không có data cross-tenant.
-/// </summary>
-public record CreateStaffCommand(string Email, string FirstName, string LastName) : IRequest<StaffDto>;
+public record CreateStaffCommand(
+    string Email,
+    string FirstName,
+    string LastName,
+    List<Guid> RoleIds,
+    string? StaffType = null) : IRequest<StaffDto>;
 
 public class CreateStaffHandler(
     IamTenantDbContext context,
     IPublishEndpoint publishEndpoint,
-    ICurrentUserService currentUser)
+    ICurrentUserService currentUser,
+    ICognitoAuthService cognitoService)
     : IRequestHandler<CreateStaffCommand, StaffDto>
 {
     public async Task<StaffDto> Handle(CreateStaffCommand request, CancellationToken cancellationToken)
     {
         if (!currentUser.TenantId.HasValue)
-            throw new UnauthorizedAccessException("TenantId is required.");
+            throw new ForbiddenException("TenantId is required.");
 
-        var tenant = await context.Tenants.FirstOrDefaultAsync(cancellationToken: cancellationToken)
-            ?? throw new Exception("Tenant not found.");
+        // Lấy đúng tenant của người gọi (không lấy "tenant đầu tiên")
+        var tenant = await context.Tenants
+            .FirstOrDefaultAsync(t => t.Id == currentUser.TenantId.Value, cancellationToken)
+            ?? throw new NotFoundException("Tenant not found.");
 
-        // Validate Email Domain — BẮT BUỘC theo yêu cầu nghiệp vụ
+        // Validate Email Domain
         if (!request.Email.EndsWith($"@{tenant.CompanyDomain}", StringComparison.OrdinalIgnoreCase))
-            throw new Exception($"Staff Email must belong to the Company Domain: {tenant.CompanyDomain}");
+            throw new DomainException($"Staff Email must belong to the Company Domain: {tenant.CompanyDomain}");
+
+        var staffType = ParseStaffType(request.StaffType);
+
+        var roleIds = request.RoleIds.Distinct().ToList();
+
+        // Query roles from DB to determine if any assigned role is TENANT_ADMIN
+        var assignedRoles = roleIds.Count > 0
+            ? await context.Roles.Where(r => roleIds.Contains(r.Id)).ToListAsync(cancellationToken)
+            : [];
+
+        var isAdmin = assignedRoles.Any(r => r.Code == "TENANT_ADMIN");
 
         var staffUser = new User
         {
@@ -42,12 +59,38 @@ public class CreateStaffHandler(
             LastName = request.LastName,
             UserType = Domain.Enums.UserType.TenantStaff,
             Status = Domain.Enums.UserStatus.Invited,
+            StaffType = staffType,
         };
 
+        // Create user in AWS Cognito User Pool
+        var targetUserPoolId = (isAdmin ? tenant.AdminUserPoolId : tenant.UserUserPoolId)
+            ?? tenant.UserUserPoolId
+            ?? tenant.AdminUserPoolId;
+
+        var tempPassword = "TempP@ssw0rd!" + Guid.NewGuid().ToString("N")[..8];
+
+        if (!string.IsNullOrWhiteSpace(targetUserPoolId))
+        {
+            var cognitoSub = await cognitoService.AdminCreateUserInPoolAsync(
+                targetUserPoolId, request.Email, tempPassword, cancellationToken);
+            staffUser.CognitoSub = cognitoSub;
+        }
+
         context.Users.Add(staffUser);
+
+        // Save UserRoles mapping
+        if (roleIds.Count > 0)
+        {
+            context.UserRoles.AddRange(roleIds.Select(roleId => new UserRole
+            {
+                UserId = staffUser.Id,
+                RoleId = roleId
+            }));
+        }
+
         await context.SaveChangesAsync(cancellationToken);
 
-        // Publish invitation event (snake-case name → NestJS consumer)
+        // Publish invitation event
         await publishEndpoint.Publish(new TenantStaffCreatedEvent
         {
             TenantId = tenant.Id,
@@ -64,10 +107,22 @@ public class CreateStaffHandler(
             Email = staffUser.Email,
             FirstName = staffUser.FirstName,
             LastName = staffUser.LastName,
-            UserType = staffUser.UserType.ToString(),
-            Status = staffUser.Status.ToString(),
-            StaffType = staffUser.StaffType.ToString(),
+            UserType = staffUser.UserType,
+            Status = staffUser.Status,
+            StaffType = staffUser.StaffType,
             CreatedAt = staffUser.CreatedAt
         };
+    }
+
+    internal static Domain.Enums.StaffType ParseStaffType(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return Domain.Enums.StaffType.Normal;
+
+        if (!Enum.TryParse<Domain.Enums.StaffType>(value, true, out var staffType))
+            throw new DomainException(
+                $"StaffType '{value}' không hợp lệ. Giá trị cho phép: {string.Join(", ", Enum.GetNames<Domain.Enums.StaffType>())}");
+
+        return staffType;
     }
 }
