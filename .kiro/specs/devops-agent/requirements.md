@@ -2,7 +2,7 @@
 
 ## Introduction
 
-DevOps-Agent là một autonomous service trong hệ thống logistics multi-tenant Aurora chịu trách nhiệm:
+DevOps-Agent là một autonomous .NET microservice trong hệ thống logistics multi-tenant Aurora chịu trách nhiệm:
 - **Ingest & Dedup**: nhận alert/event từ Loki, Azure Monitor và các nguồn webhook, chống xử lý trùng lặp.
 - **Classify & Route**: phân loại severity (Low / Medium / High / Critical) và routing tới luồng xử lý tương ứng.
 - **Auto-Remediation**: tự động sửa lỗi Low severity theo rule engine mà không cần LLM.
@@ -11,7 +11,7 @@ DevOps-Agent là một autonomous service trong hệ thống logistics multi-ten
 - **Audit**: mọi hành động tự động được publish event tới AuditLog Service qua RabbitMQ.
 - **Self-Monitoring**: Agent tự giám sát health của chính mình và xử lý lại event qua DLQ khi hồi phục.
 
-Stack: .NET + NestJS, gRPC, RabbitMQ, AKS, ACR, Azure Monitor, Azure Key Vault, Redis, PostgreSQL (DB per service), Loki, Grafana, Prometheus, ArgoCD, Terraform, BFF (Yarp), Cloudflare (R2, DNS), Auth qua Cognito.
+Stack: .NET, gRPC, RabbitMQ, AKS, ACR, Azure Monitor, Azure Key Vault, Redis, PostgreSQL (DB per service), Loki, Grafana, Prometheus, ArgoCD, Terraform, BFF (Yarp), Cloudflare (R2, DNS), Auth qua Cognito.
 
 ---
 
@@ -41,6 +41,9 @@ Stack: .NET + NestJS, gRPC, RabbitMQ, AKS, ACR, Azure Monitor, Azure Key Vault, 
 - **Owner**: Vai trò SystemAdmin/TenantAdmin cấp cao có quyền duyệt rule và thay đổi Self_Config.
 - **System_Admin**: Vai trò quản trị hệ thống (mapped từ `SYSTEM_ADMIN` trong common.proto).
 - **Tenant_Admin**: Vai trò quản trị tenant (mapped từ `TENANT_ADMIN` trong common.proto).
+- **gRPC_Handler**: Command/Query handler nhận request từ BFF qua proto, thay thế REST Controller trong kiến trúc DevOps-Agent.
+
+> **Note:** DevOps-Agent là internal system service — chỉ SYSTEM_ADMIN mới có quyền truy cập Admin API, quản lý Existing_Rules, Self_Config, và duyệt Rule/PR Approval Workflow. Tenant_Admin không có quyền thao tác trực tiếp với DevOps-Agent.
 
 ---
 
@@ -76,6 +79,7 @@ Stack: .NET + NestJS, gRPC, RabbitMQ, AKS, ACR, Azure Monitor, Azure Key Vault, 
 5. WHEN a `Low` severity Incident recurs more than 3 times within a 10-minute sliding window for the same Dedup_Key signature, THE DevOps_Agent SHALL escalate the Incident severity to `Medium` and trigger the RCA pipeline (anti-flapping rule).
 6. THE DevOps_Agent SHALL persist the severity classification, routing decision, and `correlation_id` in the Debug_Session record before dispatching to any pipeline.
 7. IF the severity classification or routing decision cannot be determined, THEN THE DevOps_Agent SHALL block all production pipeline dispatch, mark the Debug_Session with status `ROUTING_FAILED`, and require manual intervention to restore proper routing.
+8. WHEN an Incident is created, THE DevOps_Agent SHALL compute an ImpactScore (0–100) as a weighted composite of severity (20%), business_criticality (25%), error_rate (15%), affected_user_count (15%), blast_radius (10%), confidence (10%), and estimated_downtime (5%); the RoutingDispatcher SHALL use ImpactScore as the primary routing signal: <30 → IGNORE, 30–59 → NOTIFY, 60–79 → AUTO_HEAL, 80–100 → APPROVAL_REQUIRED.
 
 ---
 
@@ -91,7 +95,8 @@ Stack: .NET + NestJS, gRPC, RabbitMQ, AKS, ACR, Azure Monitor, Azure Key Vault, 
 4. WHEN an Existing_Rule executes any remediation action including rollback, pod restart, and config adjustment, THE DevOps_Agent SHALL apply that action only to the target deployment or configuration change, not any git branch or PR.
 5. IF no Existing_Rule matches a `Low` severity Incident, THEN THE DevOps_Agent SHALL escalate the Incident to the Unknown_Issues pipeline and mark the Debug_Session with status `UNMATCHED_RULE`.
 6. WHEN an Existing_Rule action completes, THE DevOps_Agent SHALL publish an Audit_Event to AuditLog_Service within 10 seconds containing at minimum: `actor`, `action_type`, `target`, `timestamp`, `severity`, `result`, `correlation_id`.
-7. THE DevOps_Agent SHALL enforce that only users with `SYSTEM_ADMIN` or `TENANT_ADMIN` system roles are permitted to create, update, or delete Existing_Rules via the Admin API.
+7. THE DevOps_Agent SHALL enforce that only users with `SYSTEM_ADMIN` system role are permitted to create, update, or delete Existing_Rules via gRPC command handlers.
+8. WHEN an Existing_Rule is executed, THE DevOps_Agent SHALL read the target service's BusinessCriticality value from the service_criticality_registry and factor it into the ImpactScore computation; services with BusinessCriticality = Critical SHALL always receive ImpactScore >= 60 regardless of other metrics.
 
 ---
 
@@ -142,7 +147,7 @@ Stack: .NET + NestJS, gRPC, RabbitMQ, AKS, ACR, Azure Monitor, Azure Key Vault, 
 4. THE DevOps_Agent SHALL NOT merge a PR or deploy any change at any time, not only after timeout expiry; all merges and deploys require explicit human approval.
 5. WHEN a Telegram notification is sent, THE DevOps_Agent SHALL use Telegram exclusively for urgent or time-critical approval requests and SHALL NOT send routine status updates via Telegram.
 6. WHEN an approver submits an approval or rejection via the Dashboard, THE DevOps_Agent SHALL record the approver's identity (`actor`), decision (`APPROVED` or `REJECTED`), timestamp, and optional comment in the Approval_Record, then publish an Audit_Event.
-7. THE DevOps_Agent SHALL enforce RBAC such that only users with `SYSTEM_ADMIN` or `TENANT_ADMIN` system roles may submit approvals for Rule Approval and PR Approval workflows.
+7. THE DevOps_Agent SHALL enforce RBAC such that only users with `SYSTEM_ADMIN` system role may submit approvals for Rule Approval and PR Approval workflows via gRPC command handlers.
 8. THE Rule_Approval_Workflow and PR_Approval_Workflow SHALL be implemented as two separate state machines sharing a common notification channel but maintaining independent Approval_Record tables.
 
 ---
@@ -184,13 +189,14 @@ Stack: .NET + NestJS, gRPC, RabbitMQ, AKS, ACR, Azure Monitor, Azure Key Vault, 
 
 #### Acceptance Criteria
 
-1. THE DevOps_Agent SHALL maintain a Self_Config record containing: `model_provider`, `model_name`, `api_endpoint`, `max_tokens_per_request`, `alert_threshold_usd_per_day`, `updated_by`, `updated_at`.
-2. WHEN a System_Admin updates Self_Config, THE DevOps_Agent SHALL apply the new configuration to all subsequent LLM calls within 60 seconds without requiring a service restart.
-3. THE DevOps_Agent SHALL NOT automatically block or interrupt an in-progress RCA or Debug_Session when the daily cost alert threshold is exceeded; instead THE DevOps_Agent SHALL send an Email and Telegram alert to System_Admin; THE DevOps_Agent SHALL also send an alert when the daily cost reaches 80% of the threshold, and SHALL send an alert to System_Admin when cost monitoring itself fails.
+1. THE DevOps_Agent SHALL maintain a Self_Config record containing: `model_provider`, `model_name`, `api_endpoint`, `max_tokens_per_request`, `alert_threshold_usd_per_day`, `updated_by`, `updated_at`; only users with `SYSTEM_ADMIN` role SHALL be permitted to read or write Self_Config via gRPC.
+2. WHEN a System_Admin updates Self_Config via gRPC, THE DevOps_Agent SHALL apply the new configuration to all subsequent LLM calls within 60 seconds without requiring a service restart; IF a user without `SYSTEM_ADMIN` role attempts to update Self_Config, THE DevOps_Agent SHALL reject the request with an authorization error.
+3. THE DevOps_Agent SHALL NOT automatically block or interrupt an in-progress RCA or Debug_Session when ANY individual API key's daily cost alert threshold is exceeded; THE DevOps_Agent SHALL rotate to the next available key in the llm_api_key_pool automatically; WHEN tokens_used_today for a key reaches the configured alert threshold percentage (default 80%), THE DevOps_Agent SHALL send an Email and Telegram alert to System_Admin without blocking the current session; WHEN ALL keys in the pool are exhausted or in cooldown, THE DevOps_Agent SHALL send a CRITICAL alert and pause new Debug_Sessions.
 4. WHEN Self_Config is updated, THE DevOps_Agent SHALL publish an Audit_Event to AuditLog_Service containing: `actor`, `action_type: SELF_CONFIG_UPDATED`, `old_model_name`, `new_model_name`, `timestamp`, `correlation_id`.
 5. THE DevOps_Agent SHALL read Tenant_AI_Config data exclusively for dashboard statistics and reporting; THE DevOps_Agent SHALL NOT use Tenant_AI_Config to select the LLM model for its own RCA or debug operations.
 6. THE DevOps_Agent SHALL support adding a new LLM provider by implementing the `ILlmAdapter` interface without modifying the RCA core pipeline, conforming to the adapter pattern.
 7. WHEN an LLM API call fails due to rate limiting or API errors (not cost threshold), THE DevOps_Agent MAY pause the Debug_Session and retry according to the configured retry policy.
+8. THE DevOps_Agent SHALL maintain a pool of LLM API keys per provider in `llm_api_key_pool`; WHEN an LLM call receives HTTP 429 (rate limited), THE DevOps_Agent SHALL automatically rotate to the next available key within the same provider pool without failing the current Debug_Session; IF no key is available (all in cooldown or exhausted), THEN THE DevOps_Agent SHALL throw LlmKeyPoolExhaustedException and send a CRITICAL alert.
 
 ---
 
@@ -248,3 +254,21 @@ Stack: .NET + NestJS, gRPC, RabbitMQ, AKS, ACR, Azure Monitor, Azure Key Vault, 
 3. THE DevOps_Agent SHALL NOT access the pgvector database directly; all vector operations SHALL be performed by RAG_Service on behalf of DevOps_Agent; this prohibition applies to all purposes including debugging and monitoring.
 4. WHEN the RAG_Service gRPC call exceeds a 10-second timeout, THE DevOps_Agent SHALL proceed with RCA using only the LLM's base knowledge, log the RAG timeout as a warning in the Debug_Session, and continue without retrying synchronously.
 5. THE DevOps_Agent SHALL pass a `source_tag: "devops-agent"` field in every RAG_Service ingest call so that DevOps-Agent knowledge entries can be filtered independently from compliance and route-planning entries.
+
+---
+
+### Requirement 14: Tenant AI Model Configuration
+
+**User Story:** As a Tenant_Admin, I want to configure which AI model is used for each AI-powered service (Chatbot, Routing, OCR, etc.) within my tenant, so that I can optimize performance and cost for each use case independently.
+
+#### Acceptance Criteria
+
+1. THE system SHALL allow a Tenant_Admin to configure the AI model for each tenant service independently: `chatbot`, `routing`, `ocr`, `customer_assistant`, where each service can have its own `model_provider` and `model_name`.
+2. WHEN a Tenant is on the `Standard` plan, THE system SHALL restrict model selection to Standard-tier models only (e.g., Gemini Flash); Enterprise-tier models (e.g., Azure OpenAI GPT-4o) SHALL NOT be available for selection regardless of Tenant_Admin preference.
+3. WHEN a Tenant is on the `Enterprise` plan, THE system SHALL unlock Enterprise-tier model options for Tenant_Admin selection across all tenant services.
+4. THE SYSTEM (automated provisioning, not Tenant_Admin) SHALL assign default model configurations when a new Tenant is created, based on the tenant's subscription plan: Standard plan → Gemini Flash for all services; Enterprise plan → Azure OpenAI GPT-4o for all services.
+5. WHEN a Tenant_Admin updates the model configuration for a specific service, THE system SHALL apply the new model to all subsequent AI calls for that service within 60 seconds without requiring a service restart.
+6. THE Tenant_AI_Config SHALL store per-service configuration with fields: `tenant_id`, `service_name`, `model_provider`, `model_name`, `daily_token_limit`, `tokens_used_today`, `updated_by`, `updated_at`.
+7. WHEN a tenant's `tokens_used_today` for a specific service reaches 80% of `daily_token_limit`, THE system SHALL send an early warning alert to the Tenant_Admin; WHEN it exceeds `daily_token_limit`, THE system SHALL block further AI calls for that service and send a second alert; DevOps_Agent SHALL NOT be affected by this token limit.
+8. THE DevOps_Agent SHALL read Tenant_AI_Config data for dashboard statistics only and SHALL NOT use it to select models for RCA or any DevOps_Agent internal operations.
+9. WHEN a SYSTEM operator grants an Enterprise plan upgrade to a Tenant, THE system SHALL unlock Enterprise-tier model selection for that tenant's Tenant_Admin; the Tenant_Admin CANNOT self-upgrade to Enterprise plan.
