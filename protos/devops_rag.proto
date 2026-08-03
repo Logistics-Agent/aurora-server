@@ -1,0 +1,43 @@
+syntax = "proto3";
+
+package devops_rag;
+
+option csharp_namespace = "DevOpsRag.Grpc";
+option java_package = "com.aurora.devopsrag.grpc";
+option java_multiple_files = true;
+
+service DevOpsRagService {
+  rpc QueryKnowledge (QueryKnowledgeRequest) returns (QueryKnowledgeResponse);
+  rpc IngestKnowledge (IngestKnowledgeRequest) returns (IngestKnowledgeResponse);
+}
+
+message QueryKnowledgeRequest {
+  string query = 1;
+  string error_signature = 2;
+  string service_context = 3;
+  int32 top_k = 4;
+}
+
+message KnowledgeEntrySnippet {
+  string entry_id = 1;
+  string title = 2;
+  string content = 3;
+  double relevance_score = 4;
+}
+
+message QueryKnowledgeResponse {
+  repeated KnowledgeEntrySnippet entries = 1;
+  string trace_id = 2;
+}
+
+message IngestKnowledgeRequest {
+  string title = 1;
+  string content = 2;
+  string source_correlation_id = 3;
+  string source_tag = 4;              // Always "devops-agent"
+}
+
+message IngestKnowledgeResponse {
+  string entry_id = 1;
+  bool success = 2;
+}
