@@ -44,22 +44,23 @@ Azure Monitor / Loki alertmanager
 
 | Component | Trách nhiệm |
 |---|---|
-| **IngestionController** | REST endpoint nhận webhook từ Azure Monitor và alertmanager từ Loki |
+| **IngestionGrpcHandler** | gRPC handler nhận IngestAlert RPC từ BFF qua proto (thay thế REST webhook endpoints) |
 | **DedupService** | Tính SHA-256 Dedup_Key, kiểm tra Redis, gộp Events vào Incident với `correlation_id` |
 | **SeverityClassifier** | Phân loại severity (Low/Medium/High/Critical) từ alert metadata |
-| **RoutingDispatcher** | Điều phối Incident tới Rule Engine hoặc RCA Pipeline |
+| **RoutingDispatcher** | Điều phối Incident tới Rule Engine hoặc RCA Pipeline dựa trên ImpactScore |
 | **RuleEngineService** | Quản lý Existing_Rules (in-memory cache + DB), match và execute remediation |
 | **UnknownIssueHandler** | Xử lý Low incidents không match rule — invoke RAG + LLM, tạo Pending_Rule |
 | **RcaPipelineService** | RCA cho Medium/High/Critical — collect logs, redact PII, invoke LLM, tạo PR/artifact |
 | **PiiRedactor** | 2-layer redaction: Azure AI Language PII Detection → custom regex/whitelist |
 | **LlmAdapterFactory** | Resolve `ILlmAdapter` implementation từ Self_Config.model_provider |
+| **LlmKeyPoolService** | Quản lý pool API keys per provider, tự động rotate khi rate-limit hoặc quota exceeded |
 | **ApprovalStateMachine** | Quản lý approval states riêng cho PR_Approval và Rule_Approval |
-| **ApprovalScheduler** | Bull Queue job để xử lý timeout và escalation |
+| **ApprovalScheduler** | .NET Background Service để xử lý timeout và escalation |
 | **NotificationDispatcher** | Route notifications tới Email (SES+Stalwart), Dashboard, Telegram |
 | **AuditOutboxWorker** | Poll `audit_event_outbox`, publish RabbitMQ, mark PUBLISHED trên delivery confirm |
 | **SelfConfigManager** | Hot-reload Self_Config từ DB khi nhận `config.updated` event |
 | **ArtifactStorageService** | Upload artifacts tới Cloudflare R2 qua Cloudflare Tunnel |
-| **RagGrpcClient** | gRPC client wrapper cho RAG_Service (query + ingest) |
+| **RagGrpcClient** | gRPC client wrapper cho RAG_Service (query + ingest) — sử dụng proto có sẵn từ RAG Service |
 | **SelfMonitorService** | Expose `/health`, `/metrics`; giám sát DLQ depth, Redis connectivity |
 | **DlqReprocessor** | Consume DLQ sau khi recover, FIFO, max 10 concurrent |
 | **AntiFlappingTracker** | Redis ZSET sliding window 10 phút để phát hiện flapping Low incidents |
@@ -78,7 +79,7 @@ Azure Monitor / Loki alertmanager
 | Azure Key Vault | HTTPS (Workload Identity) | DevOps-Agent → | Lấy secrets |
 | Redis | TCP | DevOps-Agent → | Dedup TTL, anti-flapping ZSET, rule cache |
 | PostgreSQL | TCP | DevOps-Agent → | Persistent storage cho tất cả entities |
-| BFF (Yarp) | HTTP/gRPC | BFF → DevOps-Agent | Admin API (incidents, rules, approvals, config) |
+| BFF (Yarp) | gRPC (mTLS, inbound) | BFF → DevOps-Agent | Receive commands/queries from admin dashboard |
 | RabbitMQ DLQ | AMQP | DevOps-Agent ⇄ | Event queue khi downtime, DLQ reprocessing |
 
 
@@ -86,95 +87,66 @@ Azure Monitor / Loki alertmanager
 
 ### ILlmAdapter Interface
 
-```typescript
-export interface LlmResponse {
-  content: string;
-  usage: { promptTokens: number; completionTokens: number; totalTokens: number };
-  model: string;
-  finishReason: 'stop' | 'length' | 'content_filter' | 'error';
+```csharp
+public interface ILlmAdapter
+{
+    Task<LlmResponse> CompleteAsync(string prompt, string context, LlmCallConfig config, CancellationToken ct = default);
+    Task<bool> IsAvailableAsync(CancellationToken ct = default);
 }
 
-export interface ILlmAdapter {
-  complete(
-    prompt: string,
-    context: string,
-    config: LlmCallConfig,
-  ): Promise<LlmResponse>;
-  isAvailable(): Promise<boolean>;
-}
+public record LlmResponse(
+    string Content,
+    LlmUsage Usage,
+    string Model,
+    string FinishReason  // "stop" | "length" | "content_filter" | "error"
+);
 
-export interface LlmCallConfig {
-  maxTokens: number;
-  temperature?: number;
-  stopSequences?: string[];
-}
+public record LlmUsage(int PromptTokens, int CompletionTokens, int TotalTokens);
+
+public record LlmCallConfig(int MaxTokens, float Temperature = 0.2f, string[]? StopSequences = null);
 ```
 
-### IRagGrpcClient Interface (DevOps-Agent proto)
+### RAG Service Integration
 
-```protobuf
-// devops_rag.proto — sẽ tạo mới cho DevOps-Agent
-syntax = "proto3";
-package devops_rag;
+RAG Service là một service độc lập đã được implement. DevOps-Agent gọi qua gRPC sử dụng proto contract có sẵn của RAG Service (pattern tương tự regulatory_compliance.proto).
 
-service DevOpsRagService {
-  rpc QueryKnowledge(QueryRequest) returns (QueryResponse);
-  rpc IngestKnowledge(IngestRequest) returns (IngestResponse);
-}
+DevOps-Agent chỉ cần:
+1. Copy/reference proto file từ RAG Service
+2. Generate Java client stubs
+3. Implement RagGrpcClient wrapper với timeout + fallback
 
-message QueryRequest {
-  string error_signature = 1;
-  string service_context = 2;
-  string source_tag     = 3;  // "devops-agent"
-  int32  top_k          = 4;
-}
+Các RPC DevOps-Agent sử dụng:
+- `QueryKnowledge` (tương đương `QueryRegulations` trong regulatory_compliance.proto) — retrieve relevant knowledge entries
+- `IngestKnowledge` (tương đương `IngestRegulatorySource` trong regulatory_compliance.proto) — store new RCA knowledge
 
-message QueryResponse {
-  repeated KnowledgeEntry entries = 1;
-}
-
-message IngestRequest {
-  string content       = 1;
-  string source_tag    = 2;  // always "devops-agent"
-  string correlation_id = 3;
-  string artifact_type = 4;
-}
-
-message IngestResponse {
-  string entry_id = 1;
-  bool   success  = 2;
-}
-
-message KnowledgeEntry {
-  string id      = 1;
-  string content = 2;
-  float  score   = 3;
-}
-```
+`source_tag = "devops-agent"` được truyền qua một field trong request để filter entries về sau.
 
 ### IAuditPublisher Interface
 
-```typescript
-export interface AuditEventPayload {
-  actor: string;           // service identity hoặc user_id
-  action_type: AuditActionType;
-  target: string;          // resource identifier
-  timestamp: string;       // UTC ISO 8601
-  severity: Severity;
-  result: 'SUCCESS' | 'FAILURE';
-  correlation_id: string;
-  metadata?: Record<string, unknown>;
+```csharp
+public interface IAuditPublisher
+{
+    Task PublishAsync(AuditEventPayload payload, CancellationToken ct = default);
 }
 
-export type AuditActionType =
-  | 'INCIDENT_CREATED' | 'RULE_APPLIED' | 'ROLLBACK_EXECUTED'
-  | 'RCA_STARTED' | 'PR_OPENED' | 'APPROVAL_REQUESTED'
-  | 'APPROVAL_GRANTED' | 'APPROVAL_REJECTED' | 'ESCALATED'
-  | 'RULE_PROMOTED' | 'RULE_REJECTED' | 'SELF_CONFIG_UPDATED'
-  | 'KNOWLEDGE_ENTRY_CREATED';
+public record AuditEventPayload(
+    string Actor,
+    AuditActionType ActionType,
+    string Target,
+    DateTimeOffset Timestamp,
+    Severity Severity,
+    string Result,           // "SUCCESS" | "FAILURE"
+    string CorrelationId,
+    Dictionary<string, object>? Metadata = null
+);
 
-export interface IAuditPublisher {
-  publish(event: AuditEventPayload): Promise<void>;
+public enum AuditActionType
+{
+    IncidentCreated, RuleApplied, RollbackExecuted,
+    RcaStarted, PrOpened, ApprovalRequested,
+    ApprovalGranted, ApprovalRejected, Escalated,
+    RulePromoted, RuleRejected, SelfConfigUpdated,
+    KnowledgeEntryCreated
 }
 ```
 
@@ -196,6 +168,40 @@ Không phân theo tenant — một bản ghi toàn cục cho DevOps-Agent.
 | `updated_by` | VARCHAR(100) | NOT NULL | user_id hoặc service identity |
 | `updated_at` | TIMESTAMPTZ | NOT NULL | Thời điểm cập nhật cuối |
 
+### Bảng `tenant_ai_configs`
+
+Cấu hình AI model theo từng service của mỗi tenant. DevOps_Agent chỉ đọc bảng này cho mục đích thống kê/dashboard.
+
+| Cột | Kiểu | Ràng buộc | Mô tả |
+|---|---|---|---|
+| `id` | UUID | PK | |
+| `tenant_id` | UUID | NOT NULL, FK → tenants | Tenant sở hữu config này |
+| `service_name` | VARCHAR(50) | NOT NULL | `chatbot`, `routing`, `ocr`, `customer_assistant` |
+| `model_provider` | VARCHAR(50) | NOT NULL | `azure_openai`, `gemini` |
+| `model_name` | VARCHAR(100) | NOT NULL | Ví dụ: `gpt-4o`, `gemini-1.5-flash` |
+| `daily_token_limit` | INT | NOT NULL, > 0 | Giới hạn token/ngày cho service này |
+| `tokens_used_today` | INT | NOT NULL DEFAULT 0 | Reset mỗi ngày lúc 00:00 UTC |
+| `subscription_plan` | VARCHAR(20) | NOT NULL | `Standard` / `Enterprise` — snapshot tại thời điểm config |
+| `updated_by` | VARCHAR(100) | NOT NULL | user_id của Tenant_Admin |
+| `updated_at` | TIMESTAMPTZ | NOT NULL | |
+| `created_at` | TIMESTAMPTZ | NOT NULL DEFAULT NOW() | |
+
+**UNIQUE constraint:** `(tenant_id, service_name)` — mỗi service của mỗi tenant có đúng 1 config.
+
+**Plan-gating rule (tại application layer):**
+- `Standard` plan: chỉ được chọn `gemini` provider với Standard-tier models
+- `Enterprise` plan: được chọn cả `azure_openai` và `gemini` với tất cả model tiers
+- Việc kiểm tra plan được thực hiện tại IAM/Tenant Service khi Tenant_Admin gọi API update config, không phải tại DevOps-Agent
+
+**Bảng `model_tier_registry`** (lookup table, seeded):
+
+| Cột | Kiểu | Mô tả |
+|---|---|---|
+| `model_provider` | VARCHAR(50) | |
+| `model_name` | VARCHAR(100) | |
+| `tier` | VARCHAR(20) | `Standard` / `Enterprise` |
+| `is_active` | BOOLEAN | |
+
 ### Bảng `incidents`
 
 | Cột | Kiểu | Ràng buộc | Mô tả |
@@ -212,6 +218,30 @@ Không phân theo tenant — một bản ghi toàn cục cho DevOps-Agent.
 | `affected_service` | VARCHAR(100) | | Tên service bị ảnh hưởng |
 | `affected_tenant_id` | UUID | NULLABLE | Tenant liên quan (nếu có) |
 | `alert_metadata` | JSONB | | Raw alert payload (đã redact) |
+| `confidence` | DECIMAL(5,4) | NOT NULL DEFAULT 0 | Confidence score của classification [0,1] |
+| `category` | VARCHAR(100) | NULLABLE | Category của lỗi (network, memory, cpu, db, etc.) |
+| `root_cause_category` | VARCHAR(100) | NULLABLE | Category của root cause |
+| `environment` | VARCHAR(50) | NOT NULL DEFAULT 'production' | `production`, `staging`, `development` |
+| `affected_tenant_count` | INT | NOT NULL DEFAULT 0 | Số tenant bị ảnh hưởng |
+| `affected_user_count` | INT | NOT NULL DEFAULT 0 | Số user bị ảnh hưởng |
+| `business_criticality` | VARCHAR(20) | NOT NULL DEFAULT 'Medium' | `Critical`, `High`, `Medium`, `Low` — theo service config |
+| `error_rate` | DECIMAL(7,4) | NULLABLE | % error rate tại thời điểm incident |
+| `availability` | DECIMAL(7,4) | NULLABLE | % availability tại thời điểm incident |
+| `sla_violation` | BOOLEAN | NOT NULL DEFAULT false | SLA có bị vi phạm không |
+| `estimated_downtime_minutes` | INT | NULLABLE | Ước tính downtime |
+| `impact_score` | DECIMAL(5,2) | NOT NULL DEFAULT 0 | Điểm tổng hợp 0–100 |
+| `telemetry_snapshot` | JSONB | NULLABLE | `{cpu_pct, memory_pct, disk_pct, latency_p95_ms, latency_p99_ms, rps, failed_requests, restart_count, queue_length, dlq_count, node_health, pod_health}` |
+| `rca_root_cause` | TEXT | NULLABLE | LLM root cause, đã redact |
+| `rca_evidence` | JSONB | NULLABLE | Array của evidence strings |
+| `rca_alternative_causes` | JSONB | NULLABLE | Array các nguyên nhân thay thế |
+| `rca_recommendation` | TEXT | NULLABLE | Đề xuất từ LLM |
+| `estimated_recovery_time_minutes` | INT | NULLABLE | Ước tính thời gian phục hồi |
+| `priority` | INT | NULLABLE | Priority 1-5 (1 = cao nhất) |
+| `automation_risk` | VARCHAR(20) | NULLABLE | `Low`, `Medium`, `High` |
+| `blast_radius` | VARCHAR(20) | NULLABLE | `Isolated`, `Service`, `Tenant`, `Platform` |
+| `requires_approval` | BOOLEAN | NOT NULL DEFAULT true | |
+| `suggested_action` | TEXT | NULLABLE | |
+| `can_rollback` | BOOLEAN | NOT NULL DEFAULT false | |
 | `created_at` | TIMESTAMPTZ | NOT NULL DEFAULT NOW() | |
 | `updated_at` | TIMESTAMPTZ | NOT NULL | |
 
@@ -327,13 +357,46 @@ Dead-letter buffer cho audit events. Worker poll và publish tới RabbitMQ.
 
 > **Knowledge_Entry**: Không có bảng local. Mọi thao tác trên Knowledge_Entry đều qua RAG_Service gRPC. DevOps-Agent không truy cập pgvector trực tiếp dưới bất kỳ hình thức nào.
 
+### Bảng `llm_api_key_pool`
+
+Pool các API key cho LLM providers. DevOps-Agent tự động rotate khi key bị rate-limit hoặc quota exceeded.
+
+| Cột | Kiểu | Ràng buộc | Mô tả |
+|---|---|---|---|
+| `id` | UUID | PK | |
+| `provider` | VARCHAR(50) | NOT NULL | `azure_openai`, `gemini` |
+| `key_alias` | VARCHAR(100) | NOT NULL | Alias định danh (ví dụ: `azure-key-1`), không phải key thực |
+| `key_secret_ref` | TEXT | NOT NULL | Reference đến Azure Key Vault secret name (không lưu key trực tiếp) |
+| `is_active` | BOOLEAN | NOT NULL DEFAULT true | |
+| `daily_token_limit` | INT | NOT NULL | Giới hạn token/ngày của key này |
+| `tokens_used_today` | INT | NOT NULL DEFAULT 0 | Reset lúc 00:00 UTC |
+| `tokens_used_today_alert_threshold_pct` | INT | NOT NULL DEFAULT 80 | Alert khi đạt % này |
+| `last_rate_limited_at` | TIMESTAMPTZ | NULLABLE | Lần cuối bị rate limit |
+| `cooldown_until` | TIMESTAMPTZ | NULLABLE | Không dùng key này cho đến thời điểm này |
+| `priority` | INT | NOT NULL DEFAULT 1 | Thứ tự ưu tiên khi chọn key (1 = cao nhất) |
+| `created_at` | TIMESTAMPTZ | NOT NULL DEFAULT NOW() | |
+| `updated_at` | TIMESTAMPTZ | NOT NULL | |
+
+### Bảng `service_criticality_registry`
+
+Lookup table ánh xạ service_name → BusinessCriticality. Dùng bởi IncidentClassifier khi tính ImpactScore.
+
+| Cột | Kiểu | Ràng buộc | Mô tả |
+|---|---|---|---|
+| `id` | UUID | PK | |
+| `service_name` | VARCHAR(100) | UNIQUE NOT NULL | Tên service |
+| `business_criticality` | VARCHAR(20) | NOT NULL | `Critical`, `High`, `Medium`, `Low` |
+| `max_users_reference` | INT | NOT NULL DEFAULT 1000 | Số user tham chiếu để normalize affected_user_count |
+| `updated_by` | VARCHAR(100) | NOT NULL | |
+| `updated_at` | TIMESTAMPTZ | NOT NULL | |
+
 
 ## Luồng xử lý chính
 
 ### Case A: Ingest Event → Dedup → Phân loại → Route
 
 ```
-1. Webhook/alertmanager payload đến IngestionController
+1. Webhook/alertmanager payload đến IngestionGrpcHandler (IngestAlert RPC)
 2. DedupService tính SHA-256(source, error_signature, time_window_bucket)
 3. Kiểm tra Redis: key tồn tại?
    → CÓ: discard event, tăng metric counter → KẾT THÚC
@@ -341,13 +404,18 @@ Dead-letter buffer cho audit events. Worker poll và publish tới RabbitMQ.
 4. Tạo hoặc merge Event vào Incident (correlation_id)
 5. AntiFlappingTracker: kiểm tra ZSET trong 10 phút
    → Nếu flap_count > 3 cùng dedup_key: severity = Medium (escalate)
-6. SeverityClassifier phân loại severity từ alert metadata
-7. Lưu Incident + Debug_Session (severity, routing_decision, correlation_id)
-8. RoutingDispatcher:
-   → Low:              → RuleEngineService (Case B)
-   → Medium/High/Crit: → RcaPipelineService (Case C)
-   → Không xác định:   → mark ROUTING_FAILED, chặn dispatch
-9. AuditOutboxWorker ghi INCIDENT_CREATED vào outbox
+6. IncidentClassifier phân loại severity từ alert metadata
+7. IncidentClassifier tính ImpactScore (weighted formula 4.11)
+   → Tra service_criticality_registry theo affected_service
+   → Nếu BusinessCriticality = Critical: ImpactScore >= 60 (override floor)
+8. Lưu Incident + Debug_Session (severity, impact_score, routing_decision, correlation_id)
+9. RoutingDispatcher (dựa trên ImpactScore):
+   → < 30:    IGNORE (không tạo Debug_Session, chỉ log)
+   → 30–59:   NOTIFY (notification, không auto-remediate)
+   → 60–79:   AUTO_HEAL → RuleEngineService (Case B)
+   → 80–100:  APPROVAL_REQUIRED → RcaPipelineService (Case C)
+   → Không xác định: mark ROUTING_FAILED, chặn dispatch
+10. AuditOutboxWorker ghi INCIDENT_CREATED vào outbox
 ```
 
 ### Case B: Auto-Remediation Low Severity
@@ -496,57 +564,47 @@ CREATED → PENDING_APPROVAL → APPROVED | REJECTED | ESCALATED | EXPIRED
 
 **Invariant quan trọng:** Severity được snapshot tại thời điểm tạo Approval_Record (`original_severity`). Mọi reclassification sau đó không ảnh hưởng số bước approval đã khởi tạo.
 
-**Timeout scheduler (Bull Queue):**
-```typescript
-// Khi tạo Approval_Record:
-await approvalQueue.add(
-  'check-timeout',
-  { approvalId, approvalType },
-  { delay: timeoutMinutes * 60 * 1000, jobId: `timeout:${approvalId}` }
-);
+**Approval Timeout Scheduler (C# — .NET Background Service):**
 
-// Job handler:
-async handleTimeout({ approvalId, approvalType }) {
-  const record = await fetchRecord(approvalId);
-  if (record.status !== 'PENDING_APPROVAL_*') return; // đã được xử lý
-  await transitionToEscalated(record);
-  await notifyEscalation(record);
+```csharp
+// Thay Bull Queue bằng .NET IHostedService + Timer hoặc Hangfire
+public class ApprovalTimeoutWorker : BackgroundService
+{
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    {
+        while (!stoppingToken.IsCancellationRequested)
+        {
+            await ProcessExpiredApprovalsAsync(stoppingToken);
+            await Task.Delay(TimeSpan.FromSeconds(30), stoppingToken);
+        }
+    }
+
+    private async Task ProcessExpiredApprovalsAsync(CancellationToken ct)
+    {
+        // SELECT WHERE timeout_at <= NOW() AND status LIKE 'PENDING_APPROVAL%'
+        // FOR EACH: transition → ESCALATED, notify
+    }
 }
 ```
 
 ### 4.5 LLM Adapter Pattern
 
-```typescript
-// Concrete adapters
-@Injectable()
-export class AzureOpenAiAdapter implements ILlmAdapter {
-  async complete(prompt, context, config): Promise<LlmResponse> { ... }
-  async isAvailable(): Promise<boolean> { ... }
-}
+```csharp
+public class LlmAdapterFactory
+{
+    private readonly SelfConfigManager _selfConfig;
+    private readonly IServiceProvider _services;
 
-@Injectable()
-export class GeminiAdapter implements ILlmAdapter {  // placeholder
-  async complete(prompt, context, config): Promise<LlmResponse> { ... }
-  async isAvailable(): Promise<boolean> { ... }
-}
-
-// Factory
-@Injectable()
-export class LlmAdapterFactory {
-  constructor(
-    private readonly selfConfigManager: SelfConfigManager,
-    private readonly azure: AzureOpenAiAdapter,
-    private readonly gemini: GeminiAdapter,
-  ) {}
-
-  getAdapter(): ILlmAdapter {
-    const cfg = this.selfConfigManager.current();
-    switch (cfg.model_provider) {
-      case 'azure_openai': return this.azure;
-      case 'gemini':       return this.gemini;
-      default: throw new Error(`Unknown LLM provider: ${cfg.model_provider}`);
+    public ILlmAdapter GetAdapter()
+    {
+        var cfg = _selfConfig.Current;
+        return cfg.ModelProvider switch
+        {
+            "azure_openai" => _services.GetRequiredService<AzureOpenAiAdapter>(),
+            "gemini"       => _services.GetRequiredService<GeminiAdapter>(),
+            _ => throw new InvalidOperationException($"Unknown LLM provider: {cfg.ModelProvider}")
+        };
     }
-  }
 }
 ```
 
@@ -648,100 +706,173 @@ Critical error (auth failure, quota exceeded, R2 unavailable):
 
 ### 4.9 RAG Service Integration
 
-```typescript
-// gRPC client với timeout và fallback
-@Injectable()
-export class RagGrpcClient {
-  async queryKnowledge(params: QueryParams): Promise<KnowledgeEntry[]> {
-    try {
-      const response = await this.client.QueryKnowledge(params, {
-        deadline: Date.now() + 10_000  // 10 giây timeout
-      });
-      return response.entries;
-    } catch (err) {
-      if (isTimeoutError(err)) {
-        this.logger.warn(`RAG timeout for correlation_id ${params.correlationId}`);
-        return [];  // fallback: RCA tiếp tục với LLM base knowledge
-      }
-      throw err;
-    }
-  }
+DevOps-Agent gọi RAG_Service qua gRPC sử dụng proto có sẵn từ RAG Service (không tạo proto mới). Client wrapper triển khai timeout + fallback:
 
-  async ingestKnowledge(params: IngestParams): Promise<IngestResponse> {
-    // Luôn kèm source_tag = "devops-agent"
-    return this.client.IngestKnowledge({
-      ...params,
-      source_tag: 'devops-agent'
-    });
-  }
+```csharp
+public class RagGrpcClient
+{
+    private readonly RagService.RagServiceClient _client;
+    private readonly ILogger<RagGrpcClient> _logger;
+
+    public async Task<IReadOnlyList<KnowledgeEntry>> QueryKnowledgeAsync(QueryParams p, CancellationToken ct)
+    {
+        try
+        {
+            using var call = _client.QueryKnowledgeAsync(new QueryKnowledgeRequest
+            {
+                ErrorSignature = p.ErrorSignature,
+                ServiceContext = p.ServiceContext,
+                SourceTag      = "devops-agent",
+                TopK           = p.TopK
+            }, deadline: DateTime.UtcNow.AddSeconds(10), cancellationToken: ct);
+
+            var response = await call.ResponseAsync;
+            return response.Entries.ToList();
+        }
+        catch (RpcException ex) when (ex.StatusCode == StatusCode.DeadlineExceeded)
+        {
+            _logger.LogWarning("RAG timeout for correlation_id {Id}", p.CorrelationId);
+            return Array.Empty<KnowledgeEntry>();
+        }
+    }
+
+    public async Task<IngestKnowledgeResponse> IngestKnowledgeAsync(IngestParams p, CancellationToken ct)
+    {
+        return await _client.IngestKnowledgeAsync(new IngestKnowledgeRequest
+        {
+            Content       = p.Content,
+            SourceTag     = "devops-agent",   // always
+            CorrelationId = p.CorrelationId,
+            ArtifactType  = p.ArtifactType
+        }, cancellationToken: ct).ResponseAsync;
+    }
 }
 ```
 
 ### 4.10 Self-Config Hot Reload
-
-```
-Flow:
-1. System_Admin PUT /api/v1/config/self → DB update
 2. Service publish internal event hoặc RabbitMQ `config.updated`
 3. SelfConfigManager nhận event → reload Self_Config từ DB
-4. SelfConfigManager.current() trả về config mới
-5. LlmAdapterFactory.getAdapter() dùng config mới cho mọi call tiếp theo
+4. SelfConfigManager.Current trả về config mới
+5. LlmAdapterFactory.GetAdapter() dùng config mới cho mọi call tiếp theo
 6. Toàn bộ quá trình < 60 giây, không restart service
 
 Implementation:
-@Injectable()
-export class SelfConfigManager {
-  private config: SelfConfig;
+```
 
-  current(): SelfConfig { return this.config; }
+```csharp
+public class SelfConfigManager
+{
+    private volatile SelfConfig _current;
+    private readonly IServiceScopeFactory _scopeFactory;
 
-  async onConfigUpdated(): Promise<void> {
-    this.config = await this.configRepo.findSingleton();
-    this.logger.log('Self-Config reloaded');
-  }
+    public SelfConfig Current => _current;
+
+    public async Task OnConfigUpdatedAsync()
+    {
+        using var scope = _scopeFactory.CreateScope();
+        var repo = scope.ServiceProvider.GetRequiredService<ISelfConfigRepository>();
+        _current = await repo.FindSingletonAsync();
+        // volatile write ensures visibility across threads
+    }
 }
 ```
 
+### 4.11 ImpactScore Calculation
 
-## API Endpoints
+ImpactScore (0–100) = weighted sum:
 
-Tất cả endpoints được bảo vệ bởi JWT (Cognito). RBAC kiểm tra `systemRoles` từ token.
+```
+severity_score        × 0.20   // Low=25, Medium=50, High=75, Critical=100
+business_impact_score × 0.25   // Low=25, Medium=50, High=75, Critical=100
+error_rate_score      × 0.15   // error_rate / 100 * 100
+affected_users_score  × 0.15   // min(affected_user_count / max_users * 100, 100)
+blast_radius_score    × 0.10   // Isolated=25, Service=50, Tenant=75, Platform=100
+confidence_score      × 0.10   // confidence * 100
+duration_score        × 0.05   // min(estimated_downtime_minutes / 60 * 100, 100)
+```
 
-### Incidents
+Routing qua ImpactScore (thay thế / bổ sung cho severity):
 
-| Method | Path | Auth | Mô tả |
-|---|---|---|---|
-| `GET` | `/api/v1/incidents` | SYSTEM_ADMIN, TENANT_ADMIN | Danh sách incidents với filter (severity, status, tenant_id, date range) |
-| `GET` | `/api/v1/incidents/:correlationId` | SYSTEM_ADMIN, TENANT_ADMIN | Chi tiết incident + debug session + artifacts |
-| `POST` | `/api/v1/incidents/:correlationId/approve` | SYSTEM_ADMIN, TENANT_ADMIN | Submit approval/rejection cho PR Approval |
+```
+< 30  → IGNORE (không tạo Debug_Session)
+30–59 → NOTIFY (tạo notification, không auto-remediate)
+60–79 → AUTO_HEAL (Route tới Rule Engine nếu có matching rule)
+80–100 → APPROVAL_REQUIRED (Route tới RCA pipeline, yêu cầu approval)
+```
 
-### Rules
+ImpactScore được tính ngay sau khi `IncidentClassifier` hoàn thành, trước khi `RoutingDispatcher` dispatch. `business_criticality` được tra từ `service_criticality_registry` theo `affected_service`. Services với `BusinessCriticality = Critical` luôn nhận ImpactScore >= 60 bất kể các metric khác.
 
-| Method | Path | Auth | Mô tả |
-|---|---|---|---|
-| `GET` | `/api/v1/rules` | SYSTEM_ADMIN, TENANT_ADMIN | Danh sách existing rules với filter |
-| `POST` | `/api/v1/rules` | SYSTEM_ADMIN, TENANT_ADMIN | Tạo rule mới thủ công |
-| `PUT` | `/api/v1/rules/:id` | SYSTEM_ADMIN, TENANT_ADMIN | Cập nhật rule |
-| `DELETE` | `/api/v1/rules/:id` | SYSTEM_ADMIN, TENANT_ADMIN | Xóa rule |
-| `GET` | `/api/v1/rules/pending` | SYSTEM_ADMIN, TENANT_ADMIN | Danh sách pending rules chờ duyệt |
-| `POST` | `/api/v1/rules/pending/:id/approve` | SYSTEM_ADMIN, TENANT_ADMIN | Duyệt pending rule |
-| `POST` | `/api/v1/rules/pending/:id/reject` | SYSTEM_ADMIN, TENANT_ADMIN | Reject pending rule |
+### 4.12 LLM API Key Pool & Rotation
 
-### Configuration
+`LlmKeyPoolService` quản lý việc chọn và rotate API key:
 
-| Method | Path | Auth | Mô tả |
-|---|---|---|---|
-| `GET` | `/api/v1/config/self` | SYSTEM_ADMIN | Đọc Self_Config hiện tại |
-| `PUT` | `/api/v1/config/self` | SYSTEM_ADMIN | Cập nhật Self_Config |
+**Selection algorithm:**
+```
+1. Query keys WHERE provider = current_provider AND is_active = true
+     AND (cooldown_until IS NULL OR cooldown_until <= NOW())
+2. Sort by priority ASC, tokens_used_today ASC
+3. Chọn key đầu tiên trong list
+4. Nếu không có key khả dụng: throw LlmKeyPoolExhaustedException, send CRITICAL alert
+```
 
-### Monitoring
+**Key rotation triggers:**
+- HTTP 429 (rate limited) từ LLM provider → set `cooldown_until = NOW() + 60s`, retry với key tiếp theo
+- HTTP 429 liên tục → escalate `cooldown_until = NOW() + 5 phút`
+- `tokens_used_today >= daily_token_limit` → set `is_active = false` cho ngày hôm đó, alert
 
-| Method | Path | Auth | Mô tả |
-|---|---|---|---|
-| `GET` | `/health` | Public (k8s probe) | Health check: service status, DLQ depth, active sessions, Redis |
-| `GET` | `/metrics` | Internal (Prometheus scrape) | Prometheus metrics |
+**Early alert (không block):**
+- WHEN `tokens_used_today` đạt `tokens_used_today_alert_threshold_pct`% của `daily_token_limit` → send Email + Telegram alert
+- WHEN ALL keys bị cooldown cùng lúc → send CRITICAL alert ngay lập tức
 
-### Response format (incidents detail)
+**Daily reset:** `@Scheduled(cron = "0 0 0 * * *")` → reset `tokens_used_today = 0`, `is_active = true` (trừ key bị manually disable) cho tất cả keys.
+
+Tương tự cho Tenant token limit: alert sớm khi đạt 80% ngưỡng, không chờ đến khi block.
+
+
+## gRPC Service Interface
+
+DevOps-Agent expose một gRPC server. BFF (Yarp) gọi tới các RPC method này sau khi đã xác thực JWT từ Cognito và trích xuất `system_role = SYSTEM_ADMIN`. DevOps-Agent không tự xác thực JWT — trust được thiết lập qua mTLS giữa BFF và DevOps-Agent trong AKS cluster.
+
+### devops_agent.proto
+
+```protobuf
+syntax = "proto3";
+package devops_agent;
+
+service DevOpsAgentService {
+  // Ingestion
+  rpc IngestAlert(IngestAlertRequest) returns (IngestAlertResponse);
+
+  // Incidents
+  rpc ListIncidents(ListIncidentsRequest) returns (ListIncidentsResponse);
+  rpc GetIncident(GetIncidentRequest) returns (GetIncidentResponse);
+  rpc SubmitApproval(SubmitApprovalRequest) returns (SubmitApprovalResponse);
+
+  // Rules
+  rpc ListRules(ListRulesRequest) returns (ListRulesResponse);
+  rpc CreateRule(CreateRuleRequest) returns (CreateRuleResponse);
+  rpc UpdateRule(UpdateRuleRequest) returns (UpdateRuleResponse);
+  rpc DeleteRule(DeleteRuleRequest) returns (DeleteRuleResponse);
+  rpc ListPendingRules(ListPendingRulesRequest) returns (ListPendingRulesResponse);
+  rpc ApproveRule(ApproveRuleRequest) returns (ApproveRuleResponse);
+  rpc RejectRule(RejectRuleRequest) returns (RejectRuleResponse);
+
+  // Self Config
+  rpc GetSelfConfig(GetSelfConfigRequest) returns (GetSelfConfigResponse);
+  rpc UpdateSelfConfig(UpdateSelfConfigRequest) returns (UpdateSelfConfigResponse);
+
+  // Dashboard stats (read-only, for BFF)
+  rpc GetDashboardStats(GetDashboardStatsRequest) returns (GetDashboardStatsResponse);
+}
+```
+
+### Request metadata convention
+
+- Caller identity (actor) được truyền qua gRPC metadata header `x-actor-id`
+- BFF đã verify JWT và extract user identity trước khi gọi DevOps-Agent
+- DevOps-Agent trust actor từ metadata, không cần verify JWT độc lập
+
+### Response format (GetIncident)
 
 ```jsonc
 {
@@ -767,6 +898,15 @@ Tất cả endpoints được bảo vệ bởi JWT (Cognito). RBAC kiểm tra `s
   }
 }
 ```
+
+### Monitoring endpoints (HTTP — dành cho k8s probe và Prometheus)
+
+| Method | Path | Auth | Mô tả |
+|---|---|---|---|
+| `GET` | `/health` | Public (k8s probe) | Health check: service status, DLQ depth, active sessions, Redis |
+| `GET` | `/metrics` | Internal (Prometheus scrape) | Prometheus metrics |
+
+> DevOps-Agent là internal system service. Mọi gRPC RPC (trừ `/health` và `/metrics` HTTP) đều yêu cầu actor từ `x-actor-id` metadata với `system_role = SYSTEM_ADMIN` đã được BFF xác thực. Tenant_Admin không có quyền truy cập.
 
 
 ## Correctness Properties
@@ -841,9 +981,9 @@ DevOps-Agent có nhiều pure function và business logic layer phù hợp với
 
 ---
 
-### Property 7: RBAC cho mọi mutation — chỉ Admin roles
+### Property 7: RBAC cho mọi mutation — chỉ SYSTEM_ADMIN
 
-*For any* API request that mutates Existing_Rules, Pending_Rules, or submits an Approval decision, if the caller's `systemRoles` does not include `SYSTEM_ADMIN` or `TENANT_ADMIN`, the operation must be rejected with HTTP 403 and no mutation must occur.
+*For any* gRPC request that mutates Existing_Rules, Pending_Rules, or submits an Approval decision, if the caller's `x-actor-id` metadata does not correspond to a `SYSTEM_ADMIN` identity, the operation must be rejected with gRPC status `PERMISSION_DENIED` and no mutation must occur.
 
 **Validates: Requirements 3.7, 6.7**
 
@@ -975,6 +1115,14 @@ DevOps-Agent có nhiều pure function và business logic layer phù hợp với
 
 **Validates: Requirements 9.3**
 
+---
+
+### Property 24: ImpactScore Bounds và Routing Decision
+
+*For any* combination of incident inputs (severity, business_criticality, error_rate, affected_user_count, blast_radius, confidence, estimated_downtime), the computed ImpactScore must always be in the range [0, 100] and the resulting routing decision must always be exactly one of `{IGNORE, NOTIFY, AUTO_HEAL, APPROVAL_REQUIRED}`.
+
+**Validates: Requirements 2.8**
+
 
 ## Xử lý lỗi (Error Handling)
 
@@ -1028,7 +1176,7 @@ DevOps-Agent có nhiều pure business logic layer (dedup, severity classificati
 
 ### Property-Based Tests
 
-**Thư viện:** `fast-check` (TypeScript/NestJS ecosystem)
+**Thư viện:** `FsCheck` (.NET property-based testing framework) hoặc `FsCheck.Xunit` / `FsCheck.NUnit`
 
 **Cấu hình:** Minimum 100 iterations per property test.
 
@@ -1038,29 +1186,30 @@ Mỗi property trong section "Correctness Properties" được implement bởi �
 
 | Property | Test file | Generator strategy |
 |---|---|---|
-| P1: Dedup Idempotency | `dedup.service.spec.ts` | Arbitrary event payloads, repeat N times |
-| P2: Event Grouping | `dedup.service.spec.ts` | N events trong cùng time window |
-| P3: Severity là tập đóng | `severity-classifier.spec.ts` | Arbitrary alert metadata |
-| P4: Low không kích hoạt LLM | `rule-engine.spec.ts` | Low incidents + matching rules, mock LLM |
-| P5: Anti-Flapping | `anti-flapping.spec.ts` | Count > 3 trong 10 phút sliding window |
-| P6: High/Critical = 2 bước | `approval-state-machine.spec.ts` | High/Critical incidents |
-| P7: RBAC mutations | `rbac.spec.ts` | Arbitrary roles, mutation requests |
-| P8: Pending_Rule fields | `unknown-issue-handler.spec.ts` | Arbitrary RCA outputs |
-| P9: Rejected không thành Existing | `rule-approval.spec.ts` | Rejection scenarios |
-| P10: No auto-merge/deploy | `approval-state-machine.spec.ts` | All states, all severity levels |
-| P11: PII placeholder format | `pii-redactor.spec.ts` | Text với arbitrary PII patterns |
-| P12: PII fallback non-blocking | `pii-redactor.spec.ts` | Azure AI Language mocked unavailable |
-| P13: Audit completeness + fields | `audit-outbox.spec.ts` | All 13 action types |
-| P14: Audit outbox idempotency | `audit-outbox.spec.ts` | Retry scenarios |
-| P15: PENDING until confirmed | `audit-outbox.spec.ts` | Publish failure scenarios |
-| P16: DLQ max 10 concurrent | `dlq-reprocessor.spec.ts` | Batch > 10 events |
-| P17: Ingestion isolation | `ingestion.spec.ts` | Downstream failure combinations |
-| P18: Telegram blocked if missing fields | `notification.spec.ts` | Missing field combinations |
-| P19: Telegram blocked for Low | `notification.spec.ts` | Low severity lifecycle |
-| P20: R2 key format | `artifact-storage.spec.ts` | Arbitrary (correlation_id, type, ts, name) |
-| P21: RAG source_tag | `rag-grpc-client.spec.ts` | All ingest calls |
-| P22: RAG timeout fallback | `rca-pipeline.spec.ts` | RAG mocked with delay > 10s |
-| P23: Cost alert no block | `self-config.spec.ts` | Cost threshold events during active session |
+| P1: Dedup Idempotency | `DedupServiceTests.cs` | Arbitrary event payloads, repeat N times |
+| P2: Event Grouping | `DedupServiceTests.cs` | N events trong cùng time window |
+| P3: Severity là tập đóng | `SeverityClassifierTests.cs` | Arbitrary alert metadata |
+| P4: Low không kích hoạt LLM | `RuleEngineTests.cs` | Low incidents + matching rules, mock LLM |
+| P5: Anti-Flapping | `AntiFlappingTests.cs` | Count > 3 trong 10 phút sliding window |
+| P6: High/Critical = 2 bước | `ApprovalStateMachineTests.cs` | High/Critical incidents |
+| P7: RBAC mutations | `RbacTests.cs` | Arbitrary roles, mutation requests |
+| P8: Pending_Rule fields | `UnknownIssueHandlerTests.cs` | Arbitrary RCA outputs |
+| P9: Rejected không thành Existing | `RuleApprovalTests.cs` | Rejection scenarios |
+| P10: No auto-merge/deploy | `ApprovalStateMachineTests.cs` | All states, all severity levels |
+| P11: PII placeholder format | `PiiRedactorTests.cs` | Text với arbitrary PII patterns |
+| P12: PII fallback non-blocking | `PiiRedactorTests.cs` | Azure AI Language mocked unavailable |
+| P13: Audit completeness + fields | `AuditOutboxTests.cs` | All 13 action types |
+| P14: Audit outbox idempotency | `AuditOutboxTests.cs` | Retry scenarios |
+| P15: PENDING until confirmed | `AuditOutboxTests.cs` | Publish failure scenarios |
+| P16: DLQ max 10 concurrent | `DlqReprocessorTests.cs` | Batch > 10 events |
+| P17: Ingestion isolation | `IngestionTests.cs` | Downstream failure combinations |
+| P18: Telegram blocked if missing fields | `NotificationTests.cs` | Missing field combinations |
+| P19: Telegram blocked for Low | `NotificationTests.cs` | Low severity lifecycle |
+| P20: R2 key format | `ArtifactStorageTests.cs` | Arbitrary (correlation_id, type, ts, name) |
+| P21: RAG source_tag | `RagGrpcClientTests.cs` | All ingest calls |
+| P22: RAG timeout fallback | `RcaPipelineTests.cs` | RAG mocked with delay > 10s |
+| P23: Cost alert no block | `SelfConfigTests.cs` | Cost threshold events during active session |
+| P24: ImpactScore bounds | `IncidentClassifierTests.cs` | Arbitrary incident inputs, verify [0,100] and routing set |
 
 ### Unit Tests
 
@@ -1093,37 +1242,29 @@ Ví dụ:
 
 ### Test Configuration
 
-```typescript
-// fast-check configuration
-const FC_PARAMS = {
-  numRuns: 100,              // Minimum per property
-  timeout: 30_000,           // 30s per run
-  seed: process.env.FC_SEED  // Reproducible failures
-};
+```csharp
+// FsCheck configuration
+var config = Config.Default
+    .WithMaxTest(100)              // Minimum per property
+    .WithReplay(FsCheckSeed);      // Reproducible failures
 
-// Example property test structure
-describe('Feature: devops-agent', () => {
-  it('Property 1: Dedup Idempotency', async () => {
+// Example property test (xUnit + FsCheck)
+[Property(MaxTest = 100)]
+public Property DeduplicationIdempotency(EventPayload evt, PositiveInt submitCount)
+{
     // Feature: devops-agent, Property 1: Dedup Idempotency
-    await fc.assert(
-      fc.asyncProperty(
-        arbitraryEventPayload(),
-        fc.integer({ min: 2, max: 10 }),
-        async (event, submitCount) => {
-          // Reset Redis state
-          await redis.del(`devops:dedup:*`);
-          // Submit same event N times
-          for (let i = 0; i < submitCount; i++) {
-            await ingestionService.process(event);
-          }
-          const incidents = await incidentRepo.findBySignature(event.error_signature);
-          expect(incidents).toHaveLength(1);
-        }
-      ),
-      FC_PARAMS
-    );
-  });
-});
+    return Prop.ForAll(
+        Arb.From<EventPayload>(),
+        Arb.From<PositiveInt>(),
+        async (e, n) => {
+            // Reset Redis state
+            await _redis.DeleteAsync("devops:dedup:*");
+            for (int i = 0; i < n.Get; i++)
+                await _ingestionService.ProcessAsync(e);
+            var incidents = await _incidentRepo.FindBySignatureAsync(e.ErrorSignature);
+            return incidents.Count == 1;
+        });
+}
 ```
 
 
@@ -1190,5 +1331,5 @@ describe('Feature: devops-agent', () => {
 | Q5 | Khi promote Pending_Rule thành Existing_Rule, có cần human review `scope_constraint` không? | Security của auto-remediation | System_Admin |
 | Q6 | Dashboard notification là REST polling hay WebSocket push? | NotificationDispatcher implementation | Frontend Team |
 | Q7 | DevOps-Agent có support multi-tenant (incidents có thể belong to specific tenant) hay là system-wide? | Data model cho affected_tenant_id | System_Admin |
-| Q8 | `devops_rag.proto` cần được thiết kế mới hay dùng lại `compliance_rag.proto` pattern? | RAG gRPC contract | Tech Lead + RAG Team |
+| Q8 | ~~`devops_rag.proto` cần được thiết kế mới hay dùng lại `compliance_rag.proto` pattern?~~ **ĐÃ QUYẾT ĐỊNH: dùng lại proto pattern từ RAG Service hiện có; DevOps-Agent chỉ implement gRPC client stub** | RAG gRPC contract | ✅ Resolved |
 
