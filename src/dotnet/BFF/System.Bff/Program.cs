@@ -1,0 +1,52 @@
+using BFF.RateLimiting;
+using BuildingBlocks.BFF.Extensions;
+using BuildingBlocks.BFF.Middleware;
+
+var builder = WebApplication.CreateBuilder(args);
+var config = builder.Configuration;
+
+// Logging + Kestrel hardening
+builder.Host.AddBffSerilog();
+builder.WebHost.AddBffKestrelLimits();
+
+// Services
+builder.Services.AddBffControllers();           // camelCase JSON
+builder.Services.AddBffApiVersioning();         // /api/v{version}/... (URL segment)
+builder.Services.AddCustomSwagger("System BFF API");
+builder.Services.AddBffAuthentication(config);  // JWT từ HttpOnly cookie (Cognito)
+builder.Services.AddBffCache(config);           // Redis + IPermissionCacheService
+builder.Services.AddBffGrpcClients(config);     // IamService + AuthService (không cần RoutePlanning)
+builder.Services.AddBffCors(config);
+builder.Services.AddBffRateLimiting(config);
+builder.Services.AddBffRequestProtection();
+builder.Services.AddBffHealthChecks(config);
+builder.Services.AddBffOpenTelemetry(config);
+
+var app = builder.Build();
+
+// Pipeline — THỨ TỰ QUAN TRỌNG (xem Staff.Bff/Program.cs)
+app.UseMiddleware<CorrelationIdMiddleware>();
+app.UseMiddleware<ExceptionHandlingMiddleware>();
+
+if (app.Environment.IsDevelopment())
+{
+    app.UseCustomSwagger("System BFF API");
+}
+
+app.UseRouting();
+app.UseCors();
+app.UseRateLimiter();
+app.UseRequestTimeouts();
+
+app.UseAuthentication();
+app.UseMiddleware<CurrentUserContextMiddleware>();
+app.UseMiddleware<PermissionVersionMiddleware>();
+app.UseMiddleware<TenantResolutionMiddleware>();
+app.UseMiddleware<SecurityHeadersMiddleware>();
+app.UseAuthorization();
+
+app.MapControllers();
+app.MapHealthChecks("/healthz");
+app.UseOpenTelemetryPrometheusScrapingEndpoint("/metrics");
+
+app.Run();

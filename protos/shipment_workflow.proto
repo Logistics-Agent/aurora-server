@@ -1,0 +1,341 @@
+syntax = "proto3";
+
+option csharp_namespace = "ShipmentWorkflow.Grpc";
+
+import "google/protobuf/timestamp.proto";
+
+service ShipmentWorkflowService {
+
+    rpc CreateShipment(CreateShipmentRequest)
+    returns (ShipmentResponse);
+
+    rpc GetShipment(GetShipmentRequest)
+    returns (ShipmentResponse);
+
+    rpc ListShipments(ListShipmentsRequest)
+    returns (ListShipmentsResponse);
+
+    rpc UpdateShipmentStatus(UpdateShipmentStatusRequest)
+    returns (ShipmentResponse);
+
+    rpc GetShipmentTimeline(GetShipmentTimelineRequest)
+    returns (ShipmentTimelineResponse);
+
+    rpc SubmitShipment(SubmitShipmentRequest)
+    returns (ShipmentResponse);
+
+    rpc UpdateShipment(UpdateShipmentRequest)
+    returns (ShipmentResponse);
+
+    rpc CancelShipment(CancelShipmentRequest)
+    returns (ShipmentResponse);
+
+    rpc DeleteDraftShipment(DeleteDraftShipmentRequest)
+    returns (DeleteDraftShipmentResponse);
+
+    rpc AddCargoItem(AddCargoItemRequest)
+    returns (ShipmentResponse);
+
+    rpc UpdateCargoItem(UpdateCargoItemRequest)
+    returns (ShipmentResponse);
+
+    rpc RemoveCargoItem(RemoveCargoItemRequest)
+    returns (ShipmentResponse);
+
+    rpc AddShipmentLocation(AddShipmentLocationRequest)
+    returns (ShipmentResponse);
+
+    rpc UpdateShipmentLocation(UpdateShipmentLocationRequest)
+    returns (ShipmentResponse);
+
+    rpc RemoveShipmentLocation(RemoveShipmentLocationRequest)
+    returns (ShipmentResponse);
+    rpc AttachShipmentDocument(AttachShipmentDocumentRequest)
+    returns (ShipmentResponse);
+
+    rpc UpdateShipmentDocumentOcr(UpdateShipmentDocumentOcrRequest)
+    returns (ShipmentResponse);
+
+    rpc RemoveShipmentDocument(RemoveShipmentDocumentRequest)
+    returns (ShipmentResponse);
+
+    rpc AddShipmentMilestone(AddShipmentMilestoneRequest)
+    returns (ShipmentResponse);
+
+    rpc ImportShipments(ImportShipmentsRequest)
+    returns (ImportShipmentsResponse);
+}
+
+message CreateShipmentRequest {
+  string orderId = 1;
+  string customerName = 2;
+  string originAddress = 3;
+  string destinationAddress = 4;
+  string originCountry = 5;
+  string destinationCountry = 6;
+  repeated CargoItemRequest cargoItems = 7;
+}
+
+message CargoItemRequest {
+  string name = 1;
+  int32 quantity = 2;
+  double weightKg = 3;
+  string hsCode = 4;
+}
+
+message ShipmentResponse {
+  string id = 1;
+  string tenantId = 2;
+  string shipmentNo = 3;
+  string orderId = 4;
+  string customerName = 5;
+  string originAddress = 6;
+  string destinationAddress = 7;
+  string originCountry = 8;
+  string destinationCountry = 9;
+  string status = 10;
+  google.protobuf.Timestamp createdAt = 11;
+  google.protobuf.Timestamp updatedAt = 12;
+  repeated CargoItemResponse cargoItems = 13;
+  string customerId = 14;
+  string priority = 15;
+  string transportMode = 16;
+  string routeId = 17;
+  string vehicleId = 18;
+  google.protobuf.Timestamp estimatedPickupTime = 19;
+  google.protobuf.Timestamp estimatedDeliveryTime = 20;
+  google.protobuf.Timestamp actualPickupTime = 21;
+  google.protobuf.Timestamp actualDeliveryTime = 22;
+  string notes = 23;
+  repeated ShipmentLocationResponse locations = 24;
+  repeated ShipmentDocumentResponse documents = 25;
+  repeated ShipmentMilestoneResponse milestones = 26;
+}
+
+message CargoItemResponse {
+  string id = 1;
+  string name = 2;
+  int32 quantity = 3;
+  double weightKg = 4;
+  string hsCode = 5;
+  string description = 6;
+  string unit = 7;
+  double volumeM3 = 8;
+  double declaredValue = 9;
+  string currency = 10;
+  bool isDangerousGoods = 11;
+  string packageType = 12;
+}
+
+message ShipmentLocationResponse {
+  string id = 1;
+  string type = 2;
+  string name = 3;
+  string address = 4;
+  double latitude = 5;
+  double longitude = 6;
+  string contactName = 7;
+  string contactPhone = 8;
+  int32 sequence = 9;
+}
+
+message ShipmentDocumentResponse {
+  string id = 1;
+  string fileName = 2;
+  string documentType = 3;
+  string storageUrl = 4;
+  string ocrStatus = 5;
+  double ocrConfidence = 6;
+  string uploadedBy = 7;
+  google.protobuf.Timestamp uploadedAt = 8;
+  string extractedDataJson = 9;
+}
+
+message ShipmentMilestoneResponse {
+  string id = 1;
+  string status = 2;
+  string description = 3;
+  double latitude = 4;
+  double longitude = 5;
+  google.protobuf.Timestamp recordedAt = 6;
+  string source = 7;
+  string createdBy = 8;
+}
+
+message GetShipmentRequest {
+  string id = 1;
+}
+
+message ListShipmentsRequest {
+  int32 page = 1;
+  int32 limit = 2;
+  string status = 3;
+  string shipmentNo = 4;
+  string customerName = 5;
+  google.protobuf.Timestamp createdFrom = 6;
+  google.protobuf.Timestamp createdTo = 7;
+}
+
+message ListShipmentsResponse {
+  repeated ShipmentResponse shipments = 1;
+  int32 page = 2;
+  int32 limit = 3;
+  int32 totalItems = 4;
+  int32 totalPages = 5;
+}
+
+message UpdateShipmentStatusRequest {
+  string id = 1;
+  string status = 2;
+  string note = 3;
+}
+
+message GetShipmentTimelineRequest {
+  string shipmentId = 1;
+}
+
+message ShipmentTimelineResponse {
+  string shipmentId = 1;
+  repeated ShipmentTimelineItem items = 2;
+}
+
+message ShipmentTimelineItem {
+  string status = 1;
+  string note = 2;
+  google.protobuf.Timestamp createdAt = 3;
+  string source = 4;
+}
+
+message CancelShipmentRequest {
+  string id = 1;
+  string reason = 2;
+}
+
+message SubmitShipmentRequest {
+  string id = 1;
+}
+
+message UpdateShipmentRequest {
+  string id = 1;
+  string customerName = 2;
+  string destinationAddress = 3;
+  string priority = 4;
+  string transportMode = 5;
+  string notes = 6;
+}
+
+message DeleteDraftShipmentRequest {
+  string id = 1;
+}
+
+message DeleteDraftShipmentResponse {
+  bool deleted = 1;
+}
+
+
+message AddCargoItemRequest {
+  string shipmentId = 1;
+  string name = 2;
+  int32 quantity = 3;
+  double weightKg = 4;
+  string hsCode = 5;
+}
+
+message UpdateCargoItemRequest {
+  string shipmentId = 1;
+  string cargoItemId = 2;
+  string name = 3;
+  int32 quantity = 4;
+  double weightKg = 5;
+  string hsCode = 6;
+}
+
+message RemoveCargoItemRequest {
+  string shipmentId = 1;
+  string cargoItemId = 2;
+}
+
+message AddShipmentLocationRequest {
+  string shipmentId = 1;
+  string type = 2;
+  string name = 3;
+  string address = 4;
+  int32 sequence = 5;
+  double latitude = 6;
+  double longitude = 7;
+  string contactName = 8;
+  string contactPhone = 9;
+}
+
+message UpdateShipmentLocationRequest {
+  string shipmentId = 1;
+  string locationId = 2;
+  string type = 3;
+  string name = 4;
+  string address = 5;
+  int32 sequence = 6;
+  double latitude = 7;
+  double longitude = 8;
+  string contactName = 9;
+  string contactPhone = 10;
+}
+
+message RemoveShipmentLocationRequest {
+  string shipmentId = 1;
+  string locationId = 2;
+}
+
+message AttachShipmentDocumentRequest {
+  string shipmentId = 1;
+  string fileName = 2;
+  string documentType = 3;
+  string storageUrl = 4;
+  string ocrStatus = 5;
+  optional double ocrConfidence = 6;
+  string extractedDataJson = 7;
+}
+
+message UpdateShipmentDocumentOcrRequest {
+  string shipmentId = 1;
+  string documentId = 2;
+  string ocrStatus = 3;
+  optional double ocrConfidence = 4;
+  string extractedDataJson = 5;
+}
+
+message RemoveShipmentDocumentRequest {
+  string shipmentId = 1;
+  string documentId = 2;
+}
+
+message AddShipmentMilestoneRequest {
+  string shipmentId = 1;
+  string status = 2;
+  string description = 3;
+  google.protobuf.Timestamp recordedAt = 4;
+  string source = 5;
+  optional double latitude = 6;
+  optional double longitude = 7;
+}
+
+message ImportShipmentsRequest {
+  string fileName = 1;
+  string content = 2;
+  string importRequestId = 3;
+}
+
+message ImportShipmentsResponse {
+  string importRequestId = 1;
+  int32 totalRows = 2;
+  int32 successCount = 3;
+  int32 errorCount = 4;
+  repeated ImportShipmentRowResult rows = 5;
+}
+
+message ImportShipmentRowResult {
+  int32 rowNumber = 1;
+  bool success = 2;
+  string shipmentId = 3;
+  string shipmentNo = 4;
+  string error = 5;
+}

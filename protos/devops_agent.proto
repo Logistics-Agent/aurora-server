@@ -1,0 +1,212 @@
+syntax = "proto3";
+
+package devops_agent;
+
+import "common.proto";
+
+option csharp_namespace = "DevOpsAgent.Grpc";
+option java_package = "com.aurora.devopsagent.grpc";
+option java_multiple_files = true;
+
+service DevOpsAgentService {
+  rpc IngestAlert (IngestAlertRequest) returns (IngestAlertResponse);
+  rpc ListIncidents (ListIncidentsRequest) returns (ListIncidentsResponse);
+  rpc GetIncident (GetIncidentRequest) returns (IncidentResponse);
+  rpc ApproveIncident (ApproveIncidentRequest) returns (ApprovalOperationResponse);
+  rpc RejectIncident (RejectIncidentRequest) returns (ApprovalOperationResponse);
+
+  rpc ListExistingRules (ListRulesRequest) returns (ListExistingRulesResponse);
+  rpc CreateRule (CreateRuleRequest) returns (RuleResponse);
+  rpc UpdateRule (UpdateRuleRequest) returns (RuleResponse);
+  rpc DeleteRule (DeleteRuleRequest) returns (EmptyDevOpsResponse);
+
+  rpc ListPendingRules (ListRulesRequest) returns (ListPendingRulesResponse);
+  rpc ApprovePendingRule (ApproveRuleRequest) returns (ApprovalOperationResponse);
+  rpc RejectPendingRule (RejectRuleRequest) returns (ApprovalOperationResponse);
+
+  rpc GetSelfConfig (EmptyDevOpsRequest) returns (SelfConfigResponse);
+  rpc UpdateSelfConfig (UpdateSelfConfigRequest) returns (SelfConfigResponse);
+}
+
+message EmptyDevOpsRequest {}
+
+message EmptyDevOpsResponse {}
+
+message IngestAlertRequest {
+  string source = 1;                  // azure_monitor / loki
+  string error_signature = 2;
+  string payload_json = 3;
+  string affected_service = 4;
+  string environment = 5;
+}
+
+message IngestAlertResponse {
+  bool duplicated = 1;
+  string correlation_id = 2;
+  string incident_id = 3;
+  string status = 4;
+}
+
+message ListIncidentsRequest {
+  string severity = 1;
+  string status = 2;
+  string tenant_id = 3;
+  int32 page_number = 4;
+  int32 page_size = 5;
+}
+
+message ListIncidentsResponse {
+  repeated IncidentSummary incidents = 1;
+  int32 total_elements = 2;
+  int32 total_pages = 3;
+  int32 current_page = 4;
+}
+
+message IncidentSummary {
+  string id = 1;
+  string correlation_id = 2;
+  string source = 3;
+  string error_signature = 4;
+  string severity = 5;
+  string status = 6;
+  double impact_score = 7;
+  string created_at = 8;
+}
+
+message GetIncidentRequest {
+  string correlation_id = 1;
+}
+
+message IncidentResponse {
+  string id = 1;
+  string correlation_id = 2;
+  string source = 3;
+  string error_signature = 4;
+  string severity = 5;
+  string original_severity = 6;
+  string status = 7;
+  double impact_score = 8;
+  string affected_service = 9;
+  string rca_root_cause = 10;
+  string rca_recommendation = 11;
+  repeated string artifact_refs = 12;
+  string created_at = 13;
+}
+
+message ApproveIncidentRequest {
+  string correlation_id = 1;
+  string comment = 2;
+}
+
+message RejectIncidentRequest {
+  string correlation_id = 1;
+  string rejection_reason = 2;
+}
+
+message ApprovalOperationResponse {
+  bool success = 1;
+  string correlation_id = 2;
+  string new_status = 3;
+  string message = 4;
+}
+
+message ListRulesRequest {
+  int32 page_number = 1;
+  int32 page_size = 2;
+}
+
+message ListExistingRulesResponse {
+  repeated ExistingRuleSummary rules = 1;
+  int32 total_elements = 2;
+  int32 total_pages = 3;
+  int32 current_page = 4;
+}
+
+message ExistingRuleSummary {
+  string id = 1;
+  string name = 2;
+  string error_signature_pattern = 3;
+  string target_service = 4;
+  string action_type = 5;
+  string created_by = 6;
+  string created_at = 7;
+}
+
+message CreateRuleRequest {
+  string name = 1;
+  string error_signature_pattern = 2;
+  string target_service = 3;
+  string target_deployment = 4;
+  string action_type = 5;
+  string action_params_json = 6;
+  string scope_constraint_json = 7;
+}
+
+message UpdateRuleRequest {
+  string id = 1;
+  string name = 2;
+  string error_signature_pattern = 3;
+  string target_service = 4;
+  string action_type = 5;
+  string action_params_json = 6;
+}
+
+message DeleteRuleRequest {
+  string id = 1;
+}
+
+message RuleResponse {
+  string id = 1;
+  string name = 2;
+  string error_signature_pattern = 3;
+  string target_service = 4;
+  string action_type = 5;
+  string created_at = 6;
+}
+
+message ListPendingRulesResponse {
+  repeated PendingRuleSummary rules = 1;
+  int32 total_elements = 2;
+  int32 total_pages = 3;
+  int32 current_page = 4;
+}
+
+message PendingRuleSummary {
+  string id = 1;
+  string error_signature = 2;
+  string root_cause_summary = 3;
+  string proposed_action = 4;
+  double confidence_score = 5;
+  string source_correlation_id = 6;
+  string status = 7;
+  string created_at = 8;
+}
+
+message ApproveRuleRequest {
+  string pending_rule_id = 1;
+  string comment = 2;
+}
+
+message RejectRuleRequest {
+  string pending_rule_id = 1;
+  string rejection_reason = 2;
+}
+
+message SelfConfigResponse {
+  string id = 1;
+  string model_provider = 2;
+  string model_name = 3;
+  string api_endpoint = 4;
+  int32 max_tokens_per_request = 5;
+  double alert_threshold_usd_per_day = 6;
+  string updated_by = 7;
+  string updated_at = 8;
+}
+
+message UpdateSelfConfigRequest {
+  string model_provider = 1;
+  string model_name = 2;
+  string api_endpoint = 3;
+  int32 max_tokens_per_request = 4;
+  double alert_threshold_usd_per_day = 5;
+}
