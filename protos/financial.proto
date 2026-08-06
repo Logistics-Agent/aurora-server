@@ -1,0 +1,43 @@
+syntax = "proto3";
+
+package financial;
+
+option csharp_namespace = "FinancialService.Grpc";
+
+service FinancialService {
+  rpc EstimateCost(EstimateCostRequest) returns (EstimateCostResponse);
+  rpc GetCustomsDuty(GetCustomsDutyRequest) returns (GetCustomsDutyResponse);
+}
+
+message EstimateCostRequest {
+  string originCountry = 1;
+  string originPort = 2;
+  string destinationCountry = 3;
+  string destinationPort = 4;
+  double weightKg = 5;
+  double volumeCbm = 6;
+  string cargoType = 7;
+  repeated string hsCodes = 8;
+}
+
+message EstimateCostResponse {
+  double baseFreightCost = 1;
+  double portHandlingFees = 2;
+  double customsDuties = 3;
+  double totalEstimatedCost = 4;
+  string currency = 5;
+  string calculationMethod = 6;
+  string description = 7;
+}
+
+message GetCustomsDutyRequest {
+  string originCountry = 1;
+  string destinationCountry = 2;
+  string hsCode = 3;
+}
+
+message GetCustomsDutyResponse {
+  string hsCode = 1;
+  double dutyRatePercentage = 2;
+  string description = 3;
+}
