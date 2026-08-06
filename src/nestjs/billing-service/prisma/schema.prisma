@@ -1,0 +1,69 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model EscrowWallet {
+  id           String              @id @default(uuid())
+  tenantId     String              @map("tenant_id")
+  carrierId    String              @map("carrier_id")
+  balance      Float               @default(0.0)
+  frozenAmount Float               @default(0.0) @map("frozen_amount")
+  currency     String              @default("USD")
+  createdAt    DateTime            @default(now()) @map("created_at")
+  updatedAt    DateTime            @updatedAt @map("updated_at")
+  transactions EscrowTransaction[]
+
+  @@unique([tenantId, carrierId])
+  @@map("escrow_wallets")
+}
+
+model EscrowTransaction {
+  id          String       @id @default(uuid())
+  walletId    String       @map("wallet_id")
+  shipmentId  String       @map("shipment_id")
+  type        String       @map("type") // FREEZE, RELEASE, REFUND, DEPOSIT
+  amount      Float
+  status      String       @default("SUCCESS") @map("status") // SUCCESS, PENDING, FAILED
+  referenceNo String?      @map("reference_no")
+  createdAt   DateTime     @default(now()) @map("created_at")
+  wallet      EscrowWallet @relation(fields: [walletId], references: [id], onDelete: Cascade)
+
+  @@index([walletId])
+  @@index([shipmentId])
+  @@map("escrow_transactions")
+}
+
+model Invoice {
+  id            String            @id @default(uuid())
+  tenantId      String            @map("tenant_id")
+  shipmentId    String            @map("shipment_id")
+  invoiceNumber String            @unique @map("invoice_number")
+  subtotal      Float
+  taxAmount     Float             @map("tax_amount")
+  totalAmount   Float             @map("total_amount")
+  status        String            @default("UNPAID") @map("status") // UNPAID, PAID, CANCELLED, OVERDUE
+  dueDate       DateTime          @map("due_date")
+  createdAt     DateTime          @default(now()) @map("created_at")
+  updatedAt     DateTime          @updatedAt @map("updated_at")
+  items         InvoiceLineItem[]
+
+  @@index([tenantId])
+  @@index([shipmentId])
+  @@map("invoices")
+}
+
+model InvoiceLineItem {
+  id          String   @id @default(uuid())
+  invoiceId   String   @map("invoice_id")
+  description String
+  amount      Float
+  category    String   @map("category") // FREIGHT, PORT_FEE, CUSTOMS_DUTY
+  invoice     Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@map("invoice_line_items")
+}
