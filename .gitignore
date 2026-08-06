@@ -485,3 +485,5 @@ $RECYCLE.BIN/
 
 # Vim temporary swap files
 *.swp
+docs/walkthroughfeatnestjs/walkthrough feat financial.md
+docs/walkthroughfeatnestjs/walkthrough billing.md

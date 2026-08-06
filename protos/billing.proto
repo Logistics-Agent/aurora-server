@@ -1,0 +1,133 @@
+syntax = "proto3";
+
+package billing;
+
+option csharp_namespace = "BillingService.Grpc";
+
+service BillingService {
+  // Invoice operations
+  rpc CreateInvoice(CreateInvoiceRequest) returns (InvoiceResponse);
+  rpc GetInvoice(GetInvoiceRequest) returns (InvoiceResponse);
+  rpc ListInvoices(ListInvoicesRequest) returns (ListInvoicesResponse);
+  rpc UpdateInvoiceStatus(UpdateInvoiceStatusRequest) returns (InvoiceResponse);
+
+  // Escrow Wallet operations
+  rpc CreateEscrowWallet(CreateEscrowWalletRequest) returns (WalletResponse);
+  rpc GetWalletBalance(GetWalletBalanceRequest) returns (WalletResponse);
+  rpc FreezeEscrowAmount(FreezeEscrowRequest) returns (TransactionResponse);
+  rpc ReleaseEscrowAmount(ReleaseEscrowRequest) returns (TransactionResponse);
+  rpc RefundEscrowAmount(RefundEscrowRequest) returns (TransactionResponse);
+}
+
+// ── Invoice Messages ─────────────────────────────────────────────────────────
+
+message InvoiceLineItemInput {
+  string description = 1;
+  double amount = 2;
+  string category = 3; // FREIGHT, PORT_FEE, CUSTOMS_DUTY
+}
+
+message CreateInvoiceRequest {
+  string tenantId = 1;
+  string shipmentId = 2;
+  repeated InvoiceLineItemInput items = 3;
+  string dueDate = 4;
+}
+
+message GetInvoiceRequest {
+  string invoiceId = 1;
+}
+
+message ListInvoicesRequest {
+  string tenantId = 1;
+  int32 page = 2;
+  int32 limit = 3;
+  optional string status = 4;
+}
+
+message InvoiceLineItemMessage {
+  string id = 1;
+  string description = 2;
+  double amount = 3;
+  string category = 4;
+}
+
+message InvoiceResponse {
+  string id = 1;
+  string tenantId = 2;
+  string shipmentId = 3;
+  string invoiceNumber = 4;
+  double subtotal = 5;
+  double taxAmount = 6;
+  double totalAmount = 7;
+  string status = 8; // UNPAID, PAID, CANCELLED, OVERDUE
+  string dueDate = 9;
+  string createdAt = 10;
+  repeated InvoiceLineItemMessage items = 11;
+}
+
+message ListInvoicesResponse {
+  repeated InvoiceResponse invoices = 1;
+  int32 totalItems = 2;
+  int32 page = 3;
+  int32 limit = 4;
+}
+
+message UpdateInvoiceStatusRequest {
+  string invoiceId = 1;
+  string status = 2;
+}
+
+// ── Escrow Messages ──────────────────────────────────────────────────────────
+
+message CreateEscrowWalletRequest {
+  string tenantId = 1;
+  string carrierId = 2;
+  string currency = 3;
+}
+
+message GetWalletBalanceRequest {
+  string walletId = 1;
+}
+
+message WalletResponse {
+  string walletId = 1;
+  string tenantId = 2;
+  string carrierId = 3;
+  double balance = 4;
+  double frozenAmount = 5;
+  double availableAmount = 6;
+  string currency = 7;
+}
+
+message FreezeEscrowRequest {
+  string walletId = 1;
+  string shipmentId = 2;
+  double amount = 3;
+  string referenceNo = 4;
+}
+
+message ReleaseEscrowRequest {
+  string walletId = 1;
+  string shipmentId = 2;
+  double amount = 3;
+  string referenceNo = 4;
+}
+
+message RefundEscrowRequest {
+  string walletId = 1;
+  string shipmentId = 2;
+  double amount = 3;
+  string referenceNo = 4;
+}
+
+message TransactionResponse {
+  string transactionId = 1;
+  string walletId = 2;
+  string shipmentId = 3;
+  string type = 4; // FREEZE, RELEASE, REFUND, DEPOSIT
+  double amount = 5;
+  string status = 6; // SUCCESS, PENDING, FAILED
+  string referenceNo = 7;
+  string createdAt = 8;
+}
