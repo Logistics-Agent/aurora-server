@@ -3,36 +3,72 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 model BaseFreightRate {
   id              String   @id @default(uuid())
   tenantId        String   @map("tenant_id")
-  originPort      String   @map("origin_port")
-  destinationPort String   @map("destination_port")
+  originCode      String   @map("origin_code")
+  destinationCode String   @map("destination_code")
+  transportMode   String   @default("SEA") @map("transport_mode") // AIR, SEA, ROAD
   cargoType       String   @default("GENERAL") @map("cargo_type")
   ratePerKg       Float    @map("rate_per_kg")
   ratePerCbm      Float    @map("rate_per_cbm")
-  flatFee         Float    @map("flat_fee")
+  flatFee         Float    @default(0.0) @map("flat_fee")
+  currency        String   @default("USD")
   createdAt       DateTime @default(now()) @map("created_at")
   updatedAt       DateTime @updatedAt @map("updated_at")
 
-  @@index([tenantId, originPort, destinationPort, cargoType])
+  @@index([tenantId, originCode, destinationCode, transportMode, cargoType])
   @@map("base_freight_rates")
 }
 
 model CustomsDutyRate {
-  id                 String   @id @default(uuid())
-  originCountry      String   @map("origin_country")
-  destinationCountry String   @map("destination_country")
-  hsCode             String   @map("hs_code")
-  dutyRatePercentage Float    @map("duty_rate_percentage")
-  description        String?  @map("description")
-  createdAt          DateTime @default(now()) @map("created_at")
-  updatedAt          DateTime @updatedAt @map("updated_at")
+  id            String   @id @default(uuid())
+  tenantId      String   @map("tenant_id")
+  hsCode        String   @map("hs_code")
+  description   String?  @map("description")
+  importTaxRate Float    @map("import_tax_rate") // Import duty % (e.g. 5.0 = 5%)
+  vatRate       Float    @default(10.0) @map("vat_rate") // VAT % (e.g. 10.0 = 10%)
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
 
-  @@unique([originCountry, destinationCountry, hsCode])
+  @@unique([tenantId, hsCode])
   @@map("customs_duty_rates")
 }
+
+model PortHandlingFee {
+  id        String   @id @default(uuid())
+  tenantId  String   @map("tenant_id")
+  portCode  String   @map("port_code")
+  feeCode   String   @map("fee_code") // THC, DEM, DET, DOC
+  feeName   String   @map("fee_name")
+  amount    Float    @map("amount")
+  currency  String   @default("USD")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([tenantId, portCode])
+  @@map("port_handling_fees")
+}
+
+// TASK-002: Exchange Rate Engine
+// Bảng lưu tỷ giá ngoại tệ, đồng bộ từ Vietcombank/NHNN daily lúc 00:05 UTC
+model ExchangeRate {
+  id           String   @id @default(uuid())
+  tenantId     String   @map("tenant_id")
+  fromCurrency String   @map("from_currency") // Ví dụ: USD, EUR
+  toCurrency   String   @map("to_currency")   // Ví dụ: VND
+  rate         Float                           // 1 fromCurrency = rate toCurrency
+  validDate    DateTime @map("valid_date")     // Ngày tỷ giá có hiệu lực (UTC 00:00)
+  source       String   @default("MOCK")       // VIETCOMBANK, SBV, MOCK
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  @@unique([tenantId, fromCurrency, toCurrency, validDate])
+  @@index([tenantId, fromCurrency, toCurrency])
+  @@map("exchange_rates")
+}
+
