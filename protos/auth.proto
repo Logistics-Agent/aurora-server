@@ -62,6 +62,8 @@ message LoginResponse {
 
 message RefreshTokenRequest {
   string refreshToken = 1;
+  string tenantCode = 2;
+  string userType = 3;
 }
 
 message LogoutRequest {

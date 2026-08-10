@@ -1,3 +1,4 @@
+using Asp.Versioning;
 using BuildingBlocks.BFF.Attributes;
 using Common.Grpc;
 using Grpc.Core;
@@ -8,7 +9,10 @@ using Shared.Security;
 
 namespace AdminBff.Controllers;
 
-[Route("api/v1/admin/users")]
+/// <summary>
+/// Giữ cho backward-compat — surface chính cho staff lifecycle là StaffController (/api/v1/admin/staff).
+/// </summary>
+[ApiVersion("1.0")]
 public class UsersController(
     IamService.IamServiceClient iamClient,
     ICurrentUserService currentUser,
@@ -27,6 +31,7 @@ public class UsersController(
                     LastName    = body.LastName,
                     Email       = body.Email,
                     PhoneNumber = body.PhoneNumber ?? string.Empty,
+                    StaffType   = body.StaffType ?? string.Empty,
                     RoleIds     = { body.RoleIds }
                 });
 
@@ -39,6 +44,10 @@ public class UsersController(
         catch (RpcException ex) when (ex.StatusCode == Grpc.Core.StatusCode.AlreadyExists)
         {
             return Conflict(new { detail = "A user with this email already exists in the tenant." });
+        }
+        catch (RpcException ex) when (ex.StatusCode == Grpc.Core.StatusCode.InvalidArgument)
+        {
+            return BadRequest(new { detail = ex.Status.Detail });
         }
     }
 
@@ -60,7 +69,7 @@ public class UsersController(
     }
 
     // --- DTOs ---
-    public record InviteUserBody(string FirstName, string LastName, string Email, string? PhoneNumber, List<string> RoleIds);
+    public record InviteUserBody(string FirstName, string LastName, string Email, string? PhoneNumber, string? StaffType, List<string> RoleIds);
 
     private static object MapUserResponse(UserResponse r) => new
     {
@@ -70,6 +79,7 @@ public class UsersController(
         r.Email,
         r.PhoneNumber,
         Status      = r.Status.ToString(),
+        r.StaffType,
         r.RoleIds,
         SystemRoles = r.SystemRoles.Select(sr => sr.ToString()),
         CreatedAt   = r.CreatedAt?.ToDateTime(),

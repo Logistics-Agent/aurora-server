@@ -4,13 +4,13 @@
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+    <UserSecretsId>22883215-7ab8-4052-b821-19dd390b4aef</UserSecretsId>
   </PropertyGroup>
 
   <ItemGroup>
     <Protobuf Include="../../../protos/iam_tenant.proto" GrpcServices="Server" />
     <Protobuf Include="../../../protos/auth.proto" GrpcServices="Server" />
     <Protobuf Include="../../../protos/common.proto" GrpcServices="None" />
-
   </ItemGroup>
 
   <ItemGroup>
@@ -26,7 +26,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\Shared\Shared.csproj" />
+    <ProjectReference Include="..\shared\shared.csproj" />
   </ItemGroup>
 
 </Project>

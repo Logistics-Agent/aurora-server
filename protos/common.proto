@@ -2,7 +2,8 @@ syntax = "proto3";
 
 package common;
 option csharp_namespace = "Common.Grpc";
-
+option java_package = "com.aurora.common.grpc";
+option java_multiple_files = true;
 
 enum PlanType {
   PLAN_TYPE_UNSPECIFIED = 0;
@@ -30,5 +31,5 @@ enum SystemRole {
   TENANT_ADMIN = 2;       // Toàn quyền nội bộ doanh nghiệp (CRUD User, cấu hình ngân sách). KHÔNG xem được dữ liệu Tenant khác. KHÔNG có quyền sửa/xóa Immutable Ledger.
   OPERATOR = 3;           // Tạo vận đơn, tải chứng từ (Hóa đơn, Packing List) để AI OCR bóc tách, theo dõi bản đồ GPS thời gian thực.
   CUSTOMS_OFFICER = 4;    // Xem màn hình chẩn đoán sai lệch chứng từ do Compliance RAG highlight bằng AI, duyệt thông quan.
-  FINANCE_OFFICER = 5;    // Phê duyệt chi phí chốt thầu từ sàn Marketplace, theo dõi ví ký quỹ Escrow (đóng băng/giải ngân tiền cho nhà xe).
+  FINANCE_OFFICER = 5;    // Phê duyệt chi phí chốt thầu từ sàn Marketplace, theo dõi ví ký quỹ Escrow (đóng băng/ giải ngân tiền cho nhà xe).
 }
