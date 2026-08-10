@@ -6,6 +6,9 @@ option csharp_namespace = "BillingService.Grpc";
 
 service BillingService {
   // Invoice operations
+  rpc GenerateInvoice(GenerateInvoiceRequest) returns (InvoiceResponse);
+  rpc GetInvoiceDetail(GetInvoiceRequest) returns (InvoiceDetailResponse);
+  rpc CheckCustomerCredit(CreditCheckRequest) returns (CreditCheckResponse);
   rpc CreateInvoice(CreateInvoiceRequest) returns (InvoiceResponse);
   rpc GetInvoice(GetInvoiceRequest) returns (InvoiceResponse);
   rpc ListInvoices(ListInvoicesRequest) returns (ListInvoicesResponse);
@@ -21,17 +24,43 @@ service BillingService {
 
 // ── Invoice Messages ─────────────────────────────────────────────────────────
 
+message GenerateInvoiceRequest {
+  string tenantId = 1;
+  string shipmentId = 2;
+  string customerId = 3;
+  int32 paymentTermsDays = 4; // Default e.g. 30 (T+30)
+}
+
+message CreditCheckRequest {
+  string tenantId = 1;
+  string customerId = 2;
+  double newAmount = 3;
+}
+
+message CreditCheckResponse {
+  string customerId = 1;
+  bool isCreditApproved = 2;
+  double creditLimit = 3;
+  double currentOutstandingDebt = 4;
+  double availableCredit = 5;
+  int32 overdueInvoiceCount = 6;
+  string message = 7;
+}
+
 message InvoiceLineItemInput {
   string description = 1;
   double amount = 2;
-  string category = 3; // FREIGHT, PORT_FEE, CUSTOMS_DUTY
+  int32 quantity = 3;
+  double unitPrice = 4;
+  string category = 5; // FREIGHT, PORT_FEE, CUSTOMS_DUTY
 }
 
 message CreateInvoiceRequest {
   string tenantId = 1;
   string shipmentId = 2;
-  repeated InvoiceLineItemInput items = 3;
-  string dueDate = 4;
+  string customerId = 3;
+  repeated InvoiceLineItemInput items = 4;
+  string dueDate = 5;
 }
 
 message GetInvoiceRequest {
@@ -48,22 +77,43 @@ message ListInvoicesRequest {
 message InvoiceLineItemMessage {
   string id = 1;
   string description = 2;
-  double amount = 3;
-  string category = 4;
+  int32 quantity = 3;
+  double unitPrice = 4;
+  double amount = 5;
+  string category = 6;
+}
+
+message PaymentRecordMessage {
+  string id = 1;
+  double amountPaid = 2;
+  string paymentMethod = 3;
+  string transactionRef = 4;
+  string status = 5;
+  string createdAt = 6;
 }
 
 message InvoiceResponse {
   string id = 1;
   string tenantId = 2;
   string shipmentId = 3;
-  string invoiceNumber = 4;
-  double subtotal = 5;
-  double taxAmount = 6;
-  double totalAmount = 7;
-  string status = 8; // UNPAID, PAID, CANCELLED, OVERDUE
-  string dueDate = 9;
-  string createdAt = 10;
-  repeated InvoiceLineItemMessage items = 11;
+  string customerId = 4;
+  string invoiceNumber = 5;
+  double subtotal = 6;
+  double taxAmount = 7;
+  double totalAmount = 8;
+  string currency = 9;
+  string status = 10; // UNPAID, PARTIALLY_PAID, PAID, CANCELLED, OVERDUE
+  string dueDate = 11;
+  string pdfS3Key = 12;
+  string pdfUrl = 13;
+  string createdAt = 14;
+  repeated InvoiceLineItemMessage items = 15;
+}
+
+message InvoiceDetailResponse {
+  InvoiceResponse invoice = 1;
+  repeated PaymentRecordMessage payments = 2;
+  double remainingBalance = 3;
 }
 
 message ListInvoicesResponse {

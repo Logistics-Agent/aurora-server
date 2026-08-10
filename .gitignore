@@ -7,8 +7,8 @@ Migrations*
 # dotenv files
 .env
 
+dist/
 target/
-=======
 *Migrations
 # User-specific files
 *.rsuser
