@@ -22,6 +22,7 @@ Identity & Tenant Service [CORE] - on going
 Route Planning Agent Service [AI] - VRP(OSRM+VROOM) - https://download.geofabrik.de/asia.html
 AI Ops & Monitoring Service [AI + DEVOPS]	
 Email Security Service [AI]: Stalwart-TLS Verification-SPF-DKIM-DMARC-Sender Validation-Attachment Scan-Spam Detection-Pub Event-> ORC/RoutePlan/Shipment
+AI-Governance: AI Management
 
 @Đào Huỳnh:  Financial & Cost Estimation Service [AI + CORE]	- ongoing		
 Billing & Settlement Service [CORE]			
@@ -44,21 +45,3 @@ Docs {
 
 S3 key nên phân tenant:
 s3://hrm-private-docs/tenants/{tenantId}/department/{departmentId}/employees/{employeeId}/documents/{fileId}
-
-
-JWT giữa BFF và các internal service.
-
-Không cần đọc
-
-x-role-id
-
-nữa.
-
-Header có thể giữ
-
-x-correlation-id
-x-request-id
-
-nhưng identity nên lấy từ JWT.
-
-=> Kết luận: AI nói đúng về nguyên tắc Zero Trust, nhưng nếu hạ tầng đã cô lập hoàn toàn thì mức độ rủi ro thấp hơn. Dù vậy, dùng JWT hoặc mTLS vẫn là thiết kế tốt hơn cho môi trường production.
