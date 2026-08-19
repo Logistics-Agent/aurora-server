@@ -2,7 +2,7 @@ Logistic + Muilt-Agent + Muilt-tennant:
 BE: .net + nestjs + java
 FE: React - Figma
 microservices: gRPC - RabbitMQ
-AWS: AKS, ACR, Azure Monitor, Azure Key Vault, Azure VMs (docker), Azure Blob Storage( terraform), Azure NAT Gateway, Azure Application Gateway, 2 AZ, Azure Managed Disks
+Cloud: AKS, ACR, Azure Monitor, Azure Key Vault, Azure VMs (docker), Azure Blob Storage( terraform), Azure NAT Gateway, Azure Application Gateway, 2 AZ, Azure Managed Disks
 Auth: Cognito
 Cloudflare: R2, DNS, Tunnel
 MQ: RabbitMQ
@@ -36,12 +36,18 @@ Document OCR Agent Service [AI]
 Regulatory Compliance RAG Service [AI]	
 Shipment Workflow Service [Core] - on going
 
-@Hùng Vũ: Audit Log [CORE]
+@Hùng Vũ:
 Tester
 Docs {
 - Location facility Json -> Import DB
 
 }
+
+@Trương Được: -> @Đào Huỳnh 
+- GPS Tracking & Monitoring Service
+- Document OCR Agent Service
+- Notification Service 								
+- Audit Log 
 
 S3 key nên phân tenant:
 s3://hrm-private-docs/tenants/{tenantId}/department/{departmentId}/employees/{employeeId}/documents/{fileId}
