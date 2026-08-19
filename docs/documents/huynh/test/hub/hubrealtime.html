@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Test Realtime Hub</title>
+  <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+</head>
+<body style="font-family: sans-serif; padding: 20px;">
+  <h2>Aurora Realtime Hub Tester</h2>
+  <button onclick="connectSocket()">1. Connect Socket</button>
+  <button onclick="joinShipment()">2. Join Shipment Room</button>
+  
+  <h3>Logs:</h3>
+  <div id="logs" style="background: #222; color: #0f0; padding: 15px; border-radius: 5px; height: 300px; overflow-y: auto;"></div>
+
+  <script>
+    let socket;
+    function log(msg) {
+      document.getElementById('logs').innerHTML += `<div>[${new Date().toLocaleTimeString()}] ${msg}</div>`;
+    }
+
+    function connectSocket() {
+      socket = io('http://localhost:5005/realtime', {
+        auth: { token: 'Bearer mock-token-tenant-1' }
+      });
+
+      socket.on('connect', () => log('Connected! Socket ID: ' + socket.id));
+      socket.on('connected', (data) => log('Welcome Payload: ' + JSON.stringify(data)));
+      socket.on('LOCATION_UPDATED', (data) => log('🔴 GPS Location Update: ' + JSON.stringify(data)));
+      socket.on('INVOICE_CREATED', (data) => log('🟢 Invoice Created Notification: ' + JSON.stringify(data)));
+    }
+
+    function joinShipment() {
+      socket.emit('join_shipment', { shipmentId: 'shipment-101' }, (response) => {
+        log('Joined Shipment Response: ' + JSON.stringify(response));
+      });
+    }
+  </script>
+</body>
+</html>

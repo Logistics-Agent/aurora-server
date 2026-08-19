@@ -1,20 +1,48 @@
+using Grpc.Net.ClientFactory;
+using Shared.Interceptors;
+
 namespace BuildingBlocks.BFF.Extensions;
+
 public static class GrpcClientExtensions
 {
     /// <summary>
     /// Đăng ký tất cả gRPC clients với Resilience Pipelines (retry + circuit breaker).
-    /// Mỗi client có deadline riêng được set per-call qua GrpcDeadlines.
+    /// - IamTenant (IamService + AuthService): bắt buộc — Grpc:IamTenant:Url
+    /// - RoutePlanningAgent: optional theo config — Grpc:RoutePlanning:Url (System.Bff không cần)
+    /// ClientMetadataInterceptor forward x-user-id/x-tenant-id/x-role-ids/x-permission-version
+    /// xuống gRPC service (AuthInterceptor phía server đọc lại các metadata này).
+    /// ⚠ InterceptorScope.Client bắt buộc — interceptor phụ thuộc scoped ICurrentUserService.
     /// </summary>
     public static IServiceCollection AddBffGrpcClients(
         this IServiceCollection services,
         IConfiguration config)
     {
-        // Clients should be registered in the specific Micro-BFF projects.
-        // For example, Admin.Bff registers IamServiceClient.
+        services.AddScoped<ClientMetadataInterceptor>();
+
+        var iamUrl = config["Grpc:IamTenant:Url"]
+            ?? throw new InvalidOperationException("Grpc:IamTenant:Url is required");
+
+        services.AddGrpcClient<IamTenant.Grpc.IamService.IamServiceClient>(o => o.Address = new Uri(iamUrl))
+            .AddInterceptor<ClientMetadataInterceptor>(InterceptorScope.Client)
+            .AddStandardResilienceHandler(ConfigureIamResilience);
+
+        services.AddGrpcClient<Auth.Grpc.AuthService.AuthServiceClient>(o => o.Address = new Uri(iamUrl))
+            .AddInterceptor<ClientMetadataInterceptor>(InterceptorScope.Client)
+            .AddStandardResilienceHandler(ConfigureIamResilience);
+
+        var routePlanningUrl = config["Grpc:RoutePlanning:Url"];
+        if (!string.IsNullOrWhiteSpace(routePlanningUrl))
+        {
+            services.AddGrpcClient<RoutePlanningAgent.Grpc.RoutePlanningService.RoutePlanningServiceClient>(
+                    o => o.Address = new Uri(routePlanningUrl))
+                .AddInterceptor<ClientMetadataInterceptor>(InterceptorScope.Client)
+                .AddStandardResilienceHandler(ConfigureBusinessResilience);
+        }
+
         return services;
     }
 
-    // ── Resilience profiles ───────────────────────────────────────────────────
+    // ── Resilience profiles ──────────────────────────────────────────────────
 
     /// <summary>IAM: retry nhanh hơn (auth critical path).</summary>
     private static void ConfigureIamResilience(
@@ -30,7 +58,7 @@ public static class GrpcClientExtensions
         r.TotalRequestTimeout.Timeout = TimeSpan.FromSeconds(12);
     }
 
-    /// <summary>Business services: timeout rộng hơn cho heavy operations.</summary>
+    /// <summary>Business services: timeout rộng hơn cho heavy operations (optimize/LLM).</summary>
     private static void ConfigureBusinessResilience(
         Microsoft.Extensions.Http.Resilience.HttpStandardResilienceOptions r)
     {
@@ -41,6 +69,6 @@ public static class GrpcClientExtensions
         r.CircuitBreaker.FailureRatio = 0.5;
         r.CircuitBreaker.MinimumThroughput = 5;
         r.CircuitBreaker.BreakDuration = TimeSpan.FromSeconds(15);
-        r.TotalRequestTimeout.Timeout = TimeSpan.FromSeconds(15);
+        r.TotalRequestTimeout.Timeout = TimeSpan.FromSeconds(60);
     }
 }

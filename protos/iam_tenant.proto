@@ -19,6 +19,12 @@ service IamService {
   rpc UpdateTenantStatus(UpdateTenantStatusRequest)
       returns (TenantResponse);
 
+  rpc ListTenants(ListTenantsRequest)
+      returns (ListTenantsResponse);
+
+  rpc DeleteTenant(DeleteTenantRequest)
+      returns (EmptyResponse);
+
   // User
   rpc InviteUser(InviteUserRequest)
       returns (UserResponse);
@@ -28,6 +34,15 @@ service IamService {
 
   rpc GetManyUsers(GetManyUsersRequest)
       returns (GetManyUsersResponse);
+
+  rpc UpdateUser(UpdateUserRequest)
+      returns (UserResponse);
+
+  rpc ActivateUser(ActivateUserRequest)
+      returns (UserResponse);
+
+  rpc ResetUserPassword(ResetUserPasswordRequest)
+      returns (EmptyResponse);
 
   rpc AssignRoles(AssignRolesRequest)
       returns (UserResponse);
@@ -118,6 +133,30 @@ message UpdateTenantStatusRequest {
   common.TenantStatus status = 2;
 }
 
+message ListTenantsRequest {
+
+  int32 page = 1;
+
+  int32 limit = 2;
+}
+
+message ListTenantsResponse {
+
+  repeated TenantResponse tenants = 1;
+
+  int32 page = 2;
+
+  int32 limit = 3;
+
+  int32 totalItems = 4;
+
+  int32 totalPages = 5;
+}
+
+message DeleteTenantRequest {
+  string id = 1;
+}
+
 
 
 
@@ -143,6 +182,9 @@ message UserResponse {
   google.protobuf.Timestamp updatedAt = 9;
 
   repeated common.SystemRole systemRoles = 10;
+
+  // Normal | Operations | Documentation | CustomerService | Finance
+  string staffType = 11;
 }
 
 message InviteUserRequest {
@@ -156,6 +198,29 @@ message InviteUserRequest {
   string phoneNumber = 4;
 
   repeated string roleIds = 5;
+
+  // Optional — rong = Normal
+  string staffType = 6;
+}
+
+message UpdateUserRequest {
+
+  string id = 1;
+
+  string firstName = 2;
+
+  string lastName = 3;
+
+  // Optional — rong = giu nguyen
+  string staffType = 4;
+}
+
+message ActivateUserRequest {
+  string userId = 1;
+}
+
+message ResetUserPasswordRequest {
+  string userId = 1;
 }
 
 message GetUserRequest {

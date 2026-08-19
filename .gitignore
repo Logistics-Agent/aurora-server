@@ -3,9 +3,13 @@
 ##
 ## Get latest from `dotnet new gitignore`
 
+Migrations*
 # dotenv files
 .env
 
+dist/
+target/
+*Migrations
 # User-specific files
 *.rsuser
 *.suo
@@ -480,3 +484,5 @@ $RECYCLE.BIN/
 
 # Vim temporary swap files
 *.swp
+docs/walkthroughfeatnestjs/walkthrough feat financial.md
+docs/walkthroughfeatnestjs/walkthrough billing.md

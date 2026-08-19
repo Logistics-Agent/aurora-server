@@ -33,8 +33,11 @@ public class TenantResolutionMiddleware(RequestDelegate next, ILogger<TenantReso
     }
 
     private static bool IsPublicPath(string path) =>
-        path.StartsWith("/auth/login",   StringComparison.OrdinalIgnoreCase) ||
-        path.StartsWith("/auth/refresh", StringComparison.OrdinalIgnoreCase) ||
-        path.StartsWith("/healthz",      StringComparison.OrdinalIgnoreCase) ||
-        path.StartsWith("/metrics",      StringComparison.OrdinalIgnoreCase);
+        // Auth endpoints thực tế nằm dưới /api/v{n}/auth/... (literal cũ /auth/login không bao giờ match)
+        (path.StartsWith("/api/", StringComparison.OrdinalIgnoreCase)
+            && path.Contains("/auth/", StringComparison.OrdinalIgnoreCase)) ||
+        path.StartsWith("/healthz",  StringComparison.OrdinalIgnoreCase) ||
+        path.StartsWith("/metrics",  StringComparison.OrdinalIgnoreCase) ||
+        path.StartsWith("/api-docs", StringComparison.OrdinalIgnoreCase) ||
+        path.StartsWith("/swagger",  StringComparison.OrdinalIgnoreCase);
 }
