@@ -1,5 +1,6 @@
 package com.aurora.shared.entity;
 
+import com.aurora.shared.security.CurrentServiceContext;
 import com.aurora.shared.security.CurrentUserContext;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.PreUpdate;
@@ -10,6 +11,8 @@ import java.time.ZoneOffset;
 /**
  * JPA EntityListener tự động điền createdAt/createdBy khi Add, updatedAt/updatedBy khi Modify.
  * Parallel với AuditSaveChangesInterceptor.cs trong .NET.
+ * <p>
+ * Actor resolution: {@code user:{userId}} → {@code service:{serviceId}} → {@code "system"}.
  */
 public class AuditEntityListener {
 
@@ -33,11 +36,25 @@ public class AuditEntityListener {
         entity.setUpdatedBy(getActor());
     }
 
+    /**
+     * Resolves the audit actor using priority: user identity → service identity → system.
+     * <p>
+     * Format: {@code "user:{userId}"}, {@code "service:{serviceId}"}, or {@code "system"}.
+     */
     private String getActor() {
-        CurrentUserContext context = CurrentUserContext.getCurrent();
-        if (context != null && context.getUserId() != null) {
-            return context.getUserId().toString();
+        // Priority 1: user identity
+        CurrentUserContext userContext = CurrentUserContext.getCurrent();
+        if (userContext != null && userContext.getUserId() != null) {
+            return "user:" + userContext.getUserId();
         }
+
+        // Priority 2: service/workload identity
+        CurrentServiceContext serviceContext = CurrentServiceContext.getCurrent();
+        if (serviceContext != null && serviceContext.getServiceId() != null) {
+            return "service:" + serviceContext.getServiceId();
+        }
+
+        // Priority 3: system fallback
         return "system";
     }
 }

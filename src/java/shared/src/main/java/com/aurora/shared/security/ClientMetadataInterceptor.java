@@ -4,8 +4,8 @@ import com.aurora.shared.constants.GrpcMetadataKeys;
 import io.grpc.*;
 
 /**
- * gRPC Client-side Interceptor: Forward x-user-id, x-tenant-id, x-trace-id, x-role-ids
- * khi gọi gRPC microservices downstream (ví dụ DevOps-Agent -> RAG Service).
+ * gRPC Client-side Interceptor: Forward x-user-id, x-tenant-id, x-trace-id, x-role-ids,
+ * x-service-id khi gọi gRPC microservices downstream (ví dụ DevOps-Agent -> RAG Service).
  * Parallel với ClientMetadataInterceptor.cs trong .NET.
  */
 public class ClientMetadataInterceptor implements ClientInterceptor {
@@ -20,6 +20,7 @@ public class ClientMetadataInterceptor implements ClientInterceptor {
                 next.newCall(method, callOptions)) {
             @Override
             public void start(Listener<RespT> responseListener, Metadata headers) {
+                // Forward user identity context
                 CurrentUserContext current = CurrentUserContext.getCurrent();
                 if (current != null) {
                     if (current.getUserId() != null) {
@@ -38,6 +39,13 @@ public class ClientMetadataInterceptor implements ClientInterceptor {
                         headers.put(GrpcMetadataKeys.ROLE_IDS, String.join(",", current.getRoleIds()));
                     }
                 }
+
+                // Forward service/workload identity context
+                CurrentServiceContext serviceContext = CurrentServiceContext.getCurrent();
+                if (serviceContext != null && serviceContext.getServiceId() != null) {
+                    headers.put(GrpcMetadataKeys.SERVICE_ID, serviceContext.getServiceId());
+                }
+
                 super.start(responseListener, headers);
             }
         };

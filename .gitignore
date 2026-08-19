@@ -6,6 +6,7 @@
 Migrations*
 # dotenv files
 .env
+target/
 
 dist/
 target/
