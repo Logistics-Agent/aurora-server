@@ -8,13 +8,22 @@ option csharp_namespace = "DevOpsAgent.Grpc";
 option java_package = "com.aurora.devopsagent.grpc";
 option java_multiple_files = true;
 
-service DevOpsAgentService {
+// ──────────────────────────────────────────────────
+// DevOps Domain Services
+// ──────────────────────────────────────────────────
+
+service DevOpsIngestionService {
   rpc IngestAlert (IngestAlertRequest) returns (IngestAlertResponse);
+}
+
+service DevOpsIncidentService {
   rpc ListIncidents (ListIncidentsRequest) returns (ListIncidentsResponse);
   rpc GetIncident (GetIncidentRequest) returns (IncidentResponse);
   rpc ApproveIncident (ApproveIncidentRequest) returns (ApprovalOperationResponse);
   rpc RejectIncident (RejectIncidentRequest) returns (ApprovalOperationResponse);
+}
 
+service DevOpsRuleService {
   rpc ListExistingRules (ListRulesRequest) returns (ListExistingRulesResponse);
   rpc CreateRule (CreateRuleRequest) returns (RuleResponse);
   rpc UpdateRule (UpdateRuleRequest) returns (RuleResponse);
@@ -23,7 +32,9 @@ service DevOpsAgentService {
   rpc ListPendingRules (ListRulesRequest) returns (ListPendingRulesResponse);
   rpc ApprovePendingRule (ApproveRuleRequest) returns (ApprovalOperationResponse);
   rpc RejectPendingRule (RejectRuleRequest) returns (ApprovalOperationResponse);
+}
 
+service DevOpsConfigService {
   rpc GetSelfConfig (EmptyDevOpsRequest) returns (SelfConfigResponse);
   rpc UpdateSelfConfig (UpdateSelfConfigRequest) returns (SelfConfigResponse);
 }
@@ -194,19 +205,19 @@ message RejectRuleRequest {
 
 message SelfConfigResponse {
   string id = 1;
-  string model_provider = 2;
-  string model_name = 3;
-  string api_endpoint = 4;
-  int32 max_tokens_per_request = 5;
-  double alert_threshold_usd_per_day = 6;
+  string model_provider = 2 [deprecated = true]; // Deprecated: provider routing managed by AiGovernance
+  string model_name = 3 [deprecated = true];     // Deprecated: model selection managed by AiGovernance
+  string api_endpoint = 4 [deprecated = true];   // Deprecated: endpoints managed by AiGovernance
+  int32 max_tokens_per_request = 5;              // Caller requested ceiling preference (AiGovernance is final authority)
+  double alert_threshold_usd_per_day = 6;        // DevOps domain cost alerting threshold
   string updated_by = 7;
   string updated_at = 8;
 }
 
 message UpdateSelfConfigRequest {
-  string model_provider = 1;
-  string model_name = 2;
-  string api_endpoint = 3;
-  int32 max_tokens_per_request = 4;
-  double alert_threshold_usd_per_day = 5;
+  string model_provider = 1 [deprecated = true]; // Deprecated
+  string model_name = 2 [deprecated = true];     // Deprecated
+  string api_endpoint = 3 [deprecated = true];   // Deprecated
+  int32 max_tokens_per_request = 4;              // Caller requested ceiling preference
+  double alert_threshold_usd_per_day = 5;        // DevOps domain cost alerting threshold
 }

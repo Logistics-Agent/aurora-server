@@ -1,7 +1,6 @@
 package com.aurora.devopsagent.GrpcServices;
 
 import com.aurora.devopsagent.Application.Commands.UpdateSelfConfigCommand;
-import com.aurora.devopsagent.Application.Commands.UpdateSelfConfigCommandHandler;
 import com.aurora.devopsagent.Application.Queries.GetSelfConfigQueryHandler;
 import com.aurora.devopsagent.Domain.Entity.DevOpsAgentSelfConfig;
 import com.aurora.devopsagent.grpc.*;
@@ -11,34 +10,40 @@ import net.devh.boot.grpc.server.service.GrpcService;
 import java.math.BigDecimal;
 
 @GrpcService
-public class SelfConfigGrpcHandler extends DevOpsAgentServiceGrpc.DevOpsAgentServiceImplBase {
+public class SelfConfigGrpcHandler extends DevOpsConfigServiceGrpc.DevOpsConfigServiceImplBase {
 
     private final GetSelfConfigQueryHandler getSelfConfigQueryHandler;
-    private final UpdateSelfConfigCommandHandler updateSelfConfigCommandHandler;
+    private final UpdateSelfConfigCommand.Handler updateSelfConfigHandler;
 
     public SelfConfigGrpcHandler(
             GetSelfConfigQueryHandler getSelfConfigQueryHandler,
-            UpdateSelfConfigCommandHandler updateSelfConfigCommandHandler) {
+            UpdateSelfConfigCommand.Handler updateSelfConfigHandler) {
         this.getSelfConfigQueryHandler = getSelfConfigQueryHandler;
-        this.updateSelfConfigCommandHandler = updateSelfConfigCommandHandler;
+        this.updateSelfConfigHandler = updateSelfConfigHandler;
     }
 
     @Override
     public void getSelfConfig(EmptyDevOpsRequest request, StreamObserver<SelfConfigResponse> responseObserver) {
         DevOpsAgentSelfConfig config = getSelfConfigQueryHandler.handle();
 
-        SelfConfigResponse response = SelfConfigResponse.newBuilder()
+        SelfConfigResponse.Builder builder = SelfConfigResponse.newBuilder()
                 .setId(config.getId() != null ? config.getId().toString() : "")
-                .setModelProvider(config.getModelProvider() != null ? config.getModelProvider() : "")
-                .setModelName(config.getModelName() != null ? config.getModelName() : "")
-                .setApiEndpoint(config.getApiEndpoint() != null ? config.getApiEndpoint() : "")
                 .setMaxTokensPerRequest(config.getMaxTokensPerRequest())
                 .setAlertThresholdUsdPerDay(config.getAlertThresholdUsdPerDay() != null ? config.getAlertThresholdUsdPerDay().doubleValue() : 0.0)
                 .setUpdatedBy(config.getUpdatedBy() != null ? config.getUpdatedBy() : "")
-                .setUpdatedAt(config.getUpdatedAt() != null ? config.getUpdatedAt().toString() : "")
-                .build();
+                .setUpdatedAt(config.getUpdatedAt() != null ? config.getUpdatedAt().toString() : "");
 
-        responseObserver.onNext(response);
+        if (config.getModelProvider() != null) {
+            builder.setModelProvider(config.getModelProvider());
+        }
+        if (config.getModelName() != null) {
+            builder.setModelName(config.getModelName());
+        }
+        if (config.getApiEndpoint() != null) {
+            builder.setApiEndpoint(config.getApiEndpoint());
+        }
+
+        responseObserver.onNext(builder.build());
         responseObserver.onCompleted();
     }
 
@@ -52,20 +57,26 @@ public class SelfConfigGrpcHandler extends DevOpsAgentServiceGrpc.DevOpsAgentSer
                 BigDecimal.valueOf(request.getAlertThresholdUsdPerDay())
         );
 
-        DevOpsAgentSelfConfig updated = updateSelfConfigCommandHandler.handle(command);
+        DevOpsAgentSelfConfig updated = updateSelfConfigHandler.handle(command);
 
-        SelfConfigResponse response = SelfConfigResponse.newBuilder()
+        SelfConfigResponse.Builder builder = SelfConfigResponse.newBuilder()
                 .setId(updated.getId().toString())
-                .setModelProvider(updated.getModelProvider() != null ? updated.getModelProvider() : "")
-                .setModelName(updated.getModelName() != null ? updated.getModelName() : "")
-                .setApiEndpoint(updated.getApiEndpoint() != null ? updated.getApiEndpoint() : "")
                 .setMaxTokensPerRequest(updated.getMaxTokensPerRequest())
                 .setAlertThresholdUsdPerDay(updated.getAlertThresholdUsdPerDay() != null ? updated.getAlertThresholdUsdPerDay().doubleValue() : 0.0)
                 .setUpdatedBy(updated.getUpdatedBy() != null ? updated.getUpdatedBy() : "")
-                .setUpdatedAt(updated.getUpdatedAt() != null ? updated.getUpdatedAt().toString() : "")
-                .build();
+                .setUpdatedAt(updated.getUpdatedAt() != null ? updated.getUpdatedAt().toString() : "");
 
-        responseObserver.onNext(response);
+        if (updated.getModelProvider() != null) {
+            builder.setModelProvider(updated.getModelProvider());
+        }
+        if (updated.getModelName() != null) {
+            builder.setModelName(updated.getModelName());
+        }
+        if (updated.getApiEndpoint() != null) {
+            builder.setApiEndpoint(updated.getApiEndpoint());
+        }
+
+        responseObserver.onNext(builder.build());
         responseObserver.onCompleted();
     }
 }
