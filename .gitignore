@@ -3,19 +3,24 @@
 ##
 ## Get latest from `dotnet new gitignore`
 
+Migrations*
 # dotenv files
 .env
+target/
 
 # Local Codex planning and execution documents
 /codex/
 
+dist/
+target/
+*Migrations
 # User-specific files
 *.rsuser
 *.suo
 *.user
 *.userosscache
 *.sln.docstates
-
+*target
 # User-specific files (MonoDevelop/Xamarin Studio)
 *.userprefs
 
@@ -483,3 +488,5 @@ $RECYCLE.BIN/
 
 # Vim temporary swap files
 *.swp
+docs/walkthroughfeatnestjs/walkthrough feat financial.md
+docs/walkthroughfeatnestjs/walkthrough billing.md

@@ -11,9 +11,12 @@ using IamTenant.Domain.Enums;
 
 namespace IamTenant.Application.Commands.Tenants;
 
-public record CreateTenantCommand(string Name, string CompanyDomain, string AdminEmail, Guid IdempotencyKey, string? TaxCode = null, string PlanType = "FREE") : IRequest<TenantDto>;
+public record CreateTenantCommand(string Name, string CompanyDomain, string AdminEmail, Guid IdempotencyKey, string? TaxCode = null, PlanType PlanType = PlanType.Standard) : IRequest<TenantDto>;
 
-public class CreateTenantHandler(IamTenantDbContext context, ICognitoAuthService cognitoService, IAuditTrailService auditTrail) : IRequestHandler<CreateTenantCommand, TenantDto>
+public class CreateTenantHandler(
+    IamTenantDbContext context,
+    ICognitoAuthService cognitoService,
+    IAuditTrailService auditTrail) : IRequestHandler<CreateTenantCommand, TenantDto>
 {
     public async Task<TenantDto> Handle(CreateTenantCommand request, CancellationToken cancellationToken)
     {
@@ -32,7 +35,7 @@ public class CreateTenantHandler(IamTenantDbContext context, ICognitoAuthService
                 TaxCode = existing.TaxCode,
                 CompanyDomain = existing.CompanyDomain,
                 PlanType = existing.PlanType,
-                Status = existing.Status.ToString(),
+                Status = existing.Status,
                 CreatedAt = existing.CreatedAt
             };
         }
@@ -51,10 +54,17 @@ public class CreateTenantHandler(IamTenantDbContext context, ICognitoAuthService
 
         // 3. Create Tenant
         var tenant = Tenant.Create(request.Name, request.CompanyDomain, request.TaxCode, request.PlanType, request.IdempotencyKey);
+        var tempPassword = GenerateTempPassword();
+
+        // Create Admin & User Cognito User Pools per Tenant Code
+        var pools = await cognitoService.CreateTenantUserPoolsAsync(tenant.Code, cancellationToken);
+        tenant.AdminUserPoolId = pools.AdminUserPoolId;
+        tenant.AdminUserPoolClientId = pools.AdminUserPoolClientId;
+        tenant.UserUserPoolId = pools.UserUserPoolId;
+        tenant.UserUserPoolClientId = pools.UserUserPoolClientId;
 
         context.Tenants.Add(tenant);
 
-        // 4. Create Tenant Admin
         var adminUser = new User
         {
             TenantId = tenant.Id,
@@ -63,9 +73,8 @@ public class CreateTenantHandler(IamTenantDbContext context, ICognitoAuthService
             Status = UserStatus.Invited,
         };
 
-        // Cognito AdminCreateUser
-        var tempPassword = GenerateTempPassword();
-        var cognitoSub = await cognitoService.AdminCreateUserAsync(request.AdminEmail, tempPassword, cancellationToken);
+        // Cognito AdminCreateUser in the newly provisioned Admin User Pool
+        var cognitoSub = await cognitoService.AdminCreateUserInPoolAsync(tenant.AdminUserPoolId, request.AdminEmail, tempPassword, cancellationToken);
         adminUser.CognitoSub = cognitoSub;
 
         context.Users.Add(adminUser);
@@ -95,8 +104,7 @@ public class CreateTenantHandler(IamTenantDbContext context, ICognitoAuthService
             new { tenant.Name, tenant.CompanyDomain, request.AdminEmail },
             cancellationToken);
 
-        // 7. Save changes (AuditInterceptor will assign CreatedBy/CreatedAt)
-        // Transaction is atomic because we save entities, outbox messages and audit logs together
+        // 7. Save changes
         await context.SaveChangesAsync(cancellationToken);
 
         return new TenantDto
@@ -107,7 +115,7 @@ public class CreateTenantHandler(IamTenantDbContext context, ICognitoAuthService
             TaxCode = tenant.TaxCode,
             CompanyDomain = tenant.CompanyDomain,
             PlanType = tenant.PlanType,
-            Status = tenant.Status.ToString(),
+            Status = tenant.Status,
             CreatedAt = tenant.CreatedAt
         };
     }

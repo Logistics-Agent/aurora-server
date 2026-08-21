@@ -1,0 +1,44 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+model NegotiationSession {
+  id           String               @id @default(uuid())
+  tenantId     String               @map("tenant_id")
+  shipmentId   String               @map("shipment_id")
+  customerId   String               @map("customer_id")
+  status       String               @default("OPEN") @map("status") // OPEN, ACCEPTED, REJECTED, HANDOFF, EXPIRED
+  currentRound Int                  @default(1) @map("current_round")
+  maxRounds    Int                  @default(5) @map("max_rounds")
+  listPrice    Float                @map("list_price")
+  bottomPrice  Float                @map("bottom_price")
+  createdAt    DateTime             @default(now()) @map("created_at")
+  updatedAt    DateTime             @updatedAt @map("updated_at")
+  messages     NegotiationMessage[]
+
+  @@index([tenantId])
+  @@index([shipmentId])
+  @@index([customerId])
+  @@map("negotiation_sessions")
+}
+
+model NegotiationMessage {
+  id         String             @id @default(uuid())
+  sessionId  String             @map("session_id")
+  round      Int                @default(1)
+  sender     String             @map("sender") // AI, CUSTOMER, HUMAN
+  message    String             @map("message")
+  offerPrice Float?             @map("offer_price")
+  decision   String?            @map("decision") // ACCEPT, COUNTER_OFFER, HUMAN_HANDOFF, REJECT
+  createdAt  DateTime           @default(now()) @map("created_at")
+  session    NegotiationSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId])
+  @@map("negotiation_messages")
+}
