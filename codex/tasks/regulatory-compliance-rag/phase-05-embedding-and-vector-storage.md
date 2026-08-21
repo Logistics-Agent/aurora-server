@@ -26,11 +26,22 @@ Production implementation has not started for this service.
 
 ## Scope
 
-Embedding provider interface, vector store abstraction, fake provider.
+Implement provider-neutral embedding generation and vector persistence/search primitives for
+regulatory chunks, with deterministic local fakes and an Azure-compatible storage boundary.
 
 ## Required Behavior
 
-Tests do not require paid AI credentials.
+* Define `IEmbeddingProvider` and `IRegulationVectorStore` without leaking vendor SDK types into
+  domain/application code; record model name/version and fixed vector dimension.
+* Use the repository-approved PostgreSQL vector approach for local MVP when available (for example
+  pgvector), while keeping interfaces replaceable by Azure-hosted PostgreSQL/search infrastructure.
+* Validate vector dimension, finite values, model version, batch size, timeout, and cancellation.
+* Generate embeddings in bounded batches and make writes idempotent by chunk hash plus model version.
+* Store only vectors and required provider metadata; never store API keys or prompts in entities/logs.
+* Preserve tenant/system source visibility in every vector upsert/search; missing tenant context
+  must never broaden access.
+* Add deterministic fake embeddings with known similarity ordering for automated tests.
+* Do not implement compliance decisions or unsupported free-form generation in this phase.
 
 ## Constraints
 
@@ -43,8 +54,8 @@ Tests do not require paid AI credentials.
 ## Validation Commands
 
 ```bash
-# Replace with the service project path once created.
-dotnet build
+dotnet build src/dotnet/RegulatoryCompliance/RegulatoryCompliance.csproj
+dotnet test src/dotnet/RegulatoryCompliance/Tests/RegulatoryCompliance.Tests.csproj
 ```
 
 ## Completion Criteria
@@ -53,6 +64,9 @@ dotnet build
 * Build succeeds.
 * Relevant tests pass or absence is recorded for early foundation phases.
 * Task file and plan are updated with real command evidence.
+* Tests cover dimension/model validation, deterministic ranking primitives, idempotent re-embedding,
+  batching/cancellation/provider failures, and tenant/source visibility.
+* Create local commit `feat(compliance): add vector storage`.
 
 ## Work Log
 

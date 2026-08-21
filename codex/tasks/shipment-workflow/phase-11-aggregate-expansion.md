@@ -40,7 +40,7 @@ Do not rename CargoItem without documented migration compatibility review. Do no
 
 ```bash
 dotnet build src/dotnet/ShipmentWorkflow/ShipmentWorkflow.csproj
-dotnet test tests/dotnet/ShipmentWorkflow.Tests/ShipmentWorkflow.Tests.csproj
+dotnet test src/dotnet/ShipmentWorkflow/Tests/ShipmentWorkflow.Tests.csproj
 git diff --check
 ```
 
@@ -61,7 +61,7 @@ git diff --check
 * `git branch --show-current`: `feat/shipment-workflow`.
 * `git log --oneline --decorate -15`: latest commit was `f7fde34 chore(dev): add local shipment infrastructure`.
 * `dotnet build src/dotnet/ShipmentWorkflow/ShipmentWorkflow.csproj`: Passed, 3 projects, 0 errors, 0 warnings.
-* `dotnet test tests/dotnet/ShipmentWorkflow.Tests/ShipmentWorkflow.Tests.csproj`: Passed, 11 tests, 0 warnings.
+* `dotnet test src/dotnet/ShipmentWorkflow/Tests/ShipmentWorkflow.Tests.csproj`: Passed, 11 tests, 0 warnings.
 
 ### Completed
 
@@ -88,9 +88,9 @@ git diff --check
 * `src/dotnet/ShipmentWorkflow/Domain/Enums/OCRStatus.cs`
 * `src/dotnet/ShipmentWorkflow/Domain/Enums/MilestoneSource.cs`
 * `src/dotnet/ShipmentWorkflow/Infrastructure/Persistences/ShipmentWorkflowDbContext.cs`
-* `tests/dotnet/ShipmentWorkflow.Tests/CreateShipmentCommandHandlerTests.cs`
-* `tests/dotnet/ShipmentWorkflow.Tests/ShipmentAggregateExpansionTests.cs`
-* `tests/dotnet/ShipmentWorkflow.Tests/ShipmentWorkflowDatabaseCollection.cs`
+* `src/dotnet/ShipmentWorkflow/Tests/CreateShipmentCommandHandlerTests.cs`
+* `src/dotnet/ShipmentWorkflow/Tests/ShipmentAggregateExpansionTests.cs`
+* `src/dotnet/ShipmentWorkflow/Tests/ShipmentWorkflowDatabaseCollection.cs`
 * `codex/tasks/shipment-workflow/phase-11-aggregate-expansion.md`
 * `codex/plan.md`
 * `codex/specs/shipment-workflow-gap-analysis.md`
@@ -102,14 +102,14 @@ git status --short
 git branch --show-current
 git log --oneline --decorate -15
 dotnet build src/dotnet/ShipmentWorkflow/ShipmentWorkflow.csproj
-dotnet test tests/dotnet/ShipmentWorkflow.Tests/ShipmentWorkflow.Tests.csproj
+dotnet test src/dotnet/ShipmentWorkflow/Tests/ShipmentWorkflow.Tests.csproj
 rg --files src/dotnet/ShipmentWorkflow
-rg --files tests/dotnet/ShipmentWorkflow.Tests
+rg --files src/dotnet/ShipmentWorkflow/Tests
 rg --files src/dotnet/Contracts/Shipment.Contracts protos
-rg "class Shipment|enum ShipmentStatus|DbSet|HasQueryFilter|EntityTypeBuilder|Create\(" src/dotnet/ShipmentWorkflow tests/dotnet/ShipmentWorkflow.Tests -n
+rg "class Shipment|enum ShipmentStatus|DbSet|HasQueryFilter|EntityTypeBuilder|Create\(" src/dotnet/ShipmentWorkflow src/dotnet/ShipmentWorkflow/Tests -n
 dotnet build src/dotnet/ShipmentWorkflow/ShipmentWorkflow.csproj
 dotnet build src/dotnet/ShipmentWorkflow/ShipmentWorkflow.csproj
-dotnet test tests/dotnet/ShipmentWorkflow.Tests/ShipmentWorkflow.Tests.csproj
+dotnet test src/dotnet/ShipmentWorkflow/Tests/ShipmentWorkflow.Tests.csproj
 git diff --check
 ```
 

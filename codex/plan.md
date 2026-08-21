@@ -5,24 +5,24 @@
 Shipment Workflow CreateShipment vertical slice: Completed
 Shipment Workflow Aggregate Expansion: Completed
 Shipment Workflow full MVP: Completed
-Notification Service: Not Started
-GPS Tracking and Monitoring: Not Started
+Notification Service: Completed
+GPS Tracking and Monitoring: Completed
 Document OCR Agent: Not Started
 Regulatory Compliance RAG: Not Started
 
 ## Active Work
 
-Active Service: Shipment Workflow
-Active Phase: Completed
-Current Branch: feat/shipment-workflow
+Active Service: GPS Tracking and Monitoring
+Active Phase: Phase 10 - Completed
+Current Branch: feat/gps-tracking
 
 ## Service Progress
 
 | Service | Status |
 | --- | --- |
 | Shipment Workflow | Completed |
-| Notification | Not Started |
-| GPS Tracking and Monitoring | Not Started |
+| Notification | Completed |
+| GPS Tracking and Monitoring | Completed |
 | Document OCR Agent | Not Started |
 | Regulatory Compliance RAG | Not Started |
 
@@ -49,17 +49,34 @@ Current Branch: feat/shipment-workflow
 | 17 | Shipment Import | Completed |
 | 18 | Contracts and Integration Events | Completed |
 | 19 | Migration and Full MVP Testing | Completed |
+| 20 | Outbox Publishing and Notification Integration | Completed |
 
 ## Future Service Phase Progress
 
 Future-service phase plans exist under:
 
+* `codex/tasks/README.md` (all owned-service phase outputs and gates)
 * `codex/tasks/notification/`
 * `codex/tasks/gps-tracking/`
 * `codex/tasks/document-ocr/`
 * `codex/tasks/regulatory-compliance-rag/`
 
-All future-service phases are `Not Started`.
+Notification Phases 01-09 are Completed.
+
+## GPS Tracking Phase Progress
+
+| Phase | Name | Status |
+| --- | --- | --- |
+| 01 | Project Foundation | Completed |
+| 02 | Contracts and Domain Model | Completed |
+| 03 | Persistence | Completed |
+| 04 | Location Ingestion | Completed |
+| 05 | Current Location and History | Completed |
+| 06 | Shipment Event Consumers | Completed |
+| 07 | Monitoring Rules | Completed |
+| 08 | Realtime Integration | Completed |
+| 09 | Program and Migration | Completed |
+| 10 | Testing and Runtime Validation | Completed |
 
 ## Completed Work
 
@@ -76,10 +93,26 @@ All future-service phases are `Not Started`.
 * Phase 17 implemented synchronous CSV shipment import with row-level results, limits, TenantId rejection, partial-success transaction policy, and ShipmentCreated outbox writes.
 * Phase 18 completed Shipment event contracts with EventId/version fields, added missing lifecycle/update event contracts, and wired outbox writes for submit/update/pickup/delivery/completion flows.
 * Phase 19 generated and applied `20260714042938_ExpandShipmentWorkflowMvp`, verified local PostgreSQL schema, ran runtime smoke validation, and completed full Shipment Workflow regression.
+* Phase 20 added a PostgreSQL skip-locked outbox publisher for all Shipment event contracts, bounded retry diagnostics, and verified real RabbitMQ delivery into Notification.
+* Notification Phases 01-09 completed the standalone service, Shipment event consumers, tenant-safe gRPC APIs, provider-neutral delivery, bounded retry, `20260719124939_InitialNotification`, runtime smoke validation, and 29 passing tests.
+* GPS Phase 07 completed circular geofences, abnormal-stop and signal-loss monitoring,
+  tenant-scoped management APIs, alert deduplication/resolution, and atomic alert outbox writes.
+* GPS Phase 08 completed allowlisted integration-event deserialization, MassTransit publishing,
+  PostgreSQL skip-locked outbox batching, bounded retries, and publisher worker behavior.
+* GPS Phase 09 configured the complete process, added dedicated local PostgreSQL infrastructure,
+  applied `20260721042104_InitialGpsTracking`, and passed startup/Rabbit/worker smoke validation.
+* GPS Phase 10 completed PostgreSQL integration, concurrent idempotency, tenant/cascade,
+  real RabbitMQ outbox delivery, and full Shipment/Notification regression validation.
+* Audited the complete owned-service task map and expanded all Document OCR and Regulatory
+  Compliance RAG phases with explicit contracts, boundaries, persistence, provider, migration,
+  security, test, runtime, evidence, and per-phase commit criteria.
 
 ## Current Work
 
-Shipment Workflow MVP is complete. The next allowed service branch is `feat/notification-service`; do not create it until explicitly requested.
+Shipment Workflow, Notification, and GPS Tracking are complete. Shipment publishes persisted
+events consumed idempotently by Notification and GPS; GPS publishes position and monitoring
+events through its own transactional outbox for future consumers. Service tests remain
+colocated under `src/dotnet/<Service>/Tests`.
 
 ## Blocked Work
 
@@ -87,49 +120,65 @@ No active blocker.
 
 ## Remaining Work
 
-No Shipment Workflow MVP implementation work remains.
+No remaining GPS MVP work. Document OCR and Regulatory Compliance remain separate planned
+services and must not begin without explicit authorization.
 
 ## Build Results
 
-Latest verified Phase 19 validation:
+Latest verified GPS Phase 10 validation:
 
 ```bash
+dotnet build src/dotnet/GpsTracking/GpsTracking.csproj
 dotnet build src/dotnet/ShipmentWorkflow/ShipmentWorkflow.csproj
+dotnet build src/dotnet/Notification/Notification.csproj
 ```
 
-Result: Passed, 3 projects, 0 errors, 0 warnings.
+Result: All passed, 0 errors, 0 warnings.
 
 ## Test Results
 
-Latest verified Phase 19 validation:
+Latest verified GPS Phase 10 validation:
 
 ```bash
-dotnet test tests/dotnet/ShipmentWorkflow.Tests/ShipmentWorkflow.Tests.csproj
+dotnet test src/dotnet/GpsTracking/Tests/GpsTracking.Tests.csproj
+dotnet test src/dotnet/ShipmentWorkflow/Tests/ShipmentWorkflow.Tests.csproj
+dotnet test src/dotnet/Notification/Tests/Notification.Tests.csproj
 ```
 
-Result: Passed, 83 tests, 0 warnings.
+Result: GPS passed 50 tests; Shipment passed 99 tests; Notification passed 29 tests.
 
 ## Migration Results
 
-Initial Shipment Workflow migration `20260713201248_InitialShipmentWorkflow` and expanded MVP migration `20260714042938_ExpandShipmentWorkflowMvp` are applied to local `aurora_shipment_workflow`.
+Initial Shipment Workflow migration `20260713201248_InitialShipmentWorkflow` and expanded MVP migration `20260714042938_ExpandShipmentWorkflowMvp` are applied to local `aurora_shipment_workflow`. Notification migration `20260719124939_InitialNotification` is applied to local `aurora_notification`. GPS migration `20260721042104_InitialGpsTracking` is applied to local `aurora_gps_tracking`.
+
+Part of the validation also produced supporting repository commits:
+
+* `0ebc652` - colocate Shipment and Notification test projects.
+* `e574f54` - exclude colocated test artifacts from production Web SDK items.
 
 ## Commit History
 
-Recent phase commits:
+Recent Notification phase commits:
 
-* `de4150f` — Phase 06 proto contract
-* `cedea06` — Phase 07 program configuration
-* `72e4409` — Phase 08 CreateShipment flow
-* `5620d58` — Phase 09 migration
-* `f33c5a8` — Phase 10 tests
+* `e89550a` — Phase 01 project foundation
+* `4baed46` — Phase 02 domain model
+* `dfcbdb5` — Phase 03 persistence model
+* `52d8456` — Phase 04 Shipment event consumers
+* `42a06d2` — Phase 05 notification delivery
+* `8f237ff` — Phase 06 retry and idempotency
+* `ffb10c9` — Phase 07 program configuration
+* `2fc547d` — Phase 08 initial migration
+* Phase 09 testing commit is the final local Notification commit
 
 ## Immediate Next Action
 
-Stop Shipment Workflow implementation. Next allowed action after explicit request: create `feat/notification-service`.
+GPS Tracking is complete on `feat/gps-tracking`. The next planned service is Document OCR,
+but its branch and Phase 01 require an explicit user instruction.
 
 ## Branch Strategy
 
-Remain on current Shipment branch until full Shipment Workflow MVP is complete.
+GPS Tracking was explicitly authorized and its branch was created from the current
+`integration` branch before merging the completed Notification branch.
 
 Future stacked branch strategy:
 
@@ -141,4 +190,4 @@ current Shipment branch
             └── feat/regulatory-compliance-rag
 ```
 
-Do not create these branches yet.
+Do not create Document OCR or later branches yet.

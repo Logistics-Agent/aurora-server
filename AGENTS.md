@@ -35,6 +35,12 @@ Treat `codex/requirement.md` as the business and architecture source of truth. T
 * Preserve tenant isolation in all queries.
 * Do not commit credentials, tokens, connection strings for production, or secrets.
 
+## Test Project Layout
+
+* Keep each service test project under `src/dotnet/<Service>/Tests`.
+* Exclude `Tests/**/*.cs` from production compilation and `Tests/**/*` from production content/resource item globs; reference the service project from the colocated test project.
+* Create test projects for future owned services only when their implementation phase starts.
+
 ## Mandatory Workflow
 
 1. Inspect before editing.

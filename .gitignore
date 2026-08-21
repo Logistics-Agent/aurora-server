@@ -8,6 +8,9 @@ Migrations*
 .env
 target/
 
+# Local Codex planning and execution documents
+/codex/
+
 dist/
 target/
 *Migrations

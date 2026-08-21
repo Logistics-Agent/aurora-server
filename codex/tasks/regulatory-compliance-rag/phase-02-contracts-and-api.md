@@ -26,11 +26,24 @@ Production implementation has not started for this service.
 
 ## Scope
 
-Check cargo, required docs, question answering with citations.
+Define protobuf and versioned event contracts for compliance evaluation, reading evaluation state,
+evidence-backed regulation queries, and controlled regulatory-source ingestion.
 
 ## Required Behavior
 
-Responses include evidence.
+* Define `EvaluateCompliance`, `GetComplianceEvaluation`, and `QueryRegulations` RPCs plus the
+  minimum staff-only regulatory ingestion RPC required by Phase 04.
+* Evaluation input carries external Shipment/document IDs and an immutable request snapshot of
+  cargo, origin/destination/jurisdictions, transport mode, and OCR structured data; no TenantId.
+* Require an idempotency key and explicit jurisdiction/effective-date context.
+* Responses expose status, risk level, violations, missing documents, assumptions, confidence,
+  and citations containing source/version/section/page/chunk references.
+* Query responses distinguish retrieved evidence from generated explanation and must support
+  an explicit insufficient-evidence result.
+* Use `google.protobuf.Timestamp`; preserve field numbers and enum numeric values after release.
+* Add versioned `ComplianceEvaluationCompletedEvent` and `ComplianceEvaluationFailedEvent`
+  contracts with EventId, TenantId, EvaluationId, external references, summary, and OccurredAt.
+* Never expose embeddings, provider prompts/credentials, EF entities, or internal navigation data.
 
 ## Constraints
 
@@ -43,8 +56,9 @@ Responses include evidence.
 ## Validation Commands
 
 ```bash
-# Replace with the service project path once created.
-dotnet build
+dotnet build src/dotnet/Contracts/RegulatoryCompliance.Contracts/RegulatoryCompliance.Contracts.csproj
+dotnet build src/dotnet/RegulatoryCompliance/RegulatoryCompliance.csproj
+dotnet test src/dotnet/RegulatoryCompliance/Tests/RegulatoryCompliance.Tests.csproj
 ```
 
 ## Completion Criteria
@@ -53,6 +67,8 @@ dotnet build
 * Build succeeds.
 * Relevant tests pass or absence is recorded for early foundation phases.
 * Task file and plan are updated with real command evidence.
+* Contract tests prove requests cannot control TenantId and every conclusion shape carries evidence.
+* Create local commit `feat(compliance): define service contracts`.
 
 ## Work Log
 

@@ -40,7 +40,7 @@ Do not modify other service code without explicit approval.
 
 ```bash
 dotnet build src/dotnet/ShipmentWorkflow/ShipmentWorkflow.csproj
-dotnet test tests/dotnet/ShipmentWorkflow.Tests/ShipmentWorkflow.Tests.csproj
+dotnet test src/dotnet/ShipmentWorkflow/Tests/ShipmentWorkflow.Tests.csproj
 git diff --check
 ```
 
@@ -86,15 +86,15 @@ RouteAssignedEvent is defined for consumers, but no route-assignment command exi
 * `src/dotnet/ShipmentWorkflow/Application/Commands/Shipments/SubmitShipmentCommand.cs`
 * `src/dotnet/ShipmentWorkflow/Application/Commands/Shipments/UpdateShipmentCommand.cs`
 * `src/dotnet/ShipmentWorkflow/Application/Commands/Shipments/UpdateShipmentStatusCommand.cs`
-* `tests/dotnet/ShipmentWorkflow.Tests/ShipmentIntegrationEventTests.cs`
+* `src/dotnet/ShipmentWorkflow/Tests/ShipmentIntegrationEventTests.cs`
 
 ### Commands Executed
 
 ```bash
 git status --short
 dotnet build src/dotnet/ShipmentWorkflow/ShipmentWorkflow.csproj
-dotnet test tests/dotnet/ShipmentWorkflow.Tests/ShipmentWorkflow.Tests.csproj
-dotnet test tests/dotnet/ShipmentWorkflow.Tests/ShipmentWorkflow.Tests.csproj --filter ShipmentIntegrationEventTests
+dotnet test src/dotnet/ShipmentWorkflow/Tests/ShipmentWorkflow.Tests.csproj
+dotnet test src/dotnet/ShipmentWorkflow/Tests/ShipmentWorkflow.Tests.csproj --filter ShipmentIntegrationEventTests
 ```
 
 ### Build Result
@@ -103,7 +103,7 @@ Passed: `dotnet build src/dotnet/ShipmentWorkflow/ShipmentWorkflow.csproj` compl
 
 ### Test Result
 
-Passed: `dotnet test tests/dotnet/ShipmentWorkflow.Tests/ShipmentWorkflow.Tests.csproj` completed with 83 tests passed, 0 warnings.
+Passed: `dotnet test src/dotnet/ShipmentWorkflow/Tests/ShipmentWorkflow.Tests.csproj` completed with 83 tests passed, 0 warnings.
 
 ### Runtime Result
 

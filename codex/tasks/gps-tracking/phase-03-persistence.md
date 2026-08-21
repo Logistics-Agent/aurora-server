@@ -2,7 +2,7 @@
 
 ## Status
 
-Not Started
+Completed
 
 ## Goal
 
@@ -26,11 +26,20 @@ Production implementation has not started for this service.
 
 ## Scope
 
-DbContext, location history, indexes, tenant filters.
+Implement `GpsTrackingDbContext`, entity mappings, relationships, tenant query filters,
+and model-level tests. Do not generate a migration in this phase.
 
 ## Required Behavior
 
-Persistence handles high-volume reads/writes.
+* Map separate tables for positions, current locations, assignments, geofences,
+  geofence presence, alerts, consumed events, and outbox messages.
+* Add unique indexes for reading idempotency, one current snapshot per vehicle, active
+  assignment lookup, consumed event identity, geofence presence, and outbox event IDs.
+* Add tenant/time indexes supporting vehicle/shipment history, active alerts, signal-loss
+  scans, and outbox batches.
+* Apply tenant filters to every tenant-owned table. A missing tenant must match no rows.
+* Configure only GPS-owned relationships and conservative cascade behavior.
+* Use decimal precision suitable for coordinates and speed; keep event content as text.
 
 ## Constraints
 
@@ -43,8 +52,8 @@ Persistence handles high-volume reads/writes.
 ## Validation Commands
 
 ```bash
-# Replace with the service project path once created.
-dotnet build
+dotnet build src/dotnet/GpsTracking/GpsTracking.csproj
+dotnet test src/dotnet/GpsTracking/Tests/GpsTracking.Tests.csproj
 ```
 
 ## Completion Criteria
@@ -53,37 +62,48 @@ dotnet build
 * Build succeeds.
 * Relevant tests pass or absence is recorded for early foundation phases.
 * Task file and plan are updated with real command evidence.
+* EF model tests verify filters, keys, indexes, precision, and delete behavior.
+* Create local commit `feat(gps): configure persistence`.
 
 ## Work Log
 
 ### Completed
 
-Not started.
+Implemented the GPS DbContext and mappings for all eight tenant-owned entities. Added
+tenant filters, idempotency/current-state/assignment/history/monitoring/outbox indexes,
+coordinate precision, enum conversion, and conservative GPS-owned relationships. No
+migration was generated.
 
 ### Files Changed
 
-None.
+* `src/dotnet/GpsTracking/GpsTracking.csproj`
+* `src/dotnet/GpsTracking/Infrastructure/Persistences/GpsTrackingDbContext.cs`
+* `src/dotnet/GpsTracking/Tests/GpsTracking.Tests.csproj`
+* `src/dotnet/GpsTracking/Tests/GpsPersistenceModelTests.cs`
 
 ### Commands Executed
 
-None.
+* `dotnet test src/dotnet/GpsTracking/Tests/GpsTracking.Tests.csproj --no-restore` (expected RED: missing DbContext)
+* `dotnet build src/dotnet/GpsTracking/GpsTracking.csproj --verbosity minimal`
+* `dotnet test src/dotnet/GpsTracking/Tests/GpsTracking.Tests.csproj --logger console;verbosity=minimal`
+* `dotnet test src/dotnet/GpsTracking/Tests/GpsTracking.Tests.csproj --no-restore --logger console;verbosity=minimal`
 
 ### Build Result
 
-Not started.
+Passed: 4 projects built with 0 errors and 0 warnings.
 
 ### Test Result
 
-Not started.
+Passed: 12 tests, 0 failed, 0 skipped, 0 warnings after replacing an obsolete EF metadata API.
 
 ### Runtime Result
 
-Not started.
+Not required for persistence-model configuration.
 
 ### Migration Result
 
-Not started.
+Intentionally deferred to Phase 09; the current EF model builds without a migration.
 
 ### Remaining Issues
 
-Phase has not started.
+No Phase 03 issues. PostgreSQL migration/application remains gated to Phase 09.

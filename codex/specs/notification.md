@@ -10,7 +10,7 @@ This is an independent service with its own database and deployment boundary. It
 
 ## Owned Data
 
-Owns notification delivery records, templates, delivery attempts, provider message IDs.
+Owns notification records, recipient preferences, delivery attempts, inbox receipts, and provider message IDs. A reusable template catalog is outside the completed MVP scope.
 
 ## Data Not Owned
 
@@ -79,6 +79,12 @@ Use unit tests for domain rules and integration tests for persistence, events, i
 ## Definition of Done
 
 The service builds, starts, migrates its database, passes tests, enforces tenant isolation, handles retries/idempotency, and communicates only through approved contracts/events.
+
+## Implementation Status
+
+Completed locally on 2026-07-19. The service has tenant-safe gRPC APIs, Shipment event consumers, inbox and notification dedupe, email and in-app provider abstractions, persisted delivery attempts, bounded retry, an applied PostgreSQL migration, and 29 passing tests including PostgreSQL integration. Runtime smoke validation passed with PostgreSQL, RabbitMQ, and Redis healthy.
+
+Live Shipment event delivery depends on the separately owned Shipment outbox publisher. Real SMTP delivery requires deployment-provided host, sender, and credentials; no secrets are committed.
 
 ## Assumptions
 

@@ -26,11 +26,22 @@ Production implementation has not started for this service.
 
 ## Scope
 
-Job state, document metadata, provider payload, result.
+Implement the OCR aggregate and supporting entities/enums needed to represent one idempotent
+document extraction job, its attempts, normalized result, and integration-event intent.
 
 ## Required Behavior
 
-Job model supports retries.
+* Model `DocumentOcrJob` with tenant ownership, idempotency key, storage reference, file metadata,
+  external document/shipment IDs, type hint/detected type, status, attempts, timestamps, and error.
+* Model provider attempts separately with provider name, started/completed time, outcome, and
+  bounded diagnostics; never persist credentials or unrestricted raw provider payloads.
+* Model normalized JSON, overall confidence `[0,1]`, per-field confidence when required, and
+  `NeedsReview` without deciding regulatory compliance.
+* Define explicit states such as Queued, Processing, Completed, Failed, and Cancelled, preserving
+  retryable versus terminal failure semantics.
+* Add domain methods for start, complete, record failure, schedule retry, and cancel; reject
+  invalid transitions and unrestricted public mutation.
+* Include inbox/outbox domain records only when needed by the approved contracts; no EF mapping yet.
 
 ## Constraints
 
@@ -43,8 +54,8 @@ Job model supports retries.
 ## Validation Commands
 
 ```bash
-# Replace with the service project path once created.
-dotnet build
+dotnet build src/dotnet/DocumentOcr/DocumentOcr.csproj
+dotnet test src/dotnet/DocumentOcr/Tests/DocumentOcr.Tests.csproj
 ```
 
 ## Completion Criteria
@@ -53,6 +64,8 @@ dotnet build
 * Build succeeds.
 * Relevant tests pass or absence is recorded for early foundation phases.
 * Task file and plan are updated with real command evidence.
+* Tests cover state transitions, confidence bounds, required metadata, error limits, and tenant IDs.
+* Create local commit `feat(ocr): model document jobs`.
 
 ## Work Log
 

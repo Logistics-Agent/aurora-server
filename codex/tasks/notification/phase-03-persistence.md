@@ -2,7 +2,7 @@
 
 ## Status
 
-Not Started
+Completed
 
 ## Goal
 
@@ -22,7 +22,7 @@ Phase 02.
 
 ## Existing State
 
-Production implementation has not started for this service.
+Notification persistence model is implemented and migration-ready.
 
 ## Scope
 
@@ -43,8 +43,7 @@ Database model is tenant-aware and migration-ready.
 ## Validation Commands
 
 ```bash
-# Replace with the service project path once created.
-dotnet build
+dotnet build src/dotnet/Notification/Notification.csproj
 ```
 
 ## Completion Criteria
@@ -58,32 +57,45 @@ dotnet build
 
 ### Completed
 
-Not started.
+* Added NotificationDbContext with tenant filters for every tenant-owned entity.
+* Added inbox receipt persistence, aggregate cascade mapping, and dedupe/query indexes.
+* Aligned EF Core test dependencies to 10.0.9.
 
 ### Files Changed
 
-None.
+* src/dotnet/Notification/Domain/Entities/ConsumedIntegrationEvent.cs
+* src/dotnet/Notification/Infrastructure/Persistences/NotificationDbContext.cs
+* src/dotnet/Notification/Notification.csproj
+* src/dotnet/Notification/Tests/Notification.Tests.csproj
+* src/dotnet/Notification/Tests/NotificationPersistenceModelTests.cs
 
 ### Commands Executed
 
-None.
+```bash
+dotnet test src/dotnet/Notification/Tests/Notification.Tests.csproj
+dotnet build src/dotnet/Notification/Notification.csproj
+```
 
 ### Build Result
 
-Not started.
+Passed: 3 projects, 0 errors, 0 warnings.
 
 ### Test Result
 
-Not started.
+Passed: 9 tests, 0 warnings.
 
 ### Runtime Result
 
-Not started.
+Not run; runtime configuration is Phase 07 scope.
 
 ### Migration Result
 
-Not started.
+Model is migration-ready; migration generation is Phase 08 scope.
 
 ### Remaining Issues
 
-Phase has not started.
+Shipment event consumers remain Phase 04 scope.
+
+### Commit Hash
+
+Recorded by the Phase 03 Git commit.

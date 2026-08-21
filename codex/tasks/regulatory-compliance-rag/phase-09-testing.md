@@ -26,11 +26,26 @@ Production implementation has not started for this service.
 
 ## Scope
 
-Ingestion, retrieval, citations, evaluation, fake provider tests.
+Audit and complete domain, contract, PostgreSQL/vector, retrieval, evaluation, messaging, security,
+and runtime coverage for the full Regulatory Compliance RAG MVP.
 
 ## Required Behavior
 
-Tests pass deterministically.
+* Cover source/version domain rules, deterministic chunking, embedding validation/idempotency,
+  retrieval filters/ranking, citation construction, evaluation rules, and insufficient evidence.
+* Add PostgreSQL-backed tests for migration/vector extension, source visibility, unique hashes,
+  effective/superseded versions, relationships, JSON/vector persistence, inbox/outbox locking.
+* Test all gRPC mappings, missing/client TenantId behavior, cross-tenant access, staff ingestion
+  authorization, input/size/topK limits, and unsafe source reference rejection.
+* Run deterministic end-to-end ingestion -> embedding -> retrieval -> cited evaluation with fakes.
+* Prove concurrent/replayed ingestion and evaluation are idempotent and partial failures are atomic.
+* With RabbitMQ available, publish/receive completion/failure events and verify EventId/TenantId plus
+  outbox processing state; no OCR/Shipment/Notification process is required.
+* Smoke-start with Docker and fake providers. No test may require paid AI credentials or network
+  access to live regulatory sources.
+* Rebuild/rerun Shipment, Notification, GPS, and Document OCR regressions when OCR exists; record
+  unrelated failures rather than weakening another service.
+* Inspect migration state, full diff, secrets, generated artifacts, and working tree.
 
 ## Constraints
 
@@ -43,8 +58,10 @@ Tests pass deterministically.
 ## Validation Commands
 
 ```bash
-# Replace with the service project path once created.
-dotnet build
+dotnet build src/dotnet/RegulatoryCompliance/RegulatoryCompliance.csproj
+dotnet test src/dotnet/RegulatoryCompliance/Tests/RegulatoryCompliance.Tests.csproj
+dotnet ef migrations list --project src/dotnet/RegulatoryCompliance/RegulatoryCompliance.csproj --startup-project src/dotnet/RegulatoryCompliance/RegulatoryCompliance.csproj
+git diff --check
 ```
 
 ## Completion Criteria
@@ -53,6 +70,8 @@ dotnet build
 * Build succeeds.
 * Relevant tests pass or absence is recorded for early foundation phases.
 * Task file and plan are updated with real command evidence.
+* Full service definition of done passes with test count, migration/vector, runtime, and broker proof.
+* Create local commit `test(compliance): complete service validation`.
 
 ## Work Log
 

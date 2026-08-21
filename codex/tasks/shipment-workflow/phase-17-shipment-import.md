@@ -40,7 +40,7 @@ Do not introduce a complex background-import platform unless required.
 
 ```bash
 dotnet build src/dotnet/ShipmentWorkflow/ShipmentWorkflow.csproj
-dotnet test tests/dotnet/ShipmentWorkflow.Tests/ShipmentWorkflow.Tests.csproj
+dotnet test src/dotnet/ShipmentWorkflow/Tests/ShipmentWorkflow.Tests.csproj
 git diff --check
 ```
 
@@ -74,15 +74,15 @@ git diff --check
 * `src/dotnet/ShipmentWorkflow/Application/Commands/Shipments/ImportShipmentsCommand.cs`
 * `src/dotnet/ShipmentWorkflow/Application/DTOs/Shipments/ImportShipmentsResult.cs`
 * `src/dotnet/ShipmentWorkflow/GrpcServices/ShipmentGrpcService.cs`
-* `tests/dotnet/ShipmentWorkflow.Tests/ShipmentImportTests.cs`
+* `src/dotnet/ShipmentWorkflow/Tests/ShipmentImportTests.cs`
 
 ### Commands Executed
 
 ```bash
 git status --short
 dotnet build src/dotnet/ShipmentWorkflow/ShipmentWorkflow.csproj
-dotnet test tests/dotnet/ShipmentWorkflow.Tests/ShipmentWorkflow.Tests.csproj
-dotnet test tests/dotnet/ShipmentWorkflow.Tests/ShipmentWorkflow.Tests.csproj --filter ShipmentImportTests
+dotnet test src/dotnet/ShipmentWorkflow/Tests/ShipmentWorkflow.Tests.csproj
+dotnet test src/dotnet/ShipmentWorkflow/Tests/ShipmentWorkflow.Tests.csproj --filter ShipmentImportTests
 ```
 
 ### Build Result
@@ -91,7 +91,7 @@ Passed: `dotnet build src/dotnet/ShipmentWorkflow/ShipmentWorkflow.csproj` compl
 
 ### Test Result
 
-Passed: `dotnet test tests/dotnet/ShipmentWorkflow.Tests/ShipmentWorkflow.Tests.csproj` completed with 78 tests passed, 0 warnings.
+Passed: `dotnet test src/dotnet/ShipmentWorkflow/Tests/ShipmentWorkflow.Tests.csproj` completed with 78 tests passed, 0 warnings.
 
 ### Runtime Result
 

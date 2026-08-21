@@ -26,11 +26,22 @@ Production implementation has not started for this service.
 
 ## Scope
 
-DbContext, job indexes, tenant filters.
+Add `DocumentOcrDbContext`, entity configurations, tenant filters, aggregate relationships,
+inbox/outbox persistence, and indexes required by submission, polling, and worker queries.
 
 ## Required Behavior
 
-Persistence is tenant-aware.
+* Configure separate tables for jobs, provider attempts/results where modeled, inbox receipts,
+  and outbox messages; external Shipment/document references have no database foreign keys.
+* Apply tenant query filters to every tenant-owned entity; missing tenant context must return no
+  tenant rows rather than disabling filters.
+* Add unique `(TenantId, IdempotencyKey)` and appropriate external-reference indexes.
+* Add worker indexes for `(Status, NextAttemptAt, CreatedAt)` and outbox indexes for
+  `(ProcessedAt, RetryCount, OccurredAt)`.
+* Configure bounded string lengths, JSON column storage, confidence precision, required timestamps,
+  cascade behavior only inside the OCR aggregate, and unique EventId/source-event constraints.
+* Add EF model tests for filters, indexes, conversions, and relationships.
+* Do not create a migration in this phase; Phase 08 owns the initial migration.
 
 ## Constraints
 
@@ -43,8 +54,8 @@ Persistence is tenant-aware.
 ## Validation Commands
 
 ```bash
-# Replace with the service project path once created.
-dotnet build
+dotnet build src/dotnet/DocumentOcr/DocumentOcr.csproj
+dotnet test src/dotnet/DocumentOcr/Tests/DocumentOcr.Tests.csproj
 ```
 
 ## Completion Criteria
@@ -53,6 +64,8 @@ dotnet build
 * Build succeeds.
 * Relevant tests pass or absence is recorded for early foundation phases.
 * Task file and plan are updated with real command evidence.
+* Persistence model tests prove tenant filters remain restrictive with missing context.
+* Create local commit `feat(ocr): configure persistence`.
 
 ## Work Log
 

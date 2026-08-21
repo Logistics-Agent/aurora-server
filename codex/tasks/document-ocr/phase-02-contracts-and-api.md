@@ -26,11 +26,21 @@ Production implementation has not started for this service.
 
 ## Scope
 
-Submit document job, get result, callbacks/events.
+Define the protobuf and versioned integration contracts for submitting an OCR job, reading
+job/result state, and notifying consumers when extraction completes or permanently fails.
 
 ## Required Behavior
 
-Contracts expose structured JSON and confidence.
+* Define `SubmitDocumentJob`, `GetDocumentJob`, and a bounded tenant-scoped `ListDocumentJobs` RPC.
+* Submit accepts document metadata, a trusted storage object reference, document type hint,
+  external document/shipment references, and an idempotency key; it never accepts TenantId.
+* Do not accept arbitrary local paths or fetch arbitrary callback URLs.
+* Responses expose job status, detected type, normalized JSON, confidence in `[0,1]`,
+  `NeedsReview`, bounded errors, timestamps, and external references.
+* Use `google.protobuf.Timestamp`; preserve field numbers and enum numeric values once defined.
+* Add versioned `DocumentOcrCompletedEvent` and `DocumentOcrFailedEvent` contracts with EventId,
+  TenantId, JobId, external references, result metadata, OccurredAt, and ContractVersion.
+* Do not expose provider-native payloads, credentials, EF entities, or storage contents.
 
 ## Constraints
 
@@ -43,8 +53,9 @@ Contracts expose structured JSON and confidence.
 ## Validation Commands
 
 ```bash
-# Replace with the service project path once created.
-dotnet build
+dotnet build src/dotnet/Contracts/DocumentOcr.Contracts/DocumentOcr.Contracts.csproj
+dotnet build src/dotnet/DocumentOcr/DocumentOcr.csproj
+dotnet test src/dotnet/DocumentOcr/Tests/DocumentOcr.Tests.csproj
 ```
 
 ## Completion Criteria
@@ -53,6 +64,8 @@ dotnet build
 * Build succeeds.
 * Relevant tests pass or absence is recorded for early foundation phases.
 * Task file and plan are updated with real command evidence.
+* Contract tests prove TenantId is absent from client requests and field mappings compile.
+* Create local commit `feat(ocr): define service contracts`.
 
 ## Work Log
 
