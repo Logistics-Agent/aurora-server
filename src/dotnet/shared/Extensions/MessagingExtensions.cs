@@ -29,8 +29,7 @@ public static class SharedServiceExtensions
         services.AddScoped<ICurrentUserContext>(sp => sp.GetRequiredService<CurrentUserService>());
 
         // Redis Permission Cache
-        var redisConn = configuration["Redis:ConnectionString"]
-            ?? throw new InvalidOperationException("Redis:ConnectionString is required");
+        var redisConn = BuildRedisConnectionString(configuration);
         services.AddStackExchangeRedisCache(opts => opts.Configuration = redisConn);
         services.AddScoped<IPermissionCacheService, PermissionCacheService>();
 
@@ -71,10 +70,35 @@ public static class SharedServiceExtensions
                 // Bắt buộc để NestJS (và bất kỳ service non-.NET nào) đọc được message
                 cfg.UseRawJsonSerializer();
 
+                // Retry theo cấp số nhân cho mọi consumer: 5 lần, 1s → 30s
+                cfg.UseMessageRetry(r => r.Exponential(
+                    5,
+                    TimeSpan.FromSeconds(1),
+                    TimeSpan.FromSeconds(30),
+                    TimeSpan.FromSeconds(2)));
+
                 cfg.ConfigureEndpoints(context);
             });
         });
 
         return services;
+    }
+    /// <summary>
+    /// Build StackExchange.Redis connection string từ Redis:Host + Redis:Password.
+    /// Nếu có password (Redis Cloud) → thêm password + ssl=true.
+    /// Nếu không có password (local) → chỉ dùng host.
+    /// </summary>
+    public static string BuildRedisConnectionString(IConfiguration configuration)
+    {
+        var host = configuration["Redis:Host"]
+            ?? throw new InvalidOperationException("Redis:Host is required (e.g. localhost:6379)");
+
+        var password = configuration["Redis:Password"];
+
+        if (string.IsNullOrWhiteSpace(password))
+            return host; // Local Redis, không cần password
+
+        // Redis Cloud: host:port,password=xxx,ssl=true,abortConnect=false
+        return $"{host},password={password},ssl=true,abortConnect=false";
     }
 }

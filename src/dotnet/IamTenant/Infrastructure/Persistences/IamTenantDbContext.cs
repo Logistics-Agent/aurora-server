@@ -11,7 +11,7 @@ public class IamTenantDbContext(
     ICurrentUserService currentUser,
     AuditSaveChangesInterceptor auditInterceptor) : DbContext(options)
 {
-    private readonly ICurrentUserService _currentUser = currentUser;
+    private readonly Guid? _tenantId = currentUser.TenantId;
     private readonly AuditSaveChangesInterceptor _auditInterceptor = auditInterceptor;
 
     public DbSet<Tenant> Tenants => Set<Tenant>();
@@ -33,15 +33,10 @@ public class IamTenantDbContext(
     {
         base.OnModelCreating(modelBuilder);
 
-        // ============================================================
-        // GLOBAL QUERY FILTERS — tham chiếu trực tiếp qua _currentUser
-        // (KHÔNG dùng local variable - EF Core sẽ capture đúng per-request)
-        // ============================================================
-
         modelBuilder.Entity<User>(e =>
         {
             e.HasQueryFilter(u =>
-                (!_currentUser.TenantId.HasValue || u.TenantId == _currentUser.TenantId)
+                _tenantId.HasValue && u.TenantId == _tenantId.Value
                 && !u.IsDeleted);
 
             e.HasIndex(u => u.CognitoSub).IsUnique();
@@ -49,12 +44,11 @@ public class IamTenantDbContext(
             e.HasIndex(u => new { u.TenantId, u.CreatedAt });
             e.HasIndex(u => new { u.TenantId, u.Status });
 
-            // MaxLength để tránh Postgres tạo ra cột 'text'
             e.Property(u => u.Email).HasMaxLength(256).IsRequired();
             e.Property(u => u.FirstName).HasMaxLength(100);
             e.Property(u => u.LastName).HasMaxLength(100);
             e.Property(u => u.CognitoSub).HasMaxLength(128);
-            e.Property(u => u.UserType).HasConversion<string>().HasMaxLength(50);
+            e.Property(u => u.UserType);
             e.Property(u => u.Status).HasConversion<string>().HasMaxLength(50);
         });
 
@@ -70,17 +64,25 @@ public class IamTenantDbContext(
             e.Property(t => t.Code).HasMaxLength(50).IsRequired();
             e.Property(t => t.CompanyDomain).HasMaxLength(100).IsRequired();
             e.Property(t => t.TaxCode).HasMaxLength(50);
-            e.Property(t => t.PlanType).HasMaxLength(50);
-            e.Property(t => t.Status).HasConversion<string>().HasMaxLength(50);
+            e.Property(t => t.PlanType);
+            e.Property(t => t.Status);
+            e.Property(t => t.AdminGroupId).HasMaxLength(128);
+            e.Property(t => t.UserGroupId).HasMaxLength(128);
+            e.Property(t => t.AdminUserPoolId).HasMaxLength(128);
+            e.Property(t => t.AdminUserPoolClientId).HasMaxLength(128);
+            e.Property(t => t.UserUserPoolId).HasMaxLength(128);
+            e.Property(t => t.UserUserPoolClientId).HasMaxLength(128);
         });
+
+
 
         modelBuilder.Entity<Role>(e =>
         {
-            // Filter: Role hệ thống (IsSystemRole = true) hiện ra cho mọi tenant
+            // Filter: Role hệ thống (IsSystemRole = true) hiện ra cho mọi tenant, còn lại fail-closed theo tenant
             e.HasQueryFilter(r =>
                 r.IsSystemRole
-                || !_currentUser.TenantId.HasValue
-                || r.TenantId == _currentUser.TenantId);
+                || (_tenantId.HasValue && r.TenantId == _tenantId.Value));
+
 
             e.HasIndex(r => new { r.TenantId, r.Code }).IsUnique();
             e.Property(r => r.Code).HasMaxLength(100).IsRequired();
@@ -97,7 +99,10 @@ public class IamTenantDbContext(
         });
 
         // Composite PKs cho junction tables
-        modelBuilder.Entity<UserRole>().HasKey(ur => new { ur.UserId, ur.RoleIds });
+        modelBuilder.Entity<UserRole>(e =>
+        {
+            e.HasKey(ur => new { ur.UserId, ur.RoleId });
+        });
         modelBuilder.Entity<RolePermission>().HasKey(rp => new { rp.RoleId, rp.PermissionId });
         modelBuilder.Entity<UserPermission>(e =>
         {
@@ -163,77 +168,64 @@ public class IamTenantDbContext(
             new Role { Id = tenantStaffRoleId, TenantId = systemTenantId, Code = "TENANT_STAFF", Name = "Tenant Staff", IsSystemRole = true, CreatedAt = DateTimeOffset.UnixEpoch, CreatedBy = "system" }
         );
 
-        // --- Permissions ---
-        var perms = new[]
-        {
-            ("20000000-0000-0000-0000-000000000001", "tenant:create", "IAM"),
-            ("20000000-0000-0000-0000-000000000002", "tenant:read", "IAM"),
-            ("20000000-0000-0000-0000-000000000003", "tenant:update", "IAM"),
-            ("20000000-0000-0000-0000-000000000004", "tenant:delete", "IAM"),
-            ("20000000-0000-0000-0000-000000000011", "staff:create", "IAM"),
-            ("20000000-0000-0000-0000-000000000012", "staff:read", "IAM"),
-            ("20000000-0000-0000-0000-000000000013", "staff:update", "IAM"),
-            ("20000000-0000-0000-0000-000000000014", "staff:delete", "IAM"),
-            ("20000000-0000-0000-0000-000000000015", "staff:activate", "IAM"),
-            ("20000000-0000-0000-0000-000000000016", "staff:reset_password", "IAM"),
-            ("20000000-0000-0000-0000-000000000021", "role:create", "IAM"),
-            ("20000000-0000-0000-0000-000000000022", "role:read", "IAM"),
-            ("20000000-0000-0000-0000-000000000023", "role:update", "IAM"),
-            ("20000000-0000-0000-0000-000000000024", "role:delete", "IAM"),
-            ("20000000-0000-0000-0000-000000000025", "permission:assign", "IAM"),
-        };
+        // --- Permissions: seed ĐÚNG bộ codes của PermissionConstants ("{module}:{action}") ---
+        // [RequirePermission] ở BFF build code từ PermissionConstants — seed lệch bộ này là 403 toàn bộ.
+        var allCodes = Shared.Constants.PermissionConstants.GetAllPermissions();
+        var codeToId = allCodes.ToDictionary(code => code, DeterministicPermissionId);
 
         modelBuilder.Entity<Permission>().HasData(
-            perms.Select(p => new Permission
+            allCodes.Select(code => new Permission
             {
-                Id = Guid.Parse(p.Item1),
-                Code = p.Item2,
-                Module = p.Item3
+                Id = codeToId[code],
+                Code = code,
+                Module = code.Split(':')[0],
+                Description = $"Allows {code.Split(':')[1]} operation on {code.Split(':')[0]}"
             }).ToArray()
         );
 
-        // --- RolePermissions: SYSTEM_ADMIN gets ALL ---
-        var sysAdminPerms = perms.Select(p => new RolePermission
+        // --- RolePermissions ---
+        // SYSTEM_ADMIN: toàn bộ
+        var sysAdminPerms = allCodes.Select(code => new RolePermission
         {
             RoleId = sysAdminRoleId,
-            PermissionId = Guid.Parse(p.Item1)
-        }).ToArray();
+            PermissionId = codeToId[code]
+        });
 
-        // TENANT_ADMIN: manage staff, roles within tenant
-        var tenantAdminPermIds = new[]
-        {
-            "20000000-0000-0000-0000-000000000011",
-            "20000000-0000-0000-0000-000000000012",
-            "20000000-0000-0000-0000-000000000013",
-            "20000000-0000-0000-0000-000000000014",
-            "20000000-0000-0000-0000-000000000015",
-            "20000000-0000-0000-0000-000000000016",
-            "20000000-0000-0000-0000-000000000022",
-            "20000000-0000-0000-0000-000000000023",
-            "20000000-0000-0000-0000-000000000025",
-        };
+        // TENANT_ADMIN: toàn quyền iam:* + route_planning:*
+        var tenantAdminPerms = allCodes
+            .Where(code => code.StartsWith("iam:") || code.StartsWith("route_planning:"))
+            .Select(code => new RolePermission
+            {
+                RoleId = tenantAdminRoleId,
+                PermissionId = codeToId[code]
+            });
 
-        var tenantAdminPerms = tenantAdminPermIds.Select(id => new RolePermission
-        {
-            RoleId = tenantAdminRoleId,
-            PermissionId = Guid.Parse(id)
-        }).ToArray();
+        // TENANT_STAFF: quyền staff mặc định (read/export/import) + route_planning:create
+        var staffCodes = Shared.Constants.PermissionConstants.GetDefaultStaffPermissions()
+            .Append(Shared.Constants.PermissionConstants.Build(
+                Shared.Constants.PermissionConstants.Modules.RoutePlanning,
+                Shared.Constants.PermissionConstants.Create))
+            .Distinct();
 
-        // TENANT_STAFF: read only
-        var staffPermIds = new[]
-        {
-            "20000000-0000-0000-0000-000000000012",
-            "20000000-0000-0000-0000-000000000022",
-        };
-
-        var tenantStaffPerms = staffPermIds.Select(id => new RolePermission
+        var tenantStaffPerms = staffCodes.Select(code => new RolePermission
         {
             RoleId = tenantStaffRoleId,
-            PermissionId = Guid.Parse(id)
-        }).ToArray();
+            PermissionId = codeToId[code]
+        });
 
         modelBuilder.Entity<RolePermission>().HasData(
             [.. sysAdminPerms, .. tenantAdminPerms, .. tenantStaffPerms]);
+    }
+
+    /// <summary>
+    /// Sinh GUID ổn định từ permission code (MD5) — bắt buộc cho HasData
+    /// (giá trị phải giống nhau giữa các lần build model, nếu không migration sẽ churn).
+    /// </summary>
+    private static Guid DeterministicPermissionId(string code)
+    {
+        var hash = System.Security.Cryptography.MD5.HashData(
+            System.Text.Encoding.UTF8.GetBytes($"iam-permission:{code}"));
+        return new Guid(hash);
     }
 
 }

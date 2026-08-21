@@ -3,7 +3,7 @@ namespace IamTenant.Domain;
 
 public class User : TenantAuditableEntity
 {
-    public string CognitoSub { get; set; } = string.Empty;
+    public string? CognitoSub { get; set; }
     public string Email { get; set; } = string.Empty;
 
     public string FirstName { get; set; } = string.Empty;

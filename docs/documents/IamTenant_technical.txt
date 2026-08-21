@@ -30,3 +30,12 @@ Việc thiết kế qua Interface mở đường cho tương lai chuyển đổi
 ## Transactional Outbox Pattern:
 Mọi Event gửi ra ngoài (ví dụ `TenantAdminCreatedEvent`) đều được nén lại vào JSON và lưu vào bảng `OutboxMessages` **cùng trong 1 DbContext Transaction** với logic chính. 
 Một Background Service (hoặc MassTransit) sẽ đọc và Publish sau. Điều này đảm bảo tính nhất quán dữ liệu (Data Consistency) 100% giữa Database và Message Broker dù hệ thống bị crash.
+
+public enum StaffType
+{
+    Normal,           // = 0, mặc định
+    Operations,       // = 1 ← RoutePlanning, GpsTracking
+    Documentation,    // = 2 ← Ocr, Compliance
+    CustomerService,  // = 3 ← CustomerAssistant, Negotiation
+    Finance           // = 4 ← FinancialTax, BillingSettlement
+}

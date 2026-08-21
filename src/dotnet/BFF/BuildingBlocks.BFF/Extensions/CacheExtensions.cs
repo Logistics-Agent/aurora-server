@@ -1,5 +1,6 @@
 using Microsoft.Extensions.DependencyInjection;
 using Shared.Cache;
+using Shared.Extensions;
 
 namespace BuildingBlocks.BFF.Extensions;
 
@@ -12,8 +13,7 @@ public static class CacheExtensions
         this IServiceCollection services,
         IConfiguration config)
     {
-        var redisConn = config["Redis:ConnectionString"]
-            ?? throw new InvalidOperationException("Redis:ConnectionString is required");
+        var redisConn = SharedServiceExtensions.BuildRedisConnectionString(config);
 
         services.AddStackExchangeRedisCache(opts => opts.Configuration = redisConn);
         services.AddScoped<IPermissionCacheService, PermissionCacheService>();
@@ -26,6 +26,5 @@ public static class CacheExtensions
     /// Dùng cho Health Checks registration cần biết connection string.
     /// </summary>
     public static string GetRedisConnectionString(IConfiguration config) =>
-        config["Redis:ConnectionString"]
-            ?? throw new InvalidOperationException("Redis:ConnectionString is required");
+        SharedServiceExtensions.BuildRedisConnectionString(config);
 }

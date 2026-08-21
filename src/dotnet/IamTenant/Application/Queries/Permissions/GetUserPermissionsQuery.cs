@@ -38,7 +38,7 @@ public class GetUserPermissionsHandler(
             .Select(u => new
             {
                 u.PermissionVersion,
-                RoleIds = u.UserRoles.SelectMany(ur => ur.RoleIds).ToList(),
+                RoleIds = u.UserRoles.Select(ur => ur.RoleId).ToList(),
                 RoleCodes = u.UserRoles.Select(ur => ur.Role!.Code).ToList(),
                 RolePermissions = u.UserRoles
                     .SelectMany(ur => ur.Role!.RolePermissions.Select(rp => rp.Permission))

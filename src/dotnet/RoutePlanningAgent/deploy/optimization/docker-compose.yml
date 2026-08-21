@@ -1,0 +1,37 @@
+# =============================================================================
+# Route Optimization stack: OSRM (routing engine, MLD) + VROOM (VRP solver)
+# =============================================================================
+# Map data (.osrm*) KHÔNG build ở đây — build local bằng pipeline MLD rồi
+# upload lên Azure Blob (xem README.md). Trước khi `docker compose up`:
+#   .\download-data.ps1   # kéo data đã build từ Azure Blob về ./data
+# =============================================================================
+
+services:
+  osrm:
+    image: ghcr.io/project-osrm/osrm-backend:latest
+    container_name: aurora-osrm
+    # MLD (Multi-Level Dijkstra) — data phải được build bằng osrm-partition/osrm-customize
+    command: osrm-routed --algorithm mld /data/map.osrm
+    ports:
+      - "5010:5000"
+    volumes:
+      - ./data:/data:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/route/v1/driving/106.7,10.77;106.66,10.76"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  vroom:
+    image: ghcr.io/vroom-project/vroom-docker:v1.14.0
+    container_name: aurora-vroom
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./vroom-conf:/conf
+    environment:
+      - VROOM_ROUTER=osrm
+    depends_on:
+      - osrm
+    restart: unless-stopped
