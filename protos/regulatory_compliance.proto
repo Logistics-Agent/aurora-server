@@ -1,0 +1,204 @@
+syntax = "proto3";
+
+package regulatory_compliance;
+
+option csharp_namespace = "RegulatoryCompliance.Grpc";
+
+import "google/protobuf/timestamp.proto";
+
+service RegulatoryComplianceService {
+  rpc EvaluateCompliance(EvaluateComplianceRequest) returns (ComplianceEvaluationResponse);
+  rpc GetComplianceEvaluation(GetComplianceEvaluationRequest) returns (ComplianceEvaluationResponse);
+  rpc QueryRegulations(QueryRegulationsRequest) returns (QueryRegulationsResponse);
+  rpc IngestRegulatorySource(IngestRegulatorySourceRequest) returns (IngestRegulatorySourceResponse);
+}
+
+enum ComplianceEvaluationStatus {
+  COMPLIANCE_EVALUATION_STATUS_UNSPECIFIED = 0;
+  COMPLIANCE_EVALUATION_STATUS_PENDING = 1;
+  COMPLIANCE_EVALUATION_STATUS_PROCESSING = 2;
+  COMPLIANCE_EVALUATION_STATUS_COMPLETED = 3;
+  COMPLIANCE_EVALUATION_STATUS_FAILED = 4;
+}
+
+enum ComplianceRiskLevel {
+  COMPLIANCE_RISK_LEVEL_UNSPECIFIED = 0;
+  COMPLIANCE_RISK_LEVEL_LOW = 1;
+  COMPLIANCE_RISK_LEVEL_MEDIUM = 2;
+  COMPLIANCE_RISK_LEVEL_HIGH = 3;
+  COMPLIANCE_RISK_LEVEL_CRITICAL = 4;
+  COMPLIANCE_RISK_LEVEL_UNKNOWN = 5;
+}
+
+enum ComplianceFindingType {
+  COMPLIANCE_FINDING_TYPE_UNSPECIFIED = 0;
+  COMPLIANCE_FINDING_TYPE_VIOLATION = 1;
+  COMPLIANCE_FINDING_TYPE_REQUIREMENT = 2;
+  COMPLIANCE_FINDING_TYPE_WARNING = 3;
+  COMPLIANCE_FINDING_TYPE_CONFLICT = 4;
+}
+
+enum EvidenceSufficiency {
+  EVIDENCE_SUFFICIENCY_UNSPECIFIED = 0;
+  EVIDENCE_SUFFICIENCY_SUFFICIENT = 1;
+  EVIDENCE_SUFFICIENCY_INSUFFICIENT = 2;
+  EVIDENCE_SUFFICIENCY_CONFLICTING = 3;
+}
+
+enum RegulationType {
+  REGULATION_TYPE_UNSPECIFIED = 0;
+  REGULATION_TYPE_IMPORT_RESTRICTION = 1;
+  REGULATION_TYPE_EXPORT_RESTRICTION = 2;
+  REGULATION_TYPE_DANGEROUS_GOODS = 3;
+  REGULATION_TYPE_REQUIRED_DOCUMENT = 4;
+  REGULATION_TYPE_TRANSPORT_MODE = 5;
+  REGULATION_TYPE_CUSTOMS = 6;
+  REGULATION_TYPE_OTHER = 7;
+}
+
+enum RegulatoryIngestionStatus {
+  REGULATORY_INGESTION_STATUS_UNSPECIFIED = 0;
+  REGULATORY_INGESTION_STATUS_PENDING = 1;
+  REGULATORY_INGESTION_STATUS_PROCESSING = 2;
+  REGULATORY_INGESTION_STATUS_COMPLETED = 3;
+  REGULATORY_INGESTION_STATUS_FAILED = 4;
+}
+
+enum RegulatorySourceVisibility {
+  REGULATORY_SOURCE_VISIBILITY_UNSPECIFIED = 0;
+  REGULATORY_SOURCE_VISIBILITY_TENANT = 1;
+  REGULATORY_SOURCE_VISIBILITY_PLATFORM = 2;
+}
+
+message EvaluateComplianceRequest {
+  string idempotency_key = 1;
+  string external_shipment_id = 2;
+  repeated CargoSnapshot cargo = 3;
+  string origin_country_code = 4;
+  string destination_country_code = 5;
+  repeated string jurisdiction_codes = 6;
+  string transport_mode = 7;
+  repeated OcrDocumentSnapshot documents = 8;
+  google.protobuf.Timestamp effective_at = 9;
+}
+
+message CargoSnapshot {
+  string name = 1;
+  string hs_code = 2;
+  int32 quantity = 3;
+  string unit = 4;
+  double weight_kg = 5;
+  double volume_m3 = 6;
+  bool is_dangerous_goods = 7;
+  string dangerous_goods_code = 8;
+  string package_type = 9;
+}
+
+message OcrDocumentSnapshot {
+  string external_document_id = 1;
+  string document_type = 2;
+  string normalized_json = 3;
+  double extraction_confidence = 4;
+  bool needs_review = 5;
+}
+
+message GetComplianceEvaluationRequest {
+  string evaluation_id = 1;
+}
+
+message ComplianceEvaluationResponse {
+  string evaluation_id = 1;
+  string external_shipment_id = 2;
+  ComplianceEvaluationStatus status = 3;
+  ComplianceRiskLevel risk_level = 4;
+  repeated ComplianceFinding findings = 5;
+  repeated string missing_documents = 6;
+  repeated string assumptions = 7;
+  double compliance_confidence = 8;
+  EvidenceSufficiency evidence_sufficiency = 9;
+  google.protobuf.Timestamp requested_at = 10;
+  google.protobuf.Timestamp completed_at = 11;
+  string error_code = 12;
+  string error_message = 13;
+}
+
+message ComplianceFinding {
+  string finding_id = 1;
+  ComplianceFindingType type = 2;
+  string code = 3;
+  string category = 4;
+  string title = 5;
+  string description = 6;
+  ComplianceRiskLevel severity = 7;
+  repeated RegulationCitation citations = 8;
+}
+
+message RegulationCitation {
+  string regulatory_document_id = 1;
+  string document_version_id = 2;
+  string chunk_id = 3;
+  string authority = 4;
+  string title = 5;
+  string canonical_source_uri = 6;
+  string version_label = 7;
+  string section_label = 8;
+  string page_label = 9;
+  google.protobuf.Timestamp effective_from = 10;
+  google.protobuf.Timestamp effective_to = 11;
+  string excerpt = 12;
+  double relevance_score = 13;
+}
+
+message QueryRegulationsRequest {
+  string query = 1;
+  string jurisdiction_code = 2;
+  google.protobuf.Timestamp effective_at = 3;
+  string language_code = 4;
+  repeated RegulationType regulation_types = 5;
+  int32 top_k = 6;
+  double minimum_relevance_score = 7;
+}
+
+message QueryRegulationsResponse {
+  string retrieval_trace_id = 1;
+  EvidenceSufficiency evidence_sufficiency = 2;
+  repeated RegulationEvidence evidence = 3;
+  string generated_explanation = 4;
+}
+
+message RegulationEvidence {
+  RegulationCitation citation = 1;
+  RegulationType regulation_type = 2;
+  string jurisdiction_code = 3;
+  string language_code = 4;
+}
+
+message IngestRegulatorySourceRequest {
+  string idempotency_key = 1;
+  string authority = 2;
+  string title = 3;
+  string canonical_source_uri = 4;
+  string jurisdiction_code = 5;
+  RegulationType regulation_type = 6;
+  string language_code = 7;
+  string version_label = 8;
+  google.protobuf.Timestamp published_at = 9;
+  google.protobuf.Timestamp effective_from = 10;
+  google.protobuf.Timestamp effective_to = 11;
+  string content_reference = 12;
+  string file_name = 13;
+  string mime_type = 14;
+  int64 size_bytes = 15;
+  string content_sha256 = 16;
+  bytes content = 17;
+  RegulatorySourceVisibility visibility = 18;
+}
+
+message IngestRegulatorySourceResponse {
+  string regulatory_document_id = 1;
+  string document_version_id = 2;
+  RegulatoryIngestionStatus status = 3;
+  int32 chunk_count = 4;
+  bool replayed = 5;
+  google.protobuf.Timestamp received_at = 6;
+}

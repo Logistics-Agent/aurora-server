@@ -16,7 +16,7 @@ Treat `codex/requirement.md` as the business and architecture source of truth. T
 ## Execution Scope
 
 * Execute only the active service and active phase unless the user explicitly overrides the plan.
-* The active service is currently Shipment Workflow.
+* The active service is currently Regulatory Compliance RAG.
 * Do not start the next service automatically.
 * A new service branch may only be created after the current service is fully completed, committed, built, migrated, and tested.
 * Production code changes are restricted to services assigned to Ngoc Khoa unless an explicitly required shared contract change is proven necessary.
@@ -34,6 +34,12 @@ Treat `codex/requirement.md` as the business and architecture source of truth. T
 * Never trust client-controlled `TenantId`.
 * Preserve tenant isolation in all queries.
 * Do not commit credentials, tokens, connection strings for production, or secrets.
+
+## Test Project Layout
+
+* Keep each service test project under `src/dotnet/<Service>/Tests`.
+* Exclude `Tests/**/*.cs` from production compilation and `Tests/**/*` from production content/resource item globs; reference the service project from the colocated test project.
+* Create test projects for future owned services only when their implementation phase starts.
 
 ## Mandatory Workflow
 
