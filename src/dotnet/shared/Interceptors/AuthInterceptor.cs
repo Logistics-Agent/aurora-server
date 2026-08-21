@@ -1,6 +1,8 @@
 using Grpc.Core;
 using Grpc.Core.Interceptors;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Shared.Security;
 
 namespace Shared.Interceptors;
@@ -10,7 +12,11 @@ namespace Shared.Interceptors;
 /// populate ICurrentUserService để tất cả handlers downstream dùng được.
 /// Mọi gRPC service đều phải đăng ký interceptor này.
 /// </summary>
-public class AuthInterceptor(ICurrentUserContext currentUser, ILogger<AuthInterceptor> logger)
+public class AuthInterceptor(
+    ICurrentUserContext currentUser,
+    IHostEnvironment hostEnvironment,
+    IOptions<DevelopmentIdentityOptions> developmentIdentity,
+    ILogger<AuthInterceptor> logger)
     : Interceptor
 {
     public override async Task<TResponse> UnaryServerHandler<TRequest, TResponse>(
@@ -42,6 +48,18 @@ public class AuthInterceptor(ICurrentUserContext currentUser, ILogger<AuthInterc
         var versionStr = headers.GetValue(GrpcMetadataKeys.PermissionVersion);
         var roleIdsStr = headers.GetValue(GrpcMetadataKeys.RoleIds);
 
+        var hasIdentityMetadata =
+            !string.IsNullOrWhiteSpace(userIdStr) ||
+            !string.IsNullOrWhiteSpace(tenantIdStr);
+
+        if (!hasIdentityMetadata &&
+            hostEnvironment.IsDevelopment() &&
+            developmentIdentity.Value.Enabled)
+        {
+            PopulateDevelopmentIdentity(traceId);
+            return;
+        }
+
         Guid? parsedUserId = null;
         Guid? parsedTenantId = null;
         int? parsedVersion = null;
@@ -50,11 +68,30 @@ public class AuthInterceptor(ICurrentUserContext currentUser, ILogger<AuthInterc
         if (Guid.TryParse(tenantIdStr, out var tenantId)) parsedTenantId = tenantId;
         if (int.TryParse(versionStr, out var version)) parsedVersion = version;
 
-        var roleIds = roleIdsStr?.Split(',').ToList() ?? new List<string>();
+        var roleIds = roleIdsStr?
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .ToList() ?? [];
 
         currentUser.Populate(parsedUserId, parsedTenantId, traceId, parsedVersion, roleIds, new List<string>());
 
         logger.LogDebug("AuthInterceptor: UserId={UserId} TenantId={TenantId} Version={Version}",
             currentUser.UserId, currentUser.TenantId, currentUser.PermissionVersion);
+    }
+
+    private void PopulateDevelopmentIdentity(string? traceId)
+    {
+        var identity = developmentIdentity.Value;
+        currentUser.Populate(
+            identity.UserId,
+            identity.TenantId,
+            traceId ?? Guid.CreateVersion7().ToString(),
+            identity.PermissionVersion,
+            [.. identity.RoleIds],
+            [.. identity.Permissions]);
+
+        logger.LogInformation(
+            "Using configured development identity UserId={UserId} TenantId={TenantId}",
+            identity.UserId,
+            identity.TenantId);
     }
 }

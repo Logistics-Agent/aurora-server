@@ -9,5 +9,10 @@ public enum NotificationEventType
     ShipmentPickedUp = 5,
     ShipmentDelivered = 6,
     ShipmentCompleted = 7,
-    DocumentAttached = 8
+    DocumentAttached = 8,
+    GpsMonitoringAlertRaised = 9,
+    DocumentOcrCompleted = 10,
+    DocumentOcrFailed = 11,
+    ComplianceEvaluationCompleted = 12,
+    ComplianceEvaluationFailed = 13
 }

@@ -28,10 +28,16 @@ builder.Services.AddDbContext<NotificationDbContext>(options =>
 
 builder.Services.AddSharedMassTransit(
     builder.Configuration,
-    bus => bus.AddConsumer<ShipmentNotificationConsumer>());
+    bus =>
+    {
+        bus.AddConsumer<ShipmentNotificationConsumer>();
+        bus.AddConsumer<GpsNotificationConsumer>();
+        bus.AddConsumer<DocumentOcrNotificationConsumer>();
+        bus.AddConsumer<ComplianceNotificationConsumer>();
+    });
 
 builder.Services.AddSingleton(TimeProvider.System);
-builder.Services.AddScoped<IShipmentNotificationProjector, ShipmentNotificationProjector>();
+builder.Services.AddScoped<IIntegrationEventNotificationProjector, IntegrationEventNotificationProjector>();
 
 builder.Services.Configure<SmtpEmailOptions>(
     builder.Configuration.GetSection("Email:Smtp"));

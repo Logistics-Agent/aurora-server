@@ -18,6 +18,9 @@
 
   <ItemGroup>
     <ProjectReference Include="../Notification.csproj" />
+    <ProjectReference Include="../../Contracts/DocumentOcr.Contracts/DocumentOcr.Contracts.csproj" />
+    <ProjectReference Include="../../Contracts/GpsTracking.Contracts/GpsTracking.Contracts.csproj" />
+    <ProjectReference Include="../../Contracts/RegulatoryCompliance.Contracts/RegulatoryCompliance.Contracts.csproj" />
   </ItemGroup>
 
   <ItemGroup>

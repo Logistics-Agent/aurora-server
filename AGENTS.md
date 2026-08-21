@@ -16,7 +16,7 @@ Treat `codex/requirement.md` as the business and architecture source of truth. T
 ## Execution Scope
 
 * Execute only the active service and active phase unless the user explicitly overrides the plan.
-* The active service is currently Shipment Workflow.
+* The active service is currently Regulatory Compliance RAG.
 * Do not start the next service automatically.
 * A new service branch may only be created after the current service is fully completed, committed, built, migrated, and tested.
 * Production code changes are restricted to services assigned to Ngoc Khoa unless an explicitly required shared contract change is proven necessary.

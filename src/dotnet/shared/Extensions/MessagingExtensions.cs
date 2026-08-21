@@ -16,6 +16,13 @@ public static class SharedServiceExtensions
     /// </summary>
     public static IServiceCollection AddSharedServices(this IServiceCollection services, IConfiguration configuration)
     {
+        services.AddOptions<DevelopmentIdentityOptions>()
+            .Bind(configuration.GetSection(DevelopmentIdentityOptions.SectionName))
+            .Validate(
+                DevelopmentIdentityOptions.IsValid,
+                "Enabled DevelopmentIdentity requires non-empty UserId, TenantId, a positive PermissionVersion, and valid roles and permissions.")
+            .ValidateOnStart();
+
         // Security context — Scoped để mỗi request có instance riêng
         services.AddScoped<CurrentUserService>();
         services.AddScoped<ICurrentUserService>(sp => sp.GetRequiredService<CurrentUserService>());
