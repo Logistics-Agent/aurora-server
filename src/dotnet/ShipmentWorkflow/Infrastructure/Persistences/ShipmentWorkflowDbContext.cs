@@ -29,8 +29,9 @@ public sealed class ShipmentWorkflowDbContext(
     ICurrentUserService currentUser,
     AuditSaveChangesInterceptor auditInterceptor) : DbContext(options)
 {
-    private readonly ICurrentUserService _currentUser = currentUser;
+    private readonly Guid? _tenantId = currentUser.TenantId;
     private readonly AuditSaveChangesInterceptor _auditInterceptor = auditInterceptor;
+
 
     public DbSet<ShipmentEntity> Shipments => Set<ShipmentEntity>();
     public DbSet<CargoItemEntity> CargoItems => Set<CargoItemEntity>();
@@ -70,7 +71,7 @@ public sealed class ShipmentWorkflowDbContext(
             entity.HasKey(shipment => shipment.Id);
 
             entity.HasQueryFilter(shipment =>
-                shipment.TenantId == _currentUser.TenantId);
+                _tenantId.HasValue && shipment.TenantId == _tenantId.Value);
 
             entity.HasIndex(shipment =>
                     new { shipment.TenantId, shipment.ShipmentNo })
@@ -168,8 +169,9 @@ public sealed class ShipmentWorkflowDbContext(
             entity.HasKey(cargoItem => cargoItem.Id);
 
             entity.HasQueryFilter(cargoItem =>
+                _tenantId.HasValue &&
                 cargoItem.Shipment != null &&
-                cargoItem.Shipment.TenantId == _currentUser.TenantId);
+                cargoItem.Shipment.TenantId == _tenantId.Value);
 
             entity.HasIndex(cargoItem => cargoItem.ShipmentId);
 
@@ -214,7 +216,7 @@ public sealed class ShipmentWorkflowDbContext(
             entity.HasKey(location => location.Id);
 
             entity.HasQueryFilter(location =>
-                location.TenantId == _currentUser.TenantId);
+                _tenantId.HasValue && location.TenantId == _tenantId.Value);
 
             entity.HasIndex(location =>
                     new { location.TenantId, location.ShipmentId, location.Sequence })
@@ -253,7 +255,7 @@ public sealed class ShipmentWorkflowDbContext(
             entity.HasKey(document => document.Id);
 
             entity.HasQueryFilter(document =>
-                document.TenantId == _currentUser.TenantId);
+                _tenantId.HasValue && document.TenantId == _tenantId.Value);
 
             entity.HasIndex(document =>
                 new { document.TenantId, document.ShipmentId, document.DocumentType });
@@ -299,7 +301,7 @@ public sealed class ShipmentWorkflowDbContext(
             entity.HasKey(milestone => milestone.Id);
 
             entity.HasQueryFilter(milestone =>
-                milestone.TenantId == _currentUser.TenantId);
+                _tenantId.HasValue && milestone.TenantId == _tenantId.Value);
 
             entity.HasIndex(milestone =>
                 new { milestone.TenantId, milestone.ShipmentId, milestone.RecordedAt });
@@ -334,8 +336,9 @@ public sealed class ShipmentWorkflowDbContext(
             entity.HasKey(history => history.Id);
 
             entity.HasQueryFilter(history =>
+                _tenantId.HasValue &&
                 history.Shipment != null &&
-                history.Shipment.TenantId == _currentUser.TenantId);
+                history.Shipment.TenantId == _tenantId.Value);
 
             entity.HasIndex(history =>
                 new { history.ShipmentId, history.CreatedAt });

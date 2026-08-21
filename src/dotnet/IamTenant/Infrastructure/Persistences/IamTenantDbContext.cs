@@ -11,7 +11,7 @@ public class IamTenantDbContext(
     ICurrentUserService currentUser,
     AuditSaveChangesInterceptor auditInterceptor) : DbContext(options)
 {
-    private readonly ICurrentUserService _currentUser = currentUser;
+    private readonly Guid? _tenantId = currentUser.TenantId;
     private readonly AuditSaveChangesInterceptor _auditInterceptor = auditInterceptor;
 
     public DbSet<Tenant> Tenants => Set<Tenant>();
@@ -36,7 +36,7 @@ public class IamTenantDbContext(
         modelBuilder.Entity<User>(e =>
         {
             e.HasQueryFilter(u =>
-                (!_currentUser.TenantId.HasValue || u.TenantId == _currentUser.TenantId)
+                _tenantId.HasValue && u.TenantId == _tenantId.Value
                 && !u.IsDeleted);
 
             e.HasIndex(u => u.CognitoSub).IsUnique();
@@ -78,11 +78,11 @@ public class IamTenantDbContext(
 
         modelBuilder.Entity<Role>(e =>
         {
-            // Filter: Role hệ thống (IsSystemRole = true) hiện ra cho mọi tenant
+            // Filter: Role hệ thống (IsSystemRole = true) hiện ra cho mọi tenant, còn lại fail-closed theo tenant
             e.HasQueryFilter(r =>
                 r.IsSystemRole
-                || !_currentUser.TenantId.HasValue
-                || r.TenantId == _currentUser.TenantId);
+                || (_tenantId.HasValue && r.TenantId == _tenantId.Value));
+
 
             e.HasIndex(r => new { r.TenantId, r.Code }).IsUnique();
             e.Property(r => r.Code).HasMaxLength(100).IsRequired();

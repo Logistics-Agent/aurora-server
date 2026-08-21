@@ -203,16 +203,17 @@ public class CognitoAuthService(
         };
     }
 
-    public async Task<AuthResult> RefreshTokenAsync(string email, string refreshToken, CancellationToken ct = default)
+    public async Task<AuthResult> RefreshTokenAsync(string refreshToken, CancellationToken ct = default)
     {
         return await RefreshTokenAsync(_options.ClientId, refreshToken, ct);
     }
 
-    public async Task<AuthResult> RefreshTokenAsync(string clientId, string refreshToken, CancellationToken ct = default)
+    public async Task<AuthResult> RefreshTokenAsync(string? clientId, string refreshToken, CancellationToken ct = default)
     {
+        var targetClientId = string.IsNullOrWhiteSpace(clientId) ? _options.ClientId : clientId;
         var request = new InitiateAuthRequest
         {
-            ClientId = clientId,
+            ClientId = targetClientId,
             AuthFlow = AuthFlowType.REFRESH_TOKEN_AUTH,
             AuthParameters = new Dictionary<string, string>
             {
@@ -230,6 +231,7 @@ public class CognitoAuthService(
             ExpiresIn = (int)result.ExpiresIn!
         };
     }
+
 
     public async Task ForgotPasswordAsync(string email, CancellationToken ct = default)
     {

@@ -7,12 +7,14 @@ namespace MailService.Infrastructure.Persistence;
 
 public class MailServiceDbContext : DbContext
 {
-    private readonly ICurrentUserService? _currentUserService;
+    private readonly Guid? _tenantId;
 
-    public MailServiceDbContext(DbContextOptions<MailServiceDbContext> options, ICurrentUserService? currentUserService = null)
+    public MailServiceDbContext(
+        DbContextOptions<MailServiceDbContext> options,
+        ICurrentUserService currentUser)
         : base(options)
     {
-        _currentUserService = currentUserService;
+        _tenantId = currentUser.TenantId;
     }
 
     public DbSet<Domain.Entities.Domain> Domains => Set<Domain.Entities.Domain>();
@@ -29,16 +31,14 @@ public class MailServiceDbContext : DbContext
     {
         base.OnModelCreating(modelBuilder);
 
-        // Apply Global Query Filter for Multi-Tenant Isolation
-        Guid currentTenantId = _currentUserService?.TenantId ?? Guid.Empty;
-
+        // Apply Global Query Filter for Multi-Tenant Isolation (Fail-Closed)
         modelBuilder.Entity<Domain.Entities.Domain>(b =>
         {
             b.ToTable("domains");
             b.HasKey(d => d.Id);
             b.HasIndex(d => d.TenantId);
             b.HasIndex(d => d.DomainName).IsUnique();
-            b.HasQueryFilter(d => currentTenantId == Guid.Empty || d.TenantId == currentTenantId);
+            b.HasQueryFilter(d => _tenantId.HasValue && d.TenantId == _tenantId.Value);
         });
 
         modelBuilder.Entity<Mailbox>(b =>
@@ -48,7 +48,7 @@ public class MailServiceDbContext : DbContext
             b.HasIndex(m => m.TenantId);
             b.HasIndex(m => m.DomainId);
             b.HasIndex(m => m.FullAddress).IsUnique();
-            b.HasQueryFilter(m => currentTenantId == Guid.Empty || m.TenantId == currentTenantId);
+            b.HasQueryFilter(m => _tenantId.HasValue && m.TenantId == _tenantId.Value);
         });
 
         modelBuilder.Entity<Alias>(b =>
@@ -57,7 +57,7 @@ public class MailServiceDbContext : DbContext
             b.HasKey(a => a.Id);
             b.HasIndex(a => a.TenantId);
             b.HasIndex(a => a.AliasAddress).IsUnique();
-            b.HasQueryFilter(a => currentTenantId == Guid.Empty || a.TenantId == currentTenantId);
+            b.HasQueryFilter(a => _tenantId.HasValue && a.TenantId == _tenantId.Value);
         });
 
         modelBuilder.Entity<EmailDraft>(b =>
@@ -66,7 +66,7 @@ public class MailServiceDbContext : DbContext
             b.HasKey(d => d.Id);
             b.HasIndex(d => new { d.DraftRootId, d.RevisionNumber });
             b.HasIndex(d => new { d.MailboxId, d.Status, d.IsLatestRevision });
-            b.HasQueryFilter(d => currentTenantId == Guid.Empty || d.TenantId == currentTenantId);
+            b.HasQueryFilter(d => _tenantId.HasValue && d.TenantId == _tenantId.Value);
         });
 
         modelBuilder.Entity<ProcessedMessage>(b =>
@@ -75,7 +75,7 @@ public class MailServiceDbContext : DbContext
             b.HasKey(p => p.Id);
             b.HasIndex(p => new { p.TenantId, p.ReceivedAt });
             b.HasIndex(p => new { p.TenantId, p.MessageId });
-            b.HasQueryFilter(p => currentTenantId == Guid.Empty || p.TenantId == currentTenantId);
+            b.HasQueryFilter(p => _tenantId.HasValue && p.TenantId == _tenantId.Value);
         });
 
         modelBuilder.Entity<SecurityCheckResult>(b =>
@@ -84,7 +84,7 @@ public class MailServiceDbContext : DbContext
             b.HasKey(s => s.Id);
             b.HasIndex(s => s.ProcessedMessageId);
             b.HasIndex(s => s.TenantId);
-            b.HasQueryFilter(s => currentTenantId == Guid.Empty || s.TenantId == currentTenantId);
+            b.HasQueryFilter(s => _tenantId.HasValue && s.TenantId == _tenantId.Value);
         });
 
         modelBuilder.Entity<QuarantineRecord>(b =>
@@ -92,7 +92,7 @@ public class MailServiceDbContext : DbContext
             b.ToTable("quarantine_records");
             b.HasKey(q => q.Id);
             b.HasIndex(q => new { q.TenantId, q.Status });
-            b.HasQueryFilter(q => currentTenantId == Guid.Empty || q.TenantId == currentTenantId);
+            b.HasQueryFilter(q => _tenantId.HasValue && q.TenantId == _tenantId.Value);
         });
 
         modelBuilder.Entity<AuditRecord>(b =>
@@ -100,7 +100,7 @@ public class MailServiceDbContext : DbContext
             b.ToTable("audit_records");
             b.HasKey(a => a.Id);
             b.HasIndex(a => new { a.TenantId, a.Timestamp });
-            b.HasQueryFilter(a => currentTenantId == Guid.Empty || a.TenantId == currentTenantId);
+            b.HasQueryFilter(a => _tenantId.HasValue && a.TenantId == _tenantId.Value);
         });
 
         modelBuilder.Entity<OutboxMessage>(b =>
@@ -111,3 +111,4 @@ public class MailServiceDbContext : DbContext
         });
     }
 }
+

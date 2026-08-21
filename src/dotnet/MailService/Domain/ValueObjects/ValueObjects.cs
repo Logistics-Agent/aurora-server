@@ -8,7 +8,7 @@ public record EmailAddress
         @"^[^@\s]+@[^@\s]+\.[^@\s]+$",
         RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
-    public string Value {; }
+    public string Value { get; }
 
     public EmailAddress(string value)
     {
@@ -29,7 +29,7 @@ public record DomainName
         @"^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9][a-z0-9-]{0,61}[a-z0-9]$",
         RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
-    public string Value {; }
+    public string Value { get; }
 
     public DomainName(string value)
     {
@@ -51,7 +51,7 @@ public record SpamScore(decimal Value)
 
 public record PhishingScore
 {
-    public decimal Value {; }
+    public decimal Value { get; }
 
     public PhishingScore(decimal value)
     {
@@ -70,3 +70,4 @@ public record PipelineExecutionId(Guid Value)
     public static PipelineExecutionId New() => new(Guid.CreateVersion7());
     public override string ToString() => Value.ToString();
 }
+

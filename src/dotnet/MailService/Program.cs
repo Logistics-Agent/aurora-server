@@ -3,7 +3,13 @@ using Amazon.S3;
 using Serilog;
 using Shared.Interceptors;
 using Shared.Security;
-using MailService.Application.Interfaces;
+using MailService.Application.Interfaces.AI;
+using MailService.Application.Interfaces.Classification;
+using MailService.Application.Interfaces.Persistence;
+using MailService.Application.Interfaces.RateLimiting;
+using MailService.Application.Interfaces.Security;
+using MailService.Application.Interfaces.Stalwart;
+using MailService.Application.Interfaces.Storage;
 using MailService.Application.Pipeline;
 using MailService.Application.Pipeline.Stages;
 using MailService.Domain.Entities;
@@ -12,9 +18,16 @@ using MailService.Infrastructure.AI;
 using MailService.Infrastructure.Cache;
 using MailService.Infrastructure.Persistence;
 using MailService.Infrastructure.Persistence.Repositories;
-using MailService.Infrastructure.Security;
+using MailService.Infrastructure.Security.Dns;
+using MailService.Infrastructure.Security.Spf;
+using MailService.Infrastructure.Security.Dkim;
+using MailService.Infrastructure.Security.Dmarc;
+using MailService.Infrastructure.Security.Malware;
+using MailService.Infrastructure.Security.Spam;
+using StackExchange.Redis;
 using MailService.Infrastructure.Storage;
 using MailService.Infrastructure.Stalwart;
+
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -64,8 +77,23 @@ builder.Services.AddSingleton<IAmazonS3>(sp => new AmazonS3Client(
         ForcePathStyle = true
     }));
 
+// Register Redis Connection Multiplexer
+string redisConnection = builder.Configuration.GetConnectionString("Redis")
+    ?? builder.Configuration["Redis:ConnectionString"]
+    ?? "localhost:6379,abortConnect=false";
+
+builder.Services.AddSingleton<IConnectionMultiplexer>(sp =>
+{
+    var config = ConfigurationOptions.Parse(redisConnection);
+    config.AbortOnConnectFail = false;
+    config.ConnectRetry = 3;
+    config.ConnectTimeout = 3000;
+    return ConnectionMultiplexer.Connect(config);
+});
+
 builder.Services.AddScoped<IR2StorageClient, R2StorageClient>();
 builder.Services.AddScoped<IRateLimitService, RedisCacheService>();
+
 builder.Services.AddScoped<IClamAvClient, ClamAvClient>();
 builder.Services.AddScoped<ISpamAssassinClient, SpamAssassinClient>();
 builder.Services.AddScoped<IDnsLookupService, DnsLookupService>();
@@ -75,10 +103,11 @@ builder.Services.AddScoped<DmarcEvaluator>();
 
 // Register AI Services & Resilience Clients
 builder.Services.AddScoped<IAiGovernanceClient, AiGovernanceGrpcClient>();
-builder.Services.AddScoped<IPhishingDetectionService, SemanticKernelPhishingService>();
-builder.Services.AddScoped<SemanticKernelRiskScoringService>();
+builder.Services.AddScoped<IPhishingDetectionService, GovernedPhishingDetectionService>();
+builder.Services.AddScoped<IRiskScoringService, GovernedRiskScoringService>();
 
 builder.Services.AddScoped<IEmailClassifier, SimpleClassifier>();
+
 
 // Register Pipeline Stages & Runners
 builder.Services.AddScoped<IInboundPipelineStage, TlsVerificationStage>();
@@ -105,7 +134,7 @@ builder.Services.AddScoped<OutboundPipelineRunner>();
 
 // Health Checks
 builder.Services.AddHealthChecks()
-    .AddNpgsql(connectionString, name: "postgresql", tags: new[] { "critical" });
+    .AddNpgSql(connectionString);
 
 var app = builder.Build();
 

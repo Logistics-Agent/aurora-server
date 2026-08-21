@@ -2,11 +2,12 @@ using System.Security.Cryptography;
 using System.Text;
 using Microsoft.EntityFrameworkCore;
 using Shared.Security;
-using MailService.Application.Interfaces;
+using MailService.Application.Interfaces.Persistence;
 using MailService.Domain.Entities;
 using MailService.Domain.Enums;
 
 namespace MailService.Infrastructure.Persistence.Repositories;
+
 
 public class EmailDraftRepository : IEmailDraftRepository
 {

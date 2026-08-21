@@ -1,8 +1,9 @@
 using System.Net.Http.Json;
 using Microsoft.Extensions.Logging;
-using MailService.Application.Interfaces;
+using MailService.Application.Interfaces.Stalwart;
 
 namespace MailService.Infrastructure.Stalwart;
+
 
 public class StalwartManagementClient : IStalwartManagementClient
 {

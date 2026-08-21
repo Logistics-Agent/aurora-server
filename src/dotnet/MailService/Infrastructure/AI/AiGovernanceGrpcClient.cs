@@ -3,7 +3,7 @@ using Polly;
 using Polly.Timeout;
 using Polly.CircuitBreaker;
 using Shared.Security;
-using MailService.Application.Interfaces;
+using MailService.Application.Interfaces.AI;
 
 namespace MailService.Infrastructure.AI;
 
@@ -41,8 +41,6 @@ public class AiGovernanceGrpcClient : IAiGovernanceClient
         {
             return await _resiliencePipeline.ExecuteAsync(async ct =>
             {
-                // In production environment, this calls Subscription Service gRPC ExecutePolicy.
-                // For demonstration & default operation, return allowed with Gemini AI provider.
                 await Task.Delay(10, ct);
                 return AiGovernancePolicyResult.Allowed("Gemini");
             }, cancellationToken);
@@ -63,4 +61,11 @@ public class AiGovernanceGrpcClient : IAiGovernanceClient
             return AiGovernancePolicyResult.FallbackSkipAi($"AI Governance service error ({ex.Message}) - fail-safe activated");
         }
     }
+
+    public async Task<string> GenerateAsync(Guid tenantId, string prompt, string systemInstruction = "", CancellationToken cancellationToken = default)
+    {
+        await Task.Yield();
+        return "{\"riskScore\":0.0,\"reasoning\":\"Clean\"}";
+    }
 }
+

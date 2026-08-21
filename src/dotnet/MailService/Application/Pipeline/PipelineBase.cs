@@ -1,6 +1,7 @@
 using MimeKit;
 using MailService.Domain.Entities;
 using MailService.Domain.Enums;
+using MailService.Domain.ValueObjects;
 
 namespace MailService.Application.Pipeline;
 

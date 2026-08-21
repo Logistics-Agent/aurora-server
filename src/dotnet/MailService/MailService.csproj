@@ -9,7 +9,9 @@
   <ItemGroup>
     <Protobuf Include="../../../protos/common.proto" GrpcServices="None" />
     <Protobuf Include="../../../protos/mail_platform.proto" GrpcServices="Server" />
+    <Protobuf Include="../../../protos/ai_governance.proto" GrpcServices="Client" />
   </ItemGroup>
+
 
   <ItemGroup>
     <PackageReference Include="Grpc.AspNetCore" Version="2.64.0" />

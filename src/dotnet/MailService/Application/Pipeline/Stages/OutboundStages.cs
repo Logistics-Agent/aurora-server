@@ -1,11 +1,14 @@
 using System.Diagnostics;
 using Microsoft.Extensions.Logging;
 using Shared.Security;
-using MailService.Application.Interfaces;
+using MailService.Application.Interfaces.AI;
+using MailService.Application.Interfaces.RateLimiting;
+using MailService.Application.Interfaces.Security;
 using MailService.Domain.Enums;
 using MailService.Infrastructure.AI;
 
 namespace MailService.Application.Pipeline.Stages;
+
 
 public class OutboundAttachmentValidationStage : IOutboundPipelineStage
 {
@@ -29,8 +32,12 @@ public class OutboundAttachmentValidationStage : IOutboundPipelineStage
             if (!isClean)
             {
                 sw.Stop();
+                string reason = virusName == "CLAMAV_UNAVAILABLE"
+                    ? "Outbound attachment scan unavailable (ClamAV down) - deferring send"
+                    : $"Outbound attachment infected: {virusName}";
+
                 context.IsRejected = true;
-                context.RejectionReason = $"Outbound attachment infected: {virusName}";
+                context.RejectionReason = reason;
                 return new StageResult
                 {
                     Stage = StageName,
@@ -40,6 +47,7 @@ public class OutboundAttachmentValidationStage : IOutboundPipelineStage
                     ShouldShortCircuit = true
                 };
             }
+
         }
 
         sw.Stop();
@@ -91,12 +99,12 @@ public class PolicyValidationStage : IOutboundPipelineStage
 public class AiRiskScoringStage : IOutboundPipelineStage
 {
     private readonly IAiGovernanceClient _aiGovernance;
-    private readonly SemanticKernelRiskScoringService _riskScoringService;
+    private readonly IRiskScoringService _riskScoringService;
     private readonly ILogger<AiRiskScoringStage> _logger;
 
     public AiRiskScoringStage(
         IAiGovernanceClient aiGovernance,
-        SemanticKernelRiskScoringService riskScoringService,
+        IRiskScoringService riskScoringService,
         ILogger<AiRiskScoringStage> logger)
     {
         _aiGovernance = aiGovernance;
@@ -126,8 +134,9 @@ public class AiRiskScoringStage : IOutboundPipelineStage
             };
         }
 
-        var (riskScore, reasoning) = await _riskScoringService.AnalyzeBecRiskAsync(context.Subject, context.BodyText, context.SenderAddress, context.RecipientAddresses, cancellationToken);
+        var (riskScore, reasoning) = await _riskScoringService.AnalyzeBecRiskAsync(context.SenderAddress, context.RecipientAddresses, context.Subject, context.BodyText, cancellationToken);
         sw.Stop();
+
 
         return new StageResult
         {
