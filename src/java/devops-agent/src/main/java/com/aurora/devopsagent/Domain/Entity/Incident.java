@@ -96,6 +96,11 @@ public class Incident extends AuditableEntity {
                 "Invalid transition: " + this.status + " → " + target
             );
         }
+        if (target == IncidentStatus.AI_ANALYSIS && this.severity == Severity.Low) {
+            throw new IllegalStateException(
+                "LOW severity incidents must not enter AI_ANALYSIS (no-LLM guard). Route to RULE_ANALYSIS instead."
+            );
+        }
         this.status = target;
     }
 

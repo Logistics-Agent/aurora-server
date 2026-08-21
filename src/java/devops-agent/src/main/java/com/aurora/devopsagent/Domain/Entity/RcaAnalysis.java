@@ -47,6 +47,27 @@ public class RcaAnalysis extends AuditableEntity {
     @Column(name = "duration_ms")
     private Long durationMs;
 
+    @Column(name = "rag_augmented", nullable = false)
+    private boolean ragAugmented = true;
+
+    @Column(name = "rag_failure_reason", length = 255)
+    private String ragFailureReason;
+
+    @Column(name = "governance_decision_id", length = 100)
+    private String governanceDecisionId;
+
+    @Column(name = "automation_level", length = 50)
+    private String automationLevel;
+
+    @Column(name = "requires_approval", nullable = false)
+    private boolean requiresApproval = false;
+
+    @Column(name = "input_tokens", nullable = false)
+    private long inputTokens = 0;
+
+    @Column(name = "output_tokens", nullable = false)
+    private long outputTokens = 0;
+
     public Incident getIncident() {
         return incident;
     }
@@ -133,5 +154,61 @@ public class RcaAnalysis extends AuditableEntity {
 
     public void setDurationMs(Long durationMs) {
         this.durationMs = durationMs;
+    }
+
+    public boolean isRagAugmented() {
+        return ragAugmented;
+    }
+
+    public void setRagAugmented(boolean ragAugmented) {
+        this.ragAugmented = ragAugmented;
+    }
+
+    public String getRagFailureReason() {
+        return ragFailureReason;
+    }
+
+    public void setRagFailureReason(String ragFailureReason) {
+        this.ragFailureReason = ragFailureReason;
+    }
+
+    public String getGovernanceDecisionId() {
+        return governanceDecisionId;
+    }
+
+    public void setGovernanceDecisionId(String governanceDecisionId) {
+        this.governanceDecisionId = governanceDecisionId;
+    }
+
+    public String getAutomationLevel() {
+        return automationLevel;
+    }
+
+    public void setAutomationLevel(String automationLevel) {
+        this.automationLevel = automationLevel;
+    }
+
+    public boolean isRequiresApproval() {
+        return requiresApproval;
+    }
+
+    public void setRequiresApproval(boolean requiresApproval) {
+        this.requiresApproval = requiresApproval;
+    }
+
+    public long getInputTokens() {
+        return inputTokens;
+    }
+
+    public void setInputTokens(long inputTokens) {
+        this.inputTokens = inputTokens;
+    }
+
+    public long getOutputTokens() {
+        return outputTokens;
+    }
+
+    public void setOutputTokens(long outputTokens) {
+        this.outputTokens = outputTokens;
     }
 }

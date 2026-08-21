@@ -6,9 +6,13 @@
 Migrations*
 # dotenv files
 .env
-
 target/
-=======
+
+# Local Codex planning and execution documents
+/codex/
+
+dist/
+target/
 *Migrations
 # User-specific files
 *.rsuser
@@ -16,7 +20,7 @@ target/
 *.user
 *.userosscache
 *.sln.docstates
-
+*target
 # User-specific files (MonoDevelop/Xamarin Studio)
 *.userprefs
 

@@ -1,0 +1,92 @@
+syntax = "proto3";
+
+package ai_governance;
+option csharp_namespace = "AiGovernance.Grpc";
+option java_package = "com.aurora.aigovernance.grpc.generated";
+option java_multiple_files = true;
+
+// ──────────────────────────────────────────────────
+// AI Governance Service — Policy Pre-Check (preview)
+// ──────────────────────────────────────────────────
+
+service AiGovernanceService {
+  // Pre-check only. Result cannot be used as authorization token for Generate/Embed.
+  rpc ExecutePolicy (ExecutePolicyRequest) returns (ExecutePolicyResponse);
+}
+
+message ExecutePolicyRequest {
+  string capability_code = 1;
+  int64 estimated_input_tokens = 2;
+  int64 max_output_tokens = 3;
+}
+
+message ExecutePolicyResponse {
+  bool allowed = 1;
+  string deny_reason = 2;
+  string decision_id = 3;
+  repeated string allowed_providers = 4;
+  string model_tier = 5;
+  int32 max_tokens = 6;
+  string automation_level = 7;
+  bool requires_approval = 8;
+  string policy_version = 9;
+}
+
+// ──────────────────────────────────────────────────
+// AI Execution Service — Generate & Embed
+// ──────────────────────────────────────────────────
+
+service AiExecutionService {
+  // Single end-to-end governed generation.
+  rpc Generate (AiGenerateRequest) returns (AiGenerateResponse);
+
+  // Single end-to-end governed embedding.
+  rpc Embed (AiEmbedRequest) returns (AiEmbedResponse);
+
+  // V1.1: Streaming generation (reserved for future use)
+  // rpc GenerateStream (AiGenerateRequest) returns (stream AiGenerateStreamResponse);
+}
+
+// ──────────────────────────────────────────────────
+// Generate
+// ──────────────────────────────────────────────────
+
+// NOTE: tenant_id, user_id, service_id come from authenticated gRPC metadata
+// (x-tenant-id, x-user-id, x-service-id) — NOT from request body.
+message AiGenerateRequest {
+  string capability_code = 1;
+  string prompt = 2;
+  int64 max_output_tokens = 3;
+  int64 estimated_input_tokens = 4;
+  map<string, string> parameters = 5;
+}
+
+message AiGenerateResponse {
+  string content = 1;
+  int64 input_tokens = 2;
+  int64 output_tokens = 3;
+  string decision_id = 4;
+  string automation_level = 5;
+  bool requires_approval = 6;
+  string model = 7;
+  string provider = 8;
+}
+
+// ──────────────────────────────────────────────────
+// Embed
+// ──────────────────────────────────────────────────
+
+message AiEmbedRequest {
+  string capability_code = 1;
+  string content = 2;
+  int32 dimensions = 3;
+  int64 estimated_input_tokens = 4;
+}
+
+message AiEmbedResponse {
+  repeated float vector = 1;
+  int64 input_tokens = 2;
+  string decision_id = 3;
+  string model = 4;
+  string provider = 5;
+}

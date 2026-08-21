@@ -3,12 +3,13 @@ import { PrismaClient } from '@prisma/client';
 const prisma = new PrismaClient();
 
 async function main() {
-  console.log('Seeding billing database...');
+  console.log('Seeding billing database with Clean Architecture schema...');
 
   const mockTenantId = 'a0000000-0000-0000-0000-000000000001';
   const mockCarrierId = 'c0000000-0000-0000-0000-000000000001';
+  const mockCustomerId = 'CUST-001';
 
-  // Seed Mock Wallet
+  // 1. Seed Escrow Wallet
   const wallet = await prisma.escrowWallet.upsert({
     where: {
       tenantId_carrierId: {
@@ -46,9 +47,9 @@ async function main() {
     });
   }
 
-  // Seed Mock Invoice
+  // 2. Seed Mock Invoice with Line Items & Payment Record
   const existingInvoice = await prisma.invoice.findUnique({
-    where: { invoiceNumber: 'INV-2026-0001' },
+    where: { invoiceNumber: 'INV-202607-0001' },
   });
 
   if (!existingInvoice) {
@@ -57,28 +58,43 @@ async function main() {
         id: 'i0000000-0000-0000-0000-000000000001',
         tenantId: mockTenantId,
         shipmentId: 'shipment-101',
-        invoiceNumber: 'INV-2026-0001',
+        customerId: mockCustomerId,
+        invoiceNumber: 'INV-202607-0001',
         subtotal: 1800.0,
         taxAmount: 90.0,
         totalAmount: 1890.0,
-        status: 'UNPAID',
+        currency: 'USD',
+        status: 'PARTIALLY_PAID',
         dueDate: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000),
+        pdfS3Key: `tenants/${mockTenantId}/billing/invoices/i0000000-0000-0000-0000-000000000001.pdf`,
+        pdfUrl: `https://r2.aurora.io/aurora-private-docs/tenants/${mockTenantId}/billing/invoices/i0000000-0000-0000-0000-000000000001.pdf`,
         items: {
           create: [
             {
               description: 'Base Freight Charge (SGSIN -> VNSGN)',
+              quantity: 1,
+              unitPrice: 1500.0,
               amount: 1500.0,
               category: 'FREIGHT',
             },
             {
-              description: 'Port Handling Fee',
+              description: 'Port Handling Fee (THC / DOC)',
+              quantity: 1,
+              unitPrice: 300.0,
               amount: 300.0,
               category: 'PORT_FEE',
             },
+          ],
+        },
+        payments: {
+          create: [
             {
-              description: 'Import Customs Duty 5%',
-              amount: 90.0,
-              category: 'CUSTOMS_DUTY',
+              id: 'p0000000-0000-0000-0000-000000000001',
+              tenantId: mockTenantId,
+              amountPaid: 1000.0,
+              paymentMethod: 'BANK_TRANSFER',
+              transactionRef: 'TX-BANK-8899',
+              status: 'SUCCESS',
             },
           ],
         },
@@ -86,7 +102,7 @@ async function main() {
     });
   }
 
-  console.log('Billing seeding completed successfully.');
+  console.log('Billing database seeding completed successfully.');
 }
 
 main()

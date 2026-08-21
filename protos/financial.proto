@@ -7,6 +7,7 @@ option csharp_namespace = "FinancialService.Grpc";
 service FinancialService {
   rpc EstimateCost(EstimateCostRequest) returns (EstimateCostResponse);
   rpc GetCustomsDuty(GetCustomsDutyRequest) returns (GetCustomsDutyResponse);
+  rpc GetMinAcceptableRate(GetMinAcceptableRateRequest) returns (GetMinAcceptableRateResponse);
 }
 
 message EstimateCostRequest {
@@ -16,28 +17,62 @@ message EstimateCostRequest {
   string destinationPort = 4;
   double weightKg = 5;
   double volumeCbm = 6;
-  string cargoType = 7;
-  repeated string hsCodes = 8;
+  double lengthCm = 7;
+  double widthCm = 8;
+  double heightCm = 9;
+  string transportMode = 10; // AIR, SEA, ROAD
+  string cargoType = 11;
+  double cargoValue = 12;
+  string currency = 13;
+  repeated string hsCodes = 14;
 }
 
 message EstimateCostResponse {
   double baseFreightCost = 1;
   double portHandlingFees = 2;
-  double customsDuties = 3;
-  double totalEstimatedCost = 4;
-  string currency = 5;
-  string calculationMethod = 6;
-  string description = 7;
+  double importDutyFee = 3;
+  double vatFee = 4;
+  double totalCustomsFee = 5;
+  double totalEstimatedCost = 6;
+  double chargeableWeightKg = 7;
+  double volumetricWeightKg = 8;
+  string currency = 9;
+  string calculationMethod = 10;
+  string description = 11;
 }
 
 message GetCustomsDutyRequest {
   string originCountry = 1;
   string destinationCountry = 2;
   string hsCode = 3;
+  double cargoValue = 4;
 }
 
 message GetCustomsDutyResponse {
   string hsCode = 1;
-  double dutyRatePercentage = 2;
-  string description = 3;
+  double importTaxRate = 2;
+  double vatRate = 3;
+  double importDutyAmount = 4;
+  double vatAmount = 5;
+  double totalTaxAmount = 6;
+  string description = 7;
+}
+
+message GetMinAcceptableRateRequest {
+  string originPort = 1;
+  string destinationPort = 2;
+  string transportMode = 3;
+  double weightKg = 4;
+  double volumeCbm = 5;
+  string cargoType = 6;
+  double minMarginPercent = 7;
+  double targetMarginPercent = 8;
+}
+
+message GetMinAcceptableRateResponse {
+  double costPrice = 1;
+  double minAcceptableRate = 2;
+  double targetRate = 3;
+  string currency = 4;
+  string breakdownNote = 5;
 }

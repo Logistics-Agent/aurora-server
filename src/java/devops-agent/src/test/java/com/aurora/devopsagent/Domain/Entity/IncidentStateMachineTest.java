@@ -17,9 +17,10 @@ class IncidentStateMachineTest {
     }
 
     @Test
-    @DisplayName("Valid transition flow should succeed")
+    @DisplayName("Valid transition flow for Medium/High severity should succeed")
     void testValidTransitions() {
         Incident incident = new Incident();
+        incident.escalateSeverity(Severity.Medium);
 
         assertDoesNotThrow(() -> incident.transitionTo(IncidentStatus.COLLECTING_CONTEXT));
         assertEquals(IncidentStatus.COLLECTING_CONTEXT, incident.getStatus());
@@ -35,6 +36,27 @@ class IncidentStateMachineTest {
         assertDoesNotThrow(() -> incident.transitionTo(IncidentStatus.CLOSED));
 
         assertEquals(IncidentStatus.CLOSED, incident.getStatus());
+    }
+
+    @Test
+    @DisplayName("LOW severity incident must be blocked from AI_ANALYSIS (no-LLM guard)")
+    void testLowSeverityBlockedFromAiAnalysis() {
+        Incident incident = new Incident();
+        incident.escalateSeverity(Severity.Low);
+
+        incident.transitionTo(IncidentStatus.COLLECTING_CONTEXT);
+        incident.transitionTo(IncidentStatus.CONTEXT_READY);
+
+        IllegalStateException ex = assertThrows(
+                IllegalStateException.class,
+                () -> incident.transitionTo(IncidentStatus.AI_ANALYSIS)
+        );
+
+        assertTrue(ex.getMessage().contains("no-LLM guard"));
+
+        // But LOW can transition to RULE_ANALYSIS
+        assertDoesNotThrow(() -> incident.transitionTo(IncidentStatus.RULE_ANALYSIS));
+        assertEquals(IncidentStatus.RULE_ANALYSIS, incident.getStatus());
     }
 
     @Test

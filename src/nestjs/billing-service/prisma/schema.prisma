@@ -3,8 +3,9 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 model EscrowWallet {
@@ -39,31 +40,76 @@ model EscrowTransaction {
 }
 
 model Invoice {
-  id            String            @id @default(uuid())
-  tenantId      String            @map("tenant_id")
-  shipmentId    String            @map("shipment_id")
-  invoiceNumber String            @unique @map("invoice_number")
-  subtotal      Float
-  taxAmount     Float             @map("tax_amount")
-  totalAmount   Float             @map("total_amount")
-  status        String            @default("UNPAID") @map("status") // UNPAID, PAID, CANCELLED, OVERDUE
-  dueDate       DateTime          @map("due_date")
-  createdAt     DateTime          @default(now()) @map("created_at")
-  updatedAt     DateTime          @updatedAt @map("updated_at")
-  items         InvoiceLineItem[]
+  id               String            @id @default(uuid())
+  tenantId         String            @map("tenant_id")
+  shipmentId       String            @map("shipment_id")
+  customerId       String            @default("CUST-001") @map("customer_id")
+  invoiceNumber    String            @unique @map("invoice_number")
+  subtotal         Float
+  taxAmount        Float             @map("tax_amount")
+  totalAmount      Float             @map("total_amount")
+  currency         String            @default("USD")
+  status           String            @default("UNPAID") @map("status") // UNPAID, PARTIALLY_PAID, PAID, CANCELLED, OVERDUE
+  dueDate          DateTime          @map("due_date")
+  pdfS3Key         String?           @map("pdf_s3_key")
+  pdfUrl           String?           @map("pdf_url")
+  podS3Key         String?           @map("pod_s3_key")  // TASK-004: Proof of Delivery S3 key
+  createdAt        DateTime          @default(now()) @map("created_at")
+  updatedAt        DateTime          @updatedAt @map("updated_at")
+  items            InvoiceItem[]
+  payments         PaymentRecord[]
+  adjustmentNotes  AdjustmentNote[]  // TASK-003
 
   @@index([tenantId])
   @@index([shipmentId])
+  @@index([customerId])
   @@map("invoices")
 }
 
-model InvoiceLineItem {
+model InvoiceItem {
   id          String   @id @default(uuid())
   invoiceId   String   @map("invoice_id")
   description String
+  quantity    Int      @default(1)
+  unitPrice   Float    @map("unit_price")
   amount      Float
-  category    String   @map("category") // FREIGHT, PORT_FEE, CUSTOMS_DUTY
+  category    String   @default("FREIGHT") @map("category") // FREIGHT, PORT_FEE, CUSTOMS_DUTY
   invoice     Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
 
-  @@map("invoice_line_items")
+  @@map("invoice_items")
+}
+
+model PaymentRecord {
+  id             String   @id @default(uuid())
+  tenantId       String   @map("tenant_id")
+  invoiceId      String   @map("invoice_id")
+  amountPaid     Float    @map("amount_paid")
+  paymentMethod  String   @default("BANK_TRANSFER") @map("payment_method")
+  transactionRef String?  @map("transaction_ref")
+  status         String   @default("SUCCESS") @map("status") // SUCCESS, PENDING, FAILED
+  createdAt      DateTime @default(now()) @map("created_at")
+  invoice        Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([invoiceId])
+  @@map("payment_records")
+}
+
+// TASK-003: Debit Note / Credit Note
+// Tạo khi phát sinh phí ngoài dự kiến (DEM/DET, kiểm hóa, cân xe)
+model AdjustmentNote {
+  id          String   @id @default(uuid())
+  tenantId    String   @map("tenant_id")
+  invoiceId   String   @map("invoice_id")
+  type        String   @map("type")        // DEBIT | CREDIT
+  reasonCode  String   @map("reason_code") // DEMURRAGE | DETENTION | CUSTOMS_INSPECTION | WEIGHT_DISCREPANCY
+  amount      Float
+  description String
+  status      String   @default("ISSUED") @map("status") // ISSUED | VOID
+  createdAt   DateTime @default(now()) @map("created_at")
+  invoice     Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([invoiceId])
+  @@map("adjustment_notes")
 }

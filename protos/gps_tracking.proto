@@ -1,0 +1,147 @@
+syntax = "proto3";
+
+option csharp_namespace = "GpsTracking.Grpc";
+
+import "google/protobuf/timestamp.proto";
+
+service GpsTrackingService {
+  rpc IngestPosition(IngestPositionRequest) returns (PositionResponse);
+  rpc GetCurrentLocation(GetCurrentLocationRequest) returns (CurrentLocationResponse);
+  rpc ListPositionHistory(ListPositionHistoryRequest) returns (ListPositionHistoryResponse);
+  rpc CreateGeofence(CreateGeofenceRequest) returns (GeofenceResponse);
+  rpc ListGeofences(ListGeofencesRequest) returns (ListGeofencesResponse);
+  rpc SetGeofenceActive(SetGeofenceActiveRequest) returns (GeofenceResponse);
+  rpc ListMonitoringAlerts(ListMonitoringAlertsRequest) returns (ListMonitoringAlertsResponse);
+  rpc ResolveMonitoringAlert(ResolveMonitoringAlertRequest) returns (MonitoringAlertResponse);
+}
+
+message IngestPositionRequest {
+  string external_reading_id = 1;
+  string device_id = 2;
+  string vehicle_id = 3;
+  double latitude = 4;
+  double longitude = 5;
+  optional double speed_kph = 6;
+  optional double heading_degrees = 7;
+  optional double accuracy_meters = 8;
+  google.protobuf.Timestamp recorded_at = 9;
+}
+
+message GetCurrentLocationRequest {
+  oneof selector {
+    string vehicle_id = 1;
+    string shipment_id = 2;
+  }
+}
+
+message ListPositionHistoryRequest {
+  oneof selector {
+    string vehicle_id = 1;
+    string shipment_id = 2;
+  }
+  google.protobuf.Timestamp from = 3;
+  google.protobuf.Timestamp to = 4;
+  int32 page = 5;
+  int32 page_size = 6;
+}
+
+message PositionResponse {
+  string id = 1;
+  string external_reading_id = 2;
+  string device_id = 3;
+  string vehicle_id = 4;
+  string shipment_id = 5;
+  double latitude = 6;
+  double longitude = 7;
+  optional double speed_kph = 8;
+  optional double heading_degrees = 9;
+  optional double accuracy_meters = 10;
+  google.protobuf.Timestamp recorded_at = 11;
+  google.protobuf.Timestamp received_at = 12;
+}
+
+message CurrentLocationResponse {
+  string position_id = 1;
+  string vehicle_id = 2;
+  string shipment_id = 3;
+  double latitude = 4;
+  double longitude = 5;
+  optional double speed_kph = 6;
+  optional double heading_degrees = 7;
+  optional double accuracy_meters = 8;
+  google.protobuf.Timestamp recorded_at = 9;
+  google.protobuf.Timestamp received_at = 10;
+}
+
+message ListPositionHistoryResponse {
+  repeated PositionResponse positions = 1;
+  int32 page = 2;
+  int32 page_size = 3;
+  int32 total_items = 4;
+  int32 total_pages = 5;
+}
+
+message CreateGeofenceRequest {
+  string name = 1;
+  double latitude = 2;
+  double longitude = 3;
+  double radius_meters = 4;
+  optional string shipment_id = 5;
+  optional string vehicle_id = 6;
+}
+
+message ListGeofencesRequest {
+  bool include_inactive = 1;
+}
+
+message SetGeofenceActiveRequest {
+  string id = 1;
+  bool is_active = 2;
+}
+
+message GeofenceResponse {
+  string id = 1;
+  string name = 2;
+  double latitude = 3;
+  double longitude = 4;
+  double radius_meters = 5;
+  string shipment_id = 6;
+  string vehicle_id = 7;
+  bool is_active = 8;
+}
+
+message ListGeofencesResponse {
+  repeated GeofenceResponse geofences = 1;
+}
+
+message ListMonitoringAlertsRequest {
+  string alert_type = 1;
+  string status = 2;
+  int32 page = 3;
+  int32 page_size = 4;
+}
+
+message ResolveMonitoringAlertRequest {
+  string id = 1;
+}
+
+message MonitoringAlertResponse {
+  string id = 1;
+  string alert_type = 2;
+  string status = 3;
+  string vehicle_id = 4;
+  string shipment_id = 5;
+  string geofence_id = 6;
+  string position_id = 7;
+  string message = 8;
+  google.protobuf.Timestamp occurred_at = 9;
+  google.protobuf.Timestamp resolved_at = 10;
+}
+
+message ListMonitoringAlertsResponse {
+  repeated MonitoringAlertResponse alerts = 1;
+  int32 page = 2;
+  int32 page_size = 3;
+  int32 total_items = 4;
+  int32 total_pages = 5;
+}

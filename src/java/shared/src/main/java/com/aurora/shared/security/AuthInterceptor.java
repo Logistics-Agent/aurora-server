@@ -13,6 +13,10 @@ import java.util.UUID;
 /**
  * gRPC Server-side Interceptor: Đọc metadata từ BFF/client (x-user-id, x-tenant-id, x-role-ids, etc.),
  * populate CurrentUserContext cho tất cả gRPC handlers phía server.
+ * <p>
+ * Đồng thời đọc {@code x-service-id} để populate {@link CurrentServiceContext} — immediate caller
+ * workload identity, tách biệt hoàn toàn khỏi user identity.
+ * <p>
  * Parallel với AuthInterceptor.cs trong .NET.
  */
 public class AuthInterceptor implements ServerInterceptor {
@@ -25,6 +29,7 @@ public class AuthInterceptor implements ServerInterceptor {
             Metadata headers,
             ServerCallHandler<ReqT, RespT> next) {
 
+        // --- User identity context ---
         String userIdStr = headers.get(GrpcMetadataKeys.USER_ID);
         String tenantIdStr = headers.get(GrpcMetadataKeys.TENANT_ID);
         String traceId = headers.get(GrpcMetadataKeys.TRACE_ID);
@@ -36,12 +41,19 @@ public class AuthInterceptor implements ServerInterceptor {
         Integer permissionVersion = parseInteger(permissionVersionStr);
         List<String> roleIds = parseList(roleIdsStr);
 
-        CurrentUserContext context = new CurrentUserContext();
-        context.populate(userId, tenantId, traceId, permissionVersion, roleIds, Collections.emptyList());
-        CurrentUserContext.setCurrent(context);
+        CurrentUserContext userContext = new CurrentUserContext();
+        userContext.populate(userId, tenantId, traceId, permissionVersion, roleIds, Collections.emptyList());
+        CurrentUserContext.setCurrent(userContext);
 
-        log.debug("AuthInterceptor: UserId={}, TenantId={}, TraceId={}, RoleIds={}",
-                userId, tenantId, traceId, roleIds);
+        // --- Service/workload identity context ---
+        String serviceId = headers.get(GrpcMetadataKeys.SERVICE_ID);
+
+        CurrentServiceContext serviceContext = new CurrentServiceContext();
+        serviceContext.populate(serviceId);
+        CurrentServiceContext.setCurrent(serviceContext);
+
+        log.debug("AuthInterceptor: UserId={}, TenantId={}, TraceId={}, RoleIds={}, ServiceId={}",
+                userId, tenantId, traceId, roleIds, serviceId);
 
         return new ForwardingServerCallListener.SimpleForwardingServerCallListener<ReqT>(
                 next.startCall(call, headers)) {
@@ -51,6 +63,7 @@ public class AuthInterceptor implements ServerInterceptor {
                     super.onComplete();
                 } finally {
                     CurrentUserContext.clear();
+                    CurrentServiceContext.clear();
                 }
             }
 
@@ -60,6 +73,7 @@ public class AuthInterceptor implements ServerInterceptor {
                     super.onCancel();
                 } finally {
                     CurrentUserContext.clear();
+                    CurrentServiceContext.clear();
                 }
             }
         };

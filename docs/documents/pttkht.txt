@@ -2,7 +2,7 @@ Logistic + Muilt-Agent + Muilt-tennant:
 BE: .net + nestjs + java
 FE: React - Figma
 microservices: gRPC - RabbitMQ
-AWS: AKS, ACR, Azure Monitor, Azure Key Vault, Azure VMs (docker), Azure Blob Storage( terraform), Azure NAT Gateway, Azure Application Gateway, 2 AZ, Azure Managed Disks
+Cloud: AKS, ACR, Azure Monitor, Azure Key Vault, Azure VMs (docker), Azure Blob Storage( terraform), Azure NAT Gateway, Azure Application Gateway, 2 AZ, Azure Managed Disks
 Auth: Cognito
 Cloudflare: R2, DNS, Tunnel
 MQ: RabbitMQ
@@ -22,6 +22,7 @@ Identity & Tenant Service [CORE] - on going
 Route Planning Agent Service [AI] - VRP(OSRM+VROOM) - https://download.geofabrik.de/asia.html
 AI Ops & Monitoring Service [AI + DEVOPS]	
 Email Security Service [AI]: Stalwart-TLS Verification-SPF-DKIM-DMARC-Sender Validation-Attachment Scan-Spam Detection-Pub Event-> ORC/RoutePlan/Shipment
+AI-Governance: AI Management
 
 @Đào Huỳnh:  Financial & Cost Estimation Service [AI + CORE]	- ongoing		
 Billing & Settlement Service [CORE]			
@@ -35,30 +36,75 @@ Document OCR Agent Service [AI]
 Regulatory Compliance RAG Service [AI]	
 Shipment Workflow Service [Core] - on going
 
-@Hùng Vũ: Audit Log [CORE]
+@Hùng Vũ:
 Tester
 Docs {
 - Location facility Json -> Import DB
 
 }
 
+@Trương Được: -> @Đào Huỳnh 
+- GPS Tracking & Monitoring Service
+- Document OCR Agent Service
+- Notification Service 								
+- Audit Log 
+
 S3 key nên phân tenant:
 s3://hrm-private-docs/tenants/{tenantId}/department/{departmentId}/employees/{employeeId}/documents/{fileId}
 
+Tôi sẽ chuẩn hóa Aurora như sau:
 
-JWT giữa BFF và các internal service.
+public abstract class TenantDbContext : DbContext
+{
+    protected Guid? TenantId { get; }
 
-Không cần đọc
 
-x-role-id
+    protected TenantDbContext(
+        DbContextOptions options,
+        ICurrentUserService currentUser)
+        : base(options)
+    {
+        TenantId = currentUser.TenantId;
+    }
+}
 
-nữa.
+Sau đó service-specific DbContext:
 
-Header có thể giữ
+entity.HasQueryFilter(e =>
+    TenantId.HasValue &&
+    e.TenantId == TenantId.Value);
 
-x-correlation-id
-x-request-id
+Và thêm architecture test:
 
-nhưng identity nên lấy từ JWT.
+All tenant-owned entities must have:
+TenantId.HasValue && entity.TenantId == TenantId.Value
 
-=> Kết luận: AI nói đúng về nguyên tắc Zero Trust, nhưng nếu hạ tầng đã cô lập hoàn toàn thì mức độ rủi ro thấp hơn. Dù vậy, dùng JWT hoặc mTLS vẫn là thiết kế tốt hơn cho môi trường production.
+còn exception như system roles phải explicit.
+
+Kết luận
+
+Hướng tôi đề xuất mạnh nhất là:
+
+Guid? _tenantId
++
+snapshot từ ICurrentUserService
++
+fail-closed
++
+không nullable CurrentUser DI
++
+system access explicit
+
+Tức:
+
+private readonly Guid? _tenantId;
+
+
+_tenantId = currentUser.TenantId;
+
+
+entity.HasQueryFilter(e =>
+    _tenantId.HasValue &&
+    e.TenantId == _tenantId.Value);
+
+Đây là pattern tôi sẽ chọn để chuẩn hóa toàn bộ Aurora nếu mục tiêu là giảm tối đa nguy cơ cross-data tenant do missing/invalid context.
