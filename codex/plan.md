@@ -7,14 +7,14 @@ Shipment Workflow Aggregate Expansion: Completed
 Shipment Workflow full MVP: Completed
 Notification Service: Completed
 GPS Tracking and Monitoring: Completed
-Document OCR Agent: Not Started
+Document OCR Agent: Completed
 Regulatory Compliance RAG: Not Started
 
 ## Active Work
 
-Active Service: GPS Tracking and Monitoring
-Active Phase: Phase 10 - Completed
-Current Branch: feat/gps-tracking
+Active Service: None
+Active Phase: None - Document OCR Agent completed
+Current Branch: feat/document-ocr-agent
 
 ## Service Progress
 
@@ -23,7 +23,7 @@ Current Branch: feat/gps-tracking
 | Shipment Workflow | Completed |
 | Notification | Completed |
 | GPS Tracking and Monitoring | Completed |
-| Document OCR Agent | Not Started |
+| Document OCR Agent | Completed |
 | Regulatory Compliance RAG | Not Started |
 
 ## Shipment Phase Progress
@@ -62,6 +62,20 @@ Future-service phase plans exist under:
 * `codex/tasks/regulatory-compliance-rag/`
 
 Notification Phases 01-09 are Completed.
+
+## Document OCR Phase Progress
+
+| Phase | Name | Status |
+| --- | --- | --- |
+| 01 | Project Foundation | Completed |
+| 02 | Contracts and API | Completed |
+| 03 | Document Job Model | Completed |
+| 04 | Persistence | Completed |
+| 05 | OCR Provider Abstraction | Completed |
+| 06 | Extraction Pipeline | Completed |
+| 07 | Retry and Job Processing | Completed |
+| 08 | Program and Migration | Completed |
+| 09 | Testing | Completed |
 
 ## GPS Tracking Phase Progress
 
@@ -106,13 +120,34 @@ Notification Phases 01-09 are Completed.
 * Audited the complete owned-service task map and expanded all Document OCR and Regulatory
   Compliance RAG phases with explicit contracts, boundaries, persistence, provider, migration,
   security, test, runtime, evidence, and per-phase commit criteria.
+* Document OCR Phase 01 created the .NET 10 Web/gRPC service, colocated test project, contracts
+  assembly, reserved protobuf file, and secret-free configuration skeleton.
+* Document OCR Phase 02 defined tenant-safe submit/get/list RPCs, stable enums and timestamps,
+  and versioned completed/failed integration-event contracts.
+* Document OCR Phase 03 implemented the tenant-owned job aggregate, provider attempts, guarded
+  lifecycle transitions, bounded errors/JSON, retry semantics, and inbox/outbox domain records.
+* Document OCR Phase 04 configured tenant-filtered PostgreSQL persistence, JSON/confidence fields,
+  operational indexes, inbox/outbox storage, and tenant-safe aggregate relationships.
+* Document OCR Phase 05 added vendor-neutral OCR/content interfaces, strict document policy,
+  bounded provider results/failures, and deterministic local adapters without external access.
+* Document OCR Phase 06 completed tenant-safe submit/get/list gRPC behavior and the extraction
+  pipeline with stable normalized JSON, confidence/review rules, and atomic completion outbox.
+* Document OCR Phase 07 added skip-locked job claims, leases and heartbeats, expired-claim
+  recovery, bounded deterministic retries, terminal failure events, and an allowlisted
+  transactional outbox publisher; the service now passes 55 tests.
+* Document OCR Phase 08 configured the complete service process and dedicated local PostgreSQL,
+  applied `20260722035404_InitialDocumentOcr`, and passed HTTP/2, RabbitMQ, worker, build, and
+  55-test smoke validation without paid OCR credentials.
+* Document OCR Phase 09 added PostgreSQL migration/schema/concurrency/tenant tests, real RabbitMQ
+  completion/failure delivery proof, complete gRPC mapping coverage, and final owned-service
+  regression. OCR passes 63 tests; Shipment 99, Notification 29, and GPS 50 also pass.
 
 ## Current Work
 
-Shipment Workflow, Notification, and GPS Tracking are complete. Shipment publishes persisted
-events consumed idempotently by Notification and GPS; GPS publishes position and monitoring
-events through its own transactional outbox for future consumers. Service tests remain
-colocated under `src/dotnet/<Service>/Tests`.
+Shipment Workflow, Notification, GPS Tracking, and Document OCR are complete. Shipment publishes
+persisted events consumed idempotently by Notification and GPS; GPS and OCR publish service-owned
+events through transactional outboxes. Service tests remain colocated under
+`src/dotnet/<Service>/Tests`.
 
 ## Blocked Work
 
@@ -120,36 +155,38 @@ No active blocker.
 
 ## Remaining Work
 
-No remaining GPS MVP work. Document OCR and Regulatory Compliance remain separate planned
-services and must not begin without explicit authorization.
+No remaining Document OCR MVP work. Regulatory Compliance remains a separate planned service and
+must not begin without explicit authorization.
 
 ## Build Results
 
-Latest verified GPS Phase 10 validation:
+Latest verified Document OCR Phase 09 and owned-service regression validation:
 
 ```bash
-dotnet build src/dotnet/GpsTracking/GpsTracking.csproj
+dotnet build src/dotnet/DocumentOcr/DocumentOcr.csproj
 dotnet build src/dotnet/ShipmentWorkflow/ShipmentWorkflow.csproj
 dotnet build src/dotnet/Notification/Notification.csproj
+dotnet build src/dotnet/GpsTracking/GpsTracking.csproj
 ```
 
-Result: All passed, 0 errors, 0 warnings.
+Result: All passed with 0 errors and 0 warnings.
 
 ## Test Results
 
-Latest verified GPS Phase 10 validation:
+Latest verified Document OCR Phase 09 and owned-service regression validation:
 
 ```bash
-dotnet test src/dotnet/GpsTracking/Tests/GpsTracking.Tests.csproj
+dotnet test src/dotnet/DocumentOcr/Tests/DocumentOcr.Tests.csproj
 dotnet test src/dotnet/ShipmentWorkflow/Tests/ShipmentWorkflow.Tests.csproj
 dotnet test src/dotnet/Notification/Tests/Notification.Tests.csproj
+dotnet test src/dotnet/GpsTracking/Tests/GpsTracking.Tests.csproj
 ```
 
-Result: GPS passed 50 tests; Shipment passed 99 tests; Notification passed 29 tests.
+Result: Document OCR passed 63 tests; Shipment passed 99; Notification passed 29; GPS passed 50.
 
 ## Migration Results
 
-Initial Shipment Workflow migration `20260713201248_InitialShipmentWorkflow` and expanded MVP migration `20260714042938_ExpandShipmentWorkflowMvp` are applied to local `aurora_shipment_workflow`. Notification migration `20260719124939_InitialNotification` is applied to local `aurora_notification`. GPS migration `20260721042104_InitialGpsTracking` is applied to local `aurora_gps_tracking`.
+Initial Shipment Workflow migration `20260713201248_InitialShipmentWorkflow` and expanded MVP migration `20260714042938_ExpandShipmentWorkflowMvp` are applied to local `aurora_shipment_workflow`. Notification migration `20260719124939_InitialNotification` is applied to local `aurora_notification`. GPS migration `20260721042104_InitialGpsTracking` is applied to local `aurora_gps_tracking`. Document OCR migration `20260722035404_InitialDocumentOcr` is applied to local `aurora_document_ocr`.
 
 Part of the validation also produced supporting repository commits:
 
@@ -172,8 +209,7 @@ Recent Notification phase commits:
 
 ## Immediate Next Action
 
-GPS Tracking is complete on `feat/gps-tracking`. The next planned service is Document OCR,
-but its branch and Phase 01 require an explicit user instruction.
+Await explicit authorization before creating or starting the Regulatory Compliance service branch.
 
 ## Branch Strategy
 
@@ -190,4 +226,5 @@ current Shipment branch
             └── feat/regulatory-compliance-rag
 ```
 
-Do not create Document OCR or later branches yet.
+Document OCR is active on `feat/document-ocr-agent`. Do not create the Regulatory Compliance
+branch until the OCR service is fully completed and explicitly authorized.

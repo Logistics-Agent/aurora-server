@@ -2,7 +2,7 @@
 
 ## Status
 
-Not Started
+Completed
 
 ## Goal
 
@@ -76,32 +76,65 @@ dotnet build src/dotnet/DocumentOcr/DocumentOcr.csproj
 
 ### Completed
 
-Not started.
+Configured the complete Document OCR process with shared gRPC authentication/error interceptors,
+tenant current-user context, PostgreSQL persistence, MassTransit/RabbitMQ, deterministic local
+provider/content reader, job/retry worker, and outbox publisher. Bound and validated document,
+provider, lease/retry, and outbox settings. Added dedicated local PostgreSQL infrastructure,
+generated and reviewed one initial migration, applied it to the confirmed OCR database, and
+smoke-started the service without paid-provider credentials.
 
 ### Files Changed
 
-None.
+* `docker-compose.dev.yml`
+* `src/dotnet/DocumentOcr/Application/Providers/DocumentProcessingOptions.cs`
+* `src/dotnet/DocumentOcr/Program.cs`
+* `src/dotnet/DocumentOcr/appsettings.json`
+* `src/dotnet/DocumentOcr/appsettings.Development.json`
+* `src/dotnet/DocumentOcr/Infrastructure/Persistences/Migrations/20260722035404_InitialDocumentOcr.cs`
+* `src/dotnet/DocumentOcr/Infrastructure/Persistences/Migrations/20260722035404_InitialDocumentOcr.Designer.cs`
+* `src/dotnet/DocumentOcr/Infrastructure/Persistences/Migrations/DocumentOcrDbContextModelSnapshot.cs`
+* `codex/plan.md`
 
 ### Commands Executed
 
-None.
+```bash
+git status --short
+dotnet build src/dotnet/DocumentOcr/DocumentOcr.csproj
+dotnet test src/dotnet/DocumentOcr/Tests/DocumentOcr.Tests.csproj
+docker compose -f docker-compose.dev.yml config --quiet
+docker compose -f docker-compose.dev.yml up -d document-ocr-postgres redis rabbitmq
+docker compose -f docker-compose.dev.yml ps
+docker exec aurora-document-ocr-postgres psql -U postgres -d aurora_document_ocr -c "SELECT current_database(), current_user;"
+dotnet ef migrations list --project src/dotnet/DocumentOcr/DocumentOcr.csproj --startup-project src/dotnet/DocumentOcr/DocumentOcr.csproj
+dotnet ef migrations add InitialDocumentOcr --project src/dotnet/DocumentOcr/DocumentOcr.csproj --startup-project src/dotnet/DocumentOcr/DocumentOcr.csproj --output-dir Infrastructure/Persistences/Migrations
+dotnet ef database update --project src/dotnet/DocumentOcr/DocumentOcr.csproj --startup-project src/dotnet/DocumentOcr/DocumentOcr.csproj
+dotnet ef migrations has-pending-model-changes --project src/dotnet/DocumentOcr/DocumentOcr.csproj --startup-project src/dotnet/DocumentOcr/DocumentOcr.csproj
+dotnet run --no-build --project src/dotnet/DocumentOcr/DocumentOcr.csproj --launch-profile http
+curl --http2-prior-knowledge --max-time 5 http://localhost:5092/
+docker exec aurora-rabbitmq rabbitmqctl list_connections name peer_host peer_port state
+```
 
 ### Build Result
 
-Not started.
+Passed: 3 projects built with 0 errors and 0 warnings.
 
 ### Test Result
 
-Not started.
+Passed: 55 tests with 0 failed and 0 warnings.
 
 ### Runtime Result
 
-Not started.
+Passed. The process remained running with the gRPC/HTTP2 endpoint on port 5092, returned
+`Document OCR gRPC Service`, maintained a running RabbitMQ connection, and stopped cleanly on
+SIGINT. PostgreSQL, Redis, and RabbitMQ were healthy; background polling produced no runtime error.
 
 ### Migration Result
 
-Not started.
+Created and applied `20260722035404_InitialDocumentOcr` only to confirmed database
+`aurora_document_ocr` on the dedicated `aurora-document-ocr-postgres` container. Migration list
+shows it applied, PostgreSQL contains the expected four service tables plus migration history,
+and EF reports no pending model changes.
 
 ### Remaining Issues
 
-Phase has not started.
+None.

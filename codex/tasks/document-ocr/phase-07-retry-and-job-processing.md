@@ -2,7 +2,7 @@
 
 ## Status
 
-Not Started
+Completed
 
 ## Goal
 
@@ -72,32 +72,58 @@ dotnet test src/dotnet/DocumentOcr/Tests/DocumentOcr.Tests.csproj
 
 ### Completed
 
-Not started.
+Implemented ordered PostgreSQL skip-locked job claiming, processing leases, heartbeat renewal,
+expired-lease recovery, bounded transient retries with deterministic exponential backoff and
+jitter, and terminal failure events. Added a hosted OCR job worker and a separate allowlisted
+transactional outbox publisher for completion/failure events. Host shutdown leaves an active
+claim recoverable instead of falsely completing it; provider-declared cancellation is terminal.
 
 ### Files Changed
 
-None.
+* `src/dotnet/DocumentOcr/Application/Jobs/DocumentOcrJobService.cs`
+* `src/dotnet/DocumentOcr/Application/Jobs/DocumentOcrOutboxFactory.cs`
+* `src/dotnet/DocumentOcr/Application/Jobs/DocumentOcrWorkerOptions.cs`
+* `src/dotnet/DocumentOcr/Domain/Entities/DocumentOcrJob.cs`
+* `src/dotnet/DocumentOcr/Infrastructure/BackgroundJobs/DocumentOcrIntegrationEventPublisher.cs`
+* `src/dotnet/DocumentOcr/Infrastructure/BackgroundJobs/DocumentOcrIntegrationEventTypeRegistry.cs`
+* `src/dotnet/DocumentOcr/Infrastructure/BackgroundJobs/DocumentOcrJobBackgroundService.cs`
+* `src/dotnet/DocumentOcr/Infrastructure/BackgroundJobs/DocumentOcrJobBatchStore.cs`
+* `src/dotnet/DocumentOcr/Infrastructure/BackgroundJobs/DocumentOcrOutboxBatchStore.cs`
+* `src/dotnet/DocumentOcr/Infrastructure/BackgroundJobs/DocumentOcrOutboxProcessor.cs`
+* `src/dotnet/DocumentOcr/Infrastructure/BackgroundJobs/DocumentOcrOutboxPublisherBackgroundService.cs`
+* `src/dotnet/DocumentOcr/Infrastructure/BackgroundJobs/DocumentOcrOutboxPublisherOptions.cs`
+* `src/dotnet/DocumentOcr/Tests/Application/DocumentOcrJobServiceTests.cs`
+* `src/dotnet/DocumentOcr/Tests/Infrastructure/DocumentOcrBackgroundProcessingTests.cs`
+* `codex/plan.md`
 
 ### Commands Executed
 
-None.
+```bash
+git status --short
+dotnet build src/dotnet/DocumentOcr/DocumentOcr.csproj
+dotnet test src/dotnet/DocumentOcr/Tests/DocumentOcr.Tests.csproj --filter FullyQualifiedName~DocumentOcrBackgroundProcessingTests
+dotnet test src/dotnet/DocumentOcr/Tests/DocumentOcr.Tests.csproj --filter FullyQualifiedName~DocumentOcrJobServiceTests
+dotnet test src/dotnet/DocumentOcr/Tests/DocumentOcr.Tests.csproj
+```
 
 ### Build Result
 
-Not started.
+Passed: 3 projects built with 0 errors and 0 warnings.
 
 ### Test Result
 
-Not started.
+Passed: 55 total tests with 0 failed and 0 warnings. Focused coverage verifies exclusion across
+multiple claimers, lease heartbeat/recovery, deterministic bounded retries, terminal failure,
+provider and host cancellation behavior, outbox allowlisting, and preserved event IDs.
 
 ### Runtime Result
 
-Not started.
+Not required in this phase. Hosted services are registered and smoke-tested in Phase 08.
 
 ### Migration Result
 
-Not started.
+No migration created. The initial Document OCR migration remains owned by Phase 08.
 
 ### Remaining Issues
 
-Phase has not started.
+None.

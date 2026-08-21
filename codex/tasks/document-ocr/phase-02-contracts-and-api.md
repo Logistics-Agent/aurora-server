@@ -2,7 +2,7 @@
 
 ## Status
 
-Not Started
+Completed
 
 ## Goal
 
@@ -71,32 +71,45 @@ dotnet test src/dotnet/DocumentOcr/Tests/DocumentOcr.Tests.csproj
 
 ### Completed
 
-Not started.
+Defined the three approved tenant-scoped job RPCs, stable job/document enums, bounded pagination
+messages, Timestamp lifecycle fields, and version 1 completed/failed integration-event contracts.
+The submit request deliberately omits TenantId, callback URLs, arbitrary URLs, and local paths.
 
 ### Files Changed
 
-None.
+* `protos/document_ocr.proto`
+* `src/dotnet/DocumentOcr/DocumentOcr.csproj`
+* `src/dotnet/DocumentOcr/Tests/DocumentOcrContractTests.cs`
+* `src/dotnet/Contracts/DocumentOcr.Contracts/Events/DocumentOcrCompletedEvent.cs`
+* `src/dotnet/Contracts/DocumentOcr.Contracts/Events/DocumentOcrFailedEvent.cs`
+* `codex/plan.md`
 
 ### Commands Executed
 
-None.
+```bash
+git status --short
+dotnet build src/dotnet/DocumentOcr/DocumentOcr.csproj
+dotnet test src/dotnet/DocumentOcr/Tests/DocumentOcr.Tests.csproj
+dotnet build src/dotnet/Contracts/DocumentOcr.Contracts/DocumentOcr.Contracts.csproj
+```
 
 ### Build Result
 
-Not started.
+Passed: contracts and service builds completed with 0 errors and 0 warnings.
 
 ### Test Result
 
-Not started.
+Passed: 5 tests, 0 failed, 0 warnings. The initial contract test failed at compile time before
+the generated types and event contracts were implemented, then passed after implementation.
 
 ### Runtime Result
 
-Not started.
+Not required; RPC handlers are implemented in Phase 06.
 
 ### Migration Result
 
-Not started.
+Not required; Phase 08 owns the initial migration.
 
 ### Remaining Issues
 
-Phase has not started.
+None.
