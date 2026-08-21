@@ -5,66 +5,88 @@ import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Table;
 
-import java.util.UUID;
+import java.math.BigDecimal;
+import java.time.OffsetDateTime;
 
 @Entity
 @Table(name = "existing_rules")
 public class ExistingRule extends AuditableEntity {
 
-    @Column(name = "name", nullable = false, length = 200)
-    private String name;
+    @Column(name = "rule_name", nullable = false, unique = true, length = 100)
+    private String ruleName;
 
-    @Column(name = "error_signature_pattern", nullable = false, columnDefinition = "TEXT")
-    private String errorSignaturePattern;
-
-    @Column(name = "target_service", nullable = false, length = 100)
-    private String targetService;
-
-    @Column(name = "target_deployment", length = 200)
-    private String targetDeployment;
+    @Column(name = "error_pattern", nullable = false, columnDefinition = "TEXT")
+    private String errorPattern;
 
     @Column(name = "action_type", nullable = false, length = 50)
     private String actionType; // restart_pod, adjust_config, rollback_deployment
 
-    @Column(name = "action_params_json", nullable = false, columnDefinition = "TEXT")
-    private String actionParamsJson;
+    @Column(name = "action_params_json", columnDefinition = "TEXT")
+    private String actionParamsJson = "{}";
 
-    @Column(name = "scope_constraint_json", nullable = false, columnDefinition = "TEXT")
-    private String scopeConstraintJson;
+    @Column(name = "confidence", nullable = false, precision = 5, scale = 4)
+    private BigDecimal confidence = new BigDecimal("1.0000");
 
-    @Column(name = "promoted_from_pending_id")
-    private UUID promotedFromPendingId;
+    @Column(name = "active", nullable = false)
+    private boolean active = true;
+
+    @Column(name = "match_count", nullable = false)
+    private int matchCount = 0;
+
+    @Column(name = "last_matched_at")
+    private OffsetDateTime lastMatchedAt;
 
     public String getName() {
-        return name;
+        return ruleName;
     }
 
     public void setName(String name) {
-        this.name = name;
+        this.ruleName = name;
+    }
+
+    public String getRuleName() {
+        return ruleName;
+    }
+
+    public void setRuleName(String ruleName) {
+        this.ruleName = ruleName;
     }
 
     public String getErrorSignaturePattern() {
-        return errorSignaturePattern;
+        return errorPattern;
     }
 
     public void setErrorSignaturePattern(String errorSignaturePattern) {
-        this.errorSignaturePattern = errorSignaturePattern;
+        this.errorPattern = errorSignaturePattern;
+    }
+
+    public String getErrorPattern() {
+        return errorPattern;
+    }
+
+    public void setErrorPattern(String errorPattern) {
+        this.errorPattern = errorPattern;
     }
 
     public String getTargetService() {
-        return targetService;
+        return "";
     }
 
     public void setTargetService(String targetService) {
-        this.targetService = targetService;
     }
 
     public String getTargetDeployment() {
-        return targetDeployment;
+        return "";
     }
 
     public void setTargetDeployment(String targetDeployment) {
-        this.targetDeployment = targetDeployment;
+    }
+
+    public String getScopeConstraintJson() {
+        return "{}";
+    }
+
+    public void setScopeConstraintJson(String scopeConstraintJson) {
     }
 
     public String getActionType() {
@@ -83,19 +105,35 @@ public class ExistingRule extends AuditableEntity {
         this.actionParamsJson = actionParamsJson;
     }
 
-    public String getScopeConstraintJson() {
-        return scopeConstraintJson;
+    public BigDecimal getConfidence() {
+        return confidence;
     }
 
-    public void setScopeConstraintJson(String scopeConstraintJson) {
-        this.scopeConstraintJson = scopeConstraintJson;
+    public void setConfidence(BigDecimal confidence) {
+        this.confidence = confidence;
     }
 
-    public UUID getPromotedFromPendingId() {
-        return promotedFromPendingId;
+    public boolean isActive() {
+        return active;
     }
 
-    public void setPromotedFromPendingId(UUID promotedFromPendingId) {
-        this.promotedFromPendingId = promotedFromPendingId;
+    public void setActive(boolean active) {
+        this.active = active;
+    }
+
+    public int getMatchCount() {
+        return matchCount;
+    }
+
+    public void setMatchCount(int matchCount) {
+        this.matchCount = matchCount;
+    }
+
+    public OffsetDateTime getLastMatchedAt() {
+        return lastMatchedAt;
+    }
+
+    public void setLastMatchedAt(OffsetDateTime lastMatchedAt) {
+        this.lastMatchedAt = lastMatchedAt;
     }
 }

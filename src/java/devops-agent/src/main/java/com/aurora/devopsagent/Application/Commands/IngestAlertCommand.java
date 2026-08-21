@@ -4,8 +4,10 @@ import com.aurora.devopsagent.Application.Services.AntiFlappingTracker;
 import com.aurora.devopsagent.Application.Services.DedupService;
 import com.aurora.devopsagent.Application.Services.SeverityClassifier;
 import com.aurora.devopsagent.Domain.Entity.Incident;
+import com.aurora.devopsagent.Domain.Enums.AuditActionType;
 import com.aurora.devopsagent.Domain.Enums.IncidentStatus;
 import com.aurora.devopsagent.Domain.Enums.Severity;
+import com.aurora.devopsagent.Infrastructure.Audit.AuditEventOutboxService;
 import com.aurora.devopsagent.Infrastructure.Persistence.IncidentJpaRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -21,86 +23,92 @@ public record IngestAlertCommand(
         String payloadJson,
         String affectedService,
         String environment
-) {}
+) {
 
-public record IngestAlertResult(
-        boolean duplicated,
-        String correlationId,
-        String incidentId,
-        String status
-) {}
+    public record Result(
+            boolean duplicated,
+            String correlationId,
+            String incidentId,
+            String status
+    ) {}
 
-/**
- * CQRS Command Handler cho IngestAlert.
- * Inject trực tiếp IncidentJpaRepository (DbSet style - no repo abstraction layer).
- */
-@Service
-public class IngestAlertCommandHandler {
+    @Service
+    public static class Handler {
 
-    private static final Logger log = LoggerFactory.getLogger(IngestAlertCommandHandler.class);
+        private static final Logger log = LoggerFactory.getLogger(Handler.class);
 
-    private final IncidentJpaRepository incidentRepository; // Direct JPA DbSet
-    private final DedupService dedupService;
-    private final AntiFlappingTracker antiFlappingTracker;
-    private final SeverityClassifier severityClassifier;
+        private final IncidentJpaRepository incidentRepository;
+        private final DedupService dedupService;
+        private final AntiFlappingTracker antiFlappingTracker;
+        private final SeverityClassifier severityClassifier;
+        private final AuditEventOutboxService outboxService;
 
-    public IngestAlertCommandHandler(
-            IncidentJpaRepository incidentRepository,
-            DedupService dedupService,
-            AntiFlappingTracker antiFlappingTracker,
-            SeverityClassifier severityClassifier) {
-        this.incidentRepository = incidentRepository;
-        this.dedupService = dedupService;
-        this.antiFlappingTracker = antiFlappingTracker;
-        this.severityClassifier = severityClassifier;
-    }
-
-    @Transactional
-    public IngestAlertResult handle(IngestAlertCommand command) {
-        long nowSeconds = Instant.now().getEpochSecond();
-        String dedupKey = dedupService.computeDedupKey(command.source(), command.errorSignature(), nowSeconds);
-        String proposedCorrelationId = UUID.randomUUID().toString();
-
-        // Check Dedup
-        String existingCorrelationId = dedupService.checkAndStore(dedupKey, proposedCorrelationId);
-        if (existingCorrelationId != null) {
-            // Is Duplicate
-            log.info("Alert is duplicate. CorrelationId: {}", existingCorrelationId);
-            return new IngestAlertResult(true, existingCorrelationId, "", IncidentStatus.NEW.name());
+        public Handler(
+                IncidentJpaRepository incidentRepository,
+                DedupService dedupService,
+                AntiFlappingTracker antiFlappingTracker,
+                SeverityClassifier severityClassifier,
+                AuditEventOutboxService outboxService) {
+            this.incidentRepository = incidentRepository;
+            this.dedupService = dedupService;
+            this.antiFlappingTracker = antiFlappingTracker;
+            this.severityClassifier = severityClassifier;
+            this.outboxService = outboxService;
         }
 
-        // Is New Incident
-        var classification = severityClassifier.classify(
-                command.source(), command.errorSignature(), command.affectedService(), command.environment());
+        @Transactional
+        public Result handle(IngestAlertCommand command) {
+            long nowSeconds = Instant.now().getEpochSecond();
+            String dedupKey = dedupService.computeDedupKey(command.source(), command.errorSignature(), nowSeconds);
+            String proposedCorrelationId = UUID.randomUUID().toString();
 
-        Severity finalSeverity = classification.severity();
-        Severity originalSeverity = finalSeverity;
-
-        // Anti-Flapping check for Low severity
-        if (finalSeverity == Severity.Low) {
-            boolean isFlapping = antiFlappingTracker.recordEventAndCheckFlapping(dedupKey);
-            if (isFlapping) {
-                finalSeverity = Severity.Medium; // Escalate
+            // Check Dedup
+            String existingCorrelationId = dedupService.checkAndStore(dedupKey, proposedCorrelationId);
+            if (existingCorrelationId != null) {
+                // Is Duplicate
+                log.info("Alert is duplicate. CorrelationId: {}", existingCorrelationId);
+                return new Result(true, existingCorrelationId, "", IncidentStatus.NEW.name());
             }
+
+            // Is New Incident
+            var classification = severityClassifier.classify(
+                    command.source(), command.errorSignature(), command.affectedService(), command.environment());
+
+            Severity finalSeverity = classification.severity();
+            Severity originalSeverity = finalSeverity;
+
+            // Anti-Flapping check for Low severity (escalate to Medium if >= 5 in 10 mins)
+            if (finalSeverity == Severity.Low) {
+                boolean isFlapping = antiFlappingTracker.recordEventAndCheckFlapping(dedupKey);
+                if (isFlapping) {
+                    finalSeverity = Severity.Medium; // Escalate
+                }
+            }
+
+            Incident incident = new Incident();
+            incident.setCorrelationId(proposedCorrelationId);
+            incident.setDedupKey(dedupKey);
+            incident.setSource(command.source());
+            incident.setErrorSignature(command.errorSignature());
+            incident.escalateSeverity(finalSeverity);
+            incident.setOriginalSeverity(originalSeverity);
+            incident.setAffectedService(command.affectedService());
+            incident.setImpactScore(classification.impactScore());
+
+            Incident saved = incidentRepository.save(incident);
+
+            // Transactional Audit Outbox
+            outboxService.enqueue(
+                    saved.getCorrelationId(),
+                    saved.getId(),
+                    AuditActionType.INCIDENT_CREATED,
+                    String.format("{\"severity\":\"%s\",\"affectedService\":\"%s\"}", saved.getSeverity(), saved.getAffectedService())
+            );
+
+            log.info("Created new Incident id={}, correlationId={}, severity={}, impactScore={}",
+                    saved.getId(), saved.getCorrelationId(), saved.getSeverity(), saved.getImpactScore());
+
+            return new Result(false, saved.getCorrelationId(), saved.getId().toString(), saved.getStatus().name());
         }
-
-        Incident incident = new Incident();
-        incident.setCorrelationId(proposedCorrelationId);
-        incident.setDedupKey(dedupKey);
-        incident.setSource(command.source());
-        incident.setErrorSignature(command.errorSignature());
-        incident.escalateSeverity(finalSeverity);
-        incident.setOriginalSeverity(originalSeverity);
-        incident.setAffectedService(command.affectedService());
-        incident.setImpactScore(classification.impactScore());
-
-        // Save directly via JPA DbSet interface
-        Incident saved = incidentRepository.save(incident);
-
-        log.info("Created new Incident id={}, correlationId={}, severity={}, impactScore={}",
-                saved.getId(), saved.getCorrelationId(), saved.getSeverity(), saved.getImpactScore());
-
-        return new IngestAlertResult(false, saved.getCorrelationId(), saved.getId().toString(), saved.getStatus().name());
-
     }
 }

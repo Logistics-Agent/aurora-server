@@ -11,20 +11,20 @@ import java.math.BigDecimal;
 @Table(name = "devops_agent_self_config")
 public class DevOpsAgentSelfConfig extends AuditableEntity {
 
-    @Column(name = "model_provider", nullable = false, length = 50)
-    private String modelProvider; // azure_openai, gemini
+    @Column(name = "model_provider", length = 50)
+    private String modelProvider; // Deprecated: provider routing managed by AiGovernance
 
-    @Column(name = "model_name", nullable = false, length = 100)
-    private String modelName; // gpt-4o, gemini-1.5-pro
+    @Column(name = "model_name", length = 100)
+    private String modelName; // Deprecated: model selection managed by AiGovernance
 
-    @Column(name = "api_endpoint", nullable = false, columnDefinition = "TEXT")
-    private String apiEndpoint;
+    @Column(name = "api_endpoint", columnDefinition = "TEXT")
+    private String apiEndpoint; // Deprecated: endpoints managed by AiGovernance
 
     @Column(name = "max_tokens_per_request", nullable = false)
-    private int maxTokensPerRequest = 4096;
+    private int maxTokensPerRequest = 4096; // Requested ceiling preference
 
     @Column(name = "alert_threshold_usd_per_day", nullable = false, precision = 10, scale = 4)
-    private BigDecimal alertThresholdUsdPerDay = new BigDecimal("50.0000");
+    private BigDecimal alertThresholdUsdPerDay = new BigDecimal("50.0000"); // Domain cost threshold
 
     public String getModelProvider() {
         return modelProvider;

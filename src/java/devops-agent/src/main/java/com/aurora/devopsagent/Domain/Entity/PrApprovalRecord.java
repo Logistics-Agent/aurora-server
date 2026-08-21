@@ -1,5 +1,6 @@
 package com.aurora.devopsagent.Domain.Entity;
 
+import com.aurora.devopsagent.Domain.Enums.ApprovalStage;
 import com.aurora.devopsagent.Domain.Enums.ApprovalStatus;
 import com.aurora.devopsagent.Domain.Enums.Severity;
 import com.aurora.shared.entity.AuditableEntity;
@@ -24,6 +25,10 @@ public class PrApprovalRecord extends AuditableEntity {
 
     @Column(name = "pr_number")
     private Integer prNumber;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "stage", nullable = false, length = 50)
+    private ApprovalStage stage = ApprovalStage.MERGE;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false, length = 50)
@@ -78,6 +83,14 @@ public class PrApprovalRecord extends AuditableEntity {
 
     public void setPrNumber(Integer prNumber) {
         this.prNumber = prNumber;
+    }
+
+    public ApprovalStage getStage() {
+        return stage;
+    }
+
+    public void setStage(ApprovalStage stage) {
+        this.stage = stage;
     }
 
     public ApprovalStatus getStatus() {

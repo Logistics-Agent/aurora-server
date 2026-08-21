@@ -1,19 +1,21 @@
 using Microsoft.Extensions.Logging;
 using StackExchange.Redis;
-using MailService.Application.Interfaces;
+using MailService.Application.Interfaces.RateLimiting;
 
 namespace MailService.Infrastructure.Cache;
 
+
 public class RedisCacheService : IRateLimitService
 {
-    private readonly IConnectionMultiplexer? _redis;
+    private readonly IConnectionMultiplexer _redis;
     private readonly ILogger<RedisCacheService> _logger;
 
-    public RedisCacheService(IConnectionMultiplexer? redis = null, ILogger<RedisCacheService>? logger = null)
+    public RedisCacheService(IConnectionMultiplexer redis, ILogger<RedisCacheService> logger)
     {
         _redis = redis;
-        _logger = logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<RedisCacheService>.Instance;
+        _logger = logger;
     }
+
 
     public async Task<bool> IsMessageIdDuplicateAsync(Guid tenantId, string messageId, CancellationToken cancellationToken = default)
     {

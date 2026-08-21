@@ -2,7 +2,6 @@ package com.aurora.devopsagent.Application.Queries;
 
 import com.aurora.devopsagent.Domain.Entity.DevOpsAgentSelfConfig;
 import com.aurora.devopsagent.Infrastructure.Persistence.SelfConfigJpaRepository;
-import com.aurora.shared.exception.DomainExceptions;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -22,11 +21,13 @@ public class GetSelfConfigQueryHandler {
     public DevOpsAgentSelfConfig handle() {
         List<DevOpsAgentSelfConfig> list = selfConfigRepository.findAll();
         if (list.isEmpty()) {
-            // Return default initial self config
+            // Default initial self config for DevOps-Agent.
+            // Note: Provider, model, and endpoint are strictly owned and managed by AiGovernanceService.
+            // maxTokensPerRequest is caller ceiling preference; AiGovernance remains the final authority.
             DevOpsAgentSelfConfig config = new DevOpsAgentSelfConfig();
-            config.setModelProvider("azure_openai");
-            config.setModelName("gpt-4o");
-            config.setApiEndpoint("https://azure-openai.aurora.internal");
+            config.setModelProvider(null);
+            config.setModelName(null);
+            config.setApiEndpoint(null);
             config.setMaxTokensPerRequest(4096);
             config.setAlertThresholdUsdPerDay(new BigDecimal("50.0000"));
             return config;

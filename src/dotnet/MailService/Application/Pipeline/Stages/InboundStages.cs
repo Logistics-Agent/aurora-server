@@ -1,11 +1,20 @@
 using System.Diagnostics;
 using MimeKit;
 using Microsoft.Extensions.Logging;
-using MailService.Application.Interfaces;
+using MailService.Application.Interfaces.AI;
+using MailService.Application.Interfaces.Classification;
+using MailService.Application.Interfaces.RateLimiting;
+using MailService.Application.Interfaces.Security;
 using MailService.Domain.Enums;
-using MailService.Infrastructure.Security;
+using MailService.Infrastructure.Security.Dns;
+using MailService.Infrastructure.Security.Spf;
+using MailService.Infrastructure.Security.Dkim;
+using MailService.Infrastructure.Security.Dmarc;
+using MailService.Infrastructure.Security.Malware;
+using MailService.Infrastructure.Security.Spam;
 
 namespace MailService.Application.Pipeline.Stages;
+
 
 public class TlsVerificationStage : IInboundPipelineStage
 {
@@ -253,6 +262,10 @@ public class AttachmentValidationStage : IInboundPipelineStage
                     if (!isClean)
                     {
                         sw.Stop();
+                        string reason = virusName == "CLAMAV_UNAVAILABLE" 
+                            ? "Attachment scan unavailable (ClamAV down) - quarantined pending scan" 
+                            : $"Malware virus detected ({virusName})";
+
                         return new StageResult
                         {
                             Stage = StageName,
@@ -260,9 +273,10 @@ public class AttachmentValidationStage : IInboundPipelineStage
                             DetailJson = $"{{\"virus_name\":\"{virusName}\",\"filename\":\"{part.FileName}\"}}",
                             DurationMs = (int)sw.ElapsedMilliseconds,
                             ShouldShortCircuit = true,
-                            QuarantineReason = $"Malware virus detected ({virusName})"
+                            QuarantineReason = reason
                         };
                     }
+
                 }
             }
         }

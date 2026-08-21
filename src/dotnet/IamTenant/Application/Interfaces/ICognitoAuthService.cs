@@ -9,13 +9,14 @@ public interface ICognitoAuthService
     Task<AuthResult> InitiateAuthAsync(string clientId, string email, string password, CancellationToken ct = default);
     Task<AuthResult> CompleteNewPasswordChallengeAsync(string email, string newPassword, string session, CancellationToken ct = default);
     Task<AuthResult> CompleteNewPasswordChallengeAsync(string clientId, string email, string newPassword, string session, CancellationToken ct = default);
-    Task<AuthResult> RefreshTokenAsync(string email, string refreshToken, CancellationToken ct = default);
-    Task<AuthResult> RefreshTokenAsync(string clientId, string refreshToken, CancellationToken ct = default);
+    Task<AuthResult> RefreshTokenAsync(string refreshToken, CancellationToken ct = default);
+    Task<AuthResult> RefreshTokenAsync(string? clientId, string refreshToken, CancellationToken ct = default);
     Task ForgotPasswordAsync(string email, CancellationToken ct = default);
     Task ForgotPasswordAsync(string clientId, string email, CancellationToken ct = default);
     Task ConfirmForgotPasswordAsync(string email, string newPassword, string confirmationCode, CancellationToken ct = default);
     Task ConfirmForgotPasswordAsync(string clientId, string email, string newPassword, string confirmationCode, CancellationToken ct = default);
 }
+
 
 public class TenantCognitoPoolsResult
 {

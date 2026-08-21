@@ -11,7 +11,7 @@ public class RoutePlanningDbContext(
     ICurrentUserService currentUser,
     AuditSaveChangesInterceptor auditInterceptor) : DbContext(options)
 {
-    private readonly ICurrentUserService _currentUser = currentUser;
+    private readonly Guid? _tenantId = currentUser.TenantId;
     private readonly AuditSaveChangesInterceptor _auditInterceptor = auditInterceptor;
 
     public DbSet<Route> Routes => Set<Route>();
@@ -32,12 +32,12 @@ public class RoutePlanningDbContext(
     {
         base.OnModelCreating(modelBuilder);
 
-        // Global Query Filters (Tenant Isolation + IsDeleted)
+        // Global Query Filters (Tenant Isolation Fail-Closed + IsDeleted)
         // Lưu ý: enum lưu dạng int (ordinal) theo quyết định thiết kế — chỉ append member, không reorder.
         modelBuilder.Entity<Route>(e =>
         {
             e.HasQueryFilter(r =>
-                (!_currentUser.TenantId.HasValue || r.TenantId == _currentUser.TenantId)
+                _tenantId.HasValue && r.TenantId == _tenantId.Value
                 && !r.IsDeleted);
 
             e.HasIndex(r => r.TenantId);
@@ -80,7 +80,7 @@ public class RoutePlanningDbContext(
         modelBuilder.Entity<ApprovalRequest>(e =>
         {
             e.HasQueryFilter(a =>
-                !_currentUser.TenantId.HasValue || a.TenantId == _currentUser.TenantId);
+                _tenantId.HasValue && a.TenantId == _tenantId.Value);
 
             e.HasIndex(a => a.RouteId);
 
@@ -93,7 +93,8 @@ public class RoutePlanningDbContext(
         modelBuilder.Entity<RouteDecisionAuditLog>(e =>
         {
             e.HasQueryFilter(a =>
-                !_currentUser.TenantId.HasValue || a.TenantId == _currentUser.TenantId);
+                _tenantId.HasValue && a.TenantId == _tenantId.Value);
+
 
             e.HasIndex(a => a.RouteId);
 

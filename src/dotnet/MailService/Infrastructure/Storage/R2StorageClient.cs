@@ -1,10 +1,11 @@
 using Amazon.S3;
 using Amazon.S3.Model;
 using Microsoft.Extensions.Logging;
-using MailService.Application.Interfaces;
+using MailService.Application.Interfaces.Storage;
 using MailService.Domain.Enums;
 
 namespace MailService.Infrastructure.Storage;
+
 
 public class R2StorageClient : IR2StorageClient
 {

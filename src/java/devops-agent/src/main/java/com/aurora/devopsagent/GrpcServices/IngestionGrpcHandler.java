@@ -1,24 +1,22 @@
 package com.aurora.devopsagent.GrpcServices;
 
 import com.aurora.devopsagent.Application.Commands.IngestAlertCommand;
-import com.aurora.devopsagent.Application.Commands.IngestAlertCommandHandler;
-import com.aurora.devopsagent.Application.Commands.IngestAlertResult;
-import com.aurora.devopsagent.grpc.DevOpsAgentServiceGrpc;
+import com.aurora.devopsagent.grpc.DevOpsIngestionServiceGrpc;
 import com.aurora.devopsagent.grpc.IngestAlertRequest;
 import com.aurora.devopsagent.grpc.IngestAlertResponse;
 import io.grpc.stub.StreamObserver;
 import net.devh.boot.grpc.server.service.GrpcService;
 
 /**
- * gRPC Service Handler cho Event Ingestion (nhận alert từ BFF qua proto).
+ * gRPC Service Handler cho Event Ingestion (nhận alert qua proto).
  */
 @GrpcService
-public class IngestionGrpcHandler extends DevOpsAgentServiceGrpc.DevOpsAgentServiceImplBase {
+public class IngestionGrpcHandler extends DevOpsIngestionServiceGrpc.DevOpsIngestionServiceImplBase {
 
-    private final IngestAlertCommandHandler ingestAlertCommandHandler;
+    private final IngestAlertCommand.Handler ingestAlertHandler;
 
-    public IngestionGrpcHandler(IngestAlertCommandHandler ingestAlertCommandHandler) {
-        this.ingestAlertCommandHandler = ingestAlertCommandHandler;
+    public IngestionGrpcHandler(IngestAlertCommand.Handler ingestAlertHandler) {
+        this.ingestAlertHandler = ingestAlertHandler;
     }
 
     @Override
@@ -31,7 +29,7 @@ public class IngestionGrpcHandler extends DevOpsAgentServiceGrpc.DevOpsAgentServ
                 request.getEnvironment()
         );
 
-        IngestAlertResult result = ingestAlertCommandHandler.handle(command);
+        IngestAlertCommand.Result result = ingestAlertHandler.handle(command);
 
         IngestAlertResponse response = IngestAlertResponse.newBuilder()
                 .setDuplicated(result.duplicated())

@@ -3,49 +3,72 @@ package com.aurora.devopsagent.Application.Services;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Service;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
-import java.time.Duration;
-import java.time.Instant;
+import java.util.Collections;
 
 /**
- * DedupService: Deduplication layer chống xử lý trùng lặp alerts trong 5 phút time bucket & Redis TTL 30 phút.
+ * DedupService: Atomic deduplication layer using Redis Lua script.
+ * Dedup is based on normalized errorSignature (source-independent) to match across Loki & Azure Monitor.
  */
 @Service
 public class DedupService {
 
     private static final Logger log = LoggerFactory.getLogger(DedupService.class);
     private static final String DEDUP_KEY_PREFIX = "devops:dedup:";
-    private static final Duration DEDUP_TTL = Duration.ofMinutes(30);
+    private static final long DEDUP_TTL_SECONDS = 300; // 5-minute sliding window
+
+    private static final String DEDUP_LUA_SCRIPT =
+            "local key = KEYS[1]\n" +
+            "local correlationId = ARGV[1]\n" +
+            "local ttl = tonumber(ARGV[2])\n" +
+            "local existing = redis.call('GET', key)\n" +
+            "if existing then\n" +
+            "    return existing\n" +
+            "else\n" +
+            "    redis.call('SET', key, correlationId, 'EX', ttl)\n" +
+            "    return nil\n" +
+            "end";
 
     private final StringRedisTemplate redisTemplate;
+    private final DefaultRedisScript<String> redisScript;
 
     public DedupService(StringRedisTemplate redisTemplate) {
         this.redisTemplate = redisTemplate;
-    }
-
-    public String computeDedupKey(String source, String errorSignature, long timestampSeconds) {
-        long timeWindowBucket = (timestampSeconds / 300) * 300; // 5-minute bucket
-        String rawInput = source + ":" + errorSignature + ":" + timeWindowBucket;
-        return sha256Hex(rawInput);
+        this.redisScript = new DefaultRedisScript<>(DEDUP_LUA_SCRIPT, String.class);
     }
 
     /**
-     * Check if dedup key exists in Redis. If exists returns stored correlation_id, otherwise stores correlation_id and returns null.
+     * Computes dedup key based on normalized error signature (source removed for cross-source dedup).
+     */
+    public String computeDedupKey(String source, String errorSignature, long timestampSeconds) {
+        String normalizedSignature = errorSignature != null ? errorSignature.trim().toLowerCase() : "";
+        return sha256Hex(normalizedSignature);
+    }
+
+    /**
+     * Atomically check and store in Redis.
+     * Returns null if newly stored (not duplicate), or existing correlationId if already present.
      */
     public String checkAndStore(String dedupKey, String correlationId) {
         String redisKey = DEDUP_KEY_PREFIX + dedupKey;
-        Boolean setIfAbsent = redisTemplate.opsForValue().setIfAbsent(redisKey, correlationId, DEDUP_TTL);
-        if (Boolean.TRUE.equals(setIfAbsent)) {
-            log.debug("New Dedup Key stored in Redis: {} -> correlationId: {}", dedupKey, correlationId);
-            return null; // Is new, not duplicate
+        String existingCorrelationId = redisTemplate.execute(
+                redisScript,
+                Collections.singletonList(redisKey),
+                correlationId,
+                String.valueOf(DEDUP_TTL_SECONDS)
+        );
+
+        if (existingCorrelationId == null) {
+            log.debug("New Dedup Key stored atomically in Redis: {} -> correlationId: {}", dedupKey, correlationId);
+            return null;
         } else {
-            String existingCorrelationId = redisTemplate.opsForValue().get(redisKey);
-            log.info("Duplicate alert detected for Dedup Key {}. Existing correlationId: {}", dedupKey, existingCorrelationId);
-            return existingCorrelationId != null ? existingCorrelationId : correlationId;
+            log.info("Duplicate alert detected atomically for Dedup Key {}. Existing correlationId: {}", dedupKey, existingCorrelationId);
+            return existingCorrelationId;
         }
     }
 

@@ -34,9 +34,17 @@
     <ProjectReference Include="..\shared\shared.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Compile Remove="RoutePlanningAgent.Tests\**" />
+    <Content Remove="RoutePlanningAgent.Tests\**" />
+    <EmbeddedResource Remove="RoutePlanningAgent.Tests\**" />
+    <None Remove="RoutePlanningAgent.Tests\**" />
+  </ItemGroup>
+
   <!-- Cho phép test project truy cập internal helpers (ParseLlmResponse, ExtractUsage) -->
   <ItemGroup>
     <InternalsVisibleTo Include="RoutePlanningAgent.Tests" />
   </ItemGroup>
 
 </Project>
+

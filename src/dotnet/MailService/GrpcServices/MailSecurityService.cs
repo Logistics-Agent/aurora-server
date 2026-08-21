@@ -4,10 +4,14 @@ using Google.Protobuf.WellKnownTypes;
 using MailService.GrpcServices;
 using MailService.Application.Commands.Outbound;
 using MailService.Application.Commands.Quarantine;
-using MailService.Application.Queries;
+using MailService.Application.Queries.Drafts;
+using MailService.Application.Queries.Messages;
+using MailService.Application.Queries.Quarantine;
+using MailService.Application.Queries.Audit;
 using MailService.Domain.Enums;
 
 namespace MailService.GrpcServices;
+
 
 public class MailSecurityService : MailSecurity.MailSecurityBase
 {
@@ -22,7 +26,7 @@ public class MailSecurityService : MailSecurity.MailSecurityBase
     {
         Guid mailboxId = Guid.Parse(request.MailboxId);
         Guid? staffId = string.IsNullOrEmpty(request.AssignedStaffId) ? null : Guid.Parse(request.AssignedStaffId);
-        var source = Enum.TryParse<DraftSource>(request.Source, true, out var parsedSource) ? parsedSource : DraftSource.Manual;
+        var source = System.Enum.TryParse<DraftSource>(request.Source, true, out var parsedSource) ? parsedSource : DraftSource.Manual;
 
         var draft = await _mediator.Send(new CreateDraftMessageCommand(mailboxId, staffId, request.Subject, request.Body, source), context.CancellationToken);
 

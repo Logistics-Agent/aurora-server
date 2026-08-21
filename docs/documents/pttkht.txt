@@ -51,3 +51,60 @@ Docs {
 
 S3 key nên phân tenant:
 s3://hrm-private-docs/tenants/{tenantId}/department/{departmentId}/employees/{employeeId}/documents/{fileId}
+
+Tôi sẽ chuẩn hóa Aurora như sau:
+
+public abstract class TenantDbContext : DbContext
+{
+    protected Guid? TenantId { get; }
+
+
+    protected TenantDbContext(
+        DbContextOptions options,
+        ICurrentUserService currentUser)
+        : base(options)
+    {
+        TenantId = currentUser.TenantId;
+    }
+}
+
+Sau đó service-specific DbContext:
+
+entity.HasQueryFilter(e =>
+    TenantId.HasValue &&
+    e.TenantId == TenantId.Value);
+
+Và thêm architecture test:
+
+All tenant-owned entities must have:
+TenantId.HasValue && entity.TenantId == TenantId.Value
+
+còn exception như system roles phải explicit.
+
+Kết luận
+
+Hướng tôi đề xuất mạnh nhất là:
+
+Guid? _tenantId
++
+snapshot từ ICurrentUserService
++
+fail-closed
++
+không nullable CurrentUser DI
++
+system access explicit
+
+Tức:
+
+private readonly Guid? _tenantId;
+
+
+_tenantId = currentUser.TenantId;
+
+
+entity.HasQueryFilter(e =>
+    _tenantId.HasValue &&
+    e.TenantId == _tenantId.Value);
+
+Đây là pattern tôi sẽ chọn để chuẩn hóa toàn bộ Aurora nếu mục tiêu là giảm tối đa nguy cơ cross-data tenant do missing/invalid context.

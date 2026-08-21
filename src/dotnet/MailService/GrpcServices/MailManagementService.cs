@@ -4,9 +4,11 @@ using Google.Protobuf.WellKnownTypes;
 using MailService.GrpcServices;
 using MailService.Application.Commands.Provisioning;
 using MailService.Application.Commands.Quarantine;
-using MailService.Application.Queries;
+using MailService.Application.Queries.Quarantine;
+using MailService.Application.Queries.Audit;
 
 namespace MailService.GrpcServices;
+
 
 public class MailManagementService : MailManagement.MailManagementBase
 {
