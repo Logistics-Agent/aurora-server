@@ -1,0 +1,88 @@
+spring:
+  application:
+    name: ai-governance-service
+
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/ai_governance}
+    username: ${SPRING_DATASOURCE_USERNAME:postgres}
+    password: ${SPRING_DATASOURCE_PASSWORD:postgres}
+    hikari:
+      maximum-pool-size: ${HIKARI_MAX_POOL_SIZE:10}
+      minimum-idle: ${HIKARI_MIN_IDLE:2}
+      connection-timeout: 30000
+
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        default_schema: public
+
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+
+  data:
+    redis:
+      host: ${SPRING_REDIS_HOST:localhost}
+      port: ${SPRING_REDIS_PORT:6379}
+      password: ${SPRING_REDIS_PASSWORD:}
+      timeout: 5000
+
+  rabbitmq:
+    host: ${SPRING_RABBITMQ_HOST:localhost}
+    port: ${SPRING_RABBITMQ_PORT:5672}
+    username: ${SPRING_RABBITMQ_USERNAME:guest}
+    password: ${SPRING_RABBITMQ_PASSWORD:guest}
+    publisher-confirm-type: correlated
+    publisher-returns: true
+
+  cache:
+    type: caffeine
+    caffeine:
+      spec: maximumSize=1000,expireAfterWrite=300s
+
+# gRPC server
+grpc:
+  server:
+    port: ${GRPC_SERVER_PORT:9090}
+
+# Actuator
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,prometheus,info
+  endpoint:
+    health:
+      show-details: always
+      probes:
+        enabled: true
+  health:
+    db:
+      enabled: true
+    redis:
+      enabled: true
+    rabbit:
+      enabled: true
+  metrics:
+    tags:
+      application: ai-governance-service
+
+# AI Governance configuration
+ai-governance:
+  provider:
+    capacity-headroom-ratio: ${AI_CAPACITY_HEADROOM_RATIO:0.20}
+  credential:
+    cache-ttl-seconds: ${CREDENTIAL_CACHE_TTL_SECONDS:300}
+  keyvault:
+    url: ${AZURE_KEYVAULT_URL:https://placeholder.vault.azure.net/}
+
+# Logging
+logging:
+  level:
+    com.aurora.aigovernance: ${LOG_LEVEL:INFO}
+    org.hibernate.SQL: WARN
+    org.flywaydb: INFO

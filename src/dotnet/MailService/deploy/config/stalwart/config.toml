@@ -1,0 +1,19 @@
+# ==============================================================================
+# Stalwart Mail Server — Sample Production Configuration Template
+# ==============================================================================
+
+[server]
+hostname = "mail.aurora.vn"
+
+[server.tls]
+certificate = "/opt/stalwart/certs/fullchain.pem"
+private-key = "/opt/stalwart/certs/privkey.pem"
+min-version = "TLSv1.2"
+
+[session.smtp]
+max-message-size = 36700160 # 35MB
+auth.allow-plain-text = false
+
+[storage]
+data = "rocksdb"
+path = "/opt/stalwart/data"

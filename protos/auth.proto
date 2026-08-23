@@ -1,0 +1,116 @@
+syntax = "proto3";
+
+package auth;
+
+import "common.proto";
+option csharp_namespace = "Auth.Grpc";
+
+
+service AuthService {
+
+  rpc IdentifyUser(IdentifyUserRequest)
+      returns (IdentifyUserResponse);
+
+  rpc Login(LoginRequest)
+      returns (LoginResponse);
+
+  rpc CompleteInvitation(CompleteInvitationRequest)
+      returns (LoginResponse);
+
+  rpc RefreshToken(RefreshTokenRequest)
+      returns (LoginResponse);
+
+  rpc Logout(LogoutRequest)
+      returns (EmptyResponse);
+
+  rpc ValidateToken(ValidateTokenRequest)
+      returns (ValidateTokenResponse);
+
+  rpc ForgotPassword(ForgotPasswordRequest)
+      returns (EmptyResponse);
+
+  rpc ConfirmForgotPassword(ConfirmForgotPasswordRequest)
+      returns (EmptyResponse);
+}
+
+message EmptyResponse {}
+
+message LoginRequest {
+  string tenantCode = 1;
+  string email = 2;
+  string password = 3;
+}
+
+message LoginResponse {
+
+  string accessToken = 1;
+
+  string refreshToken = 2;
+
+  int32 expiresIn = 3;
+
+  string userId = 4;
+
+  string tenantId = 5;
+
+  repeated string roles = 6;
+
+  repeated common.SystemRole systemRoles = 7;
+
+  repeated string permissions = 8;
+}
+
+message RefreshTokenRequest {
+  string refreshToken = 1;
+  string tenantCode = 2;
+  string userType = 3;
+}
+
+message LogoutRequest {
+  string refreshToken = 1;
+}
+
+message ValidateTokenRequest {
+  string accessToken = 1;
+}
+
+message ValidateTokenResponse {
+
+  bool valid = 1;
+
+  string userId = 2;
+
+  string tenantId = 3;
+
+  repeated string roles = 4;
+
+  repeated common.SystemRole systemRoles = 5;
+
+  repeated string permissions = 6;
+}
+
+message IdentifyUserRequest {
+  string email = 1;
+}
+
+message IdentifyUserResponse {
+  bool exists = 1;
+  string tenantCode = 2;
+  string userType = 3;
+}
+
+message CompleteInvitationRequest {
+  string email = 1;
+  string newPassword = 2;
+  string confirmationCode = 3;
+}
+
+message ForgotPasswordRequest {
+  string email = 1;
+}
+
+message ConfirmForgotPasswordRequest {
+  string email = 1;
+  string newPassword = 2;
+  string confirmationCode = 3;
+}

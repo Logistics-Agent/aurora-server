@@ -1,0 +1,129 @@
+syntax = "proto3";
+
+package document_ocr;
+
+option csharp_namespace = "DocumentOcr.Grpc";
+
+import "google/protobuf/timestamp.proto";
+
+service DocumentOcrService {
+  rpc SubmitDocumentJob(SubmitDocumentJobRequest) returns (DocumentOcrJobResponse);
+  rpc SubmitOcrJob(SubmitOcrJobRequest) returns (DocumentOcrJobResponse);
+  rpc GetDocumentJob(GetDocumentJobRequest) returns (DocumentOcrJobResponse);
+  rpc ListDocumentJobs(ListDocumentJobsRequest) returns (ListDocumentJobsResponse);
+  rpc CancelDocumentJob(CancelDocumentJobRequest) returns (DocumentOcrJobResponse);
+  rpc RetryDocumentJob(RetryDocumentJobRequest) returns (DocumentOcrJobResponse);
+  rpc ReviewDocumentJob(ReviewDocumentJobRequest) returns (DocumentOcrJobResponse);
+}
+
+enum DocumentOcrJobStatus {
+  DOCUMENT_OCR_JOB_STATUS_UNSPECIFIED = 0;
+  DOCUMENT_OCR_JOB_STATUS_QUEUED = 1;
+  DOCUMENT_OCR_JOB_STATUS_PROCESSING = 2;
+  DOCUMENT_OCR_JOB_STATUS_COMPLETED = 3;
+  DOCUMENT_OCR_JOB_STATUS_FAILED = 4;
+  DOCUMENT_OCR_JOB_STATUS_CANCELLED = 5;
+  DOCUMENT_OCR_JOB_STATUS_REJECTED = 6;
+}
+
+enum OcrDocumentType {
+  OCR_DOCUMENT_TYPE_UNSPECIFIED = 0;
+  OCR_DOCUMENT_TYPE_COMMERCIAL_INVOICE = 1;
+  OCR_DOCUMENT_TYPE_PACKING_LIST = 2;
+  OCR_DOCUMENT_TYPE_BILL_OF_LADING = 3;
+  OCR_DOCUMENT_TYPE_CUSTOMS_DECLARATION = 4;
+  OCR_DOCUMENT_TYPE_CERTIFICATE_OF_ORIGIN = 5;
+  OCR_DOCUMENT_TYPE_PROOF_OF_DELIVERY = 6;
+  OCR_DOCUMENT_TYPE_OTHER = 7;
+}
+
+enum OcrExtractionMode {
+  OCR_EXTRACTION_MODE_UNSPECIFIED = 0;
+  OCR_EXTRACTION_MODE_STRUCTURED = 1;
+  OCR_EXTRACTION_MODE_FULL_TEXT = 2;
+  OCR_EXTRACTION_MODE_BOTH = 3;
+}
+
+message SubmitDocumentJobRequest {
+  string idempotency_key = 1;
+  string storage_reference = 2;
+  string file_name = 3;
+  string mime_type = 4;
+  int64 size_bytes = 5;
+  OcrDocumentType document_type_hint = 6;
+  string external_document_id = 7;
+  string external_shipment_id = 8;
+}
+
+message SubmitOcrJobRequest {
+  string idempotency_key = 1;
+  string storage_reference = 2;
+  string file_name = 3;
+  string mime_type = 4;
+  int64 size_bytes = 5;
+  OcrDocumentType document_type_hint = 6;
+  OcrExtractionMode extraction_mode = 7;
+  string external_document_id = 8;
+  string external_context_id = 9;
+}
+
+message GetDocumentJobRequest {
+  string job_id = 1;
+}
+
+message ListDocumentJobsRequest {
+  int32 page = 1;
+  int32 page_size = 2;
+  DocumentOcrJobStatus status = 3;
+  string external_document_id = 4;
+  string external_shipment_id = 5;
+}
+
+message DocumentOcrJobResponse {
+  string job_id = 1;
+  DocumentOcrJobStatus status = 2;
+  string file_name = 3;
+  string mime_type = 4;
+  OcrDocumentType document_type_hint = 5;
+  OcrDocumentType detected_document_type = 6;
+  string normalized_json = 7;
+  optional double confidence = 8;
+  bool needs_review = 9;
+  string error_code = 10;
+  string error_message = 11;
+  string external_document_id = 12;
+  string external_shipment_id = 13;
+  google.protobuf.Timestamp created_at = 14;
+  google.protobuf.Timestamp updated_at = 15;
+  google.protobuf.Timestamp started_at = 16;
+  google.protobuf.Timestamp completed_at = 17;
+  google.protobuf.Timestamp next_attempt_at = 18;
+  string full_text_content = 19;
+  string artifact_reference = 20;
+  OcrExtractionMode extraction_mode = 21;
+}
+
+message ListDocumentJobsResponse {
+  repeated DocumentOcrJobResponse jobs = 1;
+  int32 page = 2;
+  int32 page_size = 3;
+  int32 total_items = 4;
+  int32 total_pages = 5;
+}
+
+message CancelDocumentJobRequest {
+  string job_id = 1;
+}
+
+message RetryDocumentJobRequest {
+  string job_id = 1;
+}
+
+message ReviewDocumentJobRequest {
+  string job_id = 1;
+  string action = 2; // CONFIRM, CORRECT, REJECT
+  string corrected_json = 3;
+  string comment = 4;
+}
+
+

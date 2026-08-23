@@ -1,0 +1,18 @@
+syntax = "proto3";
+
+package ai_governance_admin;
+option csharp_namespace = "AiGovernance.Admin.Grpc";
+option java_package = "com.aurora.aigovernance.grpc.generated.admin";
+option java_multiple_files = true;
+
+// ──────────────────────────────────────────────────
+// AI Governance Admin Service — V2 Placeholder
+// ──────────────────────────────────────────────────
+// Admin RPCs for plan management, slot management, tenant config, etc.
+// Reserved for future implementation.
+
+// service AiGovernanceAdminService {
+//   rpc UpdatePlan (...) returns (...);
+//   rpc RegisterProviderSlot (...) returns (...);
+//   rpc UpdateTenantConfig (...) returns (...);
+// }

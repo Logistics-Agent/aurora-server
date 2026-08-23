@@ -1,0 +1,282 @@
+syntax = "proto3";
+
+// ==============================================================================
+// Aurora Mail Platform — gRPC Contract Specification
+// Version: 1.0.0 (Frozen Contract)
+//
+// PROTOBUF VERSIONING & COMPATIBILITY RULES:
+// 1. Never renumber existing fields.
+// 2. Never reuse removed field numbers.
+// 3. New fields must be additive (optional) with new distinct field numbers.
+// 4. Do not alter enum numeric values.
+// 5. Breaking RPC changes require a new RPC method or package version (e.g. mail.v2).
+// ==============================================================================
+
+package mail;
+option csharp_namespace = "MailService.GrpcServices";
+
+import "google/protobuf/timestamp.proto";
+
+// ─── Management Service ────────────────────────────────────────────────────
+
+service MailManagement {
+  rpc ProvisionDomain      (ProvisionDomainRequest)      returns (ProvisionDomainResponse);
+  rpc CreateMailbox        (CreateMailboxRequest)         returns (CreateMailboxResponse);
+  rpc CreateAlias          (CreateAliasRequest)           returns (CreateAliasResponse);
+  rpc ResetPassword        (ResetPasswordRequest)         returns (ResetPasswordResponse);
+  rpc GetAuditRecords      (GetAuditRecordsRequest)       returns (GetAuditRecordsResponse);
+  rpc RequeueDeadLetter    (RequeueDeadLetterRequest)     returns (RequeueDeadLetterResponse);
+}
+
+// ─── Security / Pipeline Service ──────────────────────────────────────────
+
+service MailSecurity {
+  rpc CreateDraftMessage     (CreateDraftMessageRequest)      returns (CreateDraftMessageResponse);
+  rpc ListDrafts             (ListDraftsRequest)              returns (ListDraftsResponse);
+  rpc GetDraft               (GetDraftRequest)                returns (DraftDto);
+  rpc SubmitOutboundMessage  (SubmitOutboundMessageRequest)   returns (SubmitOutboundMessageResponse); // Requires Staff or Tenant_Admin JWT role
+  rpc GetProcessedMessage    (GetProcessedMessageRequest)     returns (ProcessedMessageDto);
+  rpc ListProcessedMessages  (ListProcessedMessagesRequest)   returns (ListProcessedMessagesResponse);
+  rpc GetQuarantineRecord    (GetQuarantineRecordRequest)     returns (QuarantineRecordDto);
+  rpc ListQuarantineRecords  (ListQuarantineRecordsRequest)   returns (ListQuarantineRecordsResponse);
+  rpc ReleaseQuarantine      (ReleaseQuarantineRequest)       returns (ReleaseQuarantineResponse);
+  rpc DeleteQuarantine       (DeleteQuarantineRequest)        returns (DeleteQuarantineResponse);
+}
+
+// ─── Management Messages ──────────────────────────────────────────────────
+
+message ProvisionDomainRequest {
+  string domain_name       = 1;  // FQDN, required
+  int32  max_mailbox_count = 2;  // default 100
+  int32  retention_days    = 3;  // default 365
+}
+
+message ProvisionDomainResponse {
+  string domain_id        = 1;
+  string domain_name      = 2;
+  string dkim_selector    = 3;
+  string dkim_txt_record  = 4;   // value to publish as DNS TXT
+  google.protobuf.Timestamp provisioned_at = 5;
+}
+
+message CreateMailboxRequest {
+  string domain_id  = 1;
+  string local_part = 2;  // before @; required
+  string user_id    = 3;  // IamTenant user reference; optional
+}
+
+message CreateMailboxResponse {
+  string mailbox_id    = 1;
+  string full_address  = 2;
+  google.protobuf.Timestamp created_at = 3;
+}
+
+message CreateAliasRequest {
+  string domain_id     = 1;
+  string alias_address = 2;
+  repeated string target_addresses = 3;
+}
+
+message CreateAliasResponse {
+  string alias_id = 1;
+  google.protobuf.Timestamp created_at = 2;
+}
+
+message ResetPasswordRequest {
+  string mailbox_id = 1;
+  // v1: no-op; authentication delegated to Cognito OIDC
+}
+
+message ResetPasswordResponse {
+  bool acknowledged = 1;
+  string message    = 2;  // "Password management delegated to Cognito OIDC in v1"
+}
+
+message GetAuditRecordsRequest {
+  string resource_type = 1;   // optional filter
+  string resource_id   = 2;   // optional filter
+  string next_page_token = 3;
+  int32  page_size       = 4; // max 100
+}
+
+message GetAuditRecordsResponse {
+  repeated AuditRecordDto records = 1;
+  string next_page_token          = 2;
+}
+
+message AuditRecordDto {
+  string audit_id        = 1;
+  string actor_id        = 2;
+  string actor_type      = 3;
+  string action          = 4;
+  string resource_type   = 5;
+  string resource_id     = 6;
+  google.protobuf.Timestamp timestamp = 7;
+  string result          = 8;
+  string detail_json     = 9;
+}
+
+message RequeueDeadLetterRequest {
+  string processed_message_id = 1;
+}
+
+message RequeueDeadLetterResponse {
+  bool   success = 1;
+  string message = 2;
+}
+
+// ─── Security / Pipeline Messages ─────────────────────────────────────────
+
+message CreateDraftMessageRequest {
+  string mailbox_id                  = 1;
+  string assigned_staff_id           = 2; // optional
+  string subject                     = 3;
+  string body                        = 4;
+  string source                      = 5; // "Manual" | "AiAgent"
+}
+
+message CreateDraftMessageResponse {
+  string draft_id                          = 1;
+  string draft_root_id                     = 2;
+  int32  revision_number                   = 3;
+  google.protobuf.Timestamp created_at     = 4;
+}
+
+message ListDraftsRequest {
+  string mailbox_id         = 1; // optional filter
+  string status             = 2; // "Draft" | "Sent" | "Discarded" | "" (all)
+  string next_page_token    = 3;
+  int32  page_size          = 4; // max 100, default 20
+}
+
+message ListDraftsResponse {
+  repeated DraftDto drafts  = 1;
+  string next_page_token    = 2;
+}
+
+message GetDraftRequest {
+  string draft_id           = 1; // specific revision ID
+}
+
+message DraftDto {
+  string draft_id             = 1;
+  string draft_root_id        = 2;
+  int32  revision_number      = 3;
+  bool   is_latest_revision   = 4;
+  string source               = 5;
+  string status               = 6;
+  string mailbox_id           = 7;
+  string assigned_staff_id    = 8;
+  string subject              = 9;
+  string body                 = 10;
+  string content_hash         = 11;
+  google.protobuf.Timestamp created_at = 12;
+}
+
+message SubmitOutboundMessageRequest {
+  string sender_address            = 1;
+  repeated string recipient_addresses = 2;
+  string subject                   = 3;
+  string body_text                 = 4;
+  string body_html                 = 5;
+  repeated AttachmentDto attachments = 6;
+  string idempotency_key           = 7;  // caller-supplied; use MessageId from header if available
+  optional string draft_root_id    = 8;  // nullable — absent means manually composed, no revision pre-check
+}
+
+message AttachmentDto {
+  string filename     = 1;
+  string content_type = 2;
+  bytes  content      = 3;
+}
+
+message SubmitOutboundMessageResponse {
+  string processed_message_id = 1;
+  string stalwart_queue_id    = 2;
+  google.protobuf.Timestamp submitted_at = 3;
+}
+
+message GetProcessedMessageRequest {
+  string processed_message_id = 1;
+}
+
+message ProcessedMessageDto {
+  string processed_message_id = 1;
+  string message_id           = 2;
+  string direction            = 3;
+  string sender_address       = 4;
+  repeated string recipient_addresses = 5;
+  string subject              = 6;
+  google.protobuf.Timestamp received_at   = 7;
+  google.protobuf.Timestamp processed_at  = 8;
+  string email_category       = 9;
+  string pipeline_status      = 10;
+  double spam_score           = 11;
+  double phishing_score       = 12;
+  bool   is_quarantined       = 13;
+  string r2_raw_eml_path      = 14;
+  repeated SecurityCheckResultDto security_checks = 15;
+}
+
+message SecurityCheckResultDto {
+  string stage       = 1;
+  string result      = 2;
+  string detail_json = 3;
+  int32  duration_ms = 4;
+}
+
+message ListProcessedMessagesRequest {
+  string direction        = 1;  // "Inbound" | "Outbound" | "" (all)
+  string email_category   = 2;  // optional filter
+  string pipeline_status  = 3;  // optional filter
+  string next_page_token  = 4;  // cursor: base64(received_at:id)
+  int32  page_size        = 5;  // max 100, default 20
+}
+
+message ListProcessedMessagesResponse {
+  repeated ProcessedMessageDto messages = 1;
+  string next_page_token                = 2;
+}
+
+message GetQuarantineRecordRequest {
+  string quarantine_id = 1;
+}
+
+message QuarantineRecordDto {
+  string quarantine_id          = 1;
+  string processed_message_id   = 2;
+  string message_id             = 3;
+  string quarantine_reason      = 4;
+  google.protobuf.Timestamp quarantined_at  = 5;
+  string status                 = 6;
+  string reviewed_by            = 7;
+  google.protobuf.Timestamp reviewed_at     = 8;
+}
+
+message ListQuarantineRecordsRequest {
+  string status           = 1;  // "Pending" | "Released" | "Deleted" | ""
+  string next_page_token  = 2;
+  int32  page_size        = 3;
+}
+
+message ListQuarantineRecordsResponse {
+  repeated QuarantineRecordDto records = 1;
+  string next_page_token               = 2;
+}
+
+message ReleaseQuarantineRequest {
+  string quarantine_id = 1;
+}
+
+message ReleaseQuarantineResponse {
+  bool   success = 1;
+  google.protobuf.Timestamp released_at = 2;
+}
+
+message DeleteQuarantineRequest {
+  string quarantine_id = 1;
+}
+
+message DeleteQuarantineResponse {
+  bool success = 1;
+}

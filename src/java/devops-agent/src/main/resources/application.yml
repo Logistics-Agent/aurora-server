@@ -1,0 +1,91 @@
+spring:
+  application:
+    name: devops-agent
+
+  threads:
+    virtual:
+      enabled: true
+
+  lifecycle:
+    timeout-per-shutdown-phase: 30s
+
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/aurora_devops_db}
+    username: ${SPRING_DATASOURCE_USERNAME:postgres}
+    password: ${SPRING_DATASOURCE_PASSWORD:postgres}
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: 20
+      minimum-idle: 5
+      idle-timeout: 300000
+
+  jpa:
+    hibernate:
+      ddl-auto: ${SPRING_JPA_HIBERNATE_DDL_AUTO:validate}
+    show-sql: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+
+  data:
+    redis:
+      host: ${SPRING_REDIS_HOST:localhost}
+      port: ${SPRING_REDIS_PORT:6379}
+      password: ${SPRING_REDIS_PASSWORD:}
+      timeout: 2000ms
+
+  rabbitmq:
+    host: ${SPRING_RABBITMQ_HOST:localhost}
+    port: ${SPRING_RABBITMQ_PORT:5672}
+    username: ${SPRING_RABBITMQ_USERNAME:guest}
+    password: ${SPRING_RABBITMQ_PASSWORD:guest}
+    publisher-confirm-type: correlated
+
+server:
+  shutdown: graceful
+
+grpc:
+  server:
+    port: ${GRPC_SERVER_PORT:9090}
+    keep-alive-time: 30s
+    keep-alive-timeout: 10s
+    permit-keep-alive-time: 20s
+    max-inbound-message-size: 4194304  # 4MB
+  client:
+    rag-service:
+      address: ${RAG_SERVICE_GRPC_ADDRESS:static://localhost:9091}
+      negotiation-type: plaintext
+    ai-governance-service:
+      address: ${AI_GOVERNANCE_GRPC_ADDRESS:static://localhost:9092}
+      negotiation-type: plaintext
+
+azure:
+  keyvault:
+    endpoint: ${KEYVAULT_URL:}
+
+cloudflare:
+  r2:
+    endpoint: ${CLOUDFLARE_R2_ENDPOINT:}
+    access-key-id: ${CLOUDFLARE_R2_ACCESS_KEY:}
+    secret-access-key: ${CLOUDFLARE_R2_SECRET_KEY:}
+    bucket-name: ${CLOUDFLARE_R2_BUCKET:devops-agent-artifacts}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics
+  endpoint:
+    health:
+      show-details: when-authorized
+
+logging:
+  level:
+    root: INFO
+    com.aurora.devopsagent: DEBUG
+    net.devh.boot.grpc: INFO
+

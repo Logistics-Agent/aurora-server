@@ -1,0 +1,374 @@
+import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { Pool } from 'pg';
+import { Conversation } from '../../domain/entities/conversation.entity';
+import { ConversationMessage } from '../../domain/entities/message.entity';
+import { IConversationRepository } from '../../domain/repositories/conversation.repository.interface';
+import { ActorType } from '../../domain/enums/actor-type.enum';
+import {
+  ConversationConcurrencyConflictException,
+  ConversationNotFoundException,
+} from '../../domain/errors/assistant.errors';
+import { RedisConversationCacheService } from './redis-conversation-cache.service';
+import { InMemoryConversationStore } from './in-memory-conversation.store';
+
+@Injectable()
+export class PostgresConversationRepository
+  implements IConversationRepository, OnModuleInit, OnModuleDestroy
+{
+  private readonly logger = new Logger(PostgresConversationRepository.name);
+  private pool: Pool | null = null;
+  private isConnected = false;
+  private readonly fallbackMemoryStore = new InMemoryConversationStore();
+  private readonly isProduction: boolean;
+
+  constructor(
+    private readonly configService: ConfigService,
+    private readonly cacheService: RedisConversationCacheService,
+  ) {
+    this.isProduction = (this.configService.get<string>('NODE_ENV') || 'development') === 'production';
+  }
+
+  async onModuleInit() {
+    const connectionString =
+      this.configService.get<string>('DATABASE_URL') ||
+      this.configService.get<string>('POSTGRES_URL');
+
+    const host = this.configService.get<string>('POSTGRES_HOST') || 'localhost';
+    const port = Number(this.configService.get<number>('POSTGRES_PORT') || 5432);
+    const database = this.configService.get<string>('POSTGRES_DB') || 'aurora_customer_assistant';
+    const user = this.configService.get<string>('POSTGRES_USER') || 'postgres';
+    const password = this.configService.get<string>('POSTGRES_PASSWORD') || 'postgres';
+
+    try {
+      this.pool = new Pool(
+        connectionString
+          ? { connectionString, connectionTimeoutMillis: 3000 }
+          : { host, port, database, user, password, connectionTimeoutMillis: 3000 },
+      );
+
+      const client = await this.pool.connect();
+      try {
+        // Pure ping check — No runtime DDL (PATCH 1)
+        await client.query('SELECT 1');
+        this.isConnected = true;
+        this.logger.log(`[PostgresRepo] Successfully connected to PostgreSQL.`);
+      } finally {
+        client.release();
+      }
+    } catch (err) {
+      this.isConnected = false;
+      if (this.isProduction) {
+        this.logger.error(`[PostgresRepo] FATAL: PostgreSQL connection failed in PRODUCTION: ${(err as Error).message}`);
+        throw new Error(`PostgreSQL database connection failed in production environment: ${(err as Error).message}`);
+      } else {
+        this.logger.warn(`[PostgresRepo] PostgreSQL not reachable in development (${(err as Error).message}). Using in-memory fallback.`);
+      }
+    }
+  }
+
+  async onModuleDestroy() {
+    if (this.pool) {
+      try {
+        await this.pool.end();
+      } catch {
+        // ignore
+      }
+    }
+  }
+
+  async createConversation(conversation: Conversation): Promise<Conversation> {
+    const initialVersion = conversation.version || 1;
+    conversation.version = initialVersion;
+
+    if (!this.isConnected || !this.pool) {
+      return this.fallbackMemoryStore.createConversation(conversation);
+    }
+
+    try {
+      await this.pool.query(
+        `INSERT INTO conversations (id, tenant_id, user_id, actor_type, preferred_language, status, summary, version, created_at, updated_at, last_activity_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+        [
+          conversation.id,
+          conversation.tenantId,
+          conversation.userId,
+          conversation.actorType,
+          conversation.preferredLanguage,
+          conversation.status,
+          conversation.summary || null,
+          initialVersion,
+          conversation.createdAt,
+          conversation.updatedAt,
+          conversation.lastActivityAt,
+        ],
+      );
+
+      return conversation;
+    } catch (err) {
+      this.logger.error(`[PostgresRepo] Failed to create conversation: ${err}`);
+      if (this.isProduction) throw err;
+      return this.fallbackMemoryStore.createConversation(conversation);
+    }
+  }
+
+  async getConversation(
+    tenantId: string,
+    userId: string,
+    conversationId: string,
+  ): Promise<Conversation | null> {
+    if (!this.isConnected || !this.pool) {
+      return this.fallbackMemoryStore.getConversation(tenantId, userId, conversationId);
+    }
+
+    try {
+      const res = await this.pool.query(
+        `SELECT id, tenant_id, user_id, actor_type, preferred_language, status, summary, version, created_at, updated_at, last_activity_at
+         FROM conversations
+         WHERE id = $1 AND tenant_id = $2 AND user_id = $3`,
+        [conversationId, tenantId, userId],
+      );
+
+      if (res.rows.length === 0) return null;
+      const row = res.rows[0];
+
+      return {
+        id: row.id,
+        tenantId: row.tenant_id,
+        userId: row.user_id,
+        actorType: row.actor_type as ActorType,
+        preferredLanguage: row.preferred_language,
+        status: row.status,
+        summary: row.summary || undefined,
+        version: Number(row.version || 1),
+        createdAt: new Date(row.created_at),
+        updatedAt: new Date(row.updated_at),
+        lastActivityAt: new Date(row.last_activity_at),
+      };
+    } catch (err) {
+      this.logger.error(`[PostgresRepo] Failed to get conversation: ${err}`);
+      if (this.isProduction) throw err;
+      return this.fallbackMemoryStore.getConversation(tenantId, userId, conversationId);
+    }
+  }
+
+  async listConversations(
+    tenantId: string,
+    userId: string,
+    limit = 20,
+  ): Promise<Conversation[]> {
+    if (!this.isConnected || !this.pool) {
+      return this.fallbackMemoryStore.listConversations(tenantId, userId, limit);
+    }
+
+    try {
+      const res = await this.pool.query(
+        `SELECT id, tenant_id, user_id, actor_type, preferred_language, status, summary, version, created_at, updated_at, last_activity_at
+         FROM conversations
+         WHERE tenant_id = $1 AND user_id = $2
+         ORDER BY last_activity_at DESC
+         LIMIT $3`,
+        [tenantId, userId, limit],
+      );
+
+      return res.rows.map((row) => ({
+        id: row.id,
+        tenantId: row.tenant_id,
+        userId: row.user_id,
+        actorType: row.actor_type as ActorType,
+        preferredLanguage: row.preferred_language,
+        status: row.status,
+        summary: row.summary || undefined,
+        version: Number(row.version || 1),
+        createdAt: new Date(row.created_at),
+        updatedAt: new Date(row.updated_at),
+        lastActivityAt: new Date(row.last_activity_at),
+      }));
+    } catch (err) {
+      this.logger.error(`[PostgresRepo] Failed to list conversations: ${err}`);
+      if (this.isProduction) throw err;
+      return this.fallbackMemoryStore.listConversations(tenantId, userId, limit);
+    }
+  }
+
+  async updateConversation(conversation: Conversation, expectedVersion?: number): Promise<void> {
+    if (!this.isConnected || !this.pool) {
+      return this.fallbackMemoryStore.updateConversation(conversation, expectedVersion);
+    }
+
+    try {
+      const checkVersion = expectedVersion !== undefined ? expectedVersion : conversation.version;
+      const res = await this.pool.query(
+        `UPDATE conversations
+         SET status = $1, summary = $2, version = version + 1, updated_at = $3, last_activity_at = $4
+         WHERE id = $5 AND tenant_id = $6 AND user_id = $7 AND version = $8`,
+        [
+          conversation.status,
+          conversation.summary || null,
+          conversation.updatedAt,
+          conversation.lastActivityAt,
+          conversation.id,
+          conversation.tenantId,
+          conversation.userId,
+          checkVersion,
+        ],
+      );
+
+      if (res.rowCount === 0) {
+        // Query to see if conversation exists
+        const existing = await this.getConversation(conversation.tenantId, conversation.userId, conversation.id);
+        if (!existing) {
+          throw new ConversationNotFoundException(conversation.id);
+        }
+        throw new ConversationConcurrencyConflictException(conversation.id, existing.version, checkVersion);
+      }
+
+      conversation.version = checkVersion + 1;
+    } catch (err) {
+      this.logger.error(`[PostgresRepo] Failed to update conversation: ${err}`);
+      throw err;
+    }
+  }
+
+  async appendMessage(
+    tenantId: string,
+    userId: string,
+    message: ConversationMessage,
+  ): Promise<ConversationMessage> {
+    // Invalidate Redis recent memory cache so next fetch refreshes
+    await this.cacheService.invalidateRecentMessages(tenantId, userId, message.conversationId);
+
+    if (!this.isConnected || !this.pool) {
+      return this.fallbackMemoryStore.appendMessage(tenantId, userId, message);
+    }
+
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+
+      // Deterministic sequence allocation inside transaction (PATCH 6)
+      const seqRes = await client.query(
+        `SELECT COALESCE(MAX(sequence_number), 0) + 1 AS next_seq
+         FROM conversation_messages
+         WHERE conversation_id = $1`,
+        [message.conversationId],
+      );
+
+      const sequenceNumber = Number(seqRes.rows[0]?.next_seq || 1);
+      message.sequenceNumber = sequenceNumber;
+
+      await client.query(
+        `INSERT INTO conversation_messages (
+           id, conversation_id, sequence_number, role, content, intent, sources_json, conflicts_json, insufficient_evidence, retrieval_trace_id, ai_decision_id, metadata, created_at
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
+        [
+          message.id,
+          message.conversationId,
+          sequenceNumber,
+          message.role,
+          message.content,
+          message.intent || null,
+          message.sources ? JSON.stringify(message.sources) : null,
+          message.conflicts ? JSON.stringify(message.conflicts) : null,
+          message.insufficientEvidence || false,
+          message.retrievalTraceId || null,
+          message.aiDecisionId || null,
+          message.metadata ? JSON.stringify(message.metadata) : null,
+          message.createdAt,
+        ],
+      );
+
+      // Update conversation last_activity_at
+      await client.query(
+        `UPDATE conversations
+         SET last_activity_at = $1, updated_at = $1
+         WHERE id = $2 AND tenant_id = $3 AND user_id = $4`,
+        [message.createdAt, message.conversationId, tenantId, userId],
+      );
+
+      await client.query('COMMIT');
+      return message;
+    } catch (err) {
+      await client.query('ROLLBACK');
+      this.logger.error(`[PostgresRepo] Transaction failed in appendMessage: ${err}`);
+      if (this.isProduction) throw err;
+      return this.fallbackMemoryStore.appendMessage(tenantId, userId, message);
+    } finally {
+      client.release();
+    }
+  }
+
+  async getRecentMessages(
+    tenantId: string,
+    userId: string,
+    conversationId: string,
+    limit = 10,
+    upToSequenceNumber?: number,
+  ): Promise<ConversationMessage[]> {
+    // 1. Try Redis Cache (L1) only if not bounded by watermark
+    if (upToSequenceNumber === undefined) {
+      const cached = await this.cacheService.getRecentMessages(tenantId, userId, conversationId);
+      if (cached && cached.length >= limit) {
+        return cached.slice(-limit);
+      }
+    }
+
+    // 2. Query Postgres (Durable)
+    if (!this.isConnected || !this.pool) {
+      return this.fallbackMemoryStore.getRecentMessages(
+        tenantId,
+        userId,
+        conversationId,
+        limit,
+        upToSequenceNumber,
+      );
+    }
+
+    try {
+      const res = await this.pool.query(
+        `SELECT id, conversation_id, sequence_number, role, content, intent, sources_json, conflicts_json, insufficient_evidence, retrieval_trace_id, ai_decision_id, metadata, created_at
+         FROM conversation_messages
+         WHERE conversation_id = $1
+           AND ($2::int IS NULL OR sequence_number <= $2)
+         ORDER BY sequence_number DESC
+         LIMIT $3`,
+        [conversationId, upToSequenceNumber || null, limit],
+      );
+
+      const messages: ConversationMessage[] = res.rows
+        .reverse()
+        .map((row) => ({
+          id: row.id,
+          conversationId: row.conversation_id,
+          sequenceNumber: Number(row.sequence_number),
+          role: row.role,
+          content: row.content,
+          intent: row.intent,
+          sources: row.sources_json || undefined,
+          conflicts: row.conflicts_json || undefined,
+          insufficientEvidence: Boolean(row.insufficient_evidence),
+          retrievalTraceId: row.retrieval_trace_id || undefined,
+          aiDecisionId: row.ai_decision_id || undefined,
+          metadata: row.metadata || undefined,
+          createdAt: new Date(row.created_at),
+        }));
+
+      // Update Redis cache if query is the latest head
+      if (upToSequenceNumber === undefined) {
+        await this.cacheService.setRecentMessages(tenantId, userId, conversationId, messages);
+      }
+
+      return messages;
+    } catch (err) {
+      this.logger.error(`[PostgresRepo] Failed to get recent messages: ${err}`);
+      if (this.isProduction) throw err;
+      return this.fallbackMemoryStore.getRecentMessages(
+        tenantId,
+        userId,
+        conversationId,
+        limit,
+        upToSequenceNumber,
+      );
+    }
+  }
+}

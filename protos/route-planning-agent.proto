@@ -1,0 +1,228 @@
+syntax = "proto3";
+
+option csharp_namespace = "RoutePlanningAgent.Grpc";
+
+package route_planning;
+
+service RoutePlanningService {
+  rpc CreateRoute (CreateRouteRequest) returns (RouteResponse);
+  rpc GetRoute (GetRouteRequest) returns (RouteResponse);
+  rpc ListRoutes (ListRoutesRequest) returns (ListRoutesResponse);
+  rpc UpdateRoute (UpdateRouteRequest) returns (RouteResponse);
+  rpc DeleteRoute (DeleteRouteRequest) returns (DeleteRouteResponse);
+  rpc UpdateRouteStatus (UpdateRouteStatusRequest) returns (RouteResponse);
+  rpc OptimizeRoute (OptimizeRouteRequest) returns (RouteResponse);
+  rpc ApproveRoute (ApproveRouteRequest) returns (ApprovalResponse);
+  rpc RejectRoute (RejectRouteRequest) returns (ApprovalResponse);
+  rpc ListPendingApprovals (ListPendingApprovalsRequest) returns (ListApprovalsResponse);
+  rpc GetRouteRecommendation (GetRouteRecommendationRequest) returns (RouteRecommendationResponse);
+  rpc GetTenantAiConfig (GetTenantAiConfigRequest) returns (TenantAiConfigResponse);
+  rpc UpsertTenantAiConfig (UpsertTenantAiConfigRequest) returns (TenantAiConfigResponse);
+  rpc UpsertTenantRuleConfig (UpsertTenantRuleConfigRequest) returns (TenantRuleConfigResponse);
+  rpc ListTenantRuleConfigs (ListTenantRuleConfigsRequest) returns (ListTenantRuleConfigsResponse);
+}
+
+message RouteStopInput {
+  int32 sequence = 1;
+  string stop_type = 2;
+  string location_name = 3;
+  string address = 4;
+  double latitude = 5;
+  double longitude = 6;
+  int32 estimated_arrival_minutes = 7;
+  int32 service_duration_minutes = 8;
+}
+
+message CreateRouteRequest {
+  string name = 1;
+  string description = 2;
+  string route_type = 3;
+  double max_weight_kg = 4;
+  double max_volume_m3 = 5;
+  repeated RouteStopInput stops = 6;
+  // Uoc tinh ban dau (nhap tay); se bi ghi de khi OptimizeRoute chay
+  double estimated_distance_km = 7;
+  int32 estimated_duration_minutes = 8;
+}
+
+message UpdateRouteRequest {
+  string id = 1;
+  string name = 2;
+  string description = 3;
+  string route_type = 4;
+  double max_weight_kg = 5;
+  double max_volume_m3 = 6;
+  double estimated_distance_km = 7;
+  int32 estimated_duration_minutes = 8;
+  repeated RouteStopInput stops = 9;
+}
+
+message DeleteRouteRequest {
+  string id = 1;
+}
+
+message DeleteRouteResponse {
+  bool success = 1;
+}
+
+message UpdateRouteStatusRequest {
+  string id = 1;
+  string new_status = 2;
+}
+
+message OptimizeRouteRequest {
+  string id = 1;
+}
+
+message RouteStopResponse {
+  string id = 1;
+  int32 sequence = 2;
+  string stop_type = 3;
+  string location_name = 4;
+  string address = 5;
+  double latitude = 6;
+  double longitude = 7;
+  int32 estimated_arrival_minutes = 8;
+  int32 service_duration_minutes = 9;
+}
+
+message RouteResponse {
+  string id = 1;
+  string tenant_id = 2;
+  string name = 3;
+  string description = 4;
+  string route_type = 5;
+  string status = 6;
+  string risk_level = 7;
+  double estimated_distance_km = 8;
+  int32 estimated_duration_minutes = 9;
+  double max_weight_kg = 10;
+  double max_volume_m3 = 11;
+  bool is_ai_generated = 12;
+  string optimized_at = 13;
+  int32 version = 14;
+  string created_at = 15;
+  repeated RouteStopResponse stops = 16;
+}
+
+message GetRouteRequest {
+  string id = 1;
+}
+
+message ListRoutesRequest {
+  int32 page = 1;   // 1-based; 0 => mac dinh 1
+  int32 limit = 2;  // 0 => mac dinh 10
+  string status = 3; // rong = tat ca
+}
+
+message ListRoutesResponse {
+  repeated RouteResponse routes = 1;
+  int32 total_items = 2;
+  int32 page = 3;
+  int32 limit = 4;
+  int32 total_pages = 5;
+}
+
+message ApproveRouteRequest {
+  string approval_id = 1;
+  bool is_approved = 2; // deprecated: server chi xu ly approve; dung RejectRoute de tu choi
+  string comment = 3;
+}
+
+message RejectRouteRequest {
+  string approval_id = 1;
+  string reason = 2; // BAT BUOC khi reject
+  string comment = 3;
+}
+
+message ApprovalResponse {
+  string id = 1;
+  string route_id = 2;
+  string route_name = 3;
+  string status = 4;
+  string reason = 5;
+  string ai_summary = 6;
+  string compliance_summary = 7;
+  string created_at = 8;
+  string rejection_reason = 9; // chi co gia tri khi status = Rejected
+}
+
+message ListPendingApprovalsRequest {
+  int32 page = 1;
+  int32 limit = 2;
+}
+
+message ListApprovalsResponse {
+  repeated ApprovalResponse approvals = 1;
+  int32 total_items = 2;
+  int32 page = 3;
+  int32 limit = 4;
+  int32 total_pages = 5;
+}
+
+message GetRouteRecommendationRequest {
+  string route_id = 1;
+}
+
+message RouteRecommendationResponse {
+  string route_id = 1;
+  string risk_level = 2;
+  string automation_decision = 3;
+  string recommendation_source = 4;
+  string summary = 5;
+  repeated string suggestions = 6;
+  double confidence_score = 7;
+  string approval_request_id = 8;
+  repeated string applicable_regulations = 9;
+}
+
+// ===== Tenant AI / Rule configuration =====
+// Tenant id KHONG nam trong request body — lay tu gRPC metadata (x-tenant-id)
+
+message GetTenantAiConfigRequest {
+  string feature = 1;
+}
+
+message UpsertTenantAiConfigRequest {
+  string feature = 1;
+  string policy = 2;      // Manual | RulesOnly | RulesAndLlm | RulesLlmApproval
+  string ai_provider = 3; // Gemini | AzureOpenAI
+  bool is_active = 4;
+}
+
+message TenantAiConfigResponse {
+  string id = 1;
+  string tenant_id = 2;
+  string feature = 3;
+  string policy = 4;
+  string ai_provider = 5;
+  bool is_active = 6;
+  string updated_at = 7;
+}
+
+message UpsertTenantRuleConfigRequest {
+  string rule_name = 1;
+  bool is_enabled = 2;
+  map<string, double> thresholds = 3;
+}
+
+message TenantRuleConfigResponse {
+  string id = 1;
+  string tenant_id = 2;
+  string rule_name = 3;
+  bool is_enabled = 4;
+  map<string, double> thresholds = 5;
+  string updated_at = 6;
+}
+
+message ListTenantRuleConfigsRequest {
+  int32 page = 1;
+  int32 limit = 2;
+}
+
+message ListTenantRuleConfigsResponse {
+  repeated TenantRuleConfigResponse configs = 1;
+  int32 total_items = 2;
+  int32 page = 3;
+  int32 limit = 4;
+}

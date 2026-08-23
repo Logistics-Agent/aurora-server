@@ -1,0 +1,63 @@
+syntax = "proto3";
+
+option csharp_namespace = "Notification.Grpc";
+
+import "google/protobuf/timestamp.proto";
+
+service NotificationService {
+  rpc ListNotifications(ListNotificationsRequest) returns (ListNotificationsResponse);
+  rpc MarkNotificationRead(MarkNotificationReadRequest) returns (NotificationResponse);
+  rpc ListNotificationPreferences(ListNotificationPreferencesRequest) returns (ListNotificationPreferencesResponse);
+  rpc UpsertNotificationPreference(UpsertNotificationPreferenceRequest) returns (NotificationPreferenceResponse);
+}
+
+message ListNotificationsRequest {
+  int32 page = 1;
+  int32 page_size = 2;
+  bool unread_only = 3;
+}
+
+message ListNotificationsResponse {
+  repeated NotificationResponse notifications = 1;
+  int32 page = 2;
+  int32 page_size = 3;
+  int32 total_items = 4;
+  int32 total_pages = 5;
+}
+
+message NotificationResponse {
+  string id = 1;
+  string shipment_id = 2;
+  string event_type = 3;
+  string channel = 4;
+  string title = 5;
+  string body = 6;
+  bool is_read = 7;
+  google.protobuf.Timestamp created_at = 8;
+  google.protobuf.Timestamp read_at = 9;
+}
+
+message MarkNotificationReadRequest {
+  string id = 1;
+}
+
+message ListNotificationPreferencesRequest {}
+
+message ListNotificationPreferencesResponse {
+  repeated NotificationPreferenceResponse preferences = 1;
+}
+
+message UpsertNotificationPreferenceRequest {
+  string event_type = 1;
+  string channel = 2;
+  bool is_enabled = 3;
+  string recipient_address = 4;
+}
+
+message NotificationPreferenceResponse {
+  string id = 1;
+  string event_type = 2;
+  string channel = 3;
+  bool is_enabled = 4;
+  string recipient_address = 5;
+}

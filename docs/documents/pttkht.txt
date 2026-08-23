@@ -1,0 +1,112 @@
+Logistic + Muilt-Agent + Muilt-tennant: 
+BE: .net + nestjs + java
+FE: React - Figma
+microservices: gRPC - RabbitMQ
+Cloud: AKS, ACR, Azure Monitor, Azure Key Vault, Azure VMs (docker), Azure Blob Storage( terraform), Azure NAT Gateway, Azure Application Gateway, 2 AZ, Azure Managed Disks
+Auth: Cognito
+Cloudflare: R2, DNS, Tunnel
+MQ: RabbitMQ
+Terraform, ArgoCD
+Redis, PostgreSQL Neon: Db per services.
+Docker, Grafana, Prometheus, Loki - Helm heal
+BFF gateway
+Agent:
+	Function Calling - Plugin
+	RAG
+	AI Assistant
+Cloudflare -> ALB -> Yarp -> BFF
+
+Service: 
+@Thanh Tân: API Gateway & BFF [CORE] - ...						
+Identity & Tenant Service [CORE] - on going					
+Route Planning Agent Service [AI] - VRP(OSRM+VROOM) - https://download.geofabrik.de/asia.html
+AI Ops & Monitoring Service [AI + DEVOPS]	
+Email Security Service [AI]: Stalwart-TLS Verification-SPF-DKIM-DMARC-Sender Validation-Attachment Scan-Spam Detection-Pub Event-> ORC/RoutePlan/Shipment
+AI-Governance: AI Management
+
+@Đào Huỳnh:  Financial & Cost Estimation Service [AI + CORE]	- ongoing		
+Billing & Settlement Service [CORE]			
+Realtime Hub [Core]										
+Negotiation Agent Service [AI] 						
+Customer Assistant [AI]	
+
+@Ngọc Khoa:GPS Tracking & Monitoring Service [CORE]						
+Notification Service [CORE]								
+Document OCR Agent Service [AI]						
+Regulatory Compliance RAG Service [AI]	
+Shipment Workflow Service [Core] - on going
+
+@Hùng Vũ:
+Tester
+Docs {
+- Location facility Json -> Import DB
+
+}
+
+@Trương Được: -> @Đào Huỳnh 
+- GPS Tracking & Monitoring Service
+- Document OCR Agent Service
+- Notification Service 								
+- Audit Log 
+
+S3 key nên phân tenant:
+s3://hrm-private-docs/tenants/{tenantId}/department/{departmentId}/employees/{employeeId}/documents/{fileId}
+
+Tôi sẽ chuẩn hóa Aurora như sau:
+
+public abstract class TenantDbContext : DbContext
+{
+    protected Guid? TenantId { get; }
+
+
+    protected TenantDbContext(
+        DbContextOptions options,
+        ICurrentUserService currentUser)
+        : base(options)
+    {
+        TenantId = currentUser.TenantId;
+    }
+}
+
+Sau đó service-specific DbContext:
+
+entity.HasQueryFilter(e =>
+    TenantId.HasValue &&
+    e.TenantId == TenantId.Value);
+
+Và thêm architecture test:
+
+All tenant-owned entities must have:
+TenantId.HasValue && entity.TenantId == TenantId.Value
+
+còn exception như system roles phải explicit.
+
+Kết luận
+
+Hướng tôi đề xuất mạnh nhất là:
+
+Guid? _tenantId
++
+snapshot từ ICurrentUserService
++
+fail-closed
++
+không nullable CurrentUser DI
++
+system access explicit
+
+Tức:
+
+private readonly Guid? _tenantId;
+
+
+_tenantId = currentUser.TenantId;
+
+
+entity.HasQueryFilter(e =>
+    _tenantId.HasValue &&
+    e.TenantId == _tenantId.Value);
+
+Đây là pattern tôi sẽ chọn để chuẩn hóa toàn bộ Aurora nếu mục tiêu là giảm tối đa nguy cơ cross-data tenant do missing/invalid context.
+
+1. Shipment Document 2. Regulatory Source 3. Knowledge Document 4. General/Internal Document
