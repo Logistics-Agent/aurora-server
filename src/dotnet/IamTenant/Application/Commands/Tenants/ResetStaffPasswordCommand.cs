@@ -1,5 +1,9 @@
+using System;
+using System.Text.Json;
+using System.Threading;
+using System.Threading.Tasks;
+using IamTenant.Domain;
 using IamTenant.Infrastructure.Persistences;
-using MassTransit;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Shared.Events;
@@ -12,7 +16,7 @@ namespace IamTenant.Application.Commands.Tenants;
 /// </summary>
 public record ResetStaffPasswordCommand(Guid UserId) : IRequest;
 
-public class ResetStaffPasswordHandler(IamTenantDbContext context, IPublishEndpoint publishEndpoint)
+public class ResetStaffPasswordHandler(IamTenantDbContext context)
     : IRequestHandler<ResetStaffPasswordCommand>
 {
     public async Task Handle(ResetStaffPasswordCommand request, CancellationToken cancellationToken)
@@ -22,11 +26,21 @@ public class ResetStaffPasswordHandler(IamTenantDbContext context, IPublishEndpo
             u => u.Id == request.UserId, cancellationToken)
             ?? throw new Exception("Staff not found.");
 
-        await publishEndpoint.Publish(new TenantStaffPasswordResetEvent
+        var resetEvent = new TenantStaffPasswordResetEvent
         {
             TenantId = staffUser.TenantId,
             UserId = staffUser.Id,
             Email = staffUser.Email,
-        }, cancellationToken);
+        };
+
+        var outboxMessage = new OutboxMessage
+        {
+            EventType = nameof(TenantStaffPasswordResetEvent),
+            Payload = JsonSerializer.Serialize(resetEvent),
+            CreatedAt = DateTimeOffset.UtcNow
+        };
+
+        context.OutboxMessages.Add(outboxMessage);
+        await context.SaveChangesAsync(cancellationToken);
     }
 }

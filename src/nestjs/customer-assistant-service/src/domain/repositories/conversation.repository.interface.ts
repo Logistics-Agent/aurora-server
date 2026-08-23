@@ -8,6 +8,13 @@ export interface IConversationRepository {
   getConversation(tenantId: string, userId: string, conversationId: string): Promise<Conversation | null>;
   listConversations(tenantId: string, userId: string, limit?: number): Promise<Conversation[]>;
   updateConversation(conversation: Conversation, expectedVersion?: number): Promise<void>;
+  updateSummaryWatermark(
+    tenantId: string,
+    userId: string,
+    conversationId: string,
+    summary: string,
+    upToSequenceNumber: number,
+  ): Promise<boolean>;
   appendMessage(tenantId: string, userId: string, message: ConversationMessage): Promise<ConversationMessage>;
   getRecentMessages(
     tenantId: string,
@@ -15,5 +22,13 @@ export interface IConversationRepository {
     conversationId: string,
     limit?: number,
     upToSequenceNumber?: number,
+  ): Promise<ConversationMessage[]>;
+  getUnsummarizedMessages(
+    tenantId: string,
+    userId: string,
+    conversationId: string,
+    afterSequenceNumber: number,
+    upToSequenceNumber?: number,
+    limit?: number,
   ): Promise<ConversationMessage[]>;
 }

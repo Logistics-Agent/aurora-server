@@ -14,7 +14,6 @@ export interface ConversationSummaryRequestedEvent {
   conversationId: string;
   tenantId: string;
   userId: string;
-  expectedConversationVersion: number;
   upToSequenceNumber: number;
   traceId?: string;
 }
@@ -28,6 +27,7 @@ export class ConversationSummaryService implements OnModuleInit, OnModuleDestroy
   private readonly exchangeName = 'logistics_events';
   private readonly routingKey = 'assistant.summary.requested';
   private isConnected = false;
+  private readonly isProduction: boolean;
 
   constructor(
     private readonly configService: ConfigService,
@@ -35,7 +35,9 @@ export class ConversationSummaryService implements OnModuleInit, OnModuleDestroy
     private readonly conversationRepo: IConversationRepository,
     private readonly aiGovernanceClient: AiGovernanceGrpcClient,
     private readonly promptBuilder: ConversationalPromptBuilder,
-  ) {}
+  ) {
+    this.isProduction = (this.configService.get<string>('NODE_ENV') || 'development') === 'production';
+  }
 
   async onModuleInit() {
     await this.initRabbitMq();
@@ -72,8 +74,8 @@ export class ConversationSummaryService implements OnModuleInit, OnModuleDestroy
             await this.handleSummaryJob(event);
             this.channel.ack(msg);
           } catch (err) {
-            this.logger.error(`[ConversationSummaryService] Failed to process summary job: ${err}`);
-            this.channel.nack(msg, false, false); // discard or dead-letter
+            this.logger.error(`[Observability] assistant_summary_failed for conv ${msg.content.toString()}: ${err}`);
+            this.channel.nack(msg, false, false);
           }
         }
       });
@@ -82,7 +84,11 @@ export class ConversationSummaryService implements OnModuleInit, OnModuleDestroy
       this.logger.log(`[ConversationSummaryService] Connected to RabbitMQ on queue ${this.queueName}`);
     } catch (err) {
       this.isConnected = false;
-      this.logger.warn(`[ConversationSummaryService] RabbitMQ not reachable (${(err as Error).message}). Using in-process worker mode.`);
+      if (this.isProduction) {
+        this.logger.warn(`[Observability] SUMMARY_QUEUE_UNAVAILABLE: RabbitMQ not reachable in production (${(err as Error).message}). Summaries will be deferred.`);
+      } else {
+        this.logger.warn(`[ConversationSummaryService] RabbitMQ not reachable in development (${(err as Error).message}). Using in-process worker mode.`);
+      }
     }
   }
 
@@ -91,23 +97,29 @@ export class ConversationSummaryService implements OnModuleInit, OnModuleDestroy
       try {
         const payload = Buffer.from(JSON.stringify(event));
         this.channel.publish(this.exchangeName, this.routingKey, payload, { persistent: true });
-        this.logger.debug(`[ConversationSummaryService] Enqueued summary job for conversation ${event.conversationId}`);
+        this.logger.log(`[Observability] assistant_summary_enqueued: conv ${event.conversationId} up to seq ${event.upToSequenceNumber}`);
         return;
       } catch (err) {
-        this.logger.warn(`[ConversationSummaryService] RabbitMQ publish failed: ${err}. Falling back to in-process execution.`);
+        this.logger.warn(`[Observability] SUMMARY_QUEUE_UNAVAILABLE: RabbitMQ publish failed for conv ${event.conversationId}: ${err}`);
       }
     }
 
-    // In-process fallback when RabbitMQ is offline (dev / test)
+    // PATCH 2: In Production, DO NOT execute in-process summary! Defer safely.
+    if (this.isProduction) {
+      this.logger.warn(`[Observability] SUMMARY_QUEUE_UNAVAILABLE: Summary deferred for conversation ${event.conversationId}. Chat continues uninterrupted.`);
+      return;
+    }
+
+    // In-process worker allowed ONLY in development/test
     setImmediate(() => {
       this.handleSummaryJob(event).catch((err) => {
-        this.logger.error(`[ConversationSummaryService] In-process summary job error: ${err}`);
+        this.logger.error(`[Observability] assistant_summary_failed in-process: ${err}`);
       });
     });
   }
 
   async handleSummaryJob(event: ConversationSummaryRequestedEvent): Promise<void> {
-    const { conversationId, tenantId, userId, expectedConversationVersion, upToSequenceNumber, traceId } = event;
+    const { conversationId, tenantId, userId, upToSequenceNumber, traceId } = event;
 
     // 1. Load conversation from DB
     const conv = await this.conversationRepo.getConversation(tenantId, userId, conversationId);
@@ -116,18 +128,18 @@ export class ConversationSummaryService implements OnModuleInit, OnModuleDestroy
       return;
     }
 
-    // 2. Idempotency Check (PATCH 3 & 5)
-    // If conversation version changed beyond expected version, verify before proceeding
-    if (conv.version > expectedConversationVersion + 5) {
-      this.logger.debug(`[ConversationSummaryService] Stale summary job for conv ${conversationId}. Current version: ${conv.version}, expected: ${expectedConversationVersion}`);
+    // 2. Watermark Idempotency Check (PATCH 3)
+    if ((conv.summaryUpToSequence || 0) >= upToSequenceNumber) {
+      this.logger.log(`[Observability] assistant_summary_skipped_duplicate: Conv ${conversationId} already summarized up to seq ${conv.summaryUpToSequence} >= requested ${upToSequenceNumber}`);
+      return;
     }
 
-    // 3. Load bounded messages up to sequence watermark (PATCH 3 & 6)
+    // 3. Load bounded messages up to requested sequence watermark (PATCH 3 & 6)
     const messages = await this.conversationRepo.getRecentMessages(
       tenantId,
       userId,
       conversationId,
-      20,
+      30,
       upToSequenceNumber,
     );
 
@@ -151,15 +163,25 @@ export class ConversationSummaryService implements OnModuleInit, OnModuleDestroy
     try {
       const aiRes = await this.aiGovernanceClient.generate('assistant.summarize', prompt, context, 256);
       if (aiRes.content && aiRes.content.trim()) {
-        conv.summary = aiRes.content.trim();
-        conv.updatedAt = new Date();
+        const newSummary = aiRes.content.trim();
 
-        // 6. Atomic optimistic concurrency update (PATCH 5)
-        await this.conversationRepo.updateConversation(conv, conv.version);
-        this.logger.log(`[ConversationSummaryService] Successfully updated summary for conversation ${conversationId} up to seq ${upToSequenceNumber}`);
+        // 6. Watermark update (PATCH 3)
+        const updated = await this.conversationRepo.updateSummaryWatermark(
+          tenantId,
+          userId,
+          conversationId,
+          newSummary,
+          upToSequenceNumber,
+        );
+
+        if (updated) {
+          this.logger.log(`[Observability] assistant_summary_completed for conversation ${conversationId} up to seq ${upToSequenceNumber}`);
+        } else {
+          this.logger.log(`[Observability] assistant_summary_skipped_duplicate: Newer summary watermark already persisted for conv ${conversationId}`);
+        }
       }
     } catch (err) {
-      this.logger.warn(`[ConversationSummaryService] Summary LLM execution failed for conv ${conversationId}: ${(err as Error).message}`);
+      this.logger.error(`[Observability] assistant_summary_failed for conv ${conversationId}: ${(err as Error).message}`);
     }
   }
 }

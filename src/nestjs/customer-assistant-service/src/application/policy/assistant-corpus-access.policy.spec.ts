@@ -1,5 +1,6 @@
 import { AssistantCorpusAccessPolicy } from './assistant-corpus-access.policy';
 import { ActorType } from '../../domain/enums/actor-type.enum';
+import { CurrentUser } from '../../infrastructure/security/current-user.interface';
 
 describe('AssistantCorpusAccessPolicy', () => {
   let policy: AssistantCorpusAccessPolicy;
@@ -41,10 +42,31 @@ describe('AssistantCorpusAccessPolicy', () => {
       expect(res.effectiveCategories).toEqual(['SOP', 'CARRIER_CONTRACT']);
     });
 
-    it('should allow ADMIN full access to knowledge', () => {
-      const res = policy.canSearchKnowledge(ActorType.ADMIN, 'tenant-1', ['INTERNAL_RULE']);
+    it('should allow TENANT_ADMIN access to own tenant knowledge', () => {
+      const tenantAdminUser: CurrentUser = {
+        tenantId: 'tenant-1',
+        userId: 'admin-1',
+        actorType: ActorType.ADMIN,
+        roles: ['TENANT_ADMIN'],
+        permissions: [],
+      };
+
+      const res = policy.canSearchKnowledge(ActorType.ADMIN, 'tenant-1', ['INTERNAL_RULE'], tenantAdminUser);
       expect(res.allowed).toBe(true);
       expect(res.effectiveCategories).toEqual(['INTERNAL_RULE']);
+    });
+
+    it('should allow PLATFORM_ADMIN to search platform guidelines', () => {
+      const platformAdminUser: CurrentUser = {
+        tenantId: 'platform',
+        userId: 'super-admin-1',
+        actorType: ActorType.ADMIN,
+        roles: ['PLATFORM_ADMIN'],
+        permissions: ['platform.audit.tenant.read'],
+      };
+
+      const res = policy.canSearchKnowledge(ActorType.ADMIN, 'tenant-1', ['SOP'], platformAdminUser);
+      expect(res.allowed).toBe(true);
     });
   });
 });

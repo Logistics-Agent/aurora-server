@@ -1,8 +1,13 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text.Json;
+using System.Threading;
+using System.Threading.Tasks;
 using IamTenant.Domain;
 using IamTenant.Infrastructure.Persistences;
 using IamTenant.Application.DTOs.Tenants;
 using IamTenant.Application.Interfaces;
-using MassTransit;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Shared.Events;
@@ -21,7 +26,6 @@ public record CreateStaffCommand(
 
 public class CreateStaffHandler(
     IamTenantDbContext context,
-    IPublishEndpoint publishEndpoint,
     ICurrentUserService currentUser,
     ICognitoAuthService cognitoService)
     : IRequestHandler<CreateStaffCommand, StaffDto>
@@ -88,17 +92,27 @@ public class CreateStaffHandler(
             }));
         }
 
-        await context.SaveChangesAsync(cancellationToken);
-
-        // Publish invitation event
-        await publishEndpoint.Publish(new TenantStaffCreatedEvent
+        // Transactional Outbox: atomically enqueue provisioning event
+        var staffCreatedEvent = new TenantStaffCreatedEvent
         {
             TenantId = tenant.Id,
             UserId = staffUser.Id,
             Email = staffUser.Email,
             FirstName = staffUser.FirstName,
             LastName = staffUser.LastName,
-        }, cancellationToken);
+        };
+
+        var outboxMessage = new OutboxMessage
+        {
+            EventType = nameof(TenantStaffCreatedEvent),
+            Payload = JsonSerializer.Serialize(staffCreatedEvent),
+            CreatedAt = DateTimeOffset.UtcNow
+        };
+
+        context.OutboxMessages.Add(outboxMessage);
+
+        // Atomic commit: User + UserRoles + OutboxMessage
+        await context.SaveChangesAsync(cancellationToken);
 
         return new StaffDto
         {

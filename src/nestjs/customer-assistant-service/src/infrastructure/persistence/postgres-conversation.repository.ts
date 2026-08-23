@@ -49,7 +49,6 @@ export class PostgresConversationRepository
 
       const client = await this.pool.connect();
       try {
-        // Pure ping check — No runtime DDL (PATCH 1)
         await client.query('SELECT 1');
         this.isConnected = true;
         this.logger.log(`[PostgresRepo] Successfully connected to PostgreSQL.`);
@@ -79,7 +78,9 @@ export class PostgresConversationRepository
 
   async createConversation(conversation: Conversation): Promise<Conversation> {
     const initialVersion = conversation.version || 1;
+    const initialWatermark = conversation.summaryUpToSequence || 0;
     conversation.version = initialVersion;
+    conversation.summaryUpToSequence = initialWatermark;
 
     if (!this.isConnected || !this.pool) {
       return this.fallbackMemoryStore.createConversation(conversation);
@@ -87,8 +88,8 @@ export class PostgresConversationRepository
 
     try {
       await this.pool.query(
-        `INSERT INTO conversations (id, tenant_id, user_id, actor_type, preferred_language, status, summary, version, created_at, updated_at, last_activity_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+        `INSERT INTO conversations (id, tenant_id, user_id, actor_type, preferred_language, status, summary, summary_up_to_sequence, version, created_at, updated_at, last_activity_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
         [
           conversation.id,
           conversation.tenantId,
@@ -97,6 +98,7 @@ export class PostgresConversationRepository
           conversation.preferredLanguage,
           conversation.status,
           conversation.summary || null,
+          initialWatermark,
           initialVersion,
           conversation.createdAt,
           conversation.updatedAt,
@@ -123,7 +125,7 @@ export class PostgresConversationRepository
 
     try {
       const res = await this.pool.query(
-        `SELECT id, tenant_id, user_id, actor_type, preferred_language, status, summary, version, created_at, updated_at, last_activity_at
+        `SELECT id, tenant_id, user_id, actor_type, preferred_language, status, summary, summary_up_to_sequence, version, created_at, updated_at, last_activity_at
          FROM conversations
          WHERE id = $1 AND tenant_id = $2 AND user_id = $3`,
         [conversationId, tenantId, userId],
@@ -140,6 +142,7 @@ export class PostgresConversationRepository
         preferredLanguage: row.preferred_language,
         status: row.status,
         summary: row.summary || undefined,
+        summaryUpToSequence: Number(row.summary_up_to_sequence || 0),
         version: Number(row.version || 1),
         createdAt: new Date(row.created_at),
         updatedAt: new Date(row.updated_at),
@@ -163,7 +166,7 @@ export class PostgresConversationRepository
 
     try {
       const res = await this.pool.query(
-        `SELECT id, tenant_id, user_id, actor_type, preferred_language, status, summary, version, created_at, updated_at, last_activity_at
+        `SELECT id, tenant_id, user_id, actor_type, preferred_language, status, summary, summary_up_to_sequence, version, created_at, updated_at, last_activity_at
          FROM conversations
          WHERE tenant_id = $1 AND user_id = $2
          ORDER BY last_activity_at DESC
@@ -179,6 +182,7 @@ export class PostgresConversationRepository
         preferredLanguage: row.preferred_language,
         status: row.status,
         summary: row.summary || undefined,
+        summaryUpToSequence: Number(row.summary_up_to_sequence || 0),
         version: Number(row.version || 1),
         createdAt: new Date(row.created_at),
         updatedAt: new Date(row.updated_at),
@@ -200,11 +204,12 @@ export class PostgresConversationRepository
       const checkVersion = expectedVersion !== undefined ? expectedVersion : conversation.version;
       const res = await this.pool.query(
         `UPDATE conversations
-         SET status = $1, summary = $2, version = version + 1, updated_at = $3, last_activity_at = $4
-         WHERE id = $5 AND tenant_id = $6 AND user_id = $7 AND version = $8`,
+         SET status = $1, summary = $2, summary_up_to_sequence = $3, version = version + 1, updated_at = $4, last_activity_at = $5
+         WHERE id = $6 AND tenant_id = $7 AND user_id = $8 AND version = $9`,
         [
           conversation.status,
           conversation.summary || null,
+          conversation.summaryUpToSequence || 0,
           conversation.updatedAt,
           conversation.lastActivityAt,
           conversation.id,
@@ -215,7 +220,6 @@ export class PostgresConversationRepository
       );
 
       if (res.rowCount === 0) {
-        // Query to see if conversation exists
         const existing = await this.getConversation(conversation.tenantId, conversation.userId, conversation.id);
         if (!existing) {
           throw new ConversationNotFoundException(conversation.id);
@@ -230,12 +234,55 @@ export class PostgresConversationRepository
     }
   }
 
+  async updateSummaryWatermark(
+    tenantId: string,
+    userId: string,
+    conversationId: string,
+    summary: string,
+    upToSequenceNumber: number,
+  ): Promise<boolean> {
+    if (!this.isConnected || !this.pool) {
+      return this.fallbackMemoryStore.updateSummaryWatermark(
+        tenantId,
+        userId,
+        conversationId,
+        summary,
+        upToSequenceNumber,
+      );
+    }
+
+    try {
+      const res = await this.pool.query(
+        `UPDATE conversations
+         SET summary = $1,
+             summary_up_to_sequence = $2,
+             updated_at = NOW()
+         WHERE id = $3
+           AND tenant_id = $4
+           AND user_id = $5
+           AND summary_up_to_sequence < $2`,
+        [summary, upToSequenceNumber, conversationId, tenantId, userId],
+      );
+
+      return (res.rowCount ?? 0) > 0;
+    } catch (err) {
+      this.logger.error(`[PostgresRepo] Failed to update summary watermark: ${err}`);
+      if (this.isProduction) throw err;
+      return this.fallbackMemoryStore.updateSummaryWatermark(
+        tenantId,
+        userId,
+        conversationId,
+        summary,
+        upToSequenceNumber,
+      );
+    }
+  }
+
   async appendMessage(
     tenantId: string,
     userId: string,
     message: ConversationMessage,
   ): Promise<ConversationMessage> {
-    // Invalidate Redis recent memory cache so next fetch refreshes
     await this.cacheService.invalidateRecentMessages(tenantId, userId, message.conversationId);
 
     if (!this.isConnected || !this.pool) {
@@ -246,7 +293,20 @@ export class PostgresConversationRepository
     try {
       await client.query('BEGIN');
 
-      // Deterministic sequence allocation inside transaction (PATCH 6)
+      // 1. Lock conversation row in transaction for atomic sequence allocation (PATCH 1)
+      const lockRes = await client.query(
+        `SELECT id
+         FROM conversations
+         WHERE id = $1 AND tenant_id = $2 AND user_id = $3
+         FOR UPDATE`,
+        [message.conversationId, tenantId, userId],
+      );
+
+      if (lockRes.rows.length === 0) {
+        throw new ConversationNotFoundException(message.conversationId);
+      }
+
+      // 2. Deterministic sequence allocation under row lock
       const seqRes = await client.query(
         `SELECT COALESCE(MAX(sequence_number), 0) + 1 AS next_seq
          FROM conversation_messages
@@ -257,6 +317,7 @@ export class PostgresConversationRepository
       const sequenceNumber = Number(seqRes.rows[0]?.next_seq || 1);
       message.sequenceNumber = sequenceNumber;
 
+      // 3. Insert message
       await client.query(
         `INSERT INTO conversation_messages (
            id, conversation_id, sequence_number, role, content, intent, sources_json, conflicts_json, insufficient_evidence, retrieval_trace_id, ai_decision_id, metadata, created_at
@@ -278,7 +339,7 @@ export class PostgresConversationRepository
         ],
       );
 
-      // Update conversation last_activity_at
+      // 4. Update conversation timestamp
       await client.query(
         `UPDATE conversations
          SET last_activity_at = $1, updated_at = $1
@@ -305,7 +366,6 @@ export class PostgresConversationRepository
     limit = 10,
     upToSequenceNumber?: number,
   ): Promise<ConversationMessage[]> {
-    // 1. Try Redis Cache (L1) only if not bounded by watermark
     if (upToSequenceNumber === undefined) {
       const cached = await this.cacheService.getRecentMessages(tenantId, userId, conversationId);
       if (cached && cached.length >= limit) {
@@ -313,7 +373,6 @@ export class PostgresConversationRepository
       }
     }
 
-    // 2. Query Postgres (Durable)
     if (!this.isConnected || !this.pool) {
       return this.fallbackMemoryStore.getRecentMessages(
         tenantId,
@@ -353,7 +412,6 @@ export class PostgresConversationRepository
           createdAt: new Date(row.created_at),
         }));
 
-      // Update Redis cache if query is the latest head
       if (upToSequenceNumber === undefined) {
         await this.cacheService.setRecentMessages(tenantId, userId, conversationId, messages);
       }
@@ -368,6 +426,66 @@ export class PostgresConversationRepository
         conversationId,
         limit,
         upToSequenceNumber,
+      );
+    }
+  }
+
+  async getUnsummarizedMessages(
+    tenantId: string,
+    userId: string,
+    conversationId: string,
+    afterSequenceNumber: number,
+    upToSequenceNumber?: number,
+    limit = 20,
+  ): Promise<ConversationMessage[]> {
+    if (!this.isConnected || !this.pool) {
+      return this.fallbackMemoryStore.getUnsummarizedMessages(
+        tenantId,
+        userId,
+        conversationId,
+        afterSequenceNumber,
+        upToSequenceNumber,
+        limit,
+      );
+    }
+
+    try {
+      const res = await this.pool.query(
+        `SELECT id, conversation_id, sequence_number, role, content, intent, sources_json, conflicts_json, insufficient_evidence, retrieval_trace_id, ai_decision_id, metadata, created_at
+         FROM conversation_messages
+         WHERE conversation_id = $1
+           AND sequence_number > $2
+           AND ($3::int IS NULL OR sequence_number <= $3)
+         ORDER BY sequence_number ASC
+         LIMIT $4`,
+        [conversationId, afterSequenceNumber, upToSequenceNumber || null, limit],
+      );
+
+      return res.rows.map((row) => ({
+        id: row.id,
+        conversationId: row.conversation_id,
+        sequenceNumber: Number(row.sequence_number),
+        role: row.role,
+        content: row.content,
+        intent: row.intent,
+        sources: row.sources_json || undefined,
+        conflicts: row.conflicts_json || undefined,
+        insufficientEvidence: Boolean(row.insufficient_evidence),
+        retrievalTraceId: row.retrieval_trace_id || undefined,
+        aiDecisionId: row.ai_decision_id || undefined,
+        metadata: row.metadata || undefined,
+        createdAt: new Date(row.created_at),
+      }));
+    } catch (err) {
+      this.logger.error(`[PostgresRepo] Failed to get unsummarized messages: ${err}`);
+      if (this.isProduction) throw err;
+      return this.fallbackMemoryStore.getUnsummarizedMessages(
+        tenantId,
+        userId,
+        conversationId,
+        afterSequenceNumber,
+        upToSequenceNumber,
+        limit,
       );
     }
   }

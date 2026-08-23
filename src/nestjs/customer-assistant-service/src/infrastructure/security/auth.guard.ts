@@ -4,6 +4,7 @@ import {
   ExecutionContext,
   UnauthorizedException,
   ForbiddenException,
+  Logger,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { CurrentUser } from './current-user.interface';
@@ -12,6 +13,7 @@ import { AuthIdentityMismatchException } from '../../domain/errors/assistant.err
 
 @Injectable()
 export class AuthGuard implements CanActivate {
+  private readonly logger = new Logger(AuthGuard.name);
   private readonly internalServiceSecret: string;
   private readonly trustedServiceIds = ['Staff.Bff', 'Admin.Bff', 'System.Bff', 'financial-service', 'internal-gateway'];
   private readonly isProduction: boolean;
@@ -74,14 +76,15 @@ export class AuthGuard implements CanActivate {
     if (isTrustedInternalOrigin) {
       // Internal BFF: headers are trusted and authoritative
       if (headerTenant) {
-        // If JWT also present, verify no conflict
         if (tenantId && tenantId !== headerTenant) {
+          this.logger.warn(`[Observability] assistant_identity_mismatch: JWT tenant '${tenantId}' does not match header tenant '${headerTenant}'`);
           throw new AuthIdentityMismatchException(`JWT tenant '${tenantId}' does not match header tenant '${headerTenant}'`);
         }
         tenantId = headerTenant;
       }
       if (headerUser) {
         if (userId && userId !== headerUser) {
+          this.logger.warn(`[Observability] assistant_identity_mismatch: JWT user '${userId}' does not match header user '${headerUser}'`);
           throw new AuthIdentityMismatchException(`JWT user '${userId}' does not match header user '${headerUser}'`);
         }
         userId = headerUser;
@@ -90,6 +93,15 @@ export class AuthGuard implements CanActivate {
       if (headerActor) actorType = this.mapActorType(headerActor);
     } else {
       // External / Public origin:
+      if (headerActor && headerActor !== actorType.toString()) {
+        this.logger.warn(`[Observability] assistant_untrusted_identity_header: Spoofed x-actor-type '${headerActor}' rejected for caller '${userId}'`);
+        throw new ForbiddenException('External client cannot override actor-type via request headers.');
+      }
+      if (headerTenant && tenantId && headerTenant !== tenantId) {
+        this.logger.warn(`[Observability] assistant_untrusted_identity_header: Spoofed x-tenant-id '${headerTenant}' rejected for caller '${userId}'`);
+        throw new ForbiddenException('External client cannot override tenant-id via request headers.');
+      }
+
       if (!tenantId || !userId) {
         if (!this.isProduction) {
           // Dev fallback when offline
@@ -100,10 +112,6 @@ export class AuthGuard implements CanActivate {
         } else {
           throw new UnauthorizedException('Valid authorization token or trusted service identity is required.');
         }
-      }
-      // Ignore / reject spoofed header actor in external requests
-      if (headerActor && headerActor !== actorType.toString()) {
-        throw new ForbiddenException('External client cannot override actor-type via request headers.');
       }
     }
 

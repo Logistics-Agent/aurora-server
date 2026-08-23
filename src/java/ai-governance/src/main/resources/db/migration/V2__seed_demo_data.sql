@@ -43,7 +43,12 @@ VALUES
 -- FREE Plan capabilities
 INSERT INTO plan_capabilities (id, plan_id, capability_code, allowed_providers, model_tier, max_tokens, automation_level, require_approval, created_at, created_by, version)
 VALUES
+    (gen_random_uuid(), '11111111-1111-1111-1111-111111111111', 'assistant.general', 'GEMINI', 'STANDARD', 2048, 'ASSISTED', false, NOW(), 'system', 1),
+    (gen_random_uuid(), '11111111-1111-1111-1111-111111111111', 'assistant.route', 'GEMINI', 'STANDARD', 256, 'FULL_AUTONOMOUS', false, NOW(), 'system', 1),
+    (gen_random_uuid(), '11111111-1111-1111-1111-111111111111', 'assistant.summarize', 'GEMINI', 'STANDARD', 1024, 'FULL_AUTONOMOUS', false, NOW(), 'system', 1),
     (gen_random_uuid(), '11111111-1111-1111-1111-111111111111', 'compliance.answer', 'GEMINI', 'STANDARD', 2048, 'ASSISTED', false, NOW(), 'system', 1),
+    (gen_random_uuid(), '11111111-1111-1111-1111-111111111111', 'knowledge.answer', 'GEMINI', 'STANDARD', 2048, 'ASSISTED', false, NOW(), 'system', 1),
+    (gen_random_uuid(), '11111111-1111-1111-1111-111111111111', 'assistant.answer', 'GEMINI', 'STANDARD', 2048, 'ASSISTED', false, NOW(), 'system', 1),
     (gen_random_uuid(), '11111111-1111-1111-1111-111111111111', 'compliance.embed', 'GEMINI', 'STANDARD', 2048, 'FULL_AUTONOMOUS', false, NOW(), 'system', 1),
     (gen_random_uuid(), '11111111-1111-1111-1111-111111111111', 'knowledge.embed', 'GEMINI', 'STANDARD', 2048, 'FULL_AUTONOMOUS', false, NOW(), 'system', 1),
     (gen_random_uuid(), '11111111-1111-1111-1111-111111111111', 'ocr.extract', 'GEMINI', 'STANDARD', 2048, 'ASSISTED', false, NOW(), 'system', 1);
@@ -51,7 +56,12 @@ VALUES
 -- STANDARD Plan capabilities
 INSERT INTO plan_capabilities (id, plan_id, capability_code, allowed_providers, model_tier, max_tokens, automation_level, require_approval, created_at, created_by, version)
 VALUES
+    (gen_random_uuid(), '22222222-2222-2222-2222-222222222222', 'assistant.general', 'GEMINI,AZURE_OPENAI', 'STANDARD', 4096, 'SEMI_AUTONOMOUS', false, NOW(), 'system', 1),
+    (gen_random_uuid(), '22222222-2222-2222-2222-222222222222', 'assistant.route', 'GEMINI,AZURE_OPENAI', 'STANDARD', 512, 'FULL_AUTONOMOUS', false, NOW(), 'system', 1),
+    (gen_random_uuid(), '22222222-2222-2222-2222-222222222222', 'assistant.summarize', 'GEMINI,AZURE_OPENAI', 'STANDARD', 2048, 'FULL_AUTONOMOUS', false, NOW(), 'system', 1),
     (gen_random_uuid(), '22222222-2222-2222-2222-222222222222', 'compliance.answer', 'GEMINI,AZURE_OPENAI', 'STANDARD', 4096, 'SEMI_AUTONOMOUS', false, NOW(), 'system', 1),
+    (gen_random_uuid(), '22222222-2222-2222-2222-222222222222', 'knowledge.answer', 'GEMINI,AZURE_OPENAI', 'STANDARD', 4096, 'SEMI_AUTONOMOUS', false, NOW(), 'system', 1),
+    (gen_random_uuid(), '22222222-2222-2222-2222-222222222222', 'assistant.answer', 'GEMINI,AZURE_OPENAI', 'STANDARD', 4096, 'SEMI_AUTONOMOUS', false, NOW(), 'system', 1),
     (gen_random_uuid(), '22222222-2222-2222-2222-222222222222', 'compliance.embed', 'GEMINI,AZURE_OPENAI', 'STANDARD', 4096, 'FULL_AUTONOMOUS', false, NOW(), 'system', 1),
     (gen_random_uuid(), '22222222-2222-2222-2222-222222222222', 'knowledge.embed', 'GEMINI,AZURE_OPENAI', 'STANDARD', 4096, 'FULL_AUTONOMOUS', false, NOW(), 'system', 1),
     (gen_random_uuid(), '22222222-2222-2222-2222-222222222222', 'ocr.extract', 'GEMINI', 'STANDARD', 4096, 'SEMI_AUTONOMOUS', false, NOW(), 'system', 1),
@@ -60,7 +70,12 @@ VALUES
 -- ENTERPRISE Plan capabilities
 INSERT INTO plan_capabilities (id, plan_id, capability_code, allowed_providers, model_tier, max_tokens, automation_level, require_approval, created_at, created_by, version)
 VALUES
+    (gen_random_uuid(), '33333333-3333-3333-3333-333333333333', 'assistant.general', 'GEMINI,AZURE_OPENAI', 'PREMIUM', 8192, 'SUPERVISED_AUTONOMOUS', false, NOW(), 'system', 1),
+    (gen_random_uuid(), '33333333-3333-3333-3333-333333333333', 'assistant.route', 'GEMINI,AZURE_OPENAI', 'PREMIUM', 1024, 'FULL_AUTONOMOUS', false, NOW(), 'system', 1),
+    (gen_random_uuid(), '33333333-3333-3333-3333-333333333333', 'assistant.summarize', 'GEMINI,AZURE_OPENAI', 'PREMIUM', 4096, 'FULL_AUTONOMOUS', false, NOW(), 'system', 1),
     (gen_random_uuid(), '33333333-3333-3333-3333-333333333333', 'compliance.answer', 'GEMINI,AZURE_OPENAI', 'PREMIUM', 8192, 'SUPERVISED_AUTONOMOUS', false, NOW(), 'system', 1),
+    (gen_random_uuid(), '33333333-3333-3333-3333-333333333333', 'knowledge.answer', 'GEMINI,AZURE_OPENAI', 'PREMIUM', 8192, 'SUPERVISED_AUTONOMOUS', false, NOW(), 'system', 1),
+    (gen_random_uuid(), '33333333-3333-3333-3333-333333333333', 'assistant.answer', 'GEMINI,AZURE_OPENAI', 'PREMIUM', 8192, 'SUPERVISED_AUTONOMOUS', false, NOW(), 'system', 1),
     (gen_random_uuid(), '33333333-3333-3333-3333-333333333333', 'compliance.embed', 'GEMINI,AZURE_OPENAI', 'PREMIUM', 8192, 'FULL_AUTONOMOUS', false, NOW(), 'system', 1),
     (gen_random_uuid(), '33333333-3333-3333-3333-333333333333', 'knowledge.embed', 'GEMINI,AZURE_OPENAI', 'PREMIUM', 8192, 'FULL_AUTONOMOUS', false, NOW(), 'system', 1),
     (gen_random_uuid(), '33333333-3333-3333-3333-333333333333', 'ocr.extract', 'GEMINI,AZURE_OPENAI', 'PREMIUM', 8192, 'SUPERVISED_AUTONOMOUS', false, NOW(), 'system', 1),

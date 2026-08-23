@@ -96,7 +96,7 @@
 ### Group 2: Mailbox Management
 
 #### 3.2 Create Mailbox
-- **Function (Mô tả):** Cấp phát địa chỉ hộp thư cá nhân hoặc phòng ban cho nhân viên trong Tenant.
+- **Function (Mô tả):** Cấp phát thủ công hộp thư phòng ban/dùng chung (Shared Mailbox như `support@`, `sales@`) hoặc phục hồi/sửa chữa cấu hình hộp thư. **Lưu ý:** Hộp thư cá nhân cho Tenant Admin và Nhân viên (Staff) được **tự động khởi tạo theo mô hình hướng sự kiện (Event-Driven Auto-Provisioning)** qua RabbitMQ mà không cần Frontend gọi API này. Chi tiết xem tại [`MAILBOX_PROVISIONING_FLOW.md`](file:///d:/IT/CD/aurora-server/src/dotnet/MailService/docs/MAILBOX_PROVISIONING_FLOW.md).
 - **HTTP:**
   - `Method:` `POST`
   - `Path:` `/api/v1/admin/mail/mailboxes`
@@ -122,9 +122,9 @@
 - **Validation Rules:**
   - `domainId`: Bắt buộc, GUID hợp lệ.
   - `localPart`: Bắt buộc, 1–64 ký tự chữ cái/số/ký tự hợp lệ của email.
-  - `userId`: Không bắt buộc; nếu có phải là GUID.
-- **Side Effects:** Tạo bản ghi `Mailbox` trong DB và tài khoản account trên Stalwart.
-- **Events:** `None`
+  - `userId`: Không bắt buộc; nếu có phải là GUID (để trống khi tạo Shared Mailbox phòng ban).
+- **Side Effects:** Tạo bản ghi `Mailbox` trong DB, ghi nhận `AuditRecord`, và đồng bộ/cấp phát tài khoản trên Stalwart.
+- **Events:** `None` (Đồng bộ trực tiếp; quy trình tự động dùng `TenantStaffCreatedEvent`/`TenantAdminCreatedEvent`).
 - **AI Governance:** `No`
 - **Error Responses:** `400 Bad Request`, `401 Unauthorized`, `403 Forbidden`, `404 Not Found`, `409 Conflict`.
 

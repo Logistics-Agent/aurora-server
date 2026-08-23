@@ -54,7 +54,7 @@ export interface ProcessMessageResult {
 export class ConversationalAssistantOrchestrator {
   private readonly logger = new Logger(ConversationalAssistantOrchestrator.name);
   private readonly maxHistoryTurns = 6; // 12 messages in active window
-  private readonly summaryTriggerThreshold = 10; // Trigger rolling summary when history >= 10
+  private readonly summaryTriggerThreshold = 10; // Trigger rolling summary when unsummarized turns >= 10
 
   constructor(
     @Inject(CONVERSATION_REPOSITORY)
@@ -79,6 +79,7 @@ export class ConversationalAssistantOrchestrator {
       actorType: currentUser.actorType,
       preferredLanguage,
       status: 'ACTIVE',
+      summaryUpToSequence: 0,
       version: 1,
       createdAt: new Date(),
       updatedAt: new Date(),
@@ -143,7 +144,7 @@ export class ConversationalAssistantOrchestrator {
       conversationId = conv.id;
     }
 
-    // 2. Append User Message with Deterministic Sequence (PATCH 6 & 12)
+    // 2. Append User Message with Deterministic Sequence under Row Lock (PATCH 1 & 6)
     const userMsgId = randomUUID();
     const userMessage: ConversationMessage = {
       id: userMsgId,
@@ -159,22 +160,38 @@ export class ConversationalAssistantOrchestrator {
     );
     const inputSequenceNumber = savedUserMsg.sequenceNumber || 1;
 
-    // 3. Load Bounded Recent History (Watermark-bounded by input sequence)
-    const recentMessages = await this.conversationRepo.getRecentMessages(
-      currentUser.tenantId,
-      currentUser.userId,
-      conversationId,
-      this.maxHistoryTurns * 2,
-      inputSequenceNumber,
-    );
+    // 3. Prompt Context Reconstruction Using Summary Watermark (PATCH 7)
+    let recentMessages: ConversationMessage[] = [];
+    const summaryWatermark = conv.summaryUpToSequence || 0;
 
-    // 4. Check for Durable Summary Trigger (PATCH 3 & 4)
-    if (recentMessages.length >= this.summaryTriggerThreshold) {
+    if (conv.summary && summaryWatermark > 0) {
+      // Load unsummarized turns: sequence > summaryWatermark AND sequence <= inputSequenceNumber
+      recentMessages = await this.conversationRepo.getUnsummarizedMessages(
+        currentUser.tenantId,
+        currentUser.userId,
+        conversationId,
+        summaryWatermark,
+        inputSequenceNumber,
+        this.maxHistoryTurns * 2,
+      );
+    } else {
+      // Standard bounded recent history up to inputSequenceNumber
+      recentMessages = await this.conversationRepo.getRecentMessages(
+        currentUser.tenantId,
+        currentUser.userId,
+        conversationId,
+        this.maxHistoryTurns * 2,
+        inputSequenceNumber,
+      );
+    }
+
+    // 4. Summary Trigger Based on Unsummarized Count (PATCH 8)
+    const unsummarizedCount = inputSequenceNumber - summaryWatermark;
+    if (unsummarizedCount >= this.summaryTriggerThreshold) {
       await this.summaryService.enqueueSummaryJob({
         conversationId,
         tenantId: currentUser.tenantId,
         userId: currentUser.userId,
-        expectedConversationVersion: conv.version,
         upToSequenceNumber: inputSequenceNumber,
         traceId: currentUser.traceId,
       });
@@ -199,7 +216,7 @@ export class ConversationalAssistantOrchestrator {
     };
     const toolCallsMetadata: Array<{ toolName: string; outcome: 'SUCCESS' | 'FAILED' | 'DENIED'; durationMs?: number }> = [];
 
-    // 6. Synthesis & Routing Matrix (PATCH 2, 7, 9 & 11)
+    // 6. Synthesis & Routing Matrix (PATCH 2, 6, 7 & 11)
     switch (classification.decision) {
       case NeedRagDecision.NO_RAG: {
         capabilityCode = 'assistant.general';
@@ -273,7 +290,7 @@ export class ConversationalAssistantOrchestrator {
       case NeedRagDecision.RAG_KNOWLEDGE: {
         // Pure Knowledge RAG (capability: knowledge.answer)
         capabilityCode = 'knowledge.answer';
-        const access = this.accessPolicy.canSearchKnowledge(currentUser.actorType, currentUser.tenantId);
+        const access = this.accessPolicy.canSearchKnowledge(currentUser.actorType, currentUser.tenantId, [], currentUser);
         if (!access.allowed) {
           answerText = access.reason || 'Không có quyền truy cập tri thức nội bộ.';
           isInsufficient = true;
@@ -294,7 +311,6 @@ export class ConversationalAssistantOrchestrator {
           break;
         }
 
-        // Grounded synthesis with 1-Retry validation bound (PATCH 7)
         const groundedRes = await this.synthesizeWithValidationRetry(
           capabilityCode,
           trimmedMessage,
@@ -321,7 +337,7 @@ export class ConversationalAssistantOrchestrator {
       case NeedRagDecision.RAG_REGULATORY: {
         // Pure Regulatory RAG (capability: compliance.answer)
         capabilityCode = 'compliance.answer';
-        const access = this.accessPolicy.canSearchRegulatory(currentUser.actorType, currentUser.tenantId);
+        const access = this.accessPolicy.canSearchRegulatory(currentUser.actorType, currentUser.tenantId, '', currentUser);
         if (!access.allowed) {
           answerText = access.reason || 'Không có quyền tra cứu văn bản pháp luật.';
           isInsufficient = true;
@@ -342,7 +358,6 @@ export class ConversationalAssistantOrchestrator {
           break;
         }
 
-        // Grounded synthesis with 1-Retry validation bound (PATCH 7)
         const groundedRes = await this.synthesizeWithValidationRetry(
           capabilityCode,
           trimmedMessage,
@@ -370,8 +385,8 @@ export class ConversationalAssistantOrchestrator {
       default: {
         // Stage 3: CustomerAssistant owns HYBRID synthesis (capability: assistant.answer)
         capabilityCode = 'assistant.answer';
-        const regAccess = this.accessPolicy.canSearchRegulatory(currentUser.actorType, currentUser.tenantId);
-        const knowAccess = this.accessPolicy.canSearchKnowledge(currentUser.actorType, currentUser.tenantId);
+        const regAccess = this.accessPolicy.canSearchRegulatory(currentUser.actorType, currentUser.tenantId, '', currentUser);
+        const knowAccess = this.accessPolicy.canSearchKnowledge(currentUser.actorType, currentUser.tenantId, [], currentUser);
 
         const [regEvidence, knowEvidence] = await Promise.all([
           regAccess.allowed
@@ -388,7 +403,6 @@ export class ConversationalAssistantOrchestrator {
           break;
         }
 
-        // Grounded synthesis with 1-Retry validation bound (PATCH 7)
         const groundedRes = await this.synthesizeWithValidationRetry(
           capabilityCode,
           trimmedMessage,
@@ -414,7 +428,7 @@ export class ConversationalAssistantOrchestrator {
       }
     }
 
-    // 7. Save Assistant Message with Typed Metadata (PATCH 6 & 10)
+    // 7. Save Assistant Message with Deterministic Sequence & Typed Metadata (PATCH 1, 6 & 10)
     const durationMs = Date.now() - startTime;
     const assistantMsgId = randomUUID();
     const msgMetadata: ConversationMessageMetadata = {
@@ -471,10 +485,6 @@ export class ConversationalAssistantOrchestrator {
     };
   }
 
-  /**
-   * Performs structured grounded synthesis and executes RegulatoryCompliance validation RPC.
-   * If validation fails or citations are hallucinated, executes 1 bounded retry before safe fallback (PATCH 7).
-   */
   private async synthesizeWithValidationRetry(
     capabilityCode: string,
     userQuery: string,
@@ -520,7 +530,6 @@ export class ConversationalAssistantOrchestrator {
       currentUser,
     );
 
-    // Check if validation passed cleanly
     const hasInvalidCitations =
       (parsed1.citations.length > 0 && validation1.validatedRegulatoryCitations.length === 0 && regEvidence.length > 0) ||
       (parsed1.knowledgeReferences.length > 0 && validation1.validatedKnowledgeReferences.length === 0 && knowEvidence.length > 0);
@@ -536,8 +545,8 @@ export class ConversationalAssistantOrchestrator {
       };
     }
 
-    // Attempt 2: Bounded 1-Retry with correction guidance (PATCH 7)
-    this.logger.warn(`[Orchestrator] Grounding validation detected discrepancy. Executing 1 bounded correction retry.`);
+    // Attempt 2: Bounded 1-Retry with correction guidance (PATCH 7 & Observability)
+    this.logger.warn(`[Observability] assistant_grounding_validation_retry: Attempting 1 bounded correction retry.`);
     const retryPrompt = `${prompt}\n\nIMPORTANT CORRECTION: Your previous answer contained citations not matched in the provided evidence. Re-answer strictly citing only provided evidence IDs ([R1]..[Rn], [K1]..[Km]).`;
 
     try {
@@ -567,7 +576,7 @@ export class ConversationalAssistantOrchestrator {
         governance: { decisionId: retryAiRes.decisionId, automationLevel: retryAiRes.automationLevel },
       };
     } catch {
-      // Safe fallback if retry also fails
+      this.logger.error(`[Observability] assistant_grounding_validation_failed: Retry failed, returning safe fallback.`);
       return {
         answer: validation1.sanitizedAnswer || 'Căn cứ các tài liệu hiện có, thông tin chưa đủ để đưa ra kết luận chắc chắn.',
         regulatoryCitations: validation1.validatedRegulatoryCitations,

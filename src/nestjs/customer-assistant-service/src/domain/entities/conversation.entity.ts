@@ -8,6 +8,7 @@ export interface Conversation {
   preferredLanguage: string;
   status: 'ACTIVE' | 'ARCHIVED';
   summary?: string;
+  summaryUpToSequence: number;
   version: number;
   createdAt: Date;
   updatedAt: Date;

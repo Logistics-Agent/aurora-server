@@ -707,29 +707,327 @@ public class MailServiceTests
     public async Task Test18_ConsumerIdempotency_TenantUserProvisioned_DuplicateSafe()
     {
         // Arrange
+        var tenantId = Guid.NewGuid();
+        var userId = Guid.NewGuid();
+        var email = "admin@tenant1.com";
+        var dbName = Guid.NewGuid().ToString();
+
         var mockStalwart = new Mock<MailService.Application.Interfaces.Stalwart.IStalwartManagementClient>();
         mockStalwart.Setup(s => s.ProvisionAccountAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(true);
 
-        var consumer = new MailService.Infrastructure.Messaging.Consumers.TenantUserProvisionedConsumer(
-            mockStalwart.Object,
-            NullLogger<MailService.Infrastructure.Messaging.Consumers.TenantUserProvisionedConsumer>.Instance);
-
         var mockContext = new Mock<MassTransit.ConsumeContext<Shared.Events.TenantAdminCreatedEvent>>();
         mockContext.Setup(c => c.Message).Returns(new Shared.Events.TenantAdminCreatedEvent
         {
-            TenantId = Guid.NewGuid(),
-            UserId = Guid.NewGuid(),
-            Email = "admin@tenant1.com",
+            TenantId = tenantId,
+            UserId = userId,
+            Email = email,
             TenantName = "Tenant 1"
         });
+        mockContext.Setup(c => c.MessageId).Returns(Guid.NewGuid());
+        mockContext.Setup(c => c.CancellationToken).Returns(CancellationToken.None);
 
         // Act - Delivery 1 and Delivery 2 (duplicate message)
-        await consumer.Consume(mockContext.Object);
-        await consumer.Consume(mockContext.Object);
+        using (var db1 = CreateInMemoryDbContext(dbName))
+        {
+            var consumer = new MailService.Infrastructure.Messaging.Consumers.TenantUserProvisionedConsumer(
+                db1,
+                mockStalwart.Object,
+                NullLogger<MailService.Infrastructure.Messaging.Consumers.TenantUserProvisionedConsumer>.Instance);
 
-        // Assert - Both completed successfully without throwing exceptions
-        mockStalwart.Verify(s => s.ProvisionAccountAsync("admin@tenant1.com", It.IsAny<CancellationToken>()), Times.Exactly(2));
+            await consumer.Consume(mockContext.Object);
+        }
+
+        using (var db2 = CreateInMemoryDbContext(dbName))
+        {
+            var consumer = new MailService.Infrastructure.Messaging.Consumers.TenantUserProvisionedConsumer(
+                db2,
+                mockStalwart.Object,
+                NullLogger<MailService.Infrastructure.Messaging.Consumers.TenantUserProvisionedConsumer>.Instance);
+
+            await consumer.Consume(mockContext.Object);
+        }
+
+        // Assert - Exactly 1 Mailbox exists in DB and Stalwart was called for provisioning/reconciliation
+        using (var verifyDb = CreateInMemoryDbContext(dbName))
+        {
+            var mailboxes = await verifyDb.Mailboxes.IgnoreQueryFilters().Where(m => m.TenantId == tenantId).ToListAsync();
+            Assert.Single(mailboxes);
+            Assert.Equal(email, mailboxes[0].FullAddress);
+            Assert.Equal(userId, mailboxes[0].UserId);
+            Assert.Equal(MailboxStatus.Active, mailboxes[0].Status);
+
+            var audits = await verifyDb.AuditRecords.IgnoreQueryFilters().Where(a => a.TenantId == tenantId).ToListAsync();
+            Assert.NotEmpty(audits);
+            Assert.Contains(audits, a => a.Action == "MailboxProvisioned");
+        }
+
+        mockStalwart.Verify(s => s.ProvisionAccountAsync(email, It.IsAny<CancellationToken>()), Times.Exactly(2));
+    }
+
+    [Fact]
+    public async Task Test24_Consumer_TenantStaffCreatedEvent_AutoProvisionsMailbox()
+    {
+        var tenantId = Guid.NewGuid();
+        var userId = Guid.NewGuid();
+        var email = "staff.john@acme.com";
+        var dbName = Guid.NewGuid().ToString();
+
+        var mockStalwart = new Mock<MailService.Application.Interfaces.Stalwart.IStalwartManagementClient>();
+        mockStalwart.Setup(s => s.ProvisionAccountAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+
+        var mockContext = new Mock<MassTransit.ConsumeContext<Shared.Events.TenantStaffCreatedEvent>>();
+        mockContext.Setup(c => c.Message).Returns(new Shared.Events.TenantStaffCreatedEvent
+        {
+            TenantId = tenantId,
+            UserId = userId,
+            Email = email,
+            FirstName = "John",
+            LastName = "Doe"
+        });
+        mockContext.Setup(c => c.MessageId).Returns(Guid.NewGuid());
+        mockContext.Setup(c => c.CancellationToken).Returns(CancellationToken.None);
+
+        using (var db = CreateInMemoryDbContext(dbName))
+        {
+            var consumer = new MailService.Infrastructure.Messaging.Consumers.TenantUserProvisionedConsumer(
+                db,
+                mockStalwart.Object,
+                NullLogger<MailService.Infrastructure.Messaging.Consumers.TenantUserProvisionedConsumer>.Instance);
+
+            await consumer.Consume(mockContext.Object);
+        }
+
+        using (var verifyDb = CreateInMemoryDbContext(dbName))
+        {
+            var mailboxes = await verifyDb.Mailboxes.IgnoreQueryFilters().Where(m => m.TenantId == tenantId).ToListAsync();
+            Assert.Single(mailboxes);
+            Assert.Equal(email, mailboxes[0].FullAddress);
+            Assert.Equal("staff.john", mailboxes[0].LocalPart);
+            Assert.Equal(userId, mailboxes[0].UserId);
+        }
+    }
+
+    [Fact]
+    public async Task Test25_Consumer_CrossTenantEvent_CannotProvisionOnOtherTenantDomain()
+    {
+        var tenantA = Guid.NewGuid();
+        var tenantB = Guid.NewGuid();
+        var dbName = Guid.NewGuid().ToString();
+
+        var mockStalwart = new Mock<MailService.Application.Interfaces.Stalwart.IStalwartManagementClient>();
+
+        // Seed domain for Tenant A
+        using (var seedDb = CreateInMemoryDbContext(dbName))
+        {
+            seedDb.Domains.Add(new MailService.Domain.Entities.Domain
+            {
+                TenantId = tenantA,
+                DomainName = "tenant-a.com",
+                Status = DomainStatus.Active
+            });
+            await seedDb.SaveChangesAsync();
+        }
+
+        // Tenant B attempts to provision a user on tenant-a.com
+        var mockContext = new Mock<MassTransit.ConsumeContext<Shared.Events.TenantStaffCreatedEvent>>();
+        mockContext.Setup(c => c.Message).Returns(new Shared.Events.TenantStaffCreatedEvent
+        {
+            TenantId = tenantB,
+            UserId = Guid.NewGuid(),
+            Email = "intruder@tenant-a.com",
+            FirstName = "Malicious",
+            LastName = "Actor"
+        });
+        mockContext.Setup(c => c.CancellationToken).Returns(CancellationToken.None);
+
+        using (var testDb = CreateInMemoryDbContext(dbName))
+        {
+            var consumer = new MailService.Infrastructure.Messaging.Consumers.TenantUserProvisionedConsumer(
+                testDb,
+                mockStalwart.Object,
+                NullLogger<MailService.Infrastructure.Messaging.Consumers.TenantUserProvisionedConsumer>.Instance);
+
+            // Assert security violation thrown
+            await Assert.ThrowsAsync<InvalidOperationException>(() => consumer.Consume(mockContext.Object));
+        }
+    }
+
+    [Fact]
+    public async Task Test26_Consumer_EmptyTenantId_ThrowsArgumentException()
+    {
+        var mockStalwart = new Mock<MailService.Application.Interfaces.Stalwart.IStalwartManagementClient>();
+        var mockContext = new Mock<MassTransit.ConsumeContext<Shared.Events.TenantAdminCreatedEvent>>();
+        mockContext.Setup(c => c.Message).Returns(new Shared.Events.TenantAdminCreatedEvent
+        {
+            TenantId = Guid.Empty,
+            UserId = Guid.NewGuid(),
+            Email = "invalid@acme.com"
+        });
+        mockContext.Setup(c => c.CancellationToken).Returns(CancellationToken.None);
+
+        using var db = CreateInMemoryDbContext(Guid.NewGuid().ToString());
+        var consumer = new MailService.Infrastructure.Messaging.Consumers.TenantUserProvisionedConsumer(
+            db,
+            mockStalwart.Object,
+            NullLogger<MailService.Infrastructure.Messaging.Consumers.TenantUserProvisionedConsumer>.Instance);
+
+        await Assert.ThrowsAsync<ArgumentException>(() => consumer.Consume(mockContext.Object));
+    }
+
+    [Fact]
+    public async Task Test27_CreateMailboxCommandHandler_ManualProvisioning_WorksForSharedMailbox()
+    {
+        var tenantId = Guid.NewGuid();
+        var domainId = Guid.NewGuid();
+        var dbName = Guid.NewGuid().ToString();
+
+        var mockCurrentUser = new Mock<ICurrentUserService>();
+        mockCurrentUser.Setup(u => u.TenantId).Returns(tenantId);
+        mockCurrentUser.Setup(u => u.UserId).Returns(Guid.NewGuid());
+
+        var mockStalwart = new Mock<MailService.Application.Interfaces.Stalwart.IStalwartManagementClient>();
+        mockStalwart.Setup(s => s.ProvisionAccountAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+
+        using (var seedDb = CreateInMemoryDbContext(dbName, mockCurrentUser.Object))
+        {
+            seedDb.Domains.Add(new MailService.Domain.Entities.Domain
+            {
+                Id = domainId,
+                TenantId = tenantId,
+                DomainName = "logistics.vn",
+                Status = DomainStatus.Active
+            });
+            await seedDb.SaveChangesAsync();
+        }
+
+        using (var testDb = CreateInMemoryDbContext(dbName, mockCurrentUser.Object))
+        {
+            var handler = new MailService.Application.Commands.Provisioning.CreateMailboxCommandHandler(
+                testDb,
+                mockStalwart.Object,
+                mockCurrentUser.Object);
+
+            var result = await handler.Handle(
+                new MailService.Application.Commands.Provisioning.CreateMailboxCommand(domainId, "support", null),
+                CancellationToken.None);
+
+            Assert.NotNull(result);
+            Assert.Equal("support@logistics.vn", result.FullAddress);
+            Assert.Equal(MailboxStatus.Active, result.Status);
+            Assert.Null(result.UserId); // Shared department mailbox
+        }
+    }
+
+    private IamTenant.Infrastructure.Persistences.IamTenantDbContext CreateInMemoryIamDbContext(string dbName, ICurrentUserService? currentUserService = null)
+    {
+        var options = new DbContextOptionsBuilder<IamTenant.Infrastructure.Persistences.IamTenantDbContext>()
+            .UseInMemoryDatabase(databaseName: dbName)
+            .ConfigureWarnings(w => w.Ignore(Microsoft.EntityFrameworkCore.Diagnostics.InMemoryEventId.TransactionIgnoredWarning))
+            .Options;
+
+        var mockCurrentUser = new Mock<ICurrentUserService>();
+        mockCurrentUser.Setup(u => u.TenantId).Returns(Guid.Parse("11111111-1111-1111-1111-111111111111"));
+        var user = currentUserService ?? mockCurrentUser.Object;
+
+        var auditInterceptor = new Shared.Interceptors.AuditSaveChangesInterceptor(user);
+        return new IamTenant.Infrastructure.Persistences.IamTenantDbContext(options, user, auditInterceptor);
+    }
+
+    [Fact]
+    public async Task Test28_ProducerOutbox_CreateStaff_AtomicallyPersistsUserAndOutboxMessage()
+    {
+        var tenantId = Guid.NewGuid();
+        var dbName = Guid.NewGuid().ToString();
+
+        var mockCurrentUser = new Mock<ICurrentUserService>();
+        mockCurrentUser.Setup(u => u.TenantId).Returns(tenantId);
+
+        var mockCognito = new Mock<IamTenant.Application.Interfaces.ICognitoAuthService>();
+        mockCognito.Setup(c => c.AdminCreateUserInPoolAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync("cognito-sub-12345");
+
+        // Seed tenant
+        using (var seedDb = CreateInMemoryIamDbContext(dbName, mockCurrentUser.Object))
+        {
+            var tenant = IamTenant.Domain.Tenant.Create("Logistics Corp", "logistics.vn", null, Guid.NewGuid());
+            tenant.Id = tenantId;
+            tenant.UserUserPoolId = "pool-123";
+            seedDb.Tenants.Add(tenant);
+            await seedDb.SaveChangesAsync();
+        }
+
+        // Execute CreateStaffHandler
+        using (var testDb = CreateInMemoryIamDbContext(dbName, mockCurrentUser.Object))
+        {
+            var handler = new IamTenant.Application.Commands.Tenants.CreateStaffHandler(
+                testDb,
+                mockCurrentUser.Object,
+                mockCognito.Object);
+
+            var result = await handler.Handle(
+                new IamTenant.Application.Commands.Tenants.CreateStaffCommand(
+                    "alice@logistics.vn", "Alice", "Smith", new List<Guid>()),
+                CancellationToken.None);
+
+            Assert.NotNull(result);
+            Assert.Equal("alice@logistics.vn", result.Email);
+        }
+
+        // Assert atomic transactional commit: User AND OutboxMessage both exist in DB
+        using (var verifyDb = CreateInMemoryIamDbContext(dbName, mockCurrentUser.Object))
+        {
+            var user = await verifyDb.Users.FirstOrDefaultAsync(u => u.Email == "alice@logistics.vn");
+            Assert.NotNull(user);
+            Assert.Equal("alice@logistics.vn", user.Email);
+
+            var outboxMessages = await verifyDb.OutboxMessages.ToListAsync();
+            Assert.Single(outboxMessages);
+            Assert.Equal(nameof(Shared.Events.TenantStaffCreatedEvent), outboxMessages[0].EventType);
+            Assert.Null(outboxMessages[0].ProcessedAt); // Pending for OutboxProcessor
+            Assert.Contains("alice@logistics.vn", outboxMessages[0].Payload);
+        }
+    }
+
+    [Fact]
+    public async Task Test29_ProducerOutbox_RabbitMqDown_OutboxMessageRemainsPending()
+    {
+        var tenantId = Guid.NewGuid();
+        var dbName = Guid.NewGuid().ToString();
+
+        var mockCurrentUser = new Mock<ICurrentUserService>();
+        mockCurrentUser.Setup(u => u.TenantId).Returns(tenantId);
+
+        // Seed tenant + Outbox message simulating RabbitMQ outage
+        using (var db = CreateInMemoryIamDbContext(dbName, mockCurrentUser.Object))
+        {
+            var tenant = IamTenant.Domain.Tenant.Create("Logistics Corp", "logistics.vn", null, Guid.NewGuid());
+            tenant.Id = tenantId;
+            db.Tenants.Add(tenant);
+
+            db.OutboxMessages.Add(new IamTenant.Domain.OutboxMessage
+            {
+                EventType = nameof(Shared.Events.TenantStaffCreatedEvent),
+                Payload = "{\"TenantId\":\"" + tenantId + "\",\"Email\":\"test@logistics.vn\"}",
+                CreatedAt = DateTimeOffset.UtcNow,
+                RetryCount = 1,
+                Error = "RabbitMQ connection refused"
+            });
+            await db.SaveChangesAsync();
+        }
+
+        // Verify outbox message remains pending and retriable
+        using (var verifyDb = CreateInMemoryIamDbContext(dbName, mockCurrentUser.Object))
+        {
+            var pendingMessages = await verifyDb.OutboxMessages
+                .Where(m => m.ProcessedAt == null && m.RetryCount < 5)
+                .ToListAsync();
+
+            Assert.Single(pendingMessages);
+            Assert.Equal("RabbitMQ connection refused", pendingMessages[0].Error);
+        }
     }
 
     [Fact]

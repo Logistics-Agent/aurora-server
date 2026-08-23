@@ -23,6 +23,7 @@ export class InMemoryConversationStore implements IConversationRepository {
 
   async createConversation(conversation: Conversation): Promise<Conversation> {
     conversation.version = conversation.version || 1;
+    conversation.summaryUpToSequence = conversation.summaryUpToSequence || 0;
     const key = this.buildKey(conversation.tenantId, conversation.userId, conversation.id);
     this.conversations.set(key, { ...conversation });
     this.messages.set(key, []);
@@ -81,6 +82,31 @@ export class InMemoryConversationStore implements IConversationRepository {
     this.conversations.set(key, updated);
   }
 
+  async updateSummaryWatermark(
+    tenantId: string,
+    userId: string,
+    conversationId: string,
+    summary: string,
+    upToSequenceNumber: number,
+  ): Promise<boolean> {
+    const key = this.buildKey(tenantId, userId, conversationId);
+    const existing = this.conversations.get(key);
+
+    if (!existing) {
+      return false;
+    }
+
+    if ((existing.summaryUpToSequence || 0) >= upToSequenceNumber) {
+      return false;
+    }
+
+    existing.summary = summary;
+    existing.summaryUpToSequence = upToSequenceNumber;
+    existing.updatedAt = new Date();
+    this.conversations.set(key, existing);
+    return true;
+  }
+
   async appendMessage(
     tenantId: string,
     userId: string,
@@ -121,5 +147,25 @@ export class InMemoryConversationStore implements IConversationRepository {
       : list;
 
     return filtered.slice(-limit).map((m) => ({ ...m }));
+  }
+
+  async getUnsummarizedMessages(
+    tenantId: string,
+    userId: string,
+    conversationId: string,
+    afterSequenceNumber: number,
+    upToSequenceNumber?: number,
+    limit = 20,
+  ): Promise<ConversationMessage[]> {
+    const key = this.buildKey(tenantId, userId, conversationId);
+    const list = this.messages.get(key) || [];
+
+    const filtered = list.filter(
+      (m) =>
+        (m.sequenceNumber || 0) > afterSequenceNumber &&
+        (upToSequenceNumber === undefined || (m.sequenceNumber || 0) <= upToSequenceNumber),
+    );
+
+    return filtered.slice(0, limit).map((m) => ({ ...m }));
   }
 }
