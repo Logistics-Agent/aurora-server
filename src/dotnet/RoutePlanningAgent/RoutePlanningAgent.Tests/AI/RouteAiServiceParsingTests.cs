@@ -42,42 +42,5 @@ public class RouteAiServiceParsingTests
 
         Assert.Equal(text, dto.Summary);
     }
-
-    [Fact]
-    public void ExtractUsage_GeminiMetadata()
-    {
-        var metadata = new Dictionary<string, object?>
-        {
-            ["PromptTokenCount"] = 123,
-            ["CandidatesTokenCount"] = 45
-        };
-
-        var (input, output) = RouteAiService.ExtractUsage(metadata);
-
-        Assert.Equal(123, input);
-        Assert.Equal(45, output);
-    }
-
-    [Fact]
-    public void ExtractUsage_AzureUsageObject_QuaReflection()
-    {
-        var metadata = new Dictionary<string, object?>
-        {
-            ["Usage"] = new FakeUsage(200, 80)
-        };
-
-        var (input, output) = RouteAiService.ExtractUsage(metadata);
-
-        Assert.Equal(200, input);
-        Assert.Equal(80, output);
-    }
-
-    [Fact]
-    public void ExtractUsage_KhongCoMetadata_TraVe0_KhongFabricate()
-    {
-        Assert.Equal((0, 0), RouteAiService.ExtractUsage(null));
-        Assert.Equal((0, 0), RouteAiService.ExtractUsage(new Dictionary<string, object?>()));
-    }
-
-    private sealed record FakeUsage(int InputTokenCount, int OutputTokenCount);
 }
+

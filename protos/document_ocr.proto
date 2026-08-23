@@ -8,8 +8,12 @@ import "google/protobuf/timestamp.proto";
 
 service DocumentOcrService {
   rpc SubmitDocumentJob(SubmitDocumentJobRequest) returns (DocumentOcrJobResponse);
+  rpc SubmitOcrJob(SubmitOcrJobRequest) returns (DocumentOcrJobResponse);
   rpc GetDocumentJob(GetDocumentJobRequest) returns (DocumentOcrJobResponse);
   rpc ListDocumentJobs(ListDocumentJobsRequest) returns (ListDocumentJobsResponse);
+  rpc CancelDocumentJob(CancelDocumentJobRequest) returns (DocumentOcrJobResponse);
+  rpc RetryDocumentJob(RetryDocumentJobRequest) returns (DocumentOcrJobResponse);
+  rpc ReviewDocumentJob(ReviewDocumentJobRequest) returns (DocumentOcrJobResponse);
 }
 
 enum DocumentOcrJobStatus {
@@ -19,6 +23,7 @@ enum DocumentOcrJobStatus {
   DOCUMENT_OCR_JOB_STATUS_COMPLETED = 3;
   DOCUMENT_OCR_JOB_STATUS_FAILED = 4;
   DOCUMENT_OCR_JOB_STATUS_CANCELLED = 5;
+  DOCUMENT_OCR_JOB_STATUS_REJECTED = 6;
 }
 
 enum OcrDocumentType {
@@ -32,6 +37,13 @@ enum OcrDocumentType {
   OCR_DOCUMENT_TYPE_OTHER = 7;
 }
 
+enum OcrExtractionMode {
+  OCR_EXTRACTION_MODE_UNSPECIFIED = 0;
+  OCR_EXTRACTION_MODE_STRUCTURED = 1;
+  OCR_EXTRACTION_MODE_FULL_TEXT = 2;
+  OCR_EXTRACTION_MODE_BOTH = 3;
+}
+
 message SubmitDocumentJobRequest {
   string idempotency_key = 1;
   string storage_reference = 2;
@@ -41,6 +53,18 @@ message SubmitDocumentJobRequest {
   OcrDocumentType document_type_hint = 6;
   string external_document_id = 7;
   string external_shipment_id = 8;
+}
+
+message SubmitOcrJobRequest {
+  string idempotency_key = 1;
+  string storage_reference = 2;
+  string file_name = 3;
+  string mime_type = 4;
+  int64 size_bytes = 5;
+  OcrDocumentType document_type_hint = 6;
+  OcrExtractionMode extraction_mode = 7;
+  string external_document_id = 8;
+  string external_context_id = 9;
 }
 
 message GetDocumentJobRequest {
@@ -74,6 +98,9 @@ message DocumentOcrJobResponse {
   google.protobuf.Timestamp started_at = 16;
   google.protobuf.Timestamp completed_at = 17;
   google.protobuf.Timestamp next_attempt_at = 18;
+  string full_text_content = 19;
+  string artifact_reference = 20;
+  OcrExtractionMode extraction_mode = 21;
 }
 
 message ListDocumentJobsResponse {
@@ -83,3 +110,20 @@ message ListDocumentJobsResponse {
   int32 total_items = 4;
   int32 total_pages = 5;
 }
+
+message CancelDocumentJobRequest {
+  string job_id = 1;
+}
+
+message RetryDocumentJobRequest {
+  string job_id = 1;
+}
+
+message ReviewDocumentJobRequest {
+  string job_id = 1;
+  string action = 2; // CONFIRM, CORRECT, REJECT
+  string corrected_json = 3;
+  string comment = 4;
+}
+
+

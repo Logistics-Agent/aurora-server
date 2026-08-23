@@ -140,6 +140,23 @@ public sealed class DocumentOcrGrpcServiceTests
 
         public Task<DocumentOcrJob> SubmitAsync(
             SubmitDocumentJobInput input,
+            CancellationToken cancellationToken = default) =>
+            SubmitOcrAsync(
+                new SubmitOcrJobInput(
+                    input.IdempotencyKey,
+                    input.StorageReference,
+                    input.FileName,
+                    input.MimeType,
+                    input.SizeBytes,
+                    input.DocumentTypeHint,
+                    OcrExtractionMode.Structured,
+                    input.ExternalDocumentId,
+                    null,
+                    input.ExternalShipmentId),
+                cancellationToken);
+
+        public Task<DocumentOcrJob> SubmitOcrAsync(
+            SubmitOcrJobInput input,
             CancellationToken cancellationToken = default)
         {
             LastSubmittedJob = DocumentOcrJob.Create(
@@ -152,7 +169,9 @@ public sealed class DocumentOcrGrpcServiceTests
                 input.DocumentTypeHint,
                 input.ExternalDocumentId,
                 input.ExternalShipmentId,
-                Now);
+                Now,
+                input.ExtractionMode,
+                input.ExternalContextId);
             return Task.FromResult(LastSubmittedJob);
         }
 
@@ -175,5 +194,32 @@ public sealed class DocumentOcrGrpcServiceTests
             Guid jobId,
             CancellationToken cancellationToken = default) =>
             Task.FromResult<DocumentOcrJob?>(null);
+
+        public Task<DocumentOcrJob> CancelAsync(
+            Guid jobId,
+            CancellationToken cancellationToken = default)
+        {
+            LastSubmittedJob?.Cancel(Now);
+            return Task.FromResult(LastSubmittedJob!);
+        }
+
+        public Task<DocumentOcrJob> RetryAsync(
+            Guid jobId,
+            CancellationToken cancellationToken = default)
+        {
+            LastSubmittedJob?.ScheduleRetry(Now, Now);
+            return Task.FromResult(LastSubmittedJob!);
+        }
+
+        public Task<DocumentOcrJob> ReviewAsync(
+            Guid jobId,
+            string action,
+            string? correctedJson,
+            string? comment,
+            CancellationToken cancellationToken = default)
+        {
+            LastSubmittedJob?.ApplyReview(action, correctedJson, comment, null, Now);
+            return Task.FromResult(LastSubmittedJob!);
+        }
     }
 }

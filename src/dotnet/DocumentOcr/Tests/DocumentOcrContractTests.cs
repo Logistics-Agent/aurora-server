@@ -28,7 +28,7 @@ public sealed class DocumentOcrContractTests
             .ToArray();
 
         Assert.Equal(
-            ["SubmitDocumentJob", "GetDocumentJob", "ListDocumentJobs"],
+            ["SubmitDocumentJob", "SubmitOcrJob", "GetDocumentJob", "ListDocumentJobs", "CancelDocumentJob", "RetryDocumentJob", "ReviewDocumentJob"],
             methods);
     }
 

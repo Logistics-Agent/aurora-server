@@ -39,6 +39,45 @@ public static class GrpcClientExtensions
                 .AddStandardResilienceHandler(ConfigureBusinessResilience);
         }
 
+        var documentOcrUrl = config["Grpc:DocumentOcr:Url"] ?? "http://localhost:5005";
+        services.AddGrpcClient<DocumentOcr.Grpc.DocumentOcrService.DocumentOcrServiceClient>(
+                o => o.Address = new Uri(documentOcrUrl))
+            .AddInterceptor<ClientMetadataInterceptor>(InterceptorScope.Client)
+            .AddStandardResilienceHandler(ConfigureBusinessResilience);
+
+        var regulatoryUrl = config["Grpc:RegulatoryCompliance:Url"] ?? "http://localhost:5006";
+        services.AddGrpcClient<RegulatoryCompliance.Grpc.RegulatoryComplianceService.RegulatoryComplianceServiceClient>(
+                o => o.Address = new Uri(regulatoryUrl))
+            .AddInterceptor<ClientMetadataInterceptor>(InterceptorScope.Client)
+            .AddStandardResilienceHandler(ConfigureBusinessResilience);
+
+        var mailServiceUrl = config["Grpc:MailService:Url"] ?? "http://localhost:5003";
+        services.AddGrpcClient<MailService.GrpcServices.MailManagement.MailManagementClient>(o =>
+            {
+                o.Address = new Uri(mailServiceUrl);
+                o.ChannelOptionsActions.Add(opt =>
+                {
+                    opt.MaxReceiveMessageSize = (int)BuildingBlocks.BFF.Mail.Models.MailLimits.MaxGrpcMessageBytes;
+                    opt.MaxSendMessageSize = (int)BuildingBlocks.BFF.Mail.Models.MailLimits.MaxGrpcMessageBytes;
+                });
+            })
+            .AddInterceptor<ClientMetadataInterceptor>(InterceptorScope.Client)
+            .AddStandardResilienceHandler(ConfigureBusinessResilience);
+
+        services.AddGrpcClient<MailService.GrpcServices.MailSecurity.MailSecurityClient>(o =>
+            {
+                o.Address = new Uri(mailServiceUrl);
+                o.ChannelOptionsActions.Add(opt =>
+                {
+                    opt.MaxReceiveMessageSize = (int)BuildingBlocks.BFF.Mail.Models.MailLimits.MaxGrpcMessageBytes;
+                    opt.MaxSendMessageSize = (int)BuildingBlocks.BFF.Mail.Models.MailLimits.MaxGrpcMessageBytes;
+                });
+            })
+            .AddInterceptor<ClientMetadataInterceptor>(InterceptorScope.Client)
+            .AddStandardResilienceHandler(ConfigureBusinessResilience);
+
+        services.AddScoped<BuildingBlocks.BFF.Mail.Clients.IMailServiceClient, BuildingBlocks.BFF.Mail.Clients.GrpcMailServiceClient>();
+
         return services;
     }
 

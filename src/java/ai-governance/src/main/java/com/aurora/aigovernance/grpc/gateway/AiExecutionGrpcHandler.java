@@ -13,6 +13,7 @@ import net.devh.boot.grpc.server.service.GrpcService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -61,6 +62,38 @@ public class AiExecutionGrpcHandler extends AiExecutionServiceGrpc.AiExecutionSe
                 request.getMaxOutputTokens()
         );
 
+        Map<String, String> parameters = new java.util.HashMap<>(request.getParametersMap());
+        java.util.List<com.aurora.aigovernance.gateway.domain.valueobject.MultimodalPart> inputParts = new java.util.ArrayList<>();
+
+        if (request.getInputPartsCount() > 0) {
+            for (com.aurora.aigovernance.grpc.generated.AiInputPart part : request.getInputPartsList()) {
+                if (part.hasText()) {
+                    inputParts.add(com.aurora.aigovernance.gateway.domain.valueobject.MultimodalPart.text(part.getText()));
+                } else if (part.hasFile()) {
+                    var fileRef = part.getFile();
+                    String storageRef = fileRef.getStorageReference();
+                    // Validate storage reference security (no traversal, no SSRF)
+                    if (storageRef == null || storageRef.isBlank() || storageRef.contains("..") ||
+                            storageRef.startsWith("http://") || storageRef.startsWith("https://") ||
+                            storageRef.startsWith("file://") || storageRef.startsWith("ftp://")) {
+                        responseObserver.onError(Status.INVALID_ARGUMENT
+                                .withDescription("Invalid or unsafe storage reference: " + storageRef)
+                                .asRuntimeException());
+                        return;
+                    }
+                    inputParts.add(com.aurora.aigovernance.gateway.domain.valueobject.MultimodalPart.file(
+                            storageRef,
+                            fileRef.getMimeType(),
+                            fileRef.getFileName(),
+                            0L
+                    ));
+                    parameters.put("storage_reference", storageRef);
+                    parameters.put("mime_type", fileRef.getMimeType());
+                    parameters.put("file_name", fileRef.getFileName());
+                }
+            }
+        }
+
         GenerateAiCommand command = new GenerateAiCommand(
                 tenantId,
                 userId,
@@ -68,7 +101,8 @@ public class AiExecutionGrpcHandler extends AiExecutionServiceGrpc.AiExecutionSe
                 request.getCapabilityCode(),
                 request.getPrompt(),
                 tokenBudget,
-                request.getParametersMap()
+                parameters,
+                inputParts
         );
 
         // 3. Delegate to orchestrator

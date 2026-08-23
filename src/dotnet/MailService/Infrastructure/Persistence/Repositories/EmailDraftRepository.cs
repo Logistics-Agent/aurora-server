@@ -91,7 +91,6 @@ public class EmailDraftRepository : IEmailDraftRepository
 
                 var newRevision = new EmailDraft
                 {
-                    Id = Guid.CreateVersion7(),
                     TenantId = tenantId,
                     DraftRootId = draftRootId,
                     ParentRevisionId = parentRevisionId,

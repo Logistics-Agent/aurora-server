@@ -15,6 +15,7 @@ public final class GrpcMetadataKeys {
     public static final String ACCESS_TOKEN_HEADER = "x-access-token";
     public static final String TRACE_ID_HEADER = "x-trace-id";
     public static final String SERVICE_ID_HEADER = "x-service-id";
+    public static final String CORRELATION_ID_HEADER = "x-correlation-id";
 
     public static final Metadata.Key<String> USER_ID =
             Metadata.Key.of(USER_ID_HEADER, Metadata.ASCII_STRING_MARSHALLER);
@@ -30,4 +31,7 @@ public final class GrpcMetadataKeys {
             Metadata.Key.of(TRACE_ID_HEADER, Metadata.ASCII_STRING_MARSHALLER);
     public static final Metadata.Key<String> SERVICE_ID =
             Metadata.Key.of(SERVICE_ID_HEADER, Metadata.ASCII_STRING_MARSHALLER);
+    public static final Metadata.Key<String> CORRELATION_ID =
+            Metadata.Key.of(CORRELATION_ID_HEADER, Metadata.ASCII_STRING_MARSHALLER);
 }
+

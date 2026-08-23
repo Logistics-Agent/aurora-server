@@ -30,7 +30,6 @@ public class ProvisionDomainCommandHandler : IRequestHandler<ProvisionDomainComm
         Guid tenantId = _currentUserService.TenantId ?? Guid.Empty;
         var domain = new Domain.Entities.Domain
         {
-            Id = Guid.CreateVersion7(),
             TenantId = tenantId,
             DomainName = request.DomainName.Trim().ToLowerInvariant(),
             Status = DomainStatus.Active,

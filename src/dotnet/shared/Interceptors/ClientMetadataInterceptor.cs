@@ -8,7 +8,7 @@ namespace Shared.Interceptors;
 /// gRPC Client-side interceptor: forward x-user-id, x-tenant-id, x-trace-id
 /// khi BFF gọi sang các gRPC microservices khác.
 /// </summary>
-public class ClientMetadataInterceptor(ICurrentUserService currentUser) : Interceptor
+public class ClientMetadataInterceptor(ICurrentUserService currentUser, string? serviceId = null) : Interceptor
 {
     public override AsyncUnaryCall<TResponse> AsyncUnaryCall<TRequest, TResponse>(
         TRequest request,
@@ -27,6 +27,8 @@ public class ClientMetadataInterceptor(ICurrentUserService currentUser) : Interc
 
     private void AppendMetadata(Metadata headers)
     {
+        if (!string.IsNullOrEmpty(serviceId))
+            headers.Add(GrpcMetadataKeys.ServiceId, serviceId);
         if (currentUser.UserId.HasValue)
             headers.Add(GrpcMetadataKeys.UserId, currentUser.UserId.ToString()!);
         if (currentUser.TenantId.HasValue)
@@ -39,3 +41,4 @@ public class ClientMetadataInterceptor(ICurrentUserService currentUser) : Interc
             headers.Add(GrpcMetadataKeys.RoleIds, string.Join(',', currentUser.RoleIds));
     }
 }
+

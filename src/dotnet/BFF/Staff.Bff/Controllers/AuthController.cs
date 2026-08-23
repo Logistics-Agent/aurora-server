@@ -167,7 +167,9 @@ public class AuthController(
                 },
                 GrpcDeadlines.WithDeadline(GrpcDeadlines.RefreshTimeout, HttpContext.RequestAborted));
 
-            SetAuthCookies(response);
+            var tenantCode = Request.Cookies[TenantCodeCookie] ?? string.Empty;
+            var userType = Request.Cookies[UserTypeCookie] ?? string.Empty;
+            SetAuthCookies(response, tenantCode, userType);
 
             return Ok(new { response.ExpiresIn });
         }

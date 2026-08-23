@@ -5,6 +5,7 @@ using RegulatoryCompliance.Application.Retrieval;
 using RegulatoryCompliance.Application.Evaluations;
 using RegulatoryCompliance.Domain.Entities;
 using System.Text.Json;
+using RegulatoryCompliance.Application.Assistant;
 using ComplianceGrpc = RegulatoryCompliance.Grpc;
 using DomainRegulationType = RegulatoryCompliance.Domain.Enums.RegulationType;
 using DomainVisibility = RegulatoryCompliance.Domain.Enums.SourceVisibility;
@@ -13,8 +14,11 @@ namespace RegulatoryCompliance.GrpcServices;
 
 public sealed class RegulatoryComplianceGrpcService(
     IRegulatoryIngestionService ingestionService,
+    IKnowledgeIngestionService knowledgeIngestionService,
     IRegulationRetrievalService retrievalService,
-    IComplianceEvaluationService evaluationService)
+    IComplianceEvaluationService evaluationService,
+    IGroundedAnswerService? groundedAnswerService = null,
+    IDeterministicCitationValidator? citationValidator = null)
     : ComplianceGrpc.RegulatoryComplianceService.RegulatoryComplianceServiceBase
 {
     public override async Task<ComplianceGrpc.ComplianceEvaluationResponse> EvaluateCompliance(
@@ -193,6 +197,337 @@ public sealed class RegulatoryComplianceGrpcService(
         {
             throw InvalidArgument(exception.Message);
         }
+    }
+
+    public override async Task<ComplianceGrpc.IngestKnowledgeSourceResponse> IngestKnowledgeDocument(
+        ComplianceGrpc.IngestKnowledgeSourceRequest request,
+        ServerCallContext context)
+    {
+        try
+        {
+            var result = await knowledgeIngestionService.IngestAsync(
+                new KnowledgeIngestionInput(
+                    request.IdempotencyKey,
+                    request.Title,
+                    (RegulatoryCompliance.Domain.Enums.KnowledgeCategory)(int)request.Category,
+                    request.SourceReference,
+                    request.LanguageCode,
+                    request.VersionLabel,
+                    request.ContentReference,
+                    request.FileName,
+                    request.MimeType,
+                    request.SizeBytes,
+                    request.ContentSha256,
+                    request.Content.Memory,
+                    MapVisibility(request.Visibility)),
+                context.CancellationToken);
+
+            return new ComplianceGrpc.IngestKnowledgeSourceResponse
+            {
+                KnowledgeDocumentId = result.KnowledgeDocumentId.ToString(),
+                DocumentVersionId = result.DocumentVersionId.ToString(),
+                Status = (ComplianceGrpc.RegulatoryIngestionStatus)(int)result.Status,
+                ChunkCount = result.ChunkCount,
+                Replayed = result.Replayed,
+                ReceivedAt = Timestamp.FromDateTimeOffset(result.ReceivedAt)
+            };
+        }
+        catch (UnauthorizedAccessException exception)
+        {
+            throw new RpcException(new Status(StatusCode.PermissionDenied, exception.Message));
+        }
+        catch (InvalidOperationException exception) when (
+            exception.Message.Contains("Tenant context", StringComparison.Ordinal) ||
+            exception.Message.Contains("Tenant ID", StringComparison.Ordinal))
+        {
+            throw new RpcException(new Status(StatusCode.Unauthenticated, exception.Message));
+        }
+        catch (InvalidOperationException exception)
+        {
+            throw new RpcException(new Status(StatusCode.AlreadyExists, exception.Message));
+        }
+        catch (ArgumentException exception)
+        {
+            throw InvalidArgument(exception.Message);
+        }
+    }
+
+    public override async Task<ComplianceGrpc.QueryKnowledgeResponse> QueryKnowledge(
+        ComplianceGrpc.QueryKnowledgeRequest request,
+        ServerCallContext context)
+    {
+        try
+        {
+            var categories = request.Categories
+                .Select(c => (RegulatoryCompliance.Domain.Enums.KnowledgeCategory)(int)c)
+                .ToList();
+
+            var results = await knowledgeIngestionService.QueryAsync(
+                request.Query,
+                categories,
+                request.TopK > 0 ? request.TopK : 10,
+                Convert.ToDecimal(request.MinimumRelevanceScore),
+                context.CancellationToken);
+
+            var response = new ComplianceGrpc.QueryKnowledgeResponse
+            {
+                RetrievalTraceId = Guid.NewGuid().ToString()
+            };
+
+            foreach (var item in results)
+            {
+                response.Evidence.Add(new ComplianceGrpc.KnowledgeEvidence
+                {
+                    KnowledgeDocumentId = item.KnowledgeDocumentId.ToString(),
+                    DocumentVersionId = item.DocumentVersionId.ToString(),
+                    ChunkId = item.ChunkId.ToString(),
+                    Title = item.Title,
+                    Category = (ComplianceGrpc.KnowledgeCategory)(int)item.Category,
+                    SectionLabel = item.SectionLabel ?? string.Empty,
+                    PageLabel = item.PageLabel ?? string.Empty,
+                    Excerpt = item.Excerpt,
+                    RelevanceScore = Convert.ToDouble(item.RelevanceScore)
+                });
+            }
+
+            return response;
+        }
+        catch (UnauthorizedAccessException exception)
+        {
+            throw new RpcException(new Status(StatusCode.PermissionDenied, exception.Message));
+        }
+        catch (ArgumentException exception)
+        {
+            throw InvalidArgument(exception.Message);
+        }
+    }
+
+    public override async Task<ComplianceGrpc.GenerateGroundedAnswerResponse> GenerateGroundedAnswer(
+        ComplianceGrpc.GenerateGroundedAnswerRequest request,
+        ServerCallContext context)
+    {
+        if (groundedAnswerService is null)
+            throw new RpcException(new Status(StatusCode.Unimplemented, "GroundedAnswerService is not configured."));
+
+        try
+        {
+            var mode = request.Mode switch
+            {
+                ComplianceGrpc.AssistantSearchMode.Regulatory => AssistantSearchMode.Regulatory,
+                ComplianceGrpc.AssistantSearchMode.Knowledge => AssistantSearchMode.Knowledge,
+                _ => AssistantSearchMode.All
+            };
+
+            var regTypes = request.RegulationTypes
+                .Select(t => (DomainRegulationType)(int)t)
+                .ToList();
+
+            var categories = request.Categories
+                .Select(c => (RegulatoryCompliance.Domain.Enums.KnowledgeCategory)(int)c)
+                .ToList();
+
+            var effectiveAt = request.EffectiveAt?.ToDateTimeOffset();
+
+            var result = await groundedAnswerService.GenerateAnswerAsync(
+                new GroundedAnswerInput(
+                    request.Query,
+                    mode,
+                    request.JurisdictionCode,
+                    effectiveAt,
+                    regTypes,
+                    categories,
+                    request.TopK > 0 ? request.TopK : 10,
+                    Convert.ToDecimal(request.MinimumRelevanceScore)),
+                context.CancellationToken);
+
+            var response = new ComplianceGrpc.GenerateGroundedAnswerResponse
+            {
+                Query = result.Query,
+                Answer = result.Answer,
+                InsufficientEvidence = result.InsufficientEvidence,
+                RetrievalTraceId = result.RetrievalTraceId.ToString(),
+                Governance = new ComplianceGrpc.AssistantGovernanceMetadata
+                {
+                    DecisionId = result.Governance.DecisionId,
+                    AutomationLevel = result.Governance.AutomationLevel,
+                    RequiresApproval = result.Governance.RequiresApproval,
+                    CapabilityCode = result.Governance.CapabilityCode,
+                    TotalTokens = result.Governance.TotalTokens
+                }
+            };
+
+            response.MissingInformation.AddRange(result.MissingInformation);
+
+            foreach (var reg in result.RegulatoryCitations)
+            {
+                response.RegulatoryCitations.Add(new ComplianceGrpc.RegulatoryCitation
+                {
+                    EvidenceId = reg.EvidenceId,
+                    SourceId = reg.SourceId.ToString(),
+                    DocumentVersionId = reg.DocumentVersionId.ToString(),
+                    ChunkId = reg.ChunkId.ToString(),
+                    Title = reg.Title,
+                    Authority = reg.Authority,
+                    Jurisdiction = reg.Jurisdiction,
+                    RegulationType = reg.RegulationType,
+                    Section = reg.Section ?? string.Empty,
+                    Page = reg.Page ?? string.Empty,
+                    Excerpt = reg.Excerpt,
+                    CanonicalSourceUri = reg.CanonicalSourceUri ?? string.Empty,
+                    Score = reg.Score
+                });
+            }
+
+            foreach (var know in result.KnowledgeReferences)
+            {
+                response.KnowledgeReferences.Add(new ComplianceGrpc.KnowledgeReference
+                {
+                    EvidenceId = know.EvidenceId,
+                    SourceId = know.SourceId.ToString(),
+                    DocumentVersionId = know.DocumentVersionId.ToString(),
+                    ChunkId = know.ChunkId.ToString(),
+                    Title = know.Title,
+                    Category = know.Category,
+                    Section = know.Section ?? string.Empty,
+                    Page = know.Page ?? string.Empty,
+                    Excerpt = know.Excerpt,
+                    Score = know.Score
+                });
+            }
+
+            foreach (var conf in result.Conflicts)
+            {
+                response.Conflicts.Add(new ComplianceGrpc.GroundedConflict
+                {
+                    RegulatoryEvidenceId = conf.RegulatoryEvidenceId,
+                    KnowledgeEvidenceId = conf.KnowledgeEvidenceId,
+                    Description = conf.Description
+                });
+            }
+
+            return response;
+        }
+        catch (UnauthorizedAccessException exception)
+        {
+            throw new RpcException(new Status(StatusCode.PermissionDenied, exception.Message));
+        }
+        catch (ArgumentException exception)
+        {
+            throw InvalidArgument(exception.Message);
+        }
+    }
+
+    public override Task<ComplianceGrpc.ValidateGroundedEvidenceResponse> ValidateGroundedEvidence(
+        ComplianceGrpc.ValidateGroundedEvidenceRequest request,
+        ServerCallContext context)
+    {
+        var validator = citationValidator ?? new DeterministicCitationValidator();
+
+        var regList = new List<GroundedEvidence>();
+        foreach (var r in request.AvailableRegulatoryEvidence)
+        {
+            regList.Add(new GroundedEvidence(
+                EvidenceId: r.EvidenceId,
+                Domain: GroundedEvidenceDomain.Regulatory,
+                SourceId: Guid.TryParse(r.SourceId, out var sid) ? sid : Guid.Empty,
+                DocumentVersionId: Guid.TryParse(r.DocumentVersionId, out var vid) ? vid : Guid.Empty,
+                ChunkId: Guid.TryParse(r.ChunkId, out var cid) ? cid : Guid.Empty,
+                Title: r.Title,
+                SectionLabel: r.Section,
+                PageLabel: r.Page,
+                Excerpt: r.Excerpt,
+                RelevanceScore: Convert.ToDecimal(r.Score),
+                Authority: r.Authority,
+                JurisdictionCode: r.Jurisdiction,
+                RegulationType: r.RegulationType,
+                CanonicalSourceUri: r.CanonicalSourceUri));
+        }
+
+        var knowList = new List<GroundedEvidence>();
+        foreach (var k in request.AvailableKnowledgeEvidence)
+        {
+            knowList.Add(new GroundedEvidence(
+                EvidenceId: k.EvidenceId,
+                Domain: GroundedEvidenceDomain.Knowledge,
+                SourceId: Guid.TryParse(k.SourceId, out var sid) ? sid : Guid.Empty,
+                DocumentVersionId: Guid.TryParse(k.DocumentVersionId, out var vid) ? vid : Guid.Empty,
+                ChunkId: Guid.TryParse(k.ChunkId, out var cid) ? cid : Guid.Empty,
+                Title: k.Title,
+                SectionLabel: k.Section,
+                PageLabel: k.Page,
+                Excerpt: k.Excerpt,
+                RelevanceScore: Convert.ToDecimal(k.Score),
+                KnowledgeCategory: k.Category));
+        }
+
+        var evidenceContext = new EvidenceContext(regList, knowList);
+
+        var rawLlm = new LlmParsedResponse(
+            Answer: request.Answer,
+            Citations: request.Citations.Select(c => new LlmCitationItem(c.EvidenceId)).ToList(),
+            KnowledgeReferences: request.KnowledgeReferences.Select(k => new LlmKnowledgeItem(k.EvidenceId)).ToList(),
+            Conflicts: request.Conflicts.Select(c => new LlmConflictItem(c.RegulatoryEvidenceId, c.KnowledgeEvidenceId, c.Description)).ToList(),
+            InsufficientEvidence: request.InsufficientEvidence,
+            MissingInformation: request.MissingInformation.ToList());
+
+        var validated = validator.Validate(rawLlm, evidenceContext);
+
+        var response = new ComplianceGrpc.ValidateGroundedEvidenceResponse
+        {
+            SanitizedAnswer = validated.Answer,
+            InsufficientEvidence = validated.InsufficientEvidence
+        };
+
+        response.MissingInformation.AddRange(validated.MissingInformation);
+
+        foreach (var reg in validated.ValidatedRegulatoryCitations)
+        {
+            response.ValidatedRegulatoryCitations.Add(new ComplianceGrpc.RegulatoryCitation
+            {
+                EvidenceId = reg.EvidenceId,
+                SourceId = reg.SourceId.ToString(),
+                DocumentVersionId = reg.DocumentVersionId.ToString(),
+                ChunkId = reg.ChunkId.ToString(),
+                Title = reg.Title,
+                Authority = reg.Authority ?? string.Empty,
+                Jurisdiction = reg.JurisdictionCode ?? string.Empty,
+                RegulationType = reg.RegulationType ?? string.Empty,
+                Section = reg.SectionLabel ?? string.Empty,
+                Page = reg.PageLabel ?? string.Empty,
+                Excerpt = reg.Excerpt,
+                CanonicalSourceUri = reg.CanonicalSourceUri ?? string.Empty,
+                Score = Convert.ToDouble(reg.RelevanceScore)
+            });
+        }
+
+        foreach (var know in validated.ValidatedKnowledgeReferences)
+        {
+            response.ValidatedKnowledgeReferences.Add(new ComplianceGrpc.KnowledgeReference
+            {
+                EvidenceId = know.EvidenceId,
+                SourceId = know.SourceId.ToString(),
+                DocumentVersionId = know.DocumentVersionId.ToString(),
+                ChunkId = know.ChunkId.ToString(),
+                Title = know.Title,
+                Category = know.KnowledgeCategory ?? string.Empty,
+                Section = know.SectionLabel ?? string.Empty,
+                Page = know.PageLabel ?? string.Empty,
+                Excerpt = know.Excerpt,
+                Score = Convert.ToDouble(know.RelevanceScore)
+            });
+        }
+
+        foreach (var conf in validated.ValidatedConflicts)
+        {
+            response.ValidatedConflicts.Add(new ComplianceGrpc.GroundedConflict
+            {
+                RegulatoryEvidenceId = conf.RegulatoryEvidence.EvidenceId,
+                KnowledgeEvidenceId = conf.KnowledgeEvidence.EvidenceId,
+                Description = conf.Description
+            });
+        }
+
+        return Task.FromResult(response);
     }
 
     private static DomainRegulationType MapRegulationType(ComplianceGrpc.RegulationType value)

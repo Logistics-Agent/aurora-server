@@ -15,11 +15,17 @@
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
     <PackageReference Include="Moq" Version="4.20.72" />
-    <PackageReference Include="Microsoft.EntityFrameworkCore.InMemory" Version="10.0.0" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore" Version="10.0.9" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.InMemory" Version="10.0.9" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\..\..\src\dotnet\MailService\MailService.csproj" />
+    <ProjectReference Include="..\..\..\src\dotnet\IamTenant\IamTenant.csproj" />
+    <ProjectReference Include="..\..\..\src\dotnet\BFF\BuildingBlocks.BFF\BuildingBlocks.BFF.csproj" />
+    <ProjectReference Include="..\..\..\src\dotnet\BFF\Staff.Bff\Staff.Bff.csproj" />
+    <ProjectReference Include="..\..\..\src\dotnet\BFF\Admin.Bff\Admin.Bff.csproj" />
+    <ProjectReference Include="..\..\..\src\dotnet\BFF\System.Bff\System.Bff.csproj" />
   </ItemGroup>
 
 </Project>

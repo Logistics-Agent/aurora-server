@@ -1,4 +1,10 @@
+using System;
+using System.Collections.Generic;
 using System.Diagnostics;
+using System.IO;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 using MimeKit;
 using Microsoft.Extensions.Logging;
 using MailService.Application.Interfaces.AI;
@@ -14,7 +20,6 @@ using MailService.Infrastructure.Security.Malware;
 using MailService.Infrastructure.Security.Spam;
 
 namespace MailService.Application.Pipeline.Stages;
-
 
 public class TlsVerificationStage : IInboundPipelineStage
 {
@@ -141,14 +146,15 @@ public class SpfValidationStage : IInboundPipelineStage
         var sw = Stopwatch.StartNew();
         string domain = context.SenderAddress.Split('@').LastOrDefault() ?? string.Empty;
         string? spfRecord = await _dnsLookup.GetSpfRecordAsync(domain, cancellationToken);
-        context.SpfResult = _spfEvaluator.Evaluate(domain, spfRecord, "127.0.0.1");
+        var evalResult = await _spfEvaluator.EvaluateAsync(domain, spfRecord, "127.0.0.1", _dnsLookup, cancellationToken);
+        context.SpfResult = evalResult.Status.ToString();
 
         sw.Stop();
         return new StageResult
         {
             Stage = StageName,
             Result = context.SpfResult,
-            DetailJson = $"{{\"spf_record\":\"{spfRecord}\",\"result\":\"{context.SpfResult}\"}}",
+            DetailJson = $"{{\"spf_record\":\"{spfRecord}\",\"result\":\"{context.SpfResult}\",\"mechanism\":\"{evalResult.Mechanism}\",\"lookups\":{evalResult.DnsLookupCount}}}",
             DurationMs = (int)sw.ElapsedMilliseconds
         };
     }
@@ -172,14 +178,15 @@ public class DkimValidationStage : IInboundPipelineStage
         var sw = Stopwatch.StartNew();
         string domain = context.SenderAddress.Split('@').LastOrDefault() ?? string.Empty;
         string? dkimTxt = await _dnsLookup.GetDkimRecordAsync(domain, "aurora-2025", cancellationToken);
-        context.DkimResult = _dkimVerifier.Verify(context.RawEmlBytes, dkimTxt);
+        var verifResult = _dkimVerifier.Verify(context.RawEmlBytes, dkimTxt);
+        context.DkimResult = verifResult.Status.ToString();
 
         sw.Stop();
         return new StageResult
         {
             Stage = StageName,
             Result = context.DkimResult,
-            DetailJson = $"{{\"dkim_result\":\"{context.DkimResult}\"}}",
+            DetailJson = $"{{\"dkim_result\":\"{context.DkimResult}\",\"selector\":\"{verifResult.Selector}\",\"details\":\"{verifResult.Details}\"}}",
             DurationMs = (int)sw.ElapsedMilliseconds
         };
     }
@@ -203,21 +210,24 @@ public class DmarcEvaluationStage : IInboundPipelineStage
         var sw = Stopwatch.StartNew();
         string domain = context.SenderAddress.Split('@').LastOrDefault() ?? string.Empty;
         string? dmarcTxt = await _dnsLookup.GetDmarcRecordAsync(domain, cancellationToken);
-        var (result, policy) = _dmarcEvaluator.Evaluate(context.SpfResult, context.DkimResult, dmarcTxt);
-        context.DmarcResult = result;
-        context.DmarcPolicy = policy;
+
+        var evalResult = _dmarcEvaluator.Evaluate(domain, context.SpfResult, domain, context.DkimResult, domain, dmarcTxt);
+        var enforcement = _dmarcEvaluator.DetermineEnforcement(evalResult);
+
+        context.DmarcResult = evalResult.Status.ToString();
+        context.DmarcPolicy = evalResult.Policy.ToString().ToLowerInvariant();
 
         sw.Stop();
-        bool rejectAndFail = policy == "reject" && result == "Fail";
+        bool shouldQuarantineOrReject = enforcement.ShouldQuarantine || enforcement.ShouldReject;
 
         return new StageResult
         {
             Stage = StageName,
-            Result = result,
-            DetailJson = $"{{\"policy\":\"{policy}\",\"result\":\"{result}\"}}",
+            Result = context.DmarcResult,
+            DetailJson = $"{{\"policy\":\"{context.DmarcPolicy}\",\"result\":\"{context.DmarcResult}\",\"action\":\"{enforcement.Action}\"}}",
             DurationMs = (int)sw.ElapsedMilliseconds,
-            ShouldShortCircuit = rejectAndFail,
-            QuarantineReason = rejectAndFail ? "DMARC policy reject enforced" : null
+            ShouldShortCircuit = shouldQuarantineOrReject,
+            QuarantineReason = shouldQuarantineOrReject ? enforcement.Reason : null
         };
     }
 }
@@ -258,25 +268,24 @@ public class AttachmentValidationStage : IInboundPipelineStage
                     await part.Content.DecodeToAsync(ms, cancellationToken);
                     ms.Position = 0;
 
-                    var (isClean, virusName) = await _clamAv.ScanStreamAsync(ms, cancellationToken);
-                    if (!isClean)
+                    var scanResult = await _clamAv.ScanStreamAsync(ms, cancellationToken);
+                    if (!scanResult.IsClean)
                     {
                         sw.Stop();
-                        string reason = virusName == "CLAMAV_UNAVAILABLE" 
-                            ? "Attachment scan unavailable (ClamAV down) - quarantined pending scan" 
-                            : $"Malware virus detected ({virusName})";
+                        string reason = scanResult.Status == ClamAvStatus.ServiceUnavailable
+                            ? "Attachment scan unavailable (ClamAV down) - quarantined pending scan"
+                            : $"Malware virus detected ({scanResult.VirusName})";
 
                         return new StageResult
                         {
                             Stage = StageName,
                             Result = "Fail",
-                            DetailJson = $"{{\"virus_name\":\"{virusName}\",\"filename\":\"{part.FileName}\"}}",
+                            DetailJson = $"{{\"virus_name\":\"{scanResult.VirusName}\",\"filename\":\"{part.FileName}\",\"status\":\"{scanResult.Status}\"}}",
                             DurationMs = (int)sw.ElapsedMilliseconds,
                             ShouldShortCircuit = true,
                             QuarantineReason = reason
                         };
                     }
-
                 }
             }
         }
@@ -300,19 +309,19 @@ public class SpamScoringStage : IInboundPipelineStage
     public async Task<StageResult> ExecuteAsync(InboundPipelineContext context, CancellationToken cancellationToken = default)
     {
         var sw = Stopwatch.StartNew();
-        var (score, rules) = await _spamAssassin.CheckSpamAsync(context.RawEmlBytes, cancellationToken);
-        context.SpamScore = score;
+        var scanResult = await _spamAssassin.CheckSpamAsync(context.RawEmlBytes, cancellationToken);
+        context.SpamScore = scanResult.Score;
         sw.Stop();
 
-        bool reject = score >= 10.0m;
+        bool reject = scanResult.IsReject;
         return new StageResult
         {
             Stage = StageName,
-            Result = score < 5.0m ? "Pass" : "Fail",
-            DetailJson = $"{{\"score\":{score},\"rules\":[]}}",
+            Result = scanResult.Score < 5.0m ? "Pass" : "Fail",
+            DetailJson = $"{{\"score\":{scanResult.Score},\"threshold\":{scanResult.Threshold},\"status\":\"{scanResult.Status}\"}}",
             DurationMs = (int)sw.ElapsedMilliseconds,
             ShouldShortCircuit = reject,
-            QuarantineReason = reject ? $"SpamAssassin score {score} exceeded rejection threshold" : null
+            QuarantineReason = reject ? $"SpamAssassin score {scanResult.Score} exceeded rejection threshold" : null
         };
     }
 }

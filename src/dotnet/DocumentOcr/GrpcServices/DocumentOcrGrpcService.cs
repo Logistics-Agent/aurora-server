@@ -45,6 +45,38 @@ public sealed class DocumentOcrGrpcService(
         }
     }
 
+    public override async Task<OcrGrpc.DocumentOcrJobResponse> SubmitOcrJob(
+        OcrGrpc.SubmitOcrJobRequest request,
+        ServerCallContext context)
+    {
+        RequireTenant();
+        try
+        {
+            var externalDocumentId = ParseRequiredId(
+                request.ExternalDocumentId, "ExternalDocumentId");
+            var documentType = ParseDocumentType(request.DocumentTypeHint);
+            var extractionMode = (DocumentOcr.Domain.Enums.OcrExtractionMode)(int)request.ExtractionMode;
+
+            var job = await jobService.SubmitOcrAsync(
+                new SubmitOcrJobInput(
+                    request.IdempotencyKey,
+                    request.StorageReference,
+                    request.FileName,
+                    request.MimeType,
+                    request.SizeBytes,
+                    documentType,
+                    extractionMode,
+                    externalDocumentId,
+                    request.ExternalContextId),
+                context.CancellationToken);
+            return MapJob(job);
+        }
+        catch (ArgumentException exception)
+        {
+            throw InvalidArgument(exception.Message);
+        }
+    }
+
     public override async Task<OcrGrpc.DocumentOcrJobResponse> GetDocumentJob(
         OcrGrpc.GetDocumentJobRequest request,
         ServerCallContext context)
@@ -86,6 +118,74 @@ public sealed class DocumentOcrGrpcService(
         }
     }
 
+    public override async Task<OcrGrpc.DocumentOcrJobResponse> CancelDocumentJob(
+        OcrGrpc.CancelDocumentJobRequest request,
+        ServerCallContext context)
+    {
+        RequireTenant();
+        try
+        {
+            var jobId = ParseRequiredId(request.JobId, "JobId");
+            var job = await jobService.CancelAsync(jobId, context.CancellationToken);
+            return MapJob(job);
+        }
+        catch (InvalidOperationException exception)
+        {
+            throw new RpcException(new Status(StatusCode.FailedPrecondition, exception.Message));
+        }
+        catch (Shared.Exceptions.NotFoundException exception)
+        {
+            throw new RpcException(new Status(StatusCode.NotFound, exception.Message));
+        }
+    }
+
+    public override async Task<OcrGrpc.DocumentOcrJobResponse> RetryDocumentJob(
+        OcrGrpc.RetryDocumentJobRequest request,
+        ServerCallContext context)
+    {
+        RequireTenant();
+        try
+        {
+            var jobId = ParseRequiredId(request.JobId, "JobId");
+            var job = await jobService.RetryAsync(jobId, context.CancellationToken);
+            return MapJob(job);
+        }
+        catch (InvalidOperationException exception)
+        {
+            throw new RpcException(new Status(StatusCode.FailedPrecondition, exception.Message));
+        }
+        catch (Shared.Exceptions.NotFoundException exception)
+        {
+            throw new RpcException(new Status(StatusCode.NotFound, exception.Message));
+        }
+    }
+
+    public override async Task<OcrGrpc.DocumentOcrJobResponse> ReviewDocumentJob(
+        OcrGrpc.ReviewDocumentJobRequest request,
+        ServerCallContext context)
+    {
+        RequireTenant();
+        try
+        {
+            var jobId = ParseRequiredId(request.JobId, "JobId");
+            var job = await jobService.ReviewAsync(
+                jobId,
+                request.Action,
+                request.CorrectedJson,
+                request.Comment,
+                context.CancellationToken);
+            return MapJob(job);
+        }
+        catch (InvalidOperationException exception)
+        {
+            throw new RpcException(new Status(StatusCode.FailedPrecondition, exception.Message));
+        }
+        catch (Shared.Exceptions.NotFoundException exception)
+        {
+            throw new RpcException(new Status(StatusCode.NotFound, exception.Message));
+        }
+    }
+
     internal static OcrGrpc.DocumentOcrJobResponse MapJob(DocumentOcrJob job)
     {
         var response = new OcrGrpc.DocumentOcrJobResponse
@@ -116,6 +216,11 @@ public sealed class DocumentOcrGrpcService(
             response.CompletedAt = Timestamp.FromDateTimeOffset(job.CompletedAt.Value);
         if (job.NextAttemptAt.HasValue)
             response.NextAttemptAt = Timestamp.FromDateTimeOffset(job.NextAttemptAt.Value);
+        if (!string.IsNullOrEmpty(job.FullTextContent))
+            response.FullTextContent = job.FullTextContent;
+        if (!string.IsNullOrEmpty(job.ArtifactReference))
+            response.ArtifactReference = job.ArtifactReference;
+        response.ExtractionMode = (OcrGrpc.OcrExtractionMode)(int)job.ExtractionMode;
         return response;
     }
 

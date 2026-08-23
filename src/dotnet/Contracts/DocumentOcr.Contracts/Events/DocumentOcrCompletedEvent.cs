@@ -8,8 +8,11 @@ public sealed record DocumentOcrCompletedEvent
     public Guid JobId { get; init; }
     public Guid? ExternalDocumentId { get; init; }
     public Guid? ExternalShipmentId { get; init; }
+    public string? ExternalContextId { get; init; }
     public string DetectedDocumentType { get; init; } = string.Empty;
     public string NormalizedJson { get; init; } = "{}";
+    public string? ArtifactReference { get; init; }
+    public string? ExtractionMode { get; init; }
     public decimal Confidence { get; init; }
     public bool NeedsReview { get; init; }
     public DateTimeOffset OccurredAt { get; init; }

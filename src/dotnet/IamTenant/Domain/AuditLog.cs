@@ -1,8 +1,10 @@
+using System;
+using Shared.Entity;
+
 namespace IamTenant.Domain;
 
-public class AuditLog
+public class AuditLog : BaseEntity
 {
-    public Guid Id { get; set; } = Guid.CreateVersion7();
     public Guid? TenantId { get; set; }
     
     // UserId hoặc System

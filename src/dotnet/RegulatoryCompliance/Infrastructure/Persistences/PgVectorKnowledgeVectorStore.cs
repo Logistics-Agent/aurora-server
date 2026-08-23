@@ -1,0 +1,172 @@
+using Microsoft.EntityFrameworkCore;
+using Pgvector;
+using Pgvector.EntityFrameworkCore;
+using RegulatoryCompliance.Application.Embeddings;
+using RegulatoryCompliance.Domain.Enums;
+using RegulatoryCompliance.Infrastructure.Persistences;
+
+namespace RegulatoryCompliance.Infrastructure.Persistences;
+
+public sealed class PgVectorKnowledgeVectorStore(RegulatoryComplianceDbContext dbContext)
+    : IKnowledgeVectorStore
+{
+    private const int MaximumSearchCandidates = 2_000;
+
+    public async Task UpsertAsync(
+        EmbeddingModelDescriptor model,
+        IReadOnlyList<VectorUpsert> vectors,
+        DateTimeOffset embeddedAt,
+        CancellationToken cancellationToken = default)
+    {
+        ValidateModel(model);
+        ArgumentNullException.ThrowIfNull(vectors);
+        if (vectors.Count is < 1 or > EmbeddingBatchProcessor.MaximumBatchSize)
+            throw new ArgumentOutOfRangeException(nameof(vectors));
+
+        var ids = vectors.Select(item => item.ChunkId).Distinct().ToArray();
+        if (ids.Length != vectors.Count)
+            throw new ArgumentException("Duplicate chunk IDs are not allowed.", nameof(vectors));
+
+        var chunks = await dbContext.KnowledgeChunks
+            .IgnoreQueryFilters()
+            .Where(chunk => ids.Contains(chunk.Id))
+            .ToDictionaryAsync(chunk => chunk.Id, cancellationToken);
+
+        foreach (var item in vectors)
+        {
+            ValidateVector(item.Vector, model.Dimension);
+            if (!chunks.TryGetValue(item.ChunkId, out var chunk))
+                throw new InvalidOperationException($"Knowledge chunk {item.ChunkId} was not found.");
+            if (chunk.ScopeKey != item.ScopeKey || chunk.Visibility != item.Visibility ||
+                chunk.ContentSha256 != item.ContentHash)
+                throw new InvalidOperationException("Vector scope or content identity does not match the chunk.");
+            if (!chunk.NeedsEmbedding(model.Name, model.Version))
+                continue;
+
+            chunk.MarkEmbedded(item.Vector, model.Name, model.Version, model.Dimension, embeddedAt);
+        }
+
+        await dbContext.SaveChangesAsync(cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<KnowledgeVectorSearchResult>> SearchAsync(
+        VectorSearchRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        if (request.TopK is < 1 or > 100)
+            throw new ArgumentOutOfRangeException(nameof(request.TopK));
+        if (request.MinimumScore is < 0m or > 1m)
+            throw new ArgumentOutOfRangeException(nameof(request.MinimumScore));
+        if (request.CandidateChunkIds.Count is < 1 or > MaximumSearchCandidates)
+            return [];
+
+        ValidateVector(request.QueryVector, request.Dimension);
+        var candidateIds = request.CandidateChunkIds.Distinct().ToArray();
+
+        if (dbContext.Database.ProviderName == "Microsoft.EntityFrameworkCore.InMemory")
+        {
+            var inMemoryChunks = await dbContext.KnowledgeChunks
+                .AsNoTracking()
+                .Where(chunk =>
+                    candidateIds.Contains(chunk.Id) &&
+                    chunk.EmbeddingStatus == ChunkEmbeddingStatus.Completed &&
+                    chunk.EmbeddingModel == request.ModelName &&
+                    chunk.EmbeddingModelVersion == request.ModelVersion &&
+                    chunk.Embedding != null)
+                .Select(chunk => new
+                {
+                    chunk.Id,
+                    chunk.KnowledgeDocumentVersionId,
+                    chunk.Sequence,
+                    chunk.Embedding
+                })
+                .ToListAsync(cancellationToken);
+
+            return inMemoryChunks
+                .Select(item =>
+                {
+                    double distance = ComputeCosineDistance(item.Embedding!, request.QueryVector);
+                    return new
+                    {
+                        item.Id,
+                        item.KnowledgeDocumentVersionId,
+                        item.Sequence,
+                        Distance = distance,
+                        Score = Math.Max(0.0, 1.0 - distance)
+                    };
+                })
+                .Where(item => item.Score >= (double)request.MinimumScore)
+                .OrderBy(item => item.Distance)
+                .ThenBy(item => item.Id)
+                .Take(request.TopK)
+                .Select(item => new KnowledgeVectorSearchResult(
+                    item.Id,
+                    item.KnowledgeDocumentVersionId,
+                    item.Sequence,
+                    Convert.ToDecimal(item.Score)))
+                .ToArray();
+        }
+
+        var candidates = await dbContext.KnowledgeChunks
+            .AsNoTracking()
+            .Where(chunk =>
+                candidateIds.Contains(chunk.Id) &&
+                chunk.EmbeddingStatus == ChunkEmbeddingStatus.Completed &&
+                chunk.EmbeddingModel == request.ModelName &&
+                chunk.EmbeddingModelVersion == request.ModelVersion &&
+                chunk.Embedding != null)
+            .Select(chunk => new
+            {
+                chunk.Id,
+                chunk.KnowledgeDocumentVersionId,
+                chunk.Sequence,
+                Distance = chunk.Embedding!.CosineDistance(request.QueryVector)
+            })
+            .Where(item => (1.0 - item.Distance) >= (double)request.MinimumScore)
+            .OrderBy(item => item.Distance)
+            .ThenBy(item => item.Id)
+            .Take(request.TopK)
+            .ToListAsync(cancellationToken);
+
+        return candidates
+            .Select(item => new KnowledgeVectorSearchResult(
+                item.Id,
+                item.KnowledgeDocumentVersionId,
+                item.Sequence,
+                Convert.ToDecimal(Math.Max(0.0, 1.0 - item.Distance))))
+            .ToArray();
+    }
+
+    private static double ComputeCosineDistance(float[] a, float[] b)
+    {
+        double dot = 0.0, normA = 0.0, normB = 0.0;
+        for (int i = 0; i < Math.Min(a.Length, b.Length); i++)
+        {
+            dot += a[i] * b[i];
+            normA += a[i] * a[i];
+            normB += b[i] * b[i];
+        }
+        if (normA == 0.0 || normB == 0.0) return 1.0;
+        double similarity = dot / (Math.Sqrt(normA) * Math.Sqrt(normB));
+        return Math.Max(0.0, 1.0 - similarity);
+    }
+
+    private static void ValidateModel(EmbeddingModelDescriptor model)
+    {
+        ArgumentNullException.ThrowIfNull(model);
+        if (string.IsNullOrWhiteSpace(model.Name) || string.IsNullOrWhiteSpace(model.Version))
+            throw new ArgumentException("Embedding model name and version are required.", nameof(model));
+        if (model.Dimension is < 1 or > 4_096)
+            throw new ArgumentOutOfRangeException(nameof(model));
+    }
+
+    private static void ValidateVector(float[] vector, int expectedDimension)
+    {
+        ArgumentNullException.ThrowIfNull(vector);
+        if (expectedDimension is < 1 or > 4_096 ||
+            vector.Length != expectedDimension ||
+            vector.Any(value => !float.IsFinite(value)))
+            throw new ArgumentException("Vector dimension or values are invalid.", nameof(vector));
+    }
+}

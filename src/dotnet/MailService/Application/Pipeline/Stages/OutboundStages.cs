@@ -1,14 +1,19 @@
+using System;
+using System.Collections.Generic;
 using System.Diagnostics;
+using System.IO;
+using System.Threading;
+using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Shared.Security;
 using MailService.Application.Interfaces.AI;
 using MailService.Application.Interfaces.RateLimiting;
 using MailService.Application.Interfaces.Security;
+using MailService.Application.Interfaces.Stalwart;
 using MailService.Domain.Enums;
 using MailService.Infrastructure.AI;
 
 namespace MailService.Application.Pipeline.Stages;
-
 
 public class OutboundAttachmentValidationStage : IOutboundPipelineStage
 {
@@ -28,13 +33,13 @@ public class OutboundAttachmentValidationStage : IOutboundPipelineStage
         foreach (var attachment in context.Attachments)
         {
             using var ms = new MemoryStream(attachment.Content);
-            var (isClean, virusName) = await _clamAv.ScanStreamAsync(ms, cancellationToken);
-            if (!isClean)
+            var scanResult = await _clamAv.ScanStreamAsync(ms, cancellationToken);
+            if (!scanResult.IsClean)
             {
                 sw.Stop();
-                string reason = virusName == "CLAMAV_UNAVAILABLE"
+                string reason = scanResult.Status == ClamAvStatus.ServiceUnavailable
                     ? "Outbound attachment scan unavailable (ClamAV down) - deferring send"
-                    : $"Outbound attachment infected: {virusName}";
+                    : $"Outbound attachment infected: {scanResult.VirusName}";
 
                 context.IsRejected = true;
                 context.RejectionReason = reason;
@@ -42,12 +47,11 @@ public class OutboundAttachmentValidationStage : IOutboundPipelineStage
                 {
                     Stage = StageName,
                     Result = "Fail",
-                    DetailJson = $"{{\"virus_name\":\"{virusName}\",\"filename\":\"{attachment.Filename}\"}}",
+                    DetailJson = $"{{\"virus_name\":\"{scanResult.VirusName}\",\"filename\":\"{attachment.Filename}\",\"status\":\"{scanResult.Status}\"}}",
                     DurationMs = (int)sw.ElapsedMilliseconds,
                     ShouldShortCircuit = true
                 };
             }
-
         }
 
         sw.Stop();
@@ -137,7 +141,6 @@ public class AiRiskScoringStage : IOutboundPipelineStage
         var (riskScore, reasoning) = await _riskScoringService.AnalyzeBecRiskAsync(context.SenderAddress, context.RecipientAddresses, context.Subject, context.BodyText, cancellationToken);
         sw.Stop();
 
-
         return new StageResult
         {
             Stage = StageName,
@@ -198,18 +201,58 @@ public class AuditCreationStage : IOutboundPipelineStage
 
 public class StalwartSmtpSubmissionStage : IOutboundPipelineStage
 {
+    private readonly ISmtpDeliveryService _smtpDeliveryService;
+    private readonly ILogger<StalwartSmtpSubmissionStage> _logger;
+
+    public StalwartSmtpSubmissionStage(ISmtpDeliveryService smtpDeliveryService, ILogger<StalwartSmtpSubmissionStage> logger)
+    {
+        _smtpDeliveryService = smtpDeliveryService;
+        _logger = logger;
+    }
+
     public SecurityCheckStage StageName => SecurityCheckStage.StalwartSmtpSubmission;
 
     public async Task<StageResult> ExecuteAsync(OutboundPipelineContext context, CancellationToken cancellationToken = default)
     {
-        await Task.Yield();
-        context.StalwartQueueId = $"st-q-{Guid.NewGuid():N}";
+        var sw = Stopwatch.StartNew();
+
+        var deliveryResult = await _smtpDeliveryService.DeliverAsync(
+            context.SenderAddress,
+            context.RecipientAddresses,
+            context.Subject,
+            context.BodyText,
+            context.BodyHtml,
+            context.Attachments,
+            cancellationToken);
+
+        sw.Stop();
+
+        if (deliveryResult.IsSuccess)
+        {
+            context.StalwartQueueId = deliveryResult.QueueId;
+            return new StageResult
+            {
+                Stage = StageName,
+                Result = "Pass",
+                DetailJson = $"{{\"status\":\"success\",\"status_code\":{deliveryResult.StatusCode},\"queue_id\":\"{deliveryResult.QueueId}\",\"message\":\"{deliveryResult.StatusMessage}\"}}",
+                DurationMs = (int)sw.ElapsedMilliseconds
+            };
+        }
+
+        // Delivery failed
+        context.IsRejected = true;
+        context.RejectionReason = $"SMTP Delivery Failure ({deliveryResult.Status} - Code {deliveryResult.StatusCode}): {deliveryResult.StatusMessage}";
+
+        _logger.LogWarning("SMTP delivery failed with status {Status} ({StatusCode}): {Message}",
+            deliveryResult.Status, deliveryResult.StatusCode, deliveryResult.StatusMessage);
+
         return new StageResult
         {
             Stage = StageName,
-            Result = "Pass",
-            DetailJson = $"{{\"stalwart_queue_id\":\"{context.StalwartQueueId}\"}}",
-            DurationMs = 5
+            Result = "Fail",
+            DetailJson = $"{{\"status\":\"{deliveryResult.Status}\",\"status_code\":{deliveryResult.StatusCode},\"error\":\"{deliveryResult.StatusMessage}\"}}",
+            DurationMs = (int)sw.ElapsedMilliseconds,
+            ShouldShortCircuit = true
         };
     }
 }

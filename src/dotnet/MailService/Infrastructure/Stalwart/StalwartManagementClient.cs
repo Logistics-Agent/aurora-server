@@ -1,9 +1,13 @@
+using System;
+using System.Collections.Generic;
+using System.Net.Http;
 using System.Net.Http.Json;
+using System.Threading;
+using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using MailService.Application.Interfaces.Stalwart;
 
 namespace MailService.Infrastructure.Stalwart;
-
 
 public class StalwartManagementClient : IStalwartManagementClient
 {
@@ -38,7 +42,10 @@ public class StalwartManagementClient : IStalwartManagementClient
             if (response.IsSuccessStatusCode)
             {
                 var result = await response.Content.ReadFromJsonAsync<StalwartDkimResponse>(cancellationToken: cancellationToken);
-                return result?.TxtRecord ?? $"v=DKIM1; k=rsa; p=MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQC0...{domainName}";
+                if (!string.IsNullOrWhiteSpace(result?.TxtRecord))
+                {
+                    return result.TxtRecord;
+                }
             }
         }
         catch (Exception ex)
@@ -63,9 +70,39 @@ public class StalwartManagementClient : IStalwartManagementClient
         }
     }
 
+    public async Task<bool> CreateAliasAsync(string aliasAddress, IReadOnlyList<string> targetAddresses, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var response = await _httpClient.PostAsJsonAsync("/api/management/aliases", new
+            {
+                alias = aliasAddress,
+                targets = targetAddresses
+            }, cancellationToken);
+            return response.IsSuccessStatusCode;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Stalwart management API create alias failed for {Alias}", aliasAddress);
+            return false;
+        }
+    }
+
     public async Task<byte[]> GetMessageEmlAsync(string messageId, CancellationToken cancellationToken = default)
     {
-        await Task.Yield();
+        try
+        {
+            var response = await _httpClient.GetAsync($"/api/management/messages/{messageId}/eml", cancellationToken);
+            if (response.IsSuccessStatusCode)
+            {
+                return await response.Content.ReadAsByteArrayAsync(cancellationToken);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Stalwart management API GetMessageEml failed for {MessageId}", messageId);
+        }
+
         return Array.Empty<byte>();
     }
 

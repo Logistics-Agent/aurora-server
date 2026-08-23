@@ -1,6 +1,8 @@
 using System;
 using Microsoft.EntityFrameworkCore;
+using AiGovernance.Grpc;
 using RoutePlanningAgent.Application.Interfaces;
+using RoutePlanningAgent.Application.Options;
 using RoutePlanningAgent.GrpcServices;
 using RoutePlanningAgent.Infrastructure.AI;
 using RoutePlanningAgent.Infrastructure.BackgroundJobs;
@@ -15,6 +17,7 @@ using Shared.Interceptors;
 using Shared.Rules;
 
 var builder = WebApplication.CreateBuilder(args);
+
 
 // 1. Shared Services (CurrentUserService, Redis, Interceptors)
 builder.Services.AddSharedServices(builder.Configuration);
@@ -52,9 +55,16 @@ builder.Services.AddScoped<IRule<RouteRuleContext>, MinimumStopsRule>();
 builder.Services.AddScoped<IRule<RouteRuleContext>, MultiHubRule>();
 builder.Services.AddScoped<IRouteRuleEngine, RouteRuleEngine>();
 
-// 7. AI Service & Semantic Kernel Pool registration (Gemini = Standard, AzureOpenAI = Enterprise)
-builder.Services.AddSemanticKernel(builder.Configuration);
+// 7. AI Governance gRPC Client (Centralized AI Execution)
+builder.Services.Configure<RoutePlanningOptions>(builder.Configuration.GetSection("RoutePlanning"));
+
+builder.Services.AddGrpcClient<AiExecutionService.AiExecutionServiceClient>(o =>
+{
+    var serviceUrl = builder.Configuration["AiGovernance:ServiceUrl"] ?? "http://localhost:5005";
+    o.Address = new Uri(serviceUrl);
+});
 builder.Services.AddScoped<IRouteAiService, RouteAiService>();
+
 
 // 8. Services Layer
 builder.Services.AddScoped<ITenantAiConfigService, TenantAiConfigService>();

@@ -1,10 +1,10 @@
 using System;
+using Shared.Entity;
 
 namespace RoutePlanningAgent.Domain;
 
-public class RouteOptimizationHistory
+public class RouteOptimizationHistory : BaseEntity
 {
-    public Guid Id { get; set; } = Guid.CreateVersion7();
     public Guid RouteId { get; set; }
     public string Provider { get; set; } = default!;
     public string Model { get; set; } = default!;

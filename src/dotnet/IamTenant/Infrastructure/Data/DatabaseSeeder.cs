@@ -20,7 +20,6 @@ public static class DatabaseSeeder
                 var parts = code.Split(':');
                 context.Permissions.Add(new Permission
                 {
-                    Id = Guid.CreateVersion7(),
                     Code = code,
                     Module = parts[0],
                     Description = $"Allows {parts[1]} operation on {parts[0]}"
@@ -38,7 +37,6 @@ public static class DatabaseSeeder
         {
             adminRole = new Role
             {
-                Id = Guid.CreateVersion7(),
                 TenantId = tenantId,
                 Code = "TENANT_ADMIN",
                 Name = "Tenant Admin",
@@ -60,7 +58,6 @@ public static class DatabaseSeeder
         {
             staffRole = new Role
             {
-                Id = Guid.CreateVersion7(),
                 TenantId = tenantId,
                 Code = "STAFF",
                 Name = "Default Staff",

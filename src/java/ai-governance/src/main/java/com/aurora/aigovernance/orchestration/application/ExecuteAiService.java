@@ -97,7 +97,8 @@ public class ExecuteAiService {
                 command.prompt(),
                 command.tokenBudget().maxOutputTokens(),
                 command.tokenBudget().estimatedInputTokens(),
-                command.parameters()
+                command.parameters(),
+                command.inputParts()
         );
 
         AiGenerateResult result = aiExecutionService.generate(

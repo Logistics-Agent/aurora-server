@@ -2,6 +2,7 @@ using Grpc.Core;
 using MediatR;
 using Google.Protobuf.WellKnownTypes;
 using MailService.GrpcServices;
+using MailService.Application.Commands.Drafts;
 using MailService.Application.Commands.Outbound;
 using MailService.Application.Commands.Quarantine;
 using MailService.Application.Queries.Drafts;

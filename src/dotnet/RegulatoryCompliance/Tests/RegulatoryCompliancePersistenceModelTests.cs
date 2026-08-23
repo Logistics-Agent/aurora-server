@@ -128,7 +128,7 @@ public sealed class RegulatoryCompliancePersistenceModelTests
     private static RegulatoryComplianceDbContext CreateRelationalContext(CurrentUserService currentUser)
     {
         var options = new DbContextOptionsBuilder<RegulatoryComplianceDbContext>()
-            .UseNpgsql("Host=model-inspection;Database=regulatory_compliance_model")
+            .UseNpgsql("Host=model-inspection;Database=regulatory_compliance_model", npgsql => npgsql.UseVector())
             .Options;
         return new RegulatoryComplianceDbContext(
             options, currentUser, new AuditSaveChangesInterceptor(currentUser));

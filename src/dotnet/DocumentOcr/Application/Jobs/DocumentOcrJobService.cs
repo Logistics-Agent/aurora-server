@@ -21,6 +21,18 @@ public sealed record SubmitDocumentJobInput(
     Guid ExternalDocumentId,
     Guid? ExternalShipmentId);
 
+public sealed record SubmitOcrJobInput(
+    string IdempotencyKey,
+    string StorageReference,
+    string FileName,
+    string MimeType,
+    long SizeBytes,
+    OcrDocumentType DocumentTypeHint,
+    OcrExtractionMode ExtractionMode,
+    Guid ExternalDocumentId,
+    string? ExternalContextId = null,
+    Guid? ExternalShipmentId = null);
+
 public sealed record ListDocumentJobsInput(
     int Page,
     int PageSize,
@@ -40,9 +52,20 @@ public interface IDocumentOcrJobService
     Task<DocumentOcrJob> SubmitAsync(
         SubmitDocumentJobInput input,
         CancellationToken cancellationToken = default);
+    Task<DocumentOcrJob> SubmitOcrAsync(
+        SubmitOcrJobInput input,
+        CancellationToken cancellationToken = default);
     Task<DocumentOcrJob> GetAsync(Guid jobId, CancellationToken cancellationToken = default);
     Task<DocumentOcrJobPage> ListAsync(
         ListDocumentJobsInput input,
+        CancellationToken cancellationToken = default);
+    Task<DocumentOcrJob> CancelAsync(Guid jobId, CancellationToken cancellationToken = default);
+    Task<DocumentOcrJob> RetryAsync(Guid jobId, CancellationToken cancellationToken = default);
+    Task<DocumentOcrJob> ReviewAsync(
+        Guid jobId,
+        string action,
+        string? correctedJson,
+        string? comment,
         CancellationToken cancellationToken = default);
     Task<DocumentOcrJob?> ProcessAsync(
         Guid tenantId,
@@ -67,10 +90,31 @@ public sealed class DocumentOcrJobService(
     DocumentOcrWorkerOptions workerOptions,
     DocumentInputPolicy inputPolicy,
     IDocumentContentReader contentReader,
-    IOcrProvider provider) : IDocumentOcrJobService, IDocumentOcrJobProcessor
+    IOcrProvider provider,
+    DocumentOcr.Application.Storage.IArtifactStorageService? artifactStorage = null) : IDocumentOcrJobService, IDocumentOcrJobProcessor
 {
     public async Task<DocumentOcrJob> SubmitAsync(
         SubmitDocumentJobInput input,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(input);
+        return await SubmitOcrAsync(
+            new SubmitOcrJobInput(
+                input.IdempotencyKey,
+                input.StorageReference,
+                input.FileName,
+                input.MimeType,
+                input.SizeBytes,
+                input.DocumentTypeHint,
+                OcrExtractionMode.Structured,
+                input.ExternalDocumentId,
+                null,
+                input.ExternalShipmentId),
+            cancellationToken);
+    }
+
+    public async Task<DocumentOcrJob> SubmitOcrAsync(
+        SubmitOcrJobInput input,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(input);
@@ -95,7 +139,9 @@ public sealed class DocumentOcrJobService(
             input.DocumentTypeHint,
             input.ExternalDocumentId,
             input.ExternalShipmentId,
-            timeProvider.GetUtcNow());
+            timeProvider.GetUtcNow(),
+            input.ExtractionMode,
+            input.ExternalContextId);
         dbContext.Jobs.Add(job);
 
         try
@@ -160,6 +206,63 @@ public sealed class DocumentOcrJobService(
             .ToListAsync(cancellationToken);
         var totalPages = totalItems == 0 ? 0 : (int)Math.Ceiling(totalItems / (double)pageSize);
         return new DocumentOcrJobPage(items, page, pageSize, totalItems, totalPages);
+    }
+
+    public async Task<DocumentOcrJob> CancelAsync(Guid jobId, CancellationToken cancellationToken = default)
+    {
+        var tenantId = RequireTenant();
+        RequiredId(jobId, nameof(jobId));
+
+        var job = await dbContext.Jobs
+            .Include(item => item.Attempts)
+            .SingleOrDefaultAsync(
+                item => item.TenantId == tenantId && item.Id == jobId,
+                cancellationToken)
+            ?? throw new Shared.Exceptions.NotFoundException($"Document OCR job '{jobId}' was not found.");
+
+        job.Cancel(timeProvider.GetUtcNow());
+        await dbContext.SaveChangesAsync(cancellationToken);
+        return job;
+    }
+
+    public async Task<DocumentOcrJob> RetryAsync(Guid jobId, CancellationToken cancellationToken = default)
+    {
+        var tenantId = RequireTenant();
+        RequiredId(jobId, nameof(jobId));
+
+        var job = await dbContext.Jobs
+            .Include(item => item.Attempts)
+            .SingleOrDefaultAsync(
+                item => item.TenantId == tenantId && item.Id == jobId,
+                cancellationToken)
+            ?? throw new Shared.Exceptions.NotFoundException($"Document OCR job '{jobId}' was not found.");
+
+        var now = timeProvider.GetUtcNow();
+        job.ScheduleRetry(now, now);
+        await dbContext.SaveChangesAsync(cancellationToken);
+        return job;
+    }
+
+    public async Task<DocumentOcrJob> ReviewAsync(
+        Guid jobId,
+        string action,
+        string? correctedJson,
+        string? comment,
+        CancellationToken cancellationToken = default)
+    {
+        var tenantId = RequireTenant();
+        RequiredId(jobId, nameof(jobId));
+
+        var job = await dbContext.Jobs
+            .Include(item => item.Attempts)
+            .SingleOrDefaultAsync(
+                item => item.TenantId == tenantId && item.Id == jobId,
+                cancellationToken)
+            ?? throw new Shared.Exceptions.NotFoundException($"Document OCR job '{jobId}' was not found.");
+
+        job.ApplyReview(action, correctedJson, comment, currentUser.UserId, timeProvider.GetUtcNow());
+        await dbContext.SaveChangesAsync(cancellationToken);
+        return job;
     }
 
     public async Task<DocumentOcrJob?> ProcessAsync(
@@ -241,11 +344,35 @@ public sealed class DocumentOcrJobService(
                     job.FileName,
                     job.MimeType,
                     job.DocumentTypeHint,
-                    content),
+                    content,
+                    job.ExtractionMode,
+                    job.StorageReference),
                 cancellationToken);
             var normalized = DocumentOcrResultNormalizer.Normalize(
                 result, options.ReviewConfidenceThreshold);
             var completedAt = timeProvider.GetUtcNow();
+
+            string? artifactRef = null;
+            string? fullText = result.FullTextContent;
+            if (fullText != null && (fullText.Length > 50_000 || job.ExtractionMode == OcrExtractionMode.FullText || job.ExtractionMode == OcrExtractionMode.Both))
+            {
+                if (artifactStorage != null)
+                {
+                    var storageResult = await artifactStorage.StoreArtifactAsync(
+                        job.TenantId,
+                        job.Id,
+                        "fulltext.md",
+                        "text/markdown",
+                        System.Text.Encoding.UTF8.GetBytes(fullText),
+                        cancellationToken);
+                    artifactRef = storageResult.ArtifactReference;
+                }
+                else
+                {
+                    artifactRef = $"ocr-artifacts/{job.TenantId}/{job.Id}/fulltext.md";
+                }
+            }
+
             job.Complete(
                 attempt.Id,
                 result.DetectedDocumentType,
@@ -254,7 +381,9 @@ public sealed class DocumentOcrJobService(
                 normalized.Confidence,
                 normalized.NeedsReview,
                 result.ProviderRequestId,
-                completedAt);
+                completedAt,
+                fullText,
+                artifactRef);
             AddCompletedOutbox(job, completedAt);
             await dbContext.SaveChangesAsync(cancellationToken);
         }
@@ -322,10 +451,13 @@ public sealed class DocumentOcrJobService(
             JobId = job.Id,
             ExternalDocumentId = job.ExternalDocumentId,
             ExternalShipmentId = job.ExternalShipmentId,
-            DetectedDocumentType = job.DetectedDocumentType!.Value.ToString(),
-            NormalizedJson = job.NormalizedJson!,
-            Confidence = job.Confidence!.Value,
-            NeedsReview = job.NeedsReview!.Value,
+            ExternalContextId = job.ExternalContextId,
+            DetectedDocumentType = job.DetectedDocumentType?.ToString() ?? string.Empty,
+            NormalizedJson = job.NormalizedJson ?? "{}",
+            ArtifactReference = job.ArtifactReference,
+            ExtractionMode = job.ExtractionMode.ToString(),
+            Confidence = job.Confidence ?? 0m,
+            NeedsReview = job.NeedsReview ?? false,
             OccurredAt = occurredAt
         };
         dbContext.OutboxMessages.Add(OutboxMessage.Create(

@@ -17,10 +17,13 @@ public static class JwtClaims
 /// </summary>
 public static class GrpcMetadataKeys
 {
+    public const string ServiceId = "x-service-id";
     public const string UserId = "x-user-id";
     public const string TenantId = "x-tenant-id";
     public const string PermissionVersion = "x-permission-version";
     public const string RoleIds = "x-role-ids";
     public const string AccessToken = "x-access-token";
     public const string TraceId = "x-trace-id";
+    public const string CorrelationId = "x-correlation-id";
 }
+

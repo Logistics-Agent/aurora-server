@@ -108,3 +108,5 @@ entity.HasQueryFilter(e =>
     e.TenantId == _tenantId.Value);
 
 Đây là pattern tôi sẽ chọn để chuẩn hóa toàn bộ Aurora nếu mục tiêu là giảm tối đa nguy cơ cross-data tenant do missing/invalid context.
+
+1. Shipment Document 2. Regulatory Source 3. Knowledge Document 4. General/Internal Document

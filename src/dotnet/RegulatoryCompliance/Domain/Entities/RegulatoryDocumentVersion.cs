@@ -123,6 +123,22 @@ public sealed class RegulatoryDocumentVersion : AuditableEntity
         return chunk;
     }
 
+    public void MarkPendingOcr(DateTimeOffset timestamp)
+    {
+        ComplianceValidation.RequiredTimestamp(timestamp, nameof(timestamp));
+        IngestionStatus = RegulatoryIngestionStatus.PendingOcr;
+        ProcessingStartedAt = timestamp;
+        UpdatedAt = timestamp;
+    }
+
+    public void ResumeIngestionFromOcr(DateTimeOffset timestamp)
+    {
+        EnsureStatus(RegulatoryIngestionStatus.PendingOcr);
+        ComplianceValidation.RequiredTimestamp(timestamp, nameof(timestamp));
+        IngestionStatus = RegulatoryIngestionStatus.Processing;
+        UpdatedAt = timestamp;
+    }
+
     public void CompleteIngestion(DateTimeOffset completedAt)
     {
         EnsureStatus(RegulatoryIngestionStatus.Processing);
@@ -140,7 +156,6 @@ public sealed class RegulatoryDocumentVersion : AuditableEntity
 
     public void FailIngestion(string errorCode, string errorMessage, DateTimeOffset failedAt)
     {
-        EnsureStatus(RegulatoryIngestionStatus.Processing);
         ComplianceValidation.RequiredTimestamp(failedAt, nameof(failedAt));
         IngestionStatus = RegulatoryIngestionStatus.Failed;
         ErrorCode = ComplianceValidation.RequiredText(errorCode, nameof(errorCode), 100);
