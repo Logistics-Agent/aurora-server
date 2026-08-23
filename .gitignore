@@ -15,7 +15,6 @@ target/
 **/artifacts/*
 !**/artifacts/.gitkeep
 # Local Codex planning and execution documents
-/codex/
 
 dist/
 target/
