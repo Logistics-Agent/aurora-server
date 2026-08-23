@@ -3,6 +3,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
+using Shared.Constants;
 using Shared.Events;
 using Shared.Security;
 using MailService.Application.Interfaces.Messaging;
@@ -33,7 +34,7 @@ public class RequeueDeadLetterCommandHandler : IRequestHandler<RequeueDeadLetter
 
     public async Task<RequeueDeadLetterResult> Handle(RequeueDeadLetterCommand request, CancellationToken cancellationToken)
     {
-        bool isSystemAdmin = _currentUserService.RoleIds.Any(r => string.Equals(r, "SYSTEM_ADMIN", StringComparison.OrdinalIgnoreCase));
+        bool isSystemAdmin = _currentUserService.IsSystemAdmin();
 
         ProcessedMessage? message;
         if (isSystemAdmin)

@@ -761,4 +761,121 @@ public class MailServiceTests
         Assert.Empty(domains);
         Assert.Empty(mailboxes);
     }
+
+    [Fact]
+    public async Task Test21_AuditRecords_SystemAdmin_ReturnsCrossTenantRecords()
+    {
+        var tenantA = Guid.NewGuid();
+        var tenantB = Guid.NewGuid();
+        var dbName = Guid.NewGuid().ToString();
+
+        // Seed audit records for Tenant A and Tenant B
+        var mockSysAdmin = new Mock<ICurrentUserService>();
+        mockSysAdmin.Setup(u => u.RoleIds).Returns(new List<string> { Shared.Constants.RoleConstants.SystemAdmin });
+        mockSysAdmin.Setup(u => u.TenantId).Returns((Guid?)null);
+
+        using (var seedContext = CreateInMemoryDbContext(dbName, mockSysAdmin.Object))
+        {
+            seedContext.AuditRecords.Add(new AuditRecord
+            {
+                TenantId = tenantA,
+                ActorId = Guid.NewGuid(),
+                Action = "ActionA",
+                ResourceType = "MailDomain",
+                ResourceId = Guid.NewGuid(),
+                Timestamp = DateTimeOffset.UtcNow.AddMinutes(-5),
+                Result = "Success"
+            });
+            seedContext.AuditRecords.Add(new AuditRecord
+            {
+                TenantId = tenantB,
+                ActorId = Guid.NewGuid(),
+                Action = "ActionB",
+                ResourceType = "MailDomain",
+                ResourceId = Guid.NewGuid(),
+                Timestamp = DateTimeOffset.UtcNow,
+                Result = "Success"
+            });
+            await seedContext.SaveChangesAsync();
+        }
+
+        // Act - Query as SYSTEM_ADMIN
+        using (var queryContext = CreateInMemoryDbContext(dbName, mockSysAdmin.Object))
+        {
+            var handler = new MailService.Application.Queries.Audit.GetAuditRecordsQueryHandler(queryContext, mockSysAdmin.Object);
+            var result = await handler.Handle(new MailService.Application.Queries.Audit.GetAuditRecordsQuery(null, 50), CancellationToken.None);
+
+            // Assert - SYSTEM_ADMIN sees both Tenant A and Tenant B
+            Assert.Equal(2, result.Count);
+            Assert.Contains(result, r => r.TenantId == tenantA);
+            Assert.Contains(result, r => r.TenantId == tenantB);
+        }
+    }
+
+    [Fact]
+    public async Task Test22_AuditRecords_TenantAdmin_ReturnsOwnTenantOnly()
+    {
+        var tenantA = Guid.NewGuid();
+        var tenantB = Guid.NewGuid();
+        var dbName = Guid.NewGuid().ToString();
+
+        // Seed audit records for Tenant A and Tenant B
+        var mockSysAdmin = new Mock<ICurrentUserService>();
+        mockSysAdmin.Setup(u => u.RoleIds).Returns(new List<string> { Shared.Constants.RoleConstants.SystemAdmin });
+
+        using (var seedContext = CreateInMemoryDbContext(dbName, mockSysAdmin.Object))
+        {
+            seedContext.AuditRecords.Add(new AuditRecord
+            {
+                TenantId = tenantA,
+                ActorId = Guid.NewGuid(),
+                Action = "ActionA",
+                ResourceType = "MailDomain",
+                ResourceId = Guid.NewGuid(),
+                Timestamp = DateTimeOffset.UtcNow.AddMinutes(-5),
+                Result = "Success"
+            });
+            seedContext.AuditRecords.Add(new AuditRecord
+            {
+                TenantId = tenantB,
+                ActorId = Guid.NewGuid(),
+                Action = "ActionB",
+                ResourceType = "MailDomain",
+                ResourceId = Guid.NewGuid(),
+                Timestamp = DateTimeOffset.UtcNow,
+                Result = "Success"
+            });
+            await seedContext.SaveChangesAsync();
+        }
+
+        // Act - Query as TENANT_ADMIN of Tenant A
+        var mockTenantAAdmin = new Mock<ICurrentUserService>();
+        mockTenantAAdmin.Setup(u => u.RoleIds).Returns(new List<string> { Shared.Constants.RoleConstants.TenantAdmin });
+        mockTenantAAdmin.Setup(u => u.TenantId).Returns(tenantA);
+
+        using (var queryContext = CreateInMemoryDbContext(dbName, mockTenantAAdmin.Object))
+        {
+            var handler = new MailService.Application.Queries.Audit.GetAuditRecordsQueryHandler(queryContext, mockTenantAAdmin.Object);
+            var result = await handler.Handle(new MailService.Application.Queries.Audit.GetAuditRecordsQuery(null, 50), CancellationToken.None);
+
+            // Assert - TENANT_ADMIN sees only Tenant A
+            Assert.Single(result);
+            Assert.Equal(tenantA, result[0].TenantId);
+        }
+    }
+
+    [Fact]
+    public async Task Test23_AuditRecords_MissingTenantId_ThrowsUnauthorized()
+    {
+        var dbName = Guid.NewGuid().ToString();
+        var mockUserWithoutTenant = new Mock<ICurrentUserService>();
+        mockUserWithoutTenant.Setup(u => u.RoleIds).Returns(new List<string> { Shared.Constants.RoleConstants.Staff });
+        mockUserWithoutTenant.Setup(u => u.TenantId).Returns((Guid?)null);
+
+        using var queryContext = CreateInMemoryDbContext(dbName, mockUserWithoutTenant.Object);
+        var handler = new MailService.Application.Queries.Audit.GetAuditRecordsQueryHandler(queryContext, mockUserWithoutTenant.Object);
+
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
+            handler.Handle(new MailService.Application.Queries.Audit.GetAuditRecordsQuery(null, 50), CancellationToken.None));
+    }
 }

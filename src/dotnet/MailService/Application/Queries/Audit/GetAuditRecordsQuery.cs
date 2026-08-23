@@ -1,5 +1,12 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
+using Shared.Constants;
+using Shared.Security;
 using MailService.Domain.Entities;
 using MailService.Infrastructure.Persistence;
 
@@ -10,15 +17,33 @@ public record GetAuditRecordsQuery(Guid? ResourceId, int PageSize) : IRequest<Li
 public class GetAuditRecordsQueryHandler : IRequestHandler<GetAuditRecordsQuery, List<AuditRecord>>
 {
     private readonly MailServiceDbContext _dbContext;
+    private readonly ICurrentUserService _currentUserService;
 
-    public GetAuditRecordsQueryHandler(MailServiceDbContext dbContext)
+    public GetAuditRecordsQueryHandler(MailServiceDbContext dbContext, ICurrentUserService currentUserService)
     {
         _dbContext = dbContext;
+        _currentUserService = currentUserService;
     }
 
     public async Task<List<AuditRecord>> Handle(GetAuditRecordsQuery request, CancellationToken cancellationToken)
     {
-        var query = _dbContext.AuditRecords.AsNoTracking();
+        IQueryable<AuditRecord> query;
+
+        if (_currentUserService.IsSystemAdmin())
+        {
+            // Explicit cross-tenant query for verified System Admin only
+            query = _dbContext.AuditRecords.IgnoreQueryFilters().AsNoTracking();
+        }
+        else
+        {
+            // Tenant-scoped query — requires valid TenantId
+            if (!_currentUserService.TenantId.HasValue || _currentUserService.TenantId.Value == Guid.Empty)
+            {
+                throw new UnauthorizedAccessException("Tenant context is required to query audit records.");
+            }
+
+            query = _dbContext.AuditRecords.AsNoTracking();
+        }
 
         if (request.ResourceId.HasValue && request.ResourceId.Value != Guid.Empty)
         {
