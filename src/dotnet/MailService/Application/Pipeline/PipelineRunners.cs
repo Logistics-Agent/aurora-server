@@ -1,7 +1,15 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
+using MailService.Application.Interfaces.Messaging;
+using MailService.Application.Interfaces.Storage;
 using MailService.Domain.Entities;
 using MailService.Domain.Enums;
 using MailService.Infrastructure.Persistence;
+using Shared.Events;
 
 namespace MailService.Application.Pipeline;
 
@@ -9,25 +17,43 @@ public class InboundPipelineRunner
 {
     private readonly IEnumerable<IInboundPipelineStage> _stages;
     private readonly MailServiceDbContext _dbContext;
+    private readonly IOutboxWriter _outboxWriter;
+    private readonly IR2StorageClient _storageClient;
     private readonly ILogger<InboundPipelineRunner> _logger;
 
     public InboundPipelineRunner(
         IEnumerable<IInboundPipelineStage> stages,
         MailServiceDbContext dbContext,
+        IOutboxWriter outboxWriter,
+        IR2StorageClient storageClient,
         ILogger<InboundPipelineRunner> logger)
     {
         _stages = stages.OrderBy(s => (int)s.StageName);
         _dbContext = dbContext;
+        _outboxWriter = outboxWriter;
+        _storageClient = storageClient;
         _logger = logger;
     }
 
     public async Task<InboundPipelineContext> RunAsync(InboundPipelineContext context, CancellationToken cancellationToken = default)
     {
-        context.ProcessedMessage.Id = Guid.CreateVersion7();
         context.ProcessedMessage.PipelineExecutionId = context.ExecutionId.Value;
         context.ProcessedMessage.Direction = EmailDirection.Inbound;
         context.ProcessedMessage.ReceivedAt = DateTimeOffset.UtcNow;
         context.ProcessedMessage.PipelineStatus = PipelineStatus.Running;
+
+        // Durable EML storage before security / quarantine execution
+        if (context.RawEmlBytes != null && context.RawEmlBytes.Length > 0)
+        {
+            string storageKey = await _storageClient.UploadRawEmlAsync(
+                context.TenantId,
+                context.ProcessedMessage.MessageId,
+                EmailDirection.Inbound,
+                context.RawEmlBytes,
+                cancellationToken);
+            context.ProcessedMessage.R2RawEmlPath = storageKey;
+        }
+
 
         foreach (var stage in _stages)
         {
@@ -38,7 +64,6 @@ public class InboundPipelineRunner
 
                 var checkResult = new SecurityCheckResult
                 {
-                    Id = Guid.CreateVersion7(),
                     TenantId = context.TenantId,
                     ProcessedMessageId = context.ProcessedMessage.Id,
                     Stage = result.Stage,
@@ -86,7 +111,6 @@ public class InboundPipelineRunner
         {
             var quarantineRecord = new QuarantineRecord
             {
-                Id = Guid.CreateVersion7(),
                 TenantId = context.TenantId,
                 ProcessedMessageId = context.ProcessedMessage.Id,
                 MessageId = context.ProcessedMessage.MessageId,
@@ -97,9 +121,37 @@ public class InboundPipelineRunner
             };
 
             _dbContext.QuarantineRecords.Add(quarantineRecord);
+
+            // Write Outbox Event for Quarantined Email
+            await _outboxWriter.WriteAsync(new InboundEmailQuarantinedEvent
+            {
+                TenantId = context.TenantId,
+                MessageId = context.ProcessedMessage.Id,
+                SenderEmail = context.SenderAddress,
+                Subject = context.Subject,
+                Reason = context.QuarantineReason ?? "Security policy quarantine",
+                ThreatLevel = "High",
+                QuarantinedAt = DateTime.UtcNow
+            }, cancellationToken);
+        }
+        else
+        {
+            // Write Outbox Event for Received Email
+            await _outboxWriter.WriteAsync(new InboundEmailReceivedEvent
+            {
+                TenantId = context.TenantId,
+                MessageId = context.ProcessedMessage.Id,
+                SenderEmail = context.SenderAddress,
+                RecipientEmails = context.RecipientAddresses,
+                Subject = context.Subject,
+                Classification = context.ProcessedMessage.EmailCategory.ToString(),
+                ReceivedAt = DateTime.UtcNow
+            }, cancellationToken);
         }
 
         _dbContext.ProcessedMessages.Add(context.ProcessedMessage);
+
+        // Atomic commit: ProcessedMessage + SecurityCheckResults + QuarantineRecord + OutboxMessage
         await _dbContext.SaveChangesAsync(cancellationToken);
 
         return context;
@@ -110,21 +162,23 @@ public class OutboundPipelineRunner
 {
     private readonly IEnumerable<IOutboundPipelineStage> _stages;
     private readonly MailServiceDbContext _dbContext;
+    private readonly IOutboxWriter _outboxWriter;
     private readonly ILogger<OutboundPipelineRunner> _logger;
 
     public OutboundPipelineRunner(
         IEnumerable<IOutboundPipelineStage> stages,
         MailServiceDbContext dbContext,
+        IOutboxWriter outboxWriter,
         ILogger<OutboundPipelineRunner> logger)
     {
         _stages = stages.OrderBy(s => (int)s.StageName);
         _dbContext = dbContext;
+        _outboxWriter = outboxWriter;
         _logger = logger;
     }
 
     public async Task<OutboundPipelineContext> RunAsync(OutboundPipelineContext context, CancellationToken cancellationToken = default)
     {
-        context.ProcessedMessage.Id = Guid.CreateVersion7();
         context.ProcessedMessage.PipelineExecutionId = context.ExecutionId.Value;
         context.ProcessedMessage.Direction = EmailDirection.Outbound;
         context.ProcessedMessage.ReceivedAt = DateTimeOffset.UtcNow;
@@ -145,7 +199,6 @@ public class OutboundPipelineRunner
 
                 var checkResult = new SecurityCheckResult
                 {
-                    Id = Guid.CreateVersion7(),
                     TenantId = context.TenantId,
                     ProcessedMessageId = context.ProcessedMessage.Id,
                     Stage = result.Stage,
@@ -177,7 +230,39 @@ public class OutboundPipelineRunner
         context.ProcessedMessage.PipelineStatus = context.IsRejected ? PipelineStatus.Failed : PipelineStatus.Delivered;
         context.ProcessedMessage.StalwartQueueId = context.StalwartQueueId;
 
+        if (context.IsRejected)
+        {
+            // Write Outbox Event for Outbound Email Rejected
+            await _outboxWriter.WriteAsync(new OutboundEmailRejectedEvent
+            {
+                TenantId = context.TenantId,
+                MessageId = context.ProcessedMessage.Id,
+                SenderEmail = context.SenderAddress,
+                RecipientEmails = context.RecipientAddresses,
+                Subject = context.Subject,
+                Reason = context.RejectionReason ?? "Policy rejection",
+                RejectedAt = DateTime.UtcNow
+            }, cancellationToken);
+        }
+
+        else
+        {
+            // Write Outbox Event for Outbound Email Sent
+            await _outboxWriter.WriteAsync(new OutboundEmailSentEvent
+            {
+                TenantId = context.TenantId,
+                MessageId = context.ProcessedMessage.Id,
+                SenderEmail = context.SenderAddress,
+                RecipientEmails = context.RecipientAddresses,
+                Subject = context.Subject,
+                StalwartQueueId = context.StalwartQueueId ?? string.Empty,
+                SentAt = DateTime.UtcNow
+            }, cancellationToken);
+        }
+
         _dbContext.ProcessedMessages.Add(context.ProcessedMessage);
+
+        // Atomic commit: ProcessedMessage + SecurityCheckResults + OutboxMessage
         await _dbContext.SaveChangesAsync(cancellationToken);
 
         return context;

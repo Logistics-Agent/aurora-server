@@ -15,7 +15,9 @@ public sealed record OcrProviderRequest(
     string FileName,
     string MimeType,
     OcrDocumentType DocumentTypeHint,
-    DocumentContent Content);
+    DocumentContent Content,
+    OcrExtractionMode ExtractionMode = OcrExtractionMode.Structured,
+    string? StorageReference = null);
 
 public sealed class DocumentContent
 {
@@ -95,7 +97,9 @@ public sealed class OcrProviderResult
         string providerRequestId,
         string? textReference,
         string? layoutReference,
-        string? diagnostics)
+        string? diagnostics,
+        string? fullTextContent = null,
+        OcrExtractionMode extractionMode = OcrExtractionMode.Structured)
     {
         DetectedDocumentType = detectedDocumentType;
         Fields = fields;
@@ -103,6 +107,8 @@ public sealed class OcrProviderResult
         TextReference = textReference;
         LayoutReference = layoutReference;
         Diagnostics = diagnostics;
+        FullTextContent = fullTextContent;
+        ExtractionMode = extractionMode;
     }
 
     public OcrDocumentType DetectedDocumentType { get; }
@@ -111,6 +117,8 @@ public sealed class OcrProviderResult
     public string? TextReference { get; }
     public string? LayoutReference { get; }
     public string? Diagnostics { get; }
+    public string? FullTextContent { get; }
+    public OcrExtractionMode ExtractionMode { get; }
 
     public static OcrProviderResult Create(
         OcrDocumentType detectedDocumentType,
@@ -118,15 +126,15 @@ public sealed class OcrProviderResult
         string providerRequestId,
         string? textReference,
         string? layoutReference,
-        string? diagnostics)
+        string? diagnostics,
+        string? fullTextContent = null,
+        OcrExtractionMode extractionMode = OcrExtractionMode.Structured)
     {
         ArgumentNullException.ThrowIfNull(fields);
         if (detectedDocumentType == OcrDocumentType.Unspecified || !Enum.IsDefined(detectedDocumentType))
             throw new ArgumentOutOfRangeException(nameof(detectedDocumentType));
-        if (fields.Count == 0 || fields.Count > 200)
-            throw new ArgumentOutOfRangeException(nameof(fields), "Provider result must contain between 1 and 200 fields.");
-        if (fields.Select(field => field.Name).Distinct(StringComparer.OrdinalIgnoreCase).Count() != fields.Count)
-            throw new ArgumentException("Provider result field names must be unique.", nameof(fields));
+        if (fields.Count == 0 && string.IsNullOrWhiteSpace(fullTextContent))
+            throw new ArgumentException("Provider result must contain fields or full text content.");
 
         return new OcrProviderResult(
             detectedDocumentType,
@@ -134,7 +142,9 @@ public sealed class OcrProviderResult
             OcrExtractedField.RequiredText(providerRequestId, nameof(providerRequestId), 200),
             OcrExtractedField.OptionalText(textReference, nameof(textReference), 1_000),
             OcrExtractedField.OptionalText(layoutReference, nameof(layoutReference), 1_000),
-            OcrExtractedField.OptionalText(diagnostics, nameof(diagnostics), 2_000));
+            OcrExtractedField.OptionalText(diagnostics, nameof(diagnostics), 2_000),
+            fullTextContent,
+            extractionMode);
     }
 }
 

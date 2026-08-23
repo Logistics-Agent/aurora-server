@@ -1,3 +1,5 @@
+using System.Collections.Generic;
+
 namespace Shared.Constants;
 
 public static class PermissionConstants
@@ -10,6 +12,9 @@ public static class PermissionConstants
     public const string Import = "import";
     public const string Export = "export";
     public const string Assign = "assign";
+    public const string Send = "send";
+    public const string Release = "release";
+    public const string Requeue = "requeue";
 
     // Define Modules / Services            system, admin, staff
     public static class Modules
@@ -24,16 +29,17 @@ public static class PermissionConstants
         public const string FinancialTax = "financial_tax";
         public const string GpsTracking = "gps_tracking";
         public const string BillingSettlement = "billing_settlement";
+        public const string Mail = "mail";
 
         public static readonly IReadOnlyList<string> All =
         [
             Ocr, Documents, Compliance, Negotiation, CustomerAssistant,
-            Iam, RoutePlanning, FinancialTax, GpsTracking, BillingSettlement
+            Iam, RoutePlanning, FinancialTax, GpsTracking, BillingSettlement, Mail
         ];
     }
 
     /// <summary>
-    /// Generate a permission code like "route_planning:create"
+    /// Generate a permission code like "route_planning:create" or "mail:send"
     /// </summary>
     public static string Build(string module, string action) => $"{module}:{action}";
 
@@ -52,6 +58,12 @@ public static class PermissionConstants
             permissions.Add(Build(module, Import));
             permissions.Add(Build(module, Export));
             permissions.Add(Build(module, Assign));
+            if (module == Modules.Mail)
+            {
+                permissions.Add(Build(module, Send));
+                permissions.Add(Build(module, Release));
+                permissions.Add(Build(module, Requeue));
+            }
         }
         return permissions;
     }
@@ -64,12 +76,14 @@ public static class PermissionConstants
         var permissions = new List<string>();
         foreach (var module in Modules.All)
         {
-            // By default, staff can only create and read
-            // permissions.Add(Build(module, Create));
-
             permissions.Add(Build(module, Read));
             permissions.Add(Build(module, Export));
             permissions.Add(Build(module, Import));
+            if (module == Modules.Mail)
+            {
+                permissions.Add(Build(module, Create));
+                permissions.Add(Build(module, Send));
+            }
         }
         return permissions;
     }

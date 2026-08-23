@@ -1,3 +1,7 @@
+using System;
+using System.Collections.Generic;
+using System.Threading;
+using System.Threading.Tasks;
 using MediatR;
 using Shared.Security;
 using MailService.Application.Interfaces.Persistence;
@@ -39,7 +43,7 @@ public class SubmitOutboundMessageCommandHandler : IRequestHandler<SubmitOutboun
         Guid? finalDraftRevisionId = null;
         DraftSource draftSource = DraftSource.Manual;
 
-        // Draft Revision Pre-Check (executed within transaction inside repository)
+        // Draft Revision Pre-Check (validate immutable revision state)
         if (request.DraftRootId.HasValue && request.DraftRootId.Value != Guid.Empty)
         {
             var latest = await _draftRepository.GetLatestRevisionAsync(request.DraftRootId.Value, cancellationToken);
@@ -50,19 +54,18 @@ public class SubmitOutboundMessageCommandHandler : IRequestHandler<SubmitOutboun
 
                 if (latest.ContentHash == newContentHash)
                 {
-                    // Match -> Update existing revision status to Sent
-                    await _draftRepository.MarkAsSentAsync(request.DraftRootId.Value, cancellationToken);
+                    // Existing revision content matches exactly
                     finalDraftRevisionId = latest.Id;
                 }
                 else
                 {
-                    // Mismatch (Staff edited content) -> Create new Manual snapshot revision in a SINGLE TRANSACTION
+                    // Content differs -> Create new revision snapshot in Draft status
                     var newRevision = await _draftRepository.CreateNextRevisionInTransactionAsync(
                         request.DraftRootId.Value,
                         request.Subject,
                         request.BodyText,
                         DraftSource.Manual,
-                        DraftStatus.Sent,
+                        DraftStatus.Draft, // Keep as Draft until SMTP succeeds
                         latest.MailboxId,
                         latest.AssignedStaffId,
                         cancellationToken);
@@ -89,7 +92,15 @@ public class SubmitOutboundMessageCommandHandler : IRequestHandler<SubmitOutboun
         pipelineContext.RecipientAddresses.AddRange(request.RecipientAddresses);
         pipelineContext.Attachments.AddRange(request.Attachments);
 
-        // Dispatch to Outbound Pipeline Runner
-        return await _pipelineRunner.RunAsync(pipelineContext, cancellationToken);
+        // Dispatch to Outbound Pipeline Runner (Policy -> ClamAV -> AI BEC -> Rate Limit -> SMTP Delivery)
+        var resultContext = await _pipelineRunner.RunAsync(pipelineContext, cancellationToken);
+
+        // Draft becomes Sent ONLY after SMTP 2xx acceptance
+        if (!resultContext.IsRejected && request.DraftRootId.HasValue && request.DraftRootId.Value != Guid.Empty)
+        {
+            await _draftRepository.MarkAsSentAsync(request.DraftRootId.Value, cancellationToken);
+        }
+
+        return resultContext;
     }
 }

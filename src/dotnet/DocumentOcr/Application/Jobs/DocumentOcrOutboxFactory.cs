@@ -14,6 +14,7 @@ public static class DocumentOcrOutboxFactory
             JobId = job.Id,
             ExternalDocumentId = job.ExternalDocumentId,
             ExternalShipmentId = job.ExternalShipmentId,
+            ExternalContextId = job.ExternalContextId,
             ErrorCode = job.ErrorCode ?? "document_processing_failed",
             ErrorMessage = job.ErrorMessage ?? "Document processing failed.",
             OccurredAt = occurredAt

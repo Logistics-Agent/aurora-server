@@ -19,6 +19,9 @@ public sealed class RegulatoryComplianceDbContext(
     public DbSet<RegulatoryDocument> RegulatoryDocuments => Set<RegulatoryDocument>();
     public DbSet<RegulatoryDocumentVersion> RegulatoryDocumentVersions => Set<RegulatoryDocumentVersion>();
     public DbSet<RegulatoryChunk> RegulatoryChunks => Set<RegulatoryChunk>();
+    public DbSet<KnowledgeDocument> KnowledgeDocuments => Set<KnowledgeDocument>();
+    public DbSet<KnowledgeDocumentVersion> KnowledgeDocumentVersions => Set<KnowledgeDocumentVersion>();
+    public DbSet<KnowledgeChunk> KnowledgeChunks => Set<KnowledgeChunk>();
     public DbSet<ComplianceEvaluation> ComplianceEvaluations => Set<ComplianceEvaluation>();
     public DbSet<ComplianceFinding> ComplianceFindings => Set<ComplianceFinding>();
     public DbSet<ComplianceCitation> ComplianceCitations => Set<ComplianceCitation>();
@@ -31,9 +34,17 @@ public sealed class RegulatoryComplianceDbContext(
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        if (Database.IsNpgsql())
+        {
+            modelBuilder.HasPostgresExtension("vector");
+        }
+
         ConfigureRegulatoryDocument(modelBuilder);
         ConfigureRegulatoryDocumentVersion(modelBuilder);
         ConfigureRegulatoryChunk(modelBuilder);
+        ConfigureKnowledgeDocument(modelBuilder);
+        ConfigureKnowledgeDocumentVersion(modelBuilder);
+        ConfigureKnowledgeChunk(modelBuilder);
         ConfigureEvaluation(modelBuilder);
         ConfigureFinding(modelBuilder);
         ConfigureCitation(modelBuilder);
@@ -152,6 +163,95 @@ public sealed class RegulatoryComplianceDbContext(
             entity.Property(chunk => chunk.ContentSha256).HasMaxLength(64).IsRequired();
             entity.Property(chunk => chunk.EmbeddingStatus)
                 .HasConversion<string>().HasMaxLength(30).IsRequired();
+            entity.Property(chunk => chunk.Embedding).HasColumnType("real[]");
+            entity.Property(chunk => chunk.EmbeddingModel).HasMaxLength(200);
+            entity.Property(chunk => chunk.EmbeddingModelVersion).HasMaxLength(100);
+            entity.Property(chunk => chunk.EmbeddedContentHash).HasMaxLength(64);
+            entity.Property(chunk => chunk.EmbeddingError).HasMaxLength(2_000);
+            ConfigureAudit(entity);
+        });
+    }
+
+    private void ConfigureKnowledgeDocument(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<KnowledgeDocument>(entity =>
+        {
+            entity.ToTable("knowledge_documents");
+            entity.HasKey(doc => doc.Id);
+            entity.HasQueryFilter(doc =>
+                doc.Visibility == SourceVisibility.Platform ||
+                (_currentUser.TenantId.HasValue && doc.TenantId == _currentUser.TenantId));
+            entity.HasIndex(doc => new { doc.ScopeKey, doc.Category, doc.LanguageCode });
+
+            entity.Property(doc => doc.ScopeKey).IsRequired();
+            entity.Property(doc => doc.Visibility).HasConversion<string>().HasMaxLength(20).IsRequired();
+            entity.Property(doc => doc.Category).HasConversion<string>().HasMaxLength(50).IsRequired();
+            entity.Property(doc => doc.Title).HasMaxLength(500).IsRequired();
+            entity.Property(doc => doc.SourceReference).HasMaxLength(1_000).IsRequired();
+            entity.Property(doc => doc.LanguageCode).HasMaxLength(20).IsRequired();
+            ConfigureAudit(entity);
+
+            entity.HasMany(doc => doc.Versions)
+                .WithOne()
+                .HasForeignKey(version => version.KnowledgeDocumentId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.Navigation(doc => doc.Versions).UsePropertyAccessMode(PropertyAccessMode.Field);
+        });
+    }
+
+    private void ConfigureKnowledgeDocumentVersion(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<KnowledgeDocumentVersion>(entity =>
+        {
+            entity.ToTable("knowledge_document_versions");
+            entity.HasKey(version => version.Id);
+            entity.HasQueryFilter(version =>
+                version.Visibility == SourceVisibility.Platform ||
+                (_currentUser.TenantId.HasValue && version.TenantId == _currentUser.TenantId));
+            entity.HasIndex(version => new { version.KnowledgeDocumentId, version.VersionLabel }).IsUnique();
+            entity.HasIndex(version => new { version.ScopeKey, version.IngestionKey }).IsUnique();
+
+            entity.Property(version => version.ScopeKey).IsRequired();
+            entity.Property(version => version.Visibility).HasConversion<string>().HasMaxLength(20).IsRequired();
+            entity.Property(version => version.IngestionKey).HasMaxLength(128).IsRequired();
+            entity.Property(version => version.VersionLabel).HasMaxLength(100).IsRequired();
+            entity.Property(version => version.ContentSha256).HasMaxLength(128).IsRequired();
+            entity.Property(version => version.ContentReference).HasMaxLength(1_000).IsRequired();
+            entity.Property(version => version.FileName).HasMaxLength(255).IsRequired();
+            entity.Property(version => version.MimeType).HasMaxLength(100).IsRequired();
+            entity.Property(version => version.IngestionStatus).HasConversion<string>().HasMaxLength(30).IsRequired();
+            entity.Property(version => version.ErrorCode).HasMaxLength(100);
+            entity.Property(version => version.ErrorMessage).HasMaxLength(2_000);
+            ConfigureAudit(entity);
+
+            entity.HasMany(version => version.Chunks)
+                .WithOne()
+                .HasForeignKey(chunk => chunk.KnowledgeDocumentVersionId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.Navigation(version => version.Chunks).UsePropertyAccessMode(PropertyAccessMode.Field);
+        });
+    }
+
+    private void ConfigureKnowledgeChunk(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<KnowledgeChunk>(entity =>
+        {
+            entity.ToTable("knowledge_chunks");
+            entity.HasKey(chunk => chunk.Id);
+            entity.HasQueryFilter(chunk =>
+                chunk.Visibility == SourceVisibility.Platform ||
+                (_currentUser.TenantId.HasValue && chunk.TenantId == _currentUser.TenantId));
+            entity.HasIndex(chunk => new { chunk.KnowledgeDocumentVersionId, chunk.Sequence }).IsUnique();
+            entity.HasIndex(chunk => new { chunk.ScopeKey, chunk.ContentSha256 });
+            entity.HasIndex(chunk => new { chunk.ScopeKey, chunk.EmbeddingStatus, chunk.CreatedAt });
+
+            entity.Property(chunk => chunk.ScopeKey).IsRequired();
+            entity.Property(chunk => chunk.Visibility).HasConversion<string>().HasMaxLength(20).IsRequired();
+            entity.Property(chunk => chunk.SectionLabel).HasMaxLength(200);
+            entity.Property(chunk => chunk.PageLabel).HasMaxLength(50);
+            entity.Property(chunk => chunk.NormalizedText).HasMaxLength(20_000).IsRequired();
+            entity.Property(chunk => chunk.ContentSha256).HasMaxLength(64).IsRequired();
+            entity.Property(chunk => chunk.EmbeddingStatus).HasConversion<string>().HasMaxLength(30).IsRequired();
             entity.Property(chunk => chunk.Embedding).HasColumnType("real[]");
             entity.Property(chunk => chunk.EmbeddingModel).HasMaxLength(200);
             entity.Property(chunk => chunk.EmbeddingModelVersion).HasMaxLength(100);

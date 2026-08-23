@@ -1,4 +1,9 @@
+using System;
+using System.Text.Json;
+using System.Threading;
+using System.Threading.Tasks;
 using MediatR;
+using Microsoft.EntityFrameworkCore;
 using Shared.Security;
 using MailService.Application.Interfaces.Stalwart;
 using MailService.Domain.Entities;
@@ -28,17 +33,26 @@ public class CreateMailboxCommandHandler : IRequestHandler<CreateMailboxCommand,
     public async Task<Mailbox> Handle(CreateMailboxCommand request, CancellationToken cancellationToken)
     {
         Guid tenantId = _currentUserService.TenantId ?? Guid.Empty;
-        var domain = await _dbContext.Domains.FindAsync(new object[] { request.DomainId }, cancellationToken);
+        var domain = await _dbContext.Domains.FindAsync([request.DomainId], cancellationToken);
         if (domain == null)
         {
             throw new InvalidOperationException($"Domain with ID '{request.DomainId}' not found.");
         }
 
-        string fullAddress = $"{request.LocalPart.Trim().ToLowerInvariant()}@{domain.DomainName}";
+        string fullAddress = $"{request.LocalPart.Trim().ToLowerInvariant()}@{domain.DomainName.ToLowerInvariant()}";
+
+        // Check if mailbox already exists for repair / reconciliation
+        var existingMailbox = await _dbContext.Mailboxes
+            .FirstOrDefaultAsync(m => m.FullAddress == fullAddress, cancellationToken);
+
+        if (existingMailbox != null)
+        {
+            await _stalwartClient.ProvisionAccountAsync(fullAddress, cancellationToken);
+            return existingMailbox;
+        }
 
         var mailbox = new Mailbox
         {
-            Id = Guid.CreateVersion7(),
             TenantId = tenantId,
             DomainId = request.DomainId,
             LocalPart = request.LocalPart.Trim().ToLowerInvariant(),
@@ -49,6 +63,21 @@ public class CreateMailboxCommandHandler : IRequestHandler<CreateMailboxCommand,
         };
 
         _dbContext.Mailboxes.Add(mailbox);
+
+        var audit = new AuditRecord
+        {
+            TenantId = tenantId,
+            ActorId = _currentUserService.UserId ?? Guid.Empty,
+            ActorType = ActorType.TenantAdmin,
+            Action = "MailboxCreated",
+            ResourceType = "Mailbox",
+            ResourceId = mailbox.Id,
+            Timestamp = DateTimeOffset.UtcNow,
+            Result = "Success",
+            DetailJson = JsonSerializer.Serialize(new { FullAddress = fullAddress, DomainId = request.DomainId, UserId = request.UserId })
+        };
+        _dbContext.AuditRecords.Add(audit);
+
         await _dbContext.SaveChangesAsync(cancellationToken);
 
         await _stalwartClient.ProvisionAccountAsync(fullAddress, cancellationToken);

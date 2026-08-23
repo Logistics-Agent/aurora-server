@@ -45,6 +45,9 @@
     <Protobuf Include="../../../../protos/iam_tenant.proto" GrpcServices="Client" />
     <Protobuf Include="../../../../protos/auth.proto" GrpcServices="Client" />
     <Protobuf Include="../../../../protos/route-planning-agent.proto" GrpcServices="Client" />
+    <Protobuf Include="../../../../protos/document_ocr.proto" GrpcServices="Client" />
+    <Protobuf Include="../../../../protos/regulatory_compliance.proto" GrpcServices="Client" />
+    <Protobuf Include="../../../../protos/mail_platform.proto" GrpcServices="Client" />
     <Protobuf Include="../../../../protos/common.proto" GrpcServices="None" />
   </ItemGroup>
 

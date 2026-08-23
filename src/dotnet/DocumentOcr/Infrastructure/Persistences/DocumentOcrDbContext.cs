@@ -55,6 +55,10 @@ public sealed class DocumentOcrDbContext(
             entity.Property(job => job.NormalizedJson).HasColumnType("jsonb");
             entity.Property(job => job.FieldConfidenceJson).HasColumnType("jsonb");
             entity.Property(job => job.Confidence).HasPrecision(5, 4);
+            entity.Property(job => job.ExtractionMode).HasConversion<string>().HasMaxLength(50).IsRequired();
+            entity.Property(job => job.FullTextContent);
+            entity.Property(job => job.ArtifactReference).HasMaxLength(1_000);
+            entity.Property(job => job.ExternalContextId).HasMaxLength(150);
             entity.Property(job => job.ErrorCode).HasMaxLength(100);
             entity.Property(job => job.ErrorMessage).HasMaxLength(2_000);
             ConfigureAudit(entity);

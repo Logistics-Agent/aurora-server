@@ -9,6 +9,12 @@ Migrations*
 target/
 
 
+# EF migration bundles
+**/efbundle
+**/efbundle.exe
+**/artifacts/*
+!**/artifacts/.gitkeep
+# Local Codex planning and execution documents
 
 dist/
 target/

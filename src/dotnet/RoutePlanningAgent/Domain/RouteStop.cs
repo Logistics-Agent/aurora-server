@@ -1,11 +1,11 @@
 using System;
 using RoutePlanningAgent.Domain.Enums;
+using Shared.Entity;
 
 namespace RoutePlanningAgent.Domain;
 
-public class RouteStop
+public class RouteStop : BaseEntity
 {
-    public Guid Id { get; set; } = Guid.CreateVersion7();
     public Guid RouteId { get; set; }
     public int Sequence { get; set; }
     public StopType StopType { get; set; }

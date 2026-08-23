@@ -11,6 +11,10 @@ service RegulatoryComplianceService {
   rpc GetComplianceEvaluation(GetComplianceEvaluationRequest) returns (ComplianceEvaluationResponse);
   rpc QueryRegulations(QueryRegulationsRequest) returns (QueryRegulationsResponse);
   rpc IngestRegulatorySource(IngestRegulatorySourceRequest) returns (IngestRegulatorySourceResponse);
+  rpc IngestKnowledgeDocument(IngestKnowledgeSourceRequest) returns (IngestKnowledgeSourceResponse);
+  rpc QueryKnowledge(QueryKnowledgeRequest) returns (QueryKnowledgeResponse);
+  rpc GenerateGroundedAnswer(GenerateGroundedAnswerRequest) returns (GenerateGroundedAnswerResponse);
+  rpc ValidateGroundedEvidence(ValidateGroundedEvidenceRequest) returns (ValidateGroundedEvidenceResponse);
 }
 
 enum ComplianceEvaluationStatus {
@@ -202,3 +206,170 @@ message IngestRegulatorySourceResponse {
   bool replayed = 5;
   google.protobuf.Timestamp received_at = 6;
 }
+
+enum KnowledgeCategory {
+  KNOWLEDGE_CATEGORY_UNSPECIFIED = 0;
+  KNOWLEDGE_CATEGORY_SOP = 1;
+  KNOWLEDGE_CATEGORY_CONTRACT = 2;
+  KNOWLEDGE_CATEGORY_INTERNAL_POLICY = 3;
+  KNOWLEDGE_CATEGORY_GUIDE = 4;
+  KNOWLEDGE_CATEGORY_REFERENCE = 5;
+  KNOWLEDGE_CATEGORY_OTHER = 6;
+}
+
+message IngestKnowledgeSourceRequest {
+  string idempotency_key = 1;
+  string title = 2;
+  KnowledgeCategory category = 3;
+  string source_reference = 4;
+  string language_code = 5;
+  string version_label = 6;
+  string content_reference = 7;
+  string file_name = 8;
+  string mime_type = 9;
+  int64 size_bytes = 10;
+  string content_sha256 = 11;
+  bytes content = 12;
+  RegulatorySourceVisibility visibility = 13;
+}
+
+message IngestKnowledgeSourceResponse {
+  string knowledge_document_id = 1;
+  string document_version_id = 2;
+  RegulatoryIngestionStatus status = 3;
+  int32 chunk_count = 4;
+  bool replayed = 5;
+  google.protobuf.Timestamp received_at = 6;
+}
+
+message QueryKnowledgeRequest {
+  string query = 1;
+  repeated KnowledgeCategory categories = 2;
+  int32 top_k = 3;
+  double minimum_relevance_score = 4;
+}
+
+message QueryKnowledgeResponse {
+  string retrieval_trace_id = 1;
+  repeated KnowledgeEvidence evidence = 2;
+}
+
+message KnowledgeEvidence {
+  string knowledge_document_id = 1;
+  string document_version_id = 2;
+  string chunk_id = 3;
+  string title = 4;
+  KnowledgeCategory category = 5;
+  string section_label = 6;
+  string page_label = 7;
+  string excerpt = 8;
+  double relevance_score = 9;
+}
+
+enum AssistantSearchMode {
+  ASSISTANT_SEARCH_MODE_UNSPECIFIED = 0;
+  ASSISTANT_SEARCH_MODE_ALL = 1;
+  ASSISTANT_SEARCH_MODE_REGULATORY = 2;
+  ASSISTANT_SEARCH_MODE_KNOWLEDGE = 3;
+}
+
+message GenerateGroundedAnswerRequest {
+  string query = 1;
+  AssistantSearchMode mode = 2;
+  string jurisdiction_code = 3;
+  google.protobuf.Timestamp effective_at = 4;
+  repeated RegulationType regulation_types = 5;
+  repeated KnowledgeCategory categories = 6;
+  int32 top_k = 7;
+  double minimum_relevance_score = 8;
+}
+
+message GenerateGroundedAnswerResponse {
+  string query = 1;
+  string answer = 2;
+  repeated RegulatoryCitation regulatory_citations = 3;
+  repeated KnowledgeReference knowledge_references = 4;
+  repeated GroundedConflict conflicts = 5;
+  bool insufficient_evidence = 6;
+  repeated string missing_information = 7;
+  AssistantGovernanceMetadata governance = 8;
+  string retrieval_trace_id = 9;
+}
+
+message RegulatoryCitation {
+  string evidence_id = 1;
+  string source_id = 2;
+  string document_version_id = 3;
+  string chunk_id = 4;
+  string title = 5;
+  string authority = 6;
+  string jurisdiction = 7;
+  string regulation_type = 8;
+  string section = 9;
+  string page = 10;
+  string excerpt = 11;
+  string canonical_source_uri = 12;
+  double score = 13;
+}
+
+message KnowledgeReference {
+  string evidence_id = 1;
+  string source_id = 2;
+  string document_version_id = 3;
+  string chunk_id = 4;
+  string title = 5;
+  string category = 6;
+  string section = 7;
+  string page = 8;
+  string excerpt = 9;
+  double score = 10;
+}
+
+message GroundedConflict {
+  string regulatory_evidence_id = 1;
+  string knowledge_evidence_id = 2;
+  string description = 3;
+}
+
+message AssistantGovernanceMetadata {
+  string decision_id = 1;
+  string automation_level = 2;
+  bool requires_approval = 3;
+  string capability_code = 4;
+  int64 total_tokens = 5;
+}
+
+message ValidateGroundedEvidenceRequest {
+  string answer = 1;
+  repeated LlmCitationItem citations = 2;
+  repeated LlmKnowledgeItem knowledge_references = 3;
+  repeated LlmConflictItem conflicts = 4;
+  bool insufficient_evidence = 5;
+  repeated string missing_information = 6;
+  repeated RegulatoryCitation available_regulatory_evidence = 7;
+  repeated KnowledgeReference available_knowledge_evidence = 8;
+}
+
+message LlmCitationItem {
+  string evidence_id = 1;
+}
+
+message LlmKnowledgeItem {
+  string evidence_id = 1;
+}
+
+message LlmConflictItem {
+  string regulatory_evidence_id = 1;
+  string knowledge_evidence_id = 2;
+  string description = 3;
+}
+
+message ValidateGroundedEvidenceResponse {
+  string sanitized_answer = 1;
+  repeated RegulatoryCitation validated_regulatory_citations = 2;
+  repeated KnowledgeReference validated_knowledge_references = 3;
+  repeated GroundedConflict validated_conflicts = 4;
+  bool insufficient_evidence = 5;
+  repeated string missing_information = 6;
+}
+

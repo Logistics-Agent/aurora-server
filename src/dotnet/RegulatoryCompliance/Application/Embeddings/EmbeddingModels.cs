@@ -35,6 +35,12 @@ public interface IEmbeddingProvider
         CancellationToken cancellationToken = default);
 }
 
+public sealed record KnowledgeVectorSearchResult(
+    Guid ChunkId,
+    Guid KnowledgeDocumentVersionId,
+    int Sequence,
+    decimal Score);
+
 public interface IRegulationVectorStore
 {
     Task UpsertAsync(
@@ -48,7 +54,21 @@ public interface IRegulationVectorStore
         CancellationToken cancellationToken = default);
 }
 
+public interface IKnowledgeVectorStore
+{
+    Task UpsertAsync(
+        EmbeddingModelDescriptor model,
+        IReadOnlyList<VectorUpsert> vectors,
+        DateTimeOffset embeddedAt,
+        CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyList<KnowledgeVectorSearchResult>> SearchAsync(
+        VectorSearchRequest request,
+        CancellationToken cancellationToken = default);
+}
+
 public interface IEmbeddingBatchProcessor
 {
     Task<int> ProcessPendingAsync(CancellationToken cancellationToken = default);
 }
+

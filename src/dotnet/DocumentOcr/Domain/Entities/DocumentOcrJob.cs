@@ -33,6 +33,15 @@ public sealed class DocumentOcrJob : TenantAuditableEntity
     public DateTimeOffset? CompletedAt { get; private set; }
     public DateTimeOffset? FailedAt { get; private set; }
     public DateTimeOffset? CancelledAt { get; private set; }
+    public OcrExtractionMode ExtractionMode { get; private set; }
+    public string? FullTextContent { get; private set; }
+    public string? ArtifactReference { get; private set; }
+    public string? ExternalContextId { get; private set; }
+    public Guid? ReviewedBy { get; private set; }
+    public DateTimeOffset? ReviewedAt { get; private set; }
+    public string? ReviewAction { get; private set; }
+    public string? ReviewComment { get; private set; }
+    public string? OriginalAiNormalizedJson { get; private set; }
     public IReadOnlyCollection<OcrProviderAttempt> Attempts => _attempts.AsReadOnly();
 
     public static DocumentOcrJob Create(
@@ -45,7 +54,9 @@ public sealed class DocumentOcrJob : TenantAuditableEntity
         OcrDocumentType documentTypeHint,
         Guid externalDocumentId,
         Guid? externalShipmentId,
-        DateTimeOffset createdAt)
+        DateTimeOffset createdAt,
+        OcrExtractionMode extractionMode = OcrExtractionMode.Structured,
+        string? externalContextId = null)
     {
         DocumentOcrValidation.RequiredId(tenantId, nameof(tenantId));
         DocumentOcrValidation.RequiredId(externalDocumentId, nameof(externalDocumentId));
@@ -63,13 +74,16 @@ public sealed class DocumentOcrJob : TenantAuditableEntity
             IdempotencyKey = DocumentOcrValidation.RequiredText(idempotencyKey, nameof(idempotencyKey), 150),
             StorageReference = DocumentOcrValidation.RequiredText(storageReference, nameof(storageReference), 1_000),
             FileName = DocumentOcrValidation.RequiredText(fileName, nameof(fileName), 255),
-            MimeType = DocumentOcrValidation.RequiredText(mimeType, nameof(mimeType), 150).ToLowerInvariant(),
+            MimeType = DocumentOcrValidation.RequiredText(mimeType, nameof(mimeType), 100),
             SizeBytes = sizeBytes,
             DocumentTypeHint = documentTypeHint,
+            ExtractionMode = extractionMode,
             ExternalDocumentId = externalDocumentId,
             ExternalShipmentId = externalShipmentId,
+            ExternalContextId = externalContextId,
             Status = DocumentOcrJobStatus.Queued,
-            CreatedAt = createdAt
+            CreatedAt = createdAt,
+            UpdatedAt = createdAt
         };
     }
 
@@ -86,14 +100,21 @@ public sealed class DocumentOcrJob : TenantAuditableEntity
         if (NextAttemptAt > startedAt)
             throw new InvalidOperationException("The job is not ready for another attempt.");
 
-        var attempt = OcrProviderAttempt.Start(TenantId, Id, providerName, startedAt);
+        var attempt = OcrProviderAttempt.Start(
+            TenantId,
+            Id,
+            providerName,
+            startedAt);
+
         _attempts.Add(attempt);
+        AttemptCount = _attempts.Count;
         Status = DocumentOcrJobStatus.Processing;
-        AttemptCount++;
         ProcessingStartedAt = startedAt;
         LeaseExpiresAt = leaseExpiresAt;
         HeartbeatAt = startedAt;
         NextAttemptAt = null;
+        ErrorCode = null;
+        ErrorMessage = null;
         UpdatedAt = startedAt;
         return attempt;
     }
@@ -105,8 +126,10 @@ public sealed class DocumentOcrJob : TenantAuditableEntity
         string? fieldConfidenceJson,
         decimal confidence,
         bool needsReview,
-        string? providerRequestId,
-        DateTimeOffset completedAt)
+        string providerRequestId,
+        DateTimeOffset completedAt,
+        string? fullTextContent = null,
+        string? artifactReference = null)
     {
         EnsureStatus(DocumentOcrJobStatus.Processing);
         if (detectedDocumentType == OcrDocumentType.Unspecified || !Enum.IsDefined(detectedDocumentType))
@@ -126,6 +149,8 @@ public sealed class DocumentOcrJob : TenantAuditableEntity
         FieldConfidenceJson = validatedFieldConfidence;
         Confidence = validatedConfidence;
         NeedsReview = needsReview;
+        FullTextContent = fullTextContent;
+        ArtifactReference = artifactReference;
         Status = DocumentOcrJobStatus.Completed;
         CompletedAt = completedAt;
         LeaseExpiresAt = null;
@@ -202,6 +227,54 @@ public sealed class DocumentOcrJob : TenantAuditableEntity
         HeartbeatAt = null;
         NextAttemptAt = null;
         UpdatedAt = cancelledAt;
+    }
+
+    public void ApplyReview(
+        string action,
+        string? correctedJson,
+        string? reviewComment,
+        Guid? reviewedBy,
+        DateTimeOffset reviewedAt)
+    {
+        if (Status != DocumentOcrJobStatus.Completed)
+            throw new InvalidOperationException($"Cannot review a job with status {Status}.");
+
+        ReviewedBy = reviewedBy;
+        ReviewedAt = reviewedAt;
+        ReviewAction = action.ToUpperInvariant();
+        ReviewComment = reviewComment;
+
+        if (string.IsNullOrEmpty(OriginalAiNormalizedJson))
+        {
+            OriginalAiNormalizedJson = NormalizedJson;
+        }
+
+        if (action.Equals("CONFIRM", StringComparison.OrdinalIgnoreCase))
+        {
+            NeedsReview = false;
+            UpdatedAt = reviewedAt;
+        }
+        else if (action.Equals("CORRECT", StringComparison.OrdinalIgnoreCase))
+        {
+            if (!string.IsNullOrWhiteSpace(correctedJson))
+            {
+                NormalizedJson = correctedJson;
+            }
+            NeedsReview = false;
+            UpdatedAt = reviewedAt;
+        }
+        else if (action.Equals("REJECT", StringComparison.OrdinalIgnoreCase))
+        {
+            Status = DocumentOcrJobStatus.Rejected;
+            ErrorCode = "HUMAN_REVIEW_REJECTED";
+            ErrorMessage = reviewComment ?? "Document OCR result was rejected during human review.";
+            NeedsReview = false;
+            UpdatedAt = reviewedAt;
+        }
+        else
+        {
+            throw new ArgumentException($"Unknown review action: {action}", nameof(action));
+        }
     }
 
     private OcrProviderAttempt GetProcessingAttempt(Guid attemptId)

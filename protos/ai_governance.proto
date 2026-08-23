@@ -53,12 +53,26 @@ service AiExecutionService {
 
 // NOTE: tenant_id, user_id, service_id come from authenticated gRPC metadata
 // (x-tenant-id, x-user-id, x-service-id) — NOT from request body.
+message AiInputPart {
+  oneof value {
+    string text = 1;
+    AiFileReference file = 2;
+  }
+}
+
+message AiFileReference {
+  string storage_reference = 1;
+  string mime_type = 2;
+  string file_name = 3;
+}
+
 message AiGenerateRequest {
   string capability_code = 1;
   string prompt = 2;
   int64 max_output_tokens = 3;
   int64 estimated_input_tokens = 4;
   map<string, string> parameters = 5;
+  repeated AiInputPart input_parts = 6;
 }
 
 message AiGenerateResponse {

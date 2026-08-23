@@ -45,13 +45,19 @@ var outboxOptions = builder.Configuration
 outboxOptions.Validate();
 builder.Services.AddSingleton(outboxOptions);
 
+var aiGovernanceUrl = builder.Configuration["Grpc:AiGovernance:Url"] ?? "http://localhost:9090";
+builder.Services.AddGrpcClient<AiGovernance.Grpc.AiExecutionService.AiExecutionServiceClient>(o =>
+{
+    o.Address = new Uri(aiGovernanceUrl);
+});
+
+builder.Services.AddScoped<DocumentOcr.Application.Storage.IArtifactStorageService, DocumentOcr.Infrastructure.Storage.FileSystemArtifactStorageService>();
 builder.Services.AddScoped<DocumentInputPolicy>();
 builder.Services.AddScoped<IDocumentContentReader, DeterministicDocumentContentReader>();
 builder.Services.AddScoped<IOcrProvider>(services =>
-    processingOptions.Provider.Equals("Deterministic", StringComparison.OrdinalIgnoreCase)
-        ? ActivatorUtilities.CreateInstance<DeterministicOcrProvider>(services)
-        : throw new InvalidOperationException(
-            $"OCR provider '{processingOptions.Provider}' is not registered."));
+    processingOptions.Provider.Equals("AiGovernance", StringComparison.OrdinalIgnoreCase)
+        ? ActivatorUtilities.CreateInstance<AiGovernanceOcrProvider>(services)
+        : ActivatorUtilities.CreateInstance<DeterministicOcrProvider>(services));
 
 builder.Services.AddScoped<DocumentOcrJobService>();
 builder.Services.AddScoped<IDocumentOcrJobService>(services =>

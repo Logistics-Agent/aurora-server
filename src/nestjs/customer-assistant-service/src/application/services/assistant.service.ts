@@ -1,7 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ReadModelStore } from '../../read-model/read-model.store';
-import { ConfigService } from '@nestjs/config';
-import { GoogleGenerativeAI } from '@google/generative-ai';
 
 export interface CustomerChatInput {
   tenantId?: string;
@@ -20,19 +18,13 @@ export interface CustomerChatResult {
 @Injectable()
 export class CustomerAssistantService {
   private readonly logger = new Logger(CustomerAssistantService.name);
-  private genAI: GoogleGenerativeAI | null = null;
 
   constructor(
     private readonly readModel: ReadModelStore,
-    private readonly configService: ConfigService,
-  ) {
-    const apiKey = this.configService.get<string>('GEMINI_API_KEY', '');
-    if (apiKey && apiKey !== 'mock-gemini-api-key') {
-      this.genAI = new GoogleGenerativeAI(apiKey);
-    }
-  }
+  ) {}
 
   async processCustomerQuery(input: CustomerChatInput): Promise<CustomerChatResult> {
+
     const queryLower = input.message.toLowerCase();
     const customerId = input.customerId || 'CUST-001';
 

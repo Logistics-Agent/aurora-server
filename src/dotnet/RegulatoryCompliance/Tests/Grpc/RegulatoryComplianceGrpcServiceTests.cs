@@ -176,12 +176,31 @@ public sealed class RegulatoryComplianceGrpcServiceTests
 
     private static RegulatoryComplianceGrpcService Service(
         IRegulatoryIngestionService? ingestion = null,
+        IKnowledgeIngestionService? knowledgeIngestion = null,
         IRegulationRetrievalService? retrieval = null,
         IComplianceEvaluationService? evaluation = null) =>
         new(
             ingestion ?? new FakeIngestionService(),
+            knowledgeIngestion ?? new FakeKnowledgeIngestionService(),
             retrieval ?? new FakeRetrievalService(),
             evaluation ?? new FakeEvaluationService());
+
+    private sealed class FakeKnowledgeIngestionService : IKnowledgeIngestionService
+    {
+        public Task<KnowledgeIngestionResult> IngestAsync(
+            KnowledgeIngestionInput input,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(new KnowledgeIngestionResult(
+                Guid.CreateVersion7(), Guid.CreateVersion7(), RegulatoryIngestionStatus.Completed, 1, false, Now));
+
+        public Task<IReadOnlyList<KnowledgeEvidenceResult>> QueryAsync(
+            string query,
+            IReadOnlyList<Domain.Enums.KnowledgeCategory> categories,
+            int topK,
+            decimal minimumRelevanceScore,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<KnowledgeEvidenceResult>>([]);
+    }
 
     private sealed class FakeIngestionService : IRegulatoryIngestionService
     {

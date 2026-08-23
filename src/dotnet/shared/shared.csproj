@@ -21,9 +21,9 @@
     <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" Version="10.0.0" />
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.0" />
     <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" Version="10.0.0" />
-    <!-- Semantic Kernel & Options -->
-    <PackageReference Include="Microsoft.SemanticKernel" Version="1.34.0" />
+    <!-- Options -->
     <PackageReference Include="Microsoft.Extensions.Options" Version="10.0.0" />
   </ItemGroup>
+
 
 </Project>

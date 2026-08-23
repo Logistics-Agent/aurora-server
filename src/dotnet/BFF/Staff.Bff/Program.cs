@@ -21,6 +21,7 @@ builder.Services.AddBffRateLimiting(config);
 builder.Services.AddBffRequestProtection();
 builder.Services.AddBffHealthChecks(config);
 builder.Services.AddBffOpenTelemetry(config);
+builder.Services.AddHttpClient();
 
 var app = builder.Build();
 

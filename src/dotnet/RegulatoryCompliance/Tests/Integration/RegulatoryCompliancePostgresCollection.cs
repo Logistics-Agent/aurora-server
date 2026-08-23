@@ -36,7 +36,7 @@ public sealed class RegulatoryCompliancePostgresFixture : IAsyncLifetime
         var options = new DbContextOptionsBuilder<RegulatoryComplianceDbContext>()
             .UseNpgsql(
                 ConnectionString,
-                npgsql => npgsql.MigrationsAssembly("RegulatoryCompliance"))
+                npgsql => npgsql.MigrationsAssembly("RegulatoryCompliance").UseVector())
             .Options;
         return new RegulatoryComplianceDbContext(
             options,

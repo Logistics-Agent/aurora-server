@@ -68,7 +68,6 @@ public class AssignPermissionsToRoleHandler(
 
             context.OutboxMessages.Add(new Domain.OutboxMessage
             {
-                Id = Guid.CreateVersion7(),
                 EventType = nameof(RolePermissionsChangedEvent),
                 Payload = JsonSerializer.Serialize(rolePermissionsChangedEvent),
                 CreatedAt = DateTimeOffset.UtcNow

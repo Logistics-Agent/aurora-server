@@ -4,26 +4,22 @@ using System.Diagnostics;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
-using Microsoft.SemanticKernel;
-using Microsoft.SemanticKernel.ChatCompletion;
+using AiGovernance.Grpc;
 using RoutePlanningAgent.Application.DTOs.Routes;
 using RoutePlanningAgent.Application.Interfaces;
-using Shared.AI;
+using RoutePlanningAgent.Application.Options;
 using Shared.Rules;
 
 namespace RoutePlanningAgent.Infrastructure.AI;
 
 /// <summary>
-/// Gọi LLM qua Semantic Kernel IChatCompletionService — KHÔNG dùng plugin stub.
-/// Provider hỗ trợ: Gemini (gói Standard, round-robin key pool) và AzureOpenAI (gói Enterprise).
-/// Token usage đọc từ response metadata — không bao giờ fabricate.
+/// Gọi LLM thông qua dịch vụ tập trung AI Governance (AiExecutionService.Generate) — KHÔNG gọi trực tiếp LLM provider.
+/// Token usage và provider metadata được lấy trực tiếp từ phản hồi của AI Governance.
 /// </summary>
 public class RouteAiService(
-    [FromKeyedServices("Gemini")] IApiKeyPool<string> geminiPool,
-    IApiKeyPool<AzureOpenAiKeyEntry> azurePool,
+    AiExecutionService.AiExecutionServiceClient aiExecutionClient,
     IOptions<RoutePlanningOptions> options,
     ILogger<RouteAiService> logger)
     : IRouteAiService
@@ -53,11 +49,9 @@ public class RouteAiService(
     {
         var sw = Stopwatch.StartNew();
 
-        var (kernel, model) = BuildKernel(provider);
+        var prompt = $"""
+            {SystemPrompt}
 
-        var chatHistory = new ChatHistory(SystemPrompt);
-        chatHistory.AddUserMessage(
-            $"""
             [ROUTE]
             {JsonSerializer.Serialize(route)}
 
@@ -66,29 +60,37 @@ public class RouteAiService(
 
             [COMPLIANCE_CONTEXT]
             {complianceResult?.MergedContext ?? "(không có)"}
-            """);
+            """;
 
-        string llmResponse;
-        var inputTokens = 0;
-        var outputTokens = 0;
+        string llmResponse = string.Empty;
+        var inputTokens = 0L;
+        var outputTokens = 0L;
+        var model = string.Empty;
+        var usedProvider = provider;
         var success = true;
 
         try
         {
-            var chatService = kernel.GetRequiredService<IChatCompletionService>();
-            var content = await chatService.GetChatMessageContentAsync(chatHistory, kernel: kernel, cancellationToken: ct);
+            var request = new AiGenerateRequest
+            {
+                CapabilityCode = options.Value.CapabilityCode,
+                Prompt = prompt,
+                MaxOutputTokens = 1000
+            };
 
-            llmResponse = content.Content ?? string.Empty;
-            (inputTokens, outputTokens) = ExtractUsage(content.Metadata);
+            var response = await aiExecutionClient.GenerateAsync(request, cancellationToken: ct);
 
-            if (inputTokens == 0 && outputTokens == 0)
-                logger.LogWarning("Không đọc được token usage từ {Provider} response metadata", provider);
+            llmResponse = response.Content ?? string.Empty;
+            inputTokens = response.InputTokens;
+            outputTokens = response.OutputTokens;
+            model = response.Model ?? string.Empty;
+            if (!string.IsNullOrEmpty(response.Provider)) usedProvider = response.Provider;
         }
+
         catch (Exception ex)
         {
             success = false;
-            llmResponse = string.Empty;
-            logger.LogError(ex, "LLM call failed (provider={Provider}, model={Model})", provider, model);
+            logger.LogError(ex, "AI Governance Generate call failed for route {RouteId}", route.Id);
         }
 
         sw.Stop();
@@ -100,69 +102,14 @@ public class RouteAiService(
         return new RouteAiResult
         {
             Recommendation = recommendation,
-            Provider = provider,
+            Provider = usedProvider,
             Model = model,
             PromptVersion = PromptVersion,
-            InputTokens = inputTokens,
-            OutputTokens = outputTokens,
+            InputTokens = (int)inputTokens,
+            OutputTokens = (int)outputTokens,
             LatencyMs = sw.ElapsedMilliseconds,
             Success = success
         };
-    }
-
-    private (Kernel Kernel, string Model) BuildKernel(string provider)
-    {
-        var builder = Kernel.CreateBuilder();
-
-        switch (provider)
-        {
-            case "AzureOpenAI": // gói Enterprise
-                var azureEntry = azurePool.GetNext();
-                builder.AddAzureOpenAIChatCompletion(
-                    deploymentName: azureEntry.DeploymentName,
-                    endpoint: azureEntry.Endpoint,
-                    apiKey: azureEntry.ApiKey);
-                return (builder.Build(), azureEntry.DeploymentName);
-
-            default: // Gemini — gói Standard
-                var geminiKey = geminiPool.GetNext();
-                var modelId = options.Value.GeminiModelId;
-                builder.AddGoogleAIGeminiChatCompletion(
-                    modelId: modelId,
-                    apiKey: geminiKey);
-                return (builder.Build(), modelId);
-        }
-    }
-
-    /// <summary>
-    /// Đọc token usage thật từ metadata:
-    /// - Gemini connector: PromptTokenCount / CandidatesTokenCount
-    /// - AzureOpenAI connector: metadata["Usage"] (OpenAI.Chat.ChatTokenUsage) — đọc qua reflection
-    ///   để không phụ thuộc cứng vào OpenAI SDK types.
-    /// </summary>
-    internal static (int Input, int Output) ExtractUsage(IReadOnlyDictionary<string, object?>? metadata)
-    {
-        if (metadata is null) return (0, 0);
-
-        if (metadata.TryGetValue("PromptTokenCount", out var prompt)
-            && metadata.TryGetValue("CandidatesTokenCount", out var candidates))
-        {
-            return (ToInt(prompt), ToInt(candidates));
-        }
-
-        if (metadata.TryGetValue("Usage", out var usage) && usage is not null)
-        {
-            var type = usage.GetType();
-            var input = type.GetProperty("InputTokenCount")?.GetValue(usage)
-                        ?? type.GetProperty("PromptTokens")?.GetValue(usage);
-            var output = type.GetProperty("OutputTokenCount")?.GetValue(usage)
-                         ?? type.GetProperty("CompletionTokens")?.GetValue(usage);
-            return (ToInt(input), ToInt(output));
-        }
-
-        return (0, 0);
-
-        static int ToInt(object? value) => value is null ? 0 : Convert.ToInt32(value);
     }
 
     internal static RouteRecommendationDto ParseLlmResponse(
