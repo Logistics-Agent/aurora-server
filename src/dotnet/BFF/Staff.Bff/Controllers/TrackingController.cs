@@ -20,7 +20,7 @@ public class TrackingController(
     ILogger<TrackingController> logger) : StaffControllerBase
 {
     [HttpGet("{id}/current")]
-    [RequirePermission(PermissionConstants.Modules.GpsTracking, PermissionConstants.Read)]
+    [RequirePermission(PermissionConstants.Shipment.Read, "gps_tracking:read")]
     public async Task<IActionResult> GetCurrentLocation(
         [FromRoute] string id,
         [FromQuery] string type = "shipment",
@@ -48,7 +48,7 @@ public class TrackingController(
     }
 
     [HttpGet("{id}/history")]
-    [RequirePermission(PermissionConstants.Modules.GpsTracking, PermissionConstants.Read)]
+    [RequirePermission(PermissionConstants.Shipment.Read, "gps_tracking:read")]
     public async Task<IActionResult> ListPositionHistory(
         [FromRoute] string id,
         [FromQuery] string type = "shipment",
@@ -80,7 +80,7 @@ public class TrackingController(
     }
 
     [HttpPost("geofences")]
-    [RequirePermission(PermissionConstants.Modules.GpsTracking, PermissionConstants.Create)]
+    [RequirePermission(PermissionConstants.Gps.GeofenceManage, "gps_tracking:create")]
     public async Task<IActionResult> CreateGeofence([FromBody] CreateGeofenceBody body, CancellationToken ct = default)
     {
         try
@@ -105,7 +105,7 @@ public class TrackingController(
     }
 
     [HttpGet("geofences")]
-    [RequirePermission(PermissionConstants.Modules.GpsTracking, PermissionConstants.Read)]
+    [RequirePermission(PermissionConstants.Gps.GeofenceManage, "gps_tracking:read")]
     public async Task<IActionResult> ListGeofences(
         [FromQuery] bool includeInactive = false,
         CancellationToken ct = default)
@@ -120,7 +120,7 @@ public class TrackingController(
     }
 
     [HttpPatch("geofences/{id}/active")]
-    [RequirePermission(PermissionConstants.Modules.GpsTracking, PermissionConstants.Update)]
+    [RequirePermission(PermissionConstants.Gps.GeofenceManage, "gps_tracking:update")]
     public async Task<IActionResult> SetGeofenceActive(
         [FromRoute] string id,
         [FromBody] SetGeofenceActiveBody body,
@@ -139,7 +139,7 @@ public class TrackingController(
     }
 
     [HttpGet("alerts")]
-    [RequirePermission(PermissionConstants.Modules.GpsTracking, PermissionConstants.Read)]
+    [RequirePermission(PermissionConstants.Shipment.Read, "gps_tracking:read")]
     public async Task<IActionResult> ListMonitoringAlerts(
         [FromQuery] string? alertType = null,
         [FromQuery] string? status = null,
@@ -160,7 +160,7 @@ public class TrackingController(
     }
 
     [HttpPost("alerts/{id}/resolve")]
-    [RequirePermission(PermissionConstants.Modules.GpsTracking, PermissionConstants.Update)]
+    [RequirePermission(PermissionConstants.Shipment.Update, "gps_tracking:update")]
     public async Task<IActionResult> ResolveMonitoringAlert(
         [FromRoute] string id,
         CancellationToken ct = default)

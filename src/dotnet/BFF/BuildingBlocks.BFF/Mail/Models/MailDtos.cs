@@ -46,7 +46,17 @@ public record CreateDraftRequest(
     string MailboxId,
     string? AssignedStaffId,
     string Subject,
-    string Body);
+    string Body,
+    string? SourceType = null,
+    string? SourceId = null,
+    string? IdempotencyKey = null,
+    List<string>? To = null,
+    string? ThreadId = null,
+    string? ReplyToMessageId = null);
+
+public record CreateNegotiationMailDraftRequest(
+    string MailboxId,
+    string? IdempotencyKey = null);
 
 public record DraftResponse(
     string DraftId,
@@ -60,10 +70,104 @@ public record DraftResponse(
     string Subject,
     string Body,
     string ContentHash,
-    DateTimeOffset CreatedAt);
+    DateTimeOffset CreatedAt,
+    string? SourceType = null,
+    string? SourceId = null,
+    IReadOnlyList<string>? To = null,
+    string? ThreadId = null,
+    string? ReplyToMessageId = null,
+    bool IsExisting = false);
 
 public record DraftListResponse(
     IReadOnlyList<DraftResponse> Drafts,
+    string? NextPageToken);
+
+// ─── Thread Management DTOs (Gmail-Like Threading) ──────────────────────────
+
+public record ThreadMessageResponse(
+    string MessageId,
+    string Direction,
+    string SenderAddress,
+    IReadOnlyList<string> RecipientAddresses,
+    string Subject,
+    string BodyText,
+    string BodyPreview,
+    string ReplyToMessageId,
+    DateTimeOffset ReceivedAt,
+    DateTimeOffset SentAt);
+
+public record ThreadAssignmentHistoryResponse(
+    string Id,
+    string ThreadId,
+    string FromUserId,
+    string ToUserId,
+    string Action,
+    string ActorUserId,
+    string Reason,
+    DateTimeOffset CreatedAt);
+
+public record ThreadAssignmentHistoryListResponse(
+    string ThreadId,
+    IReadOnlyList<ThreadAssignmentHistoryResponse> History);
+
+public record ClaimThreadResponse(
+    bool Success,
+    string ThreadId,
+    string PrimaryAssigneeUserId,
+    DateTimeOffset AssignedAt,
+    string Status);
+
+public record ReassignThreadRequest(
+    string TargetUserId,
+    string? Reason = null);
+
+public record ReassignThreadResponse(
+    bool Success,
+    string ThreadId,
+    string PrimaryAssigneeUserId,
+    DateTimeOffset AssignedAt,
+    string Status);
+
+public record UnassignThreadRequest(
+    string? Reason = null);
+
+public record UnassignThreadResponse(
+    bool Success,
+    string ThreadId,
+    string Status);
+
+public record ThreadResponse(
+    string ThreadId,
+    string MailboxId,
+    string Subject,
+    IReadOnlyList<string> Participants,
+    IReadOnlyList<ThreadMessageResponse> Messages,
+    IReadOnlyList<DraftResponse> Drafts,
+    DateTimeOffset CreatedAt,
+    DateTimeOffset UpdatedAt,
+    string? PrimaryAssigneeUserId = null,
+    DateTimeOffset? AssignedAt = null,
+    string? Status = null,
+    string? Priority = null,
+    IReadOnlyList<ThreadAssignmentHistoryResponse>? AssignmentHistory = null);
+
+public record ThreadSummaryResponse(
+    string ThreadId,
+    string MailboxId,
+    string Subject,
+    IReadOnlyList<string> Participants,
+    DateTimeOffset LastMessageAt,
+    int MessageCount,
+    int DraftCount,
+    bool HasUnread,
+    string Snippet,
+    string? PrimaryAssigneeUserId = null,
+    DateTimeOffset? AssignedAt = null,
+    string? Status = null,
+    string? Priority = null);
+
+public record ThreadListResponse(
+    IReadOnlyList<ThreadSummaryResponse> Threads,
     string? NextPageToken);
 
 // ─── Outbound Mail Submission DTOs ──────────────────────────────────────────
@@ -81,7 +185,9 @@ public record SubmitOutboundMessageRequest(
     string BodyHtml,
     List<OutboundAttachmentDto>? Attachments = null,
     string? IdempotencyKey = null,
-    string? DraftRootId = null);
+    string? DraftRootId = null,
+    string? ThreadId = null,
+    string? ReplyToMessageId = null);
 
 public record SubmitOutboundMessageResponse(
     string ProcessedMessageId,

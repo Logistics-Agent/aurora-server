@@ -189,6 +189,11 @@ public class OutboundPipelineRunner
         context.ProcessedMessage.DraftSource = context.DraftSource;
         context.ProcessedMessage.FinalDraftRevisionId = context.FinalDraftRevisionId;
         context.ProcessedMessage.TenantId = context.TenantId;
+        context.ProcessedMessage.SentByUserId = context.SentByUserId;
+        context.ProcessedMessage.ThreadId = context.ThreadId;
+        context.ProcessedMessage.InReplyTo = context.ReplyToMessageId;
+        context.ProcessedMessage.BodyText = context.BodyText;
+        context.ProcessedMessage.BodyHtml = context.BodyHtml;
 
         foreach (var stage in _stages)
         {
@@ -212,6 +217,11 @@ public class OutboundPipelineRunner
 
                 if (result.ShouldShortCircuit)
                 {
+                    context.IsRejected = true;
+                    if (string.IsNullOrEmpty(context.RejectionReason))
+                    {
+                        context.RejectionReason = $"Rejected at stage {stage.StageName}";
+                    }
                     _logger.LogWarning("Outbound pipeline rejected at stage {Stage} for message. Reason: {Reason}",
                         stage.StageName, context.RejectionReason);
                     break;

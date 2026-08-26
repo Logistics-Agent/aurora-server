@@ -6,6 +6,8 @@ using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
 using RoutePlanningAgent.Application.Interfaces;
 using RoutePlanningAgent.Domain;
+using RoutePlanningAgent.Domain.Enums;
+using RoutePlanningAgent.Domain.Services;
 using RoutePlanningAgent.Infrastructure.Persistences;
 using Shared.Enums;
 using Shared.Exceptions;
@@ -29,6 +31,7 @@ public class RouteRiskPolicyProvider(
         try
         {
             config = await context.TenantRiskPolicyConfigs
+                .IgnoreQueryFilters()
                 .AsNoTracking()
                 .FirstOrDefaultAsync(c => c.TenantId == tenantId, ct);
         }
@@ -67,21 +70,67 @@ public class RouteRiskPolicyProvider(
             };
         }
 
-        // 3. USE_CUSTOM_POLICY -> Áp dụng Tenant Policy
+        // 3. USE_CUSTOM_POLICY -> Áp dụng ACTIVE Tenant Policy duy nhất
         if (config.PolicyMode == RiskPolicyMode.UseCustomPolicy)
         {
             try
             {
+                // Tìm kiếm chính sách ACTIVE từ TenantRiskPolicies
+                var activePolicy = await context.TenantRiskPolicies
+                    .IgnoreQueryFilters()
+                    .AsNoTracking()
+                    .Include(p => p.Rules)
+                    .FirstOrDefaultAsync(p => p.TenantId == tenantId && p.Scope == scope && p.Status == TenantRiskPolicyStatus.Active && !p.IsDeleted, ct);
+
+                if (activePolicy != null)
+                {
+                    var thresholdsMap = new Dictionary<string, TenantRuleThresholds>();
+                    foreach (var rule in activePolicy.Rules)
+                    {
+                        var values = TenantRuleValidator.ValidateThresholdsJson(rule.RuleCode, rule.ThresholdsJson);
+                        thresholdsMap[rule.RuleName] = new TenantRuleThresholds
+                        {
+                            IsEnabled = rule.IsEnabled,
+                            Values = values
+                        };
+                    }
+
+                    return new EffectiveRiskPolicy
+                    {
+                        PolicyId = activePolicy.Id.ToString(),
+                        Version = activePolicy.Version,
+                        Source = activePolicy.Source,
+                        Scope = scope,
+                        TenantId = tenantId,
+                        RuleThresholds = thresholdsMap
+                    };
+                }
+
+                // Nếu tenant đã có bản ghi policy (Draft, PendingReview, Rejected, Superseded) nhưng KHÔNG có Active -> Fail-Closed
+                var hasAnyPolicy = await context.TenantRiskPolicies
+                    .IgnoreQueryFilters()
+                    .AsNoTracking()
+                    .AnyAsync(p => p.TenantId == tenantId && p.Scope == scope && !p.IsDeleted, ct);
+
+                if (hasAnyPolicy)
+                {
+                    throw new PolicyUnavailableException(
+                        $"Không tìm thấy chính sách rủi ro ACTIVE cho Tenant '{tenantId}' (Scope='{scope}'). " +
+                        $"Các phiên bản chính sách hiện tại chưa được Publish hoặc đã bị Superseded.");
+                }
+
+                // Backward-compatibility: nếu chưa migrate sang TenantRiskPolicies nhưng có TenantRuleConfigs
                 var ruleConfigs = await context.TenantRuleConfigs
+                    .IgnoreQueryFilters()
                     .AsNoTracking()
                     .Where(r => r.TenantId == tenantId)
                     .ToListAsync(ct);
 
-                var thresholdsMap = new Dictionary<string, TenantRuleThresholds>();
+                var legacyThresholdsMap = new Dictionary<string, TenantRuleThresholds>();
                 foreach (var rc in ruleConfigs)
                 {
                     var thresholds = await ruleConfigService.GetThresholdsAsync(tenantId, rc.RuleName, ct);
-                    thresholdsMap[rc.RuleName] = thresholds;
+                    legacyThresholdsMap[rc.RuleName] = thresholds;
                 }
 
                 var policyId = !string.IsNullOrWhiteSpace(config.ActivePolicyId)
@@ -98,7 +147,7 @@ public class RouteRiskPolicyProvider(
                     Source = RiskPolicySource.Tenant,
                     Scope = scope,
                     TenantId = tenantId,
-                    RuleThresholds = thresholdsMap
+                    RuleThresholds = legacyThresholdsMap
                 };
             }
             catch (Exception ex) when (ex is not PolicyUnavailableException)

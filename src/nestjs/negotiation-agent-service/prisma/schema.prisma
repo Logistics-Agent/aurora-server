@@ -9,18 +9,32 @@ datasource db {
 }
 
 model NegotiationSession {
-  id           String               @id @default(uuid())
-  tenantId     String               @map("tenant_id")
-  shipmentId   String               @map("shipment_id")
-  customerId   String               @map("customer_id")
-  status       String               @default("OPEN") @map("status") // OPEN, ACCEPTED, REJECTED, HANDOFF, EXPIRED
-  currentRound Int                  @default(1) @map("current_round")
-  maxRounds    Int                  @default(5) @map("max_rounds")
-  listPrice    Float                @map("list_price")
-  bottomPrice  Float                @map("bottom_price")
-  createdAt    DateTime             @default(now()) @map("created_at")
-  updatedAt    DateTime             @updatedAt @map("updated_at")
-  messages     NegotiationMessage[]
+  id                      String               @id @default(uuid())
+  tenantId                String               @map("tenant_id")
+  shipmentId              String               @map("shipment_id")
+  customerId              String               @map("customer_id")
+  status                  String               @default("OPEN") @map("status") // OPEN, ACCEPTED, REJECTED, HANDOFF, EXPIRED
+  currentRound            Int                  @default(1) @map("current_round")
+  maxRounds               Int                  @default(5) @map("max_rounds")
+  listPrice               Float                @map("list_price")
+  bottomPrice             Float                @map("bottom_price")
+  currency                String               @default("USD") @map("currency")
+
+  // Persisted Validated Suggestion (Human-in-the-Loop MVP)
+  suggestedSubject        String?              @map("suggested_subject")
+  suggestedBody           String?              @map("suggested_body")
+  suggestedLanguage       String?              @default("en") @map("suggested_language")
+  suggestedReplyAvailable Boolean              @default(false) @map("suggested_reply_available")
+  aiDraftUsed             Boolean              @default(false) @map("ai_draft_used")
+  fallbackUsed            Boolean              @default(false) @map("fallback_used")
+  lastDecision            String?              @map("last_decision")
+  lastApprovedAmount      Float?               @map("last_approved_amount")
+  sourceMessageId         String?              @map("source_message_id")
+  sourceThreadId          String?              @map("source_thread_id")
+
+  createdAt               DateTime             @default(now()) @map("created_at")
+  updatedAt               DateTime             @updatedAt @map("updated_at")
+  messages                NegotiationMessage[]
 
   @@index([tenantId])
   @@index([shipmentId])
@@ -36,6 +50,7 @@ model NegotiationMessage {
   message    String             @map("message")
   offerPrice Float?             @map("offer_price")
   decision   String?            @map("decision") // ACCEPT, COUNTER_OFFER, HUMAN_HANDOFF, REJECT
+  currency   String             @default("USD") @map("currency")
   createdAt  DateTime           @default(now()) @map("created_at")
   session    NegotiationSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
 

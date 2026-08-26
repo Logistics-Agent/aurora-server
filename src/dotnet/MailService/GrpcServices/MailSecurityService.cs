@@ -1,3 +1,7 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading.Tasks;
 using Grpc.Core;
 using MediatR;
 using Google.Protobuf.WellKnownTypes;
@@ -5,14 +9,15 @@ using MailService.GrpcServices;
 using MailService.Application.Commands.Drafts;
 using MailService.Application.Commands.Outbound;
 using MailService.Application.Commands.Quarantine;
+using MailService.Application.Commands.Threads;
 using MailService.Application.Queries.Drafts;
 using MailService.Application.Queries.Messages;
 using MailService.Application.Queries.Quarantine;
+using MailService.Application.Queries.Threads;
 using MailService.Application.Queries.Audit;
 using MailService.Domain.Enums;
 
 namespace MailService.GrpcServices;
-
 
 public class MailSecurityService : MailSecurity.MailSecurityBase
 {
@@ -25,52 +30,110 @@ public class MailSecurityService : MailSecurity.MailSecurityBase
 
     public override async Task<CreateDraftMessageResponse> CreateDraftMessage(CreateDraftMessageRequest request, ServerCallContext context)
     {
-        Guid mailboxId = Guid.Parse(request.MailboxId);
-        Guid? staffId = string.IsNullOrEmpty(request.AssignedStaffId) ? null : Guid.Parse(request.AssignedStaffId);
+        if (!Guid.TryParse(request.MailboxId, out var mailboxId))
+        {
+            throw new RpcException(new Status(StatusCode.InvalidArgument, "Invalid MailboxId GUID format."));
+        }
+
+        Guid? staffId = string.IsNullOrEmpty(request.AssignedStaffId) ? null : (Guid.TryParse(request.AssignedStaffId, out var sId) ? sId : null);
+        Guid? threadId = string.IsNullOrEmpty(request.ThreadId) ? null : (Guid.TryParse(request.ThreadId, out var tId) ? tId : null);
         var source = System.Enum.TryParse<DraftSource>(request.Source, true, out var parsedSource) ? parsedSource : DraftSource.Manual;
 
-        var draft = await _mediator.Send(new MailService.Application.Commands.Drafts.CreateDraftMessageCommand(mailboxId, staffId, request.Subject, request.Body, source), context.CancellationToken);
+        var command = new CreateDraftMessageCommand(
+            mailboxId,
+            staffId,
+            request.Subject,
+            request.Body,
+            source,
+            string.IsNullOrEmpty(request.SourceType) ? "MANUAL" : request.SourceType,
+            string.IsNullOrEmpty(request.SourceId) ? null : request.SourceId,
+            string.IsNullOrEmpty(request.IdempotencyKey) ? null : request.IdempotencyKey,
+            request.ToRecipients?.ToList(),
+            threadId,
+            string.IsNullOrEmpty(request.ReplyToMessageId) ? null : request.ReplyToMessageId);
 
-        return new CreateDraftMessageResponse
+        try
         {
-            DraftId = draft.Id.ToString(),
-            DraftRootId = draft.DraftRootId.ToString(),
-            RevisionNumber = draft.RevisionNumber,
-            CreatedAt = Timestamp.FromDateTimeOffset(draft.CreatedAt)
-        };
+            var result = await _mediator.Send(command, context.CancellationToken);
+
+            return new CreateDraftMessageResponse
+            {
+                DraftId = result.Draft.Id.ToString(),
+                DraftRootId = result.Draft.DraftRootId.ToString(),
+                RevisionNumber = result.Draft.RevisionNumber,
+                CreatedAt = Timestamp.FromDateTimeOffset(result.Draft.CreatedAt),
+                SourceType = result.Draft.SourceType ?? "MANUAL",
+                SourceId = result.Draft.SourceId ?? string.Empty,
+                IsExisting = result.IsExisting,
+                ThreadId = result.Draft.ThreadId?.ToString() ?? string.Empty,
+                ReplyToMessageId = result.Draft.ReplyToMessageId ?? string.Empty,
+                Status = "DRAFT"
+            };
+        }
+        catch (KeyNotFoundException ex)
+        {
+            throw new RpcException(new Status(StatusCode.NotFound, ex.Message));
+        }
+        catch (InvalidOperationException ex)
+        {
+            throw new RpcException(new Status(StatusCode.InvalidArgument, ex.Message));
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            throw new RpcException(new Status(StatusCode.Unauthenticated, ex.Message));
+        }
     }
 
     public override async Task<SubmitOutboundMessageResponse> SubmitOutboundMessage(SubmitOutboundMessageRequest request, ServerCallContext context)
     {
         Guid? draftRootId = string.IsNullOrEmpty(request.DraftRootId) ? null : Guid.Parse(request.DraftRootId);
+        Guid? threadId = string.IsNullOrEmpty(request.ThreadId) ? null : Guid.Parse(request.ThreadId);
+        string? replyToMessageId = string.IsNullOrEmpty(request.ReplyToMessageId) ? null : request.ReplyToMessageId;
         var attachments = request.Attachments.Select(a => (a.Filename, a.ContentType, a.Content.ToByteArray())).ToList();
 
-        var result = await _mediator.Send(new SubmitOutboundMessageCommand(
-            request.SenderAddress,
-            request.RecipientAddresses.ToList(),
-            request.Subject,
-            request.BodyText,
-            request.BodyHtml,
-            attachments,
-            request.IdempotencyKey,
-            draftRootId), context.CancellationToken);
-
-        if (result.IsRejected)
+        try
         {
-            throw new RpcException(new Status(StatusCode.PermissionDenied, result.RejectionReason ?? "Outbound message rejected by security pipeline"));
+            var result = await _mediator.Send(new SubmitOutboundMessageCommand(
+                request.SenderAddress,
+                request.RecipientAddresses.ToList(),
+                request.Subject,
+                request.BodyText,
+                request.BodyHtml,
+                attachments,
+                request.IdempotencyKey,
+                draftRootId,
+                threadId,
+                replyToMessageId), context.CancellationToken);
+
+            if (result.IsRejected)
+            {
+                throw new RpcException(new Status(StatusCode.PermissionDenied, result.RejectionReason ?? "Outbound message rejected by security pipeline"));
+            }
+
+            return new SubmitOutboundMessageResponse
+            {
+                ProcessedMessageId = result.ProcessedMessage.Id.ToString(),
+                StalwartQueueId = result.StalwartQueueId ?? string.Empty,
+                SubmittedAt = Timestamp.FromDateTimeOffset(result.ProcessedMessage.ProcessedAt)
+            };
         }
-
-        return new SubmitOutboundMessageResponse
+        catch (InvalidOperationException ex)
         {
-            ProcessedMessageId = result.ProcessedMessage.Id.ToString(),
-            StalwartQueueId = result.StalwartQueueId ?? string.Empty,
-            SubmittedAt = Timestamp.FromDateTimeOffset(result.ProcessedMessage.ProcessedAt)
-        };
+            throw new RpcException(new Status(StatusCode.FailedPrecondition, ex.Message));
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            throw new RpcException(new Status(StatusCode.PermissionDenied, ex.Message));
+        }
     }
 
     public override async Task<DraftDto> GetDraft(GetDraftRequest request, ServerCallContext context)
     {
-        Guid draftId = Guid.Parse(request.DraftId);
+        if (!Guid.TryParse(request.DraftId, out var draftId))
+        {
+            throw new RpcException(new Status(StatusCode.InvalidArgument, "Invalid DraftId GUID format."));
+        }
+
         var draft = await _mediator.Send(new GetDraftQuery(draftId), context.CancellationToken);
         if (draft == null)
         {
@@ -87,6 +150,233 @@ public class MailSecurityService : MailSecurity.MailSecurityBase
 
         var response = new ListDraftsResponse();
         response.Drafts.AddRange(drafts.Select(MapDraftDto));
+        return response;
+    }
+
+    public override async Task<ThreadDto> GetThread(GetThreadRequest request, ServerCallContext context)
+    {
+        if (!Guid.TryParse(request.ThreadId, out var threadId))
+        {
+            throw new RpcException(new Status(StatusCode.InvalidArgument, "Invalid ThreadId GUID format."));
+        }
+
+        try
+        {
+            var result = await _mediator.Send(new GetThreadQuery(threadId), context.CancellationToken);
+            if (result == null)
+            {
+                throw new RpcException(new Status(StatusCode.NotFound, $"Thread '{request.ThreadId}' not found."));
+            }
+
+            var dto = new ThreadDto
+            {
+                ThreadId = result.Thread.Id.ToString(),
+                MailboxId = result.Thread.MailboxId.ToString(),
+                Subject = result.Thread.Subject,
+                CreatedAt = Timestamp.FromDateTimeOffset(result.Thread.CreatedAt),
+                UpdatedAt = Timestamp.FromDateTimeOffset(result.Thread.LastMessageAt),
+                PrimaryAssigneeUserId = result.Thread.PrimaryAssigneeUserId?.ToString() ?? string.Empty,
+                AssignedAt = result.Thread.AssignedAt.HasValue ? Timestamp.FromDateTimeOffset(result.Thread.AssignedAt.Value) : null,
+                Status = result.Thread.Status.ToString().ToUpperInvariant(),
+                Priority = result.Thread.Priority.ToString().ToUpperInvariant(),
+            };
+
+            dto.Participants.AddRange(result.Thread.Participants);
+
+            foreach (var msg in result.Messages)
+            {
+                var msgDto = new ThreadMessageDto
+                {
+                    MessageId = msg.Id.ToString(),
+                    Direction = msg.Direction.ToString(),
+                    SenderAddress = msg.SenderAddress,
+                    Subject = msg.Subject ?? string.Empty,
+                    BodyText = msg.BodyText ?? string.Empty,
+                    BodyPreview = msg.BodyText?.Length > 100 ? msg.BodyText.Substring(0, 100) : (msg.BodyText ?? string.Empty),
+                    ReplyToMessageId = msg.InReplyTo ?? string.Empty,
+                    ReceivedAt = Timestamp.FromDateTimeOffset(msg.ReceivedAt),
+                    SentAt = Timestamp.FromDateTimeOffset(msg.ProcessedAt),
+                };
+                msgDto.RecipientAddresses.AddRange(msg.RecipientAddresses);
+                dto.Messages.Add(msgDto);
+            }
+
+            foreach (var draft in result.Drafts)
+            {
+                dto.Drafts.Add(MapDraftDto(draft));
+            }
+
+            foreach (var h in result.AssignmentHistories)
+            {
+                dto.AssignmentHistory.Add(new ThreadAssignmentHistoryDto
+                {
+                    Id = h.Id.ToString(),
+                    ThreadId = h.ThreadId.ToString(),
+                    FromUserId = h.FromUserId?.ToString() ?? string.Empty,
+                    ToUserId = h.ToUserId?.ToString() ?? string.Empty,
+                    Action = h.Action.ToString().ToUpperInvariant(),
+                    ActorUserId = h.ActorUserId.ToString(),
+                    Reason = h.Reason ?? string.Empty,
+                    CreatedAt = Timestamp.FromDateTimeOffset(h.CreatedAt)
+                });
+            }
+
+            return dto;
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            throw new RpcException(new Status(StatusCode.PermissionDenied, ex.Message));
+        }
+    }
+
+    public override async Task<ListThreadsResponse> ListThreads(ListThreadsRequest request, ServerCallContext context)
+    {
+        Guid? mailboxId = string.IsNullOrEmpty(request.MailboxId) ? null : Guid.Parse(request.MailboxId);
+        var threads = await _mediator.Send(new ListThreadsQuery(mailboxId, request.PageSize, request.NextPageToken, request.Scope, request.Status), context.CancellationToken);
+
+        var response = new ListThreadsResponse();
+        foreach (var t in threads)
+        {
+            var summary = new ThreadSummaryDto
+            {
+                ThreadId = t.Id.ToString(),
+                MailboxId = t.MailboxId.ToString(),
+                Subject = t.Subject,
+                LastMessageAt = Timestamp.FromDateTimeOffset(t.LastMessageAt),
+                MessageCount = t.MessageCount,
+                DraftCount = t.DraftCount,
+                HasUnread = t.HasUnread,
+                Snippet = t.Snippet ?? string.Empty,
+                PrimaryAssigneeUserId = t.PrimaryAssigneeUserId?.ToString() ?? string.Empty,
+                AssignedAt = t.AssignedAt.HasValue ? Timestamp.FromDateTimeOffset(t.AssignedAt.Value) : null,
+                Status = t.Status.ToString().ToUpperInvariant(),
+                Priority = t.Priority.ToString().ToUpperInvariant(),
+            };
+            summary.Participants.AddRange(t.Participants);
+            response.Threads.Add(summary);
+        }
+
+        return response;
+    }
+
+    public override async Task<ClaimThreadResponse> ClaimThread(ClaimThreadRequest request, ServerCallContext context)
+    {
+        if (!Guid.TryParse(request.ThreadId, out var threadId))
+        {
+            throw new RpcException(new Status(StatusCode.InvalidArgument, "Invalid ThreadId GUID format."));
+        }
+
+        try
+        {
+            var result = await _mediator.Send(new ClaimThreadCommand(threadId), context.CancellationToken);
+            return new ClaimThreadResponse
+            {
+                Success = result.Success,
+                ThreadId = result.ThreadId.ToString(),
+                PrimaryAssigneeUserId = result.PrimaryAssigneeUserId.ToString(),
+                AssignedAt = Timestamp.FromDateTimeOffset(result.AssignedAt),
+                Status = result.Status
+            };
+        }
+        catch (KeyNotFoundException ex)
+        {
+            throw new RpcException(new Status(StatusCode.NotFound, ex.Message));
+        }
+        catch (InvalidOperationException ex)
+        {
+            throw new RpcException(new Status(StatusCode.FailedPrecondition, ex.Message));
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            throw new RpcException(new Status(StatusCode.PermissionDenied, ex.Message));
+        }
+    }
+
+    public override async Task<ReassignThreadResponse> ReassignThread(ReassignThreadRequest request, ServerCallContext context)
+    {
+        if (!Guid.TryParse(request.ThreadId, out var threadId))
+        {
+            throw new RpcException(new Status(StatusCode.InvalidArgument, "Invalid ThreadId GUID format."));
+        }
+        if (!Guid.TryParse(request.TargetUserId, out var targetUserId))
+        {
+            throw new RpcException(new Status(StatusCode.InvalidArgument, "Invalid TargetUserId GUID format."));
+        }
+
+        try
+        {
+            var result = await _mediator.Send(new ReassignThreadCommand(threadId, targetUserId, request.Reason), context.CancellationToken);
+            return new ReassignThreadResponse
+            {
+                Success = result.Success,
+                ThreadId = result.ThreadId.ToString(),
+                PrimaryAssigneeUserId = result.PrimaryAssigneeUserId.ToString(),
+                AssignedAt = Timestamp.FromDateTimeOffset(result.AssignedAt),
+                Status = result.Status
+            };
+        }
+        catch (KeyNotFoundException ex)
+        {
+            throw new RpcException(new Status(StatusCode.NotFound, ex.Message));
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            throw new RpcException(new Status(StatusCode.PermissionDenied, ex.Message));
+        }
+    }
+
+    public override async Task<UnassignThreadResponse> UnassignThread(UnassignThreadRequest request, ServerCallContext context)
+    {
+        if (!Guid.TryParse(request.ThreadId, out var threadId))
+        {
+            throw new RpcException(new Status(StatusCode.InvalidArgument, "Invalid ThreadId GUID format."));
+        }
+
+        try
+        {
+            var result = await _mediator.Send(new UnassignThreadCommand(threadId, request.Reason), context.CancellationToken);
+            return new UnassignThreadResponse
+            {
+                Success = result.Success,
+                ThreadId = result.ThreadId.ToString(),
+                Status = result.Status
+            };
+        }
+        catch (KeyNotFoundException ex)
+        {
+            throw new RpcException(new Status(StatusCode.NotFound, ex.Message));
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            throw new RpcException(new Status(StatusCode.PermissionDenied, ex.Message));
+        }
+    }
+
+    public override async Task<GetThreadAssignmentHistoryResponse> GetThreadAssignmentHistory(GetThreadAssignmentHistoryRequest request, ServerCallContext context)
+    {
+        if (!Guid.TryParse(request.ThreadId, out var threadId))
+        {
+            throw new RpcException(new Status(StatusCode.InvalidArgument, "Invalid ThreadId GUID format."));
+        }
+
+        var histories = await _mediator.Send(new GetThreadAssignmentHistoryQuery(threadId), context.CancellationToken);
+        var response = new GetThreadAssignmentHistoryResponse { ThreadId = request.ThreadId };
+
+        foreach (var h in histories)
+        {
+            response.History.Add(new ThreadAssignmentHistoryDto
+            {
+                Id = h.Id.ToString(),
+                ThreadId = h.ThreadId.ToString(),
+                FromUserId = h.FromUserId?.ToString() ?? string.Empty,
+                ToUserId = h.ToUserId?.ToString() ?? string.Empty,
+                Action = h.Action.ToString().ToUpperInvariant(),
+                ActorUserId = h.ActorUserId.ToString(),
+                Reason = h.Reason ?? string.Empty,
+                CreatedAt = Timestamp.FromDateTimeOffset(h.CreatedAt)
+            });
+        }
+
         return response;
     }
 
@@ -154,7 +444,7 @@ public class MailSecurityService : MailSecurity.MailSecurityBase
 
     private static DraftDto MapDraftDto(Domain.Entities.EmailDraft draft)
     {
-        return new DraftDto
+        var dto = new DraftDto
         {
             DraftId = draft.Id.ToString(),
             DraftRootId = draft.DraftRootId.ToString(),
@@ -167,8 +457,19 @@ public class MailSecurityService : MailSecurity.MailSecurityBase
             Subject = draft.Subject,
             Body = draft.Body,
             ContentHash = draft.ContentHash,
-            CreatedAt = Timestamp.FromDateTimeOffset(draft.CreatedAt)
+            CreatedAt = Timestamp.FromDateTimeOffset(draft.CreatedAt),
+            SourceType = draft.SourceType ?? "MANUAL",
+            SourceId = draft.SourceId ?? string.Empty,
+            ThreadId = draft.ThreadId?.ToString() ?? string.Empty,
+            ReplyToMessageId = draft.ReplyToMessageId ?? string.Empty,
         };
+
+        if (draft.ToRecipients != null)
+        {
+            dto.ToRecipients.AddRange(draft.ToRecipients);
+        }
+
+        return dto;
     }
 
     private static ProcessedMessageDto MapProcessedMessageDto(Domain.Entities.ProcessedMessage msg)
@@ -187,7 +488,11 @@ public class MailSecurityService : MailSecurity.MailSecurityBase
             SpamScore = (double)msg.SpamScore,
             PhishingScore = (double)msg.PhishingScore,
             IsQuarantined = msg.IsQuarantined,
-            R2RawEmlPath = msg.R2RawEmlPath ?? string.Empty
+            R2RawEmlPath = msg.R2RawEmlPath ?? string.Empty,
+            ThreadId = msg.ThreadId?.ToString() ?? string.Empty,
+            ReplyToMessageId = msg.InReplyTo ?? string.Empty,
+            BodyText = msg.BodyText ?? string.Empty,
+            BodyHtml = msg.BodyHtml ?? string.Empty,
         };
 
         dto.RecipientAddresses.AddRange(msg.RecipientAddresses);

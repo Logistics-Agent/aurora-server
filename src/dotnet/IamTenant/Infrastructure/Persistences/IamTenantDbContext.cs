@@ -160,11 +160,13 @@ public class IamTenantDbContext(
         // --- Roles ---
         var sysAdminRoleId = Guid.Parse("10000000-0000-0000-0000-000000000001");
         var tenantAdminRoleId = Guid.Parse("10000000-0000-0000-0000-000000000002");
+        var managerRoleId = Guid.Parse("10000000-0000-0000-0000-000000000004");
         var tenantStaffRoleId = Guid.Parse("10000000-0000-0000-0000-000000000003");
 
         modelBuilder.Entity<Role>().HasData(
             new Role { Id = sysAdminRoleId, TenantId = systemTenantId, Code = "SYSTEM_ADMIN", Name = "System Administrator", IsSystemRole = true, CreatedAt = DateTimeOffset.UnixEpoch, CreatedBy = "system" },
             new Role { Id = tenantAdminRoleId, TenantId = systemTenantId, Code = "TENANT_ADMIN", Name = "Tenant Administrator", IsSystemRole = true, CreatedAt = DateTimeOffset.UnixEpoch, CreatedBy = "system" },
+            new Role { Id = managerRoleId, TenantId = systemTenantId, Code = "MANAGER", Name = "Operations Manager", IsSystemRole = true, CreatedAt = DateTimeOffset.UnixEpoch, CreatedBy = "system" },
             new Role { Id = tenantStaffRoleId, TenantId = systemTenantId, Code = "TENANT_STAFF", Name = "Tenant Staff", IsSystemRole = true, CreatedAt = DateTimeOffset.UnixEpoch, CreatedBy = "system" }
         );
 
@@ -179,7 +181,7 @@ public class IamTenantDbContext(
                 Id = codeToId[code],
                 Code = code,
                 Module = code.Split(':')[0],
-                Description = $"Allows {code.Split(':')[1]} operation on {code.Split(':')[0]}"
+                Description = $"Allows capability {code}"
             }).ToArray()
         );
 
@@ -191,22 +193,24 @@ public class IamTenantDbContext(
             PermissionId = codeToId[code]
         });
 
-        // TENANT_ADMIN: toàn quyền iam:* + route_planning:*
-        var tenantAdminPerms = allCodes
-            .Where(code => code.StartsWith("iam:") || code.StartsWith("route_planning:"))
-            .Select(code => new RolePermission
-            {
-                RoleId = tenantAdminRoleId,
-                PermissionId = codeToId[code]
-            });
+        // TENANT_ADMIN: toàn quyền quản trị tenant
+        var tenantAdminCodes = Shared.Constants.PermissionConstants.GetTenantAdminPermissions();
+        var tenantAdminPerms = tenantAdminCodes.Select(code => new RolePermission
+        {
+            RoleId = tenantAdminRoleId,
+            PermissionId = codeToId[code]
+        });
 
-        // TENANT_STAFF: quyền staff mặc định (read/export/import) + route_planning:create
-        var staffCodes = Shared.Constants.PermissionConstants.GetDefaultStaffPermissions()
-            .Append(Shared.Constants.PermissionConstants.Build(
-                Shared.Constants.PermissionConstants.Modules.RoutePlanning,
-                Shared.Constants.PermissionConstants.Create))
-            .Distinct();
+        // MANAGER: baseline + supervisory permissions (Route approve, OCR review, thread reassign, etc.)
+        var managerCodes = Shared.Constants.PermissionConstants.GetDefaultManagerPermissions();
+        var managerPerms = managerCodes.Select(code => new RolePermission
+        {
+            RoleId = managerRoleId,
+            PermissionId = codeToId[code]
+        });
 
+        // TENANT_STAFF: quyền staff mặc định (baseline capabilities)
+        var staffCodes = Shared.Constants.PermissionConstants.GetDefaultStaffPermissions();
         var tenantStaffPerms = staffCodes.Select(code => new RolePermission
         {
             RoleId = tenantStaffRoleId,
@@ -214,7 +218,7 @@ public class IamTenantDbContext(
         });
 
         modelBuilder.Entity<RolePermission>().HasData(
-            [.. sysAdminPerms, .. tenantAdminPerms, .. tenantStaffPerms]);
+            [.. sysAdminPerms, .. tenantAdminPerms, .. managerPerms, .. tenantStaffPerms]);
     }
 
     /// <summary>

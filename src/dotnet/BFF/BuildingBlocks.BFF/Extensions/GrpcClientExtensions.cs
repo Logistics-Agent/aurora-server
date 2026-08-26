@@ -108,6 +108,12 @@ public static class GrpcClientExtensions
             .AddInterceptor<ClientMetadataInterceptor>(InterceptorScope.Client)
             .AddStandardResilienceHandler(ConfigureBusinessResilience);
 
+        var negotiationUrl = config["Grpc:NegotiationService:Url"] ?? "http://localhost:5006";
+        services.AddGrpcClient<Negotiation.Grpc.NegotiationService.NegotiationServiceClient>(
+                o => o.Address = new Uri(negotiationUrl))
+            .AddInterceptor<ClientMetadataInterceptor>(InterceptorScope.Client)
+            .AddStandardResilienceHandler(ConfigureBusinessResilience);
+
         return services;
     }
 

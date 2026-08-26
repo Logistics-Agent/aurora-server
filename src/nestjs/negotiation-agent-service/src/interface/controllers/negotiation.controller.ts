@@ -22,7 +22,14 @@ export class NegotiationController {
   }
 
   @GrpcMethod('NegotiationService', 'GetSessionHistory')
-  async getSessionHistoryGrpc(data: { sessionId: string }) {
-    return this.negotiationService.getSessionHistory(data.sessionId);
+  async getSessionHistoryGrpc(data: { sessionId?: string; session_id?: string }) {
+    const sessionId = data.sessionId || data.session_id || '';
+    return this.negotiationService.getSessionHistory(sessionId);
+  }
+
+  @GrpcMethod('NegotiationService', 'GetDraftSuggestion')
+  async getDraftSuggestionGrpc(data: { negotiationSessionId?: string; negotiation_session_id?: string }) {
+    const sessionId = data.negotiationSessionId || data.negotiation_session_id || '';
+    return this.negotiationService.getDraftSuggestion(sessionId);
   }
 }

@@ -20,7 +20,6 @@ public class ComplianceController(
     ILogger<ComplianceController> logger) : StaffControllerBase
 {
     [HttpPost("evaluations")]
-    [RequirePermission(PermissionConstants.Modules.Compliance, PermissionConstants.Create)]
     public async Task<IActionResult> EvaluateCompliance(
         [FromBody] EvaluateComplianceBody body,
         CancellationToken ct = default)
@@ -80,7 +79,6 @@ public class ComplianceController(
     }
 
     [HttpGet("evaluations/{id}")]
-    [RequirePermission(PermissionConstants.Modules.Compliance, PermissionConstants.Read)]
     public async Task<IActionResult> GetComplianceEvaluation(
         [FromRoute] string id,
         CancellationToken ct = default)
@@ -98,7 +96,6 @@ public class ComplianceController(
     }
 
     [HttpPost("copilot/ask")]
-    [RequirePermission(PermissionConstants.Modules.Compliance, PermissionConstants.Read)]
     public async Task<IActionResult> AskComplianceCopilot(
         [FromBody] AskComplianceCopilotBody body,
         CancellationToken ct = default)

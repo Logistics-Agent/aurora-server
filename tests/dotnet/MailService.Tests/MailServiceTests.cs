@@ -1,11 +1,5 @@
-using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
-using System.Threading;
-using System.Threading.Tasks;
 using Xunit;
 using Moq;
 using Microsoft.EntityFrameworkCore;
@@ -15,13 +9,9 @@ using Shared.Events;
 using MailService.Application.Commands.Outbound;
 using MailService.Application.Commands.Quarantine;
 using MailService.Application.Interfaces.AI;
-using MailService.Application.Interfaces.Classification;
-using MailService.Application.Interfaces.Messaging;
-using MailService.Application.Interfaces.Persistence;
 using MailService.Application.Interfaces.RateLimiting;
 using MailService.Application.Interfaces.Security;
 using MailService.Application.Interfaces.Stalwart;
-using MailService.Application.Interfaces.Storage;
 using MailService.Application.Pipeline;
 using MailService.Application.Pipeline.Stages;
 using MailService.Domain.Entities;
@@ -30,13 +20,9 @@ using MailService.Infrastructure.AI;
 using MailService.Infrastructure.Messaging;
 using MailService.Infrastructure.Persistence;
 using MailService.Infrastructure.Persistence.Repositories;
-using MailService.Infrastructure.Security.Dns;
 using MailService.Infrastructure.Security.Spf;
 using MailService.Infrastructure.Security.Dkim;
 using MailService.Infrastructure.Security.Dmarc;
-using MailService.Infrastructure.Security.Malware;
-using MailService.Infrastructure.Security.Spam;
-using MailService.Infrastructure.Stalwart;
 
 namespace MailService.Tests;
 
@@ -541,7 +527,7 @@ public class MailServiceTests
         var outboxWriter = new OutboxWriter(dbContext);
         var pipelineRunner = new OutboundPipelineRunner(stages, dbContext, outboxWriter, NullLogger<OutboundPipelineRunner>.Instance);
 
-        var handler = new SubmitOutboundMessageCommandHandler(draftRepo, pipelineRunner, mockUser.Object);
+        var handler = new SubmitOutboundMessageCommandHandler(draftRepo, pipelineRunner, mockUser.Object, dbContext);
 
         // Act - Submit outbound message
         var command = new SubmitOutboundMessageCommand(
@@ -1176,4 +1162,277 @@ public class MailServiceTests
         await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
             handler.Handle(new MailService.Application.Queries.Audit.GetAuditRecordsQuery(null, 50), CancellationToken.None));
     }
+
+    [Fact]
+    public async Task Test30_CreateDraftMessage_WithNegotiationSource_PersistsSourceMetadata()
+    {
+        var dbName = Guid.NewGuid().ToString();
+        var tenantId = Guid.NewGuid();
+        var mailboxId = Guid.NewGuid();
+        var mockUser = new Mock<ICurrentUserService>();
+        mockUser.Setup(u => u.TenantId).Returns(tenantId);
+        mockUser.Setup(u => u.UserId).Returns(Guid.NewGuid());
+
+        using var dbContext = CreateInMemoryDbContext(dbName, mockUser.Object);
+        dbContext.Mailboxes.Add(new Mailbox
+        {
+            Id = mailboxId,
+            TenantId = tenantId,
+            DomainId = Guid.NewGuid(),
+            LocalPart = "sales",
+            FullAddress = "sales@logistics.vn",
+            Status = MailboxStatus.Active
+        });
+        await dbContext.SaveChangesAsync();
+
+        var handler = new MailService.Application.Commands.Drafts.CreateDraftMessageCommandHandler(dbContext, mockUser.Object);
+        var command = new MailService.Application.Commands.Drafts.CreateDraftMessageCommand(
+            MailboxId: mailboxId,
+            AssignedStaffId: mockUser.Object.UserId,
+            Subject: "Re: Quotation Proposal for Shipment SHP-1001",
+            Body: "We offer $4500 USD.",
+            Source: DraftSource.AiAgent,
+            SourceType: "NEGOTIATION",
+            SourceId: "sess-neg-001",
+            IdempotencyKey: "idem-key-001",
+            ToRecipients: new List<string> { "client@example.com" });
+
+        var result = await handler.Handle(command, CancellationToken.None);
+
+        Assert.NotNull(result.Draft);
+        Assert.False(result.IsExisting);
+        Assert.Equal("NEGOTIATION", result.Draft.SourceType);
+        Assert.Equal("sess-neg-001", result.Draft.SourceId);
+        Assert.Equal("idem-key-001", result.Draft.IdempotencyKey);
+        Assert.Single(result.Draft.ToRecipients);
+        Assert.Equal("client@example.com", result.Draft.ToRecipients[0]);
+        Assert.NotNull(result.Draft.ThreadId);
+
+        // Verify thread created
+        var thread = await dbContext.EmailThreads.FirstOrDefaultAsync(t => t.Id == result.Draft.ThreadId);
+        Assert.NotNull(thread);
+        Assert.Equal(1, thread.DraftCount);
+        Assert.Equal(0, thread.MessageCount); // Draft does NOT create sent messages
+    }
+
+    [Fact]
+    public async Task Test31_CreateDraftMessage_IdempotencyKey_ReturnsExistingDraft()
+    {
+        var dbName = Guid.NewGuid().ToString();
+        var tenantId = Guid.NewGuid();
+        var mailboxId = Guid.NewGuid();
+        var mockUser = new Mock<ICurrentUserService>();
+        mockUser.Setup(u => u.TenantId).Returns(tenantId);
+        mockUser.Setup(u => u.UserId).Returns(Guid.NewGuid());
+
+        using var dbContext = CreateInMemoryDbContext(dbName, mockUser.Object);
+        dbContext.Mailboxes.Add(new Mailbox
+        {
+            Id = mailboxId,
+            TenantId = tenantId,
+            DomainId = Guid.NewGuid(),
+            LocalPart = "sales",
+            FullAddress = "sales@logistics.vn",
+            Status = MailboxStatus.Active
+        });
+        await dbContext.SaveChangesAsync();
+
+        var handler = new MailService.Application.Commands.Drafts.CreateDraftMessageCommandHandler(dbContext, mockUser.Object);
+        var command = new MailService.Application.Commands.Drafts.CreateDraftMessageCommand(
+            MailboxId: mailboxId,
+            AssignedStaffId: mockUser.Object.UserId,
+            Subject: "Quotation Proposal",
+            Body: "Initial draft body.",
+            Source: DraftSource.Manual,
+            SourceType: "NEGOTIATION",
+            SourceId: "sess-neg-002",
+            IdempotencyKey: "duplicate-safe-key-123");
+
+        // First invocation
+        var firstResult = await handler.Handle(command, CancellationToken.None);
+        Assert.False(firstResult.IsExisting);
+
+        // Second duplicate invocation (e.g. double click)
+        var secondResult = await handler.Handle(command, CancellationToken.None);
+        Assert.True(secondResult.IsExisting);
+        Assert.Equal(firstResult.Draft.Id, secondResult.Draft.Id);
+
+        // Total drafts in DB should still be 1
+        var totalDrafts = await dbContext.EmailDrafts.CountAsync();
+        Assert.Equal(1, totalDrafts);
+    }
+
+    [Fact]
+    public async Task Test32_CreateDraftMessage_WithThreadAndReplyTo_LinksCorrectly()
+    {
+        var dbName = Guid.NewGuid().ToString();
+        var tenantId = Guid.NewGuid();
+        var mailboxId = Guid.NewGuid();
+        var threadId = Guid.NewGuid();
+        var parentMessageId = Guid.NewGuid();
+
+        var mockUser = new Mock<ICurrentUserService>();
+        mockUser.Setup(u => u.TenantId).Returns(tenantId);
+
+        using var dbContext = CreateInMemoryDbContext(dbName, mockUser.Object);
+        dbContext.Mailboxes.Add(new Mailbox { Id = mailboxId, TenantId = tenantId, FullAddress = "ops@logistics.vn" });
+        dbContext.EmailThreads.Add(new EmailThread { Id = threadId, TenantId = tenantId, MailboxId = mailboxId, Subject = "Inbound Thread" });
+        dbContext.ProcessedMessages.Add(new ProcessedMessage
+        {
+            Id = parentMessageId,
+            TenantId = tenantId,
+            ThreadId = threadId,
+            SenderAddress = "client@domain.com",
+            Subject = "Inbound Thread",
+            Direction = EmailDirection.Inbound
+        });
+        await dbContext.SaveChangesAsync();
+
+        var handler = new MailService.Application.Commands.Drafts.CreateDraftMessageCommandHandler(dbContext, mockUser.Object);
+        var command = new MailService.Application.Commands.Drafts.CreateDraftMessageCommand(
+            MailboxId: mailboxId,
+            AssignedStaffId: null,
+            Subject: "Re: Inbound Thread",
+            Body: "Reply draft body.",
+            Source: DraftSource.AiAgent,
+            SourceType: "NEGOTIATION",
+            SourceId: "sess-003",
+            ThreadId: threadId,
+            ReplyToMessageId: parentMessageId.ToString());
+
+        var result = await handler.Handle(command, CancellationToken.None);
+
+        Assert.Equal(threadId, result.Draft.ThreadId);
+        Assert.Equal(parentMessageId.ToString(), result.Draft.ReplyToMessageId);
+    }
+
+    [Fact]
+    public async Task Test33_CreateDraftMessage_CrossTenantMailbox_ThrowsKeyNotFound()
+    {
+        var dbName = Guid.NewGuid().ToString();
+        var tenantA = Guid.NewGuid();
+        var tenantB = Guid.NewGuid();
+        var mailboxOfTenantB = Guid.NewGuid();
+
+        var mockUserTenantA = new Mock<ICurrentUserService>();
+        mockUserTenantA.Setup(u => u.TenantId).Returns(tenantA);
+
+        using var dbContext = CreateInMemoryDbContext(dbName, mockUserTenantA.Object);
+        dbContext.Mailboxes.Add(new Mailbox { Id = mailboxOfTenantB, TenantId = tenantB, FullAddress = "b@tenantb.com" });
+        await dbContext.SaveChangesAsync();
+
+        var handler = new MailService.Application.Commands.Drafts.CreateDraftMessageCommandHandler(dbContext, mockUserTenantA.Object);
+        var command = new MailService.Application.Commands.Drafts.CreateDraftMessageCommand(
+            MailboxId: mailboxOfTenantB,
+            AssignedStaffId: null,
+            Subject: "Cross-tenant attempt",
+            Body: "Should fail.",
+            Source: DraftSource.Manual);
+
+        await Assert.ThrowsAsync<KeyNotFoundException>(() =>
+            handler.Handle(command, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task Test34_CreateDraftMessage_DoesNotTriggerOutboundSend()
+    {
+        var dbName = Guid.NewGuid().ToString();
+        var tenantId = Guid.NewGuid();
+        var mailboxId = Guid.NewGuid();
+        var mockUser = new Mock<ICurrentUserService>();
+        mockUser.Setup(u => u.TenantId).Returns(tenantId);
+
+        using var dbContext = CreateInMemoryDbContext(dbName, mockUser.Object);
+        dbContext.Mailboxes.Add(new Mailbox { Id = mailboxId, TenantId = tenantId, FullAddress = "sales@logistics.vn" });
+        await dbContext.SaveChangesAsync();
+
+        var handler = new MailService.Application.Commands.Drafts.CreateDraftMessageCommandHandler(dbContext, mockUser.Object);
+        var command = new MailService.Application.Commands.Drafts.CreateDraftMessageCommand(
+            MailboxId: mailboxId,
+            AssignedStaffId: null,
+            Subject: "Draft only",
+            Body: "No SMTP send.",
+            Source: DraftSource.Manual);
+
+        var result = await handler.Handle(command, CancellationToken.None);
+
+        Assert.Equal(DraftStatus.Draft, result.Draft.Status);
+        // ProcessedMessages count must be 0
+        var sentCount = await dbContext.ProcessedMessages.CountAsync();
+        Assert.Equal(0, sentCount);
+    }
+
+    [Fact]
+    public async Task Test35_GetThread_ReturnsOrderedMessagesAndDrafts()
+    {
+        var dbName = Guid.NewGuid().ToString();
+        var tenantId = Guid.NewGuid();
+        var threadId = Guid.NewGuid();
+        var mailboxId = Guid.NewGuid();
+        var mockUser = new Mock<ICurrentUserService>();
+        mockUser.Setup(u => u.TenantId).Returns(tenantId);
+
+        using var dbContext = CreateInMemoryDbContext(dbName, mockUser.Object);
+        dbContext.EmailThreads.Add(new EmailThread
+        {
+            Id = threadId,
+            TenantId = tenantId,
+            MailboxId = mailboxId,
+            Subject = "Thread Conversation",
+            Participants = new List<string> { "client@example.com", "ops@logistics.vn" }
+        });
+
+        dbContext.ProcessedMessages.Add(new ProcessedMessage
+        {
+            Id = Guid.NewGuid(),
+            TenantId = tenantId,
+            ThreadId = threadId,
+            Subject = "Thread Conversation",
+            SenderAddress = "client@example.com",
+            Direction = EmailDirection.Inbound,
+            ReceivedAt = DateTimeOffset.UtcNow.AddMinutes(-30),
+            ProcessedAt = DateTimeOffset.UtcNow.AddMinutes(-30),
+            BodyText = "Inbound message 1"
+        });
+
+        dbContext.ProcessedMessages.Add(new ProcessedMessage
+        {
+            Id = Guid.NewGuid(),
+            TenantId = tenantId,
+            ThreadId = threadId,
+            Subject = "Re: Thread Conversation",
+            SenderAddress = "ops@logistics.vn",
+            Direction = EmailDirection.Outbound,
+            ReceivedAt = DateTimeOffset.UtcNow.AddMinutes(-15),
+            ProcessedAt = DateTimeOffset.UtcNow.AddMinutes(-15),
+            BodyText = "Outbound reply 1"
+        });
+
+        dbContext.EmailDrafts.Add(new EmailDraft
+        {
+            Id = Guid.NewGuid(),
+            TenantId = tenantId,
+            ThreadId = threadId,
+            DraftRootId = Guid.NewGuid(),
+            RevisionNumber = 1,
+            IsLatestRevision = true,
+            Status = DraftStatus.Draft,
+            Subject = "Re: Thread Conversation (Draft)",
+            Body = "Pending staff review",
+            CreatedAt = DateTimeOffset.UtcNow
+        });
+
+        await dbContext.SaveChangesAsync();
+
+        var handler = new MailService.Application.Queries.Threads.GetThreadQueryHandler(dbContext, mockUser.Object);
+        var result = await handler.Handle(new MailService.Application.Queries.Threads.GetThreadQuery(threadId), CancellationToken.None);
+
+        Assert.NotNull(result);
+        Assert.Equal(2, result.Messages.Count);
+        Assert.Single(result.Drafts);
+        Assert.Equal("Inbound message 1", result.Messages[0].BodyText);
+        Assert.Equal("Outbound reply 1", result.Messages[1].BodyText);
+        Assert.Equal("Pending staff review", result.Drafts[0].Body);
+    }
 }
+

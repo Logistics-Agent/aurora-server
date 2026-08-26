@@ -20,7 +20,7 @@ public class RolesController(
     ILogger<RolesController> logger) : AdminControllerBase
 {
     [HttpGet]
-    [RequirePermission(PermissionConstants.Modules.Iam, PermissionConstants.Read)]
+    [RequirePermission(PermissionConstants.Iam.RoleRead, "iam:read")]
     public async Task<IActionResult> ListRoles([FromQuery] int page = 1, [FromQuery] int limit = 10)
     {
         var response = await iamClient.GetManyRolesAsync(
@@ -39,7 +39,7 @@ public class RolesController(
     }
 
     [HttpGet("{id}")]
-    [RequirePermission(PermissionConstants.Modules.Iam, PermissionConstants.Read)]
+    [RequirePermission(PermissionConstants.Iam.RoleRead, "iam:read")]
     public async Task<IActionResult> GetRole([FromRoute] string id)
     {
         try

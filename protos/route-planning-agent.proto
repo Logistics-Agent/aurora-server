@@ -20,6 +20,17 @@ service RoutePlanningService {
   rpc UpsertTenantAiConfig (UpsertTenantAiConfigRequest) returns (TenantAiConfigResponse);
   rpc UpsertTenantRuleConfig (UpsertTenantRuleConfigRequest) returns (TenantRuleConfigResponse);
   rpc ListTenantRuleConfigs (ListTenantRuleConfigsRequest) returns (ListTenantRuleConfigsResponse);
+
+  // Tenant Risk Policy Lifecycle
+  rpc CreateRiskPolicyDraft (CreateRiskPolicyDraftRequest) returns (RiskPolicyResponse);
+  rpc UpdateRiskPolicyDraft (UpdateRiskPolicyDraftRequest) returns (RiskPolicyResponse);
+  rpc SubmitRiskPolicyForReview (SubmitRiskPolicyRequest) returns (RiskPolicyResponse);
+  rpc RejectRiskPolicy (RejectRiskPolicyRequest) returns (RiskPolicyResponse);
+  rpc PublishRiskPolicy (PublishRiskPolicyRequest) returns (RiskPolicyResponse);
+  rpc GetRiskPolicy (GetRiskPolicyRequest) returns (RiskPolicyResponse);
+  rpc GetActiveRiskPolicy (GetActiveRiskPolicyRequest) returns (RiskPolicyResponse);
+  rpc ListRiskPolicyVersions (ListRiskPolicyVersionsRequest) returns (ListRiskPolicyVersionsResponse);
+  rpc DeleteRiskPolicyDraft (DeleteRiskPolicyDraftRequest) returns (DeleteRiskPolicyDraftResponse);
 }
 
 message RouteStopInput {
@@ -225,4 +236,109 @@ message ListTenantRuleConfigsResponse {
   int32 total_items = 2;
   int32 page = 3;
   int32 limit = 4;
+}
+
+// Tenant Risk Policy Messages
+message RiskRuleInput {
+  string rule_code = 1;
+  string rule_name = 2;
+  string thresholds_json = 3;
+  string risk_effect = 4;
+  bool is_enabled = 5;
+  string source_reference = 6;
+}
+
+message RiskRuleResponse {
+  string id = 1;
+  string policy_id = 2;
+  string rule_code = 3;
+  string rule_name = 4;
+  string thresholds_json = 5;
+  string risk_effect = 6;
+  bool is_enabled = 7;
+  string source_reference = 8;
+  string created_at = 9;
+}
+
+message RiskPolicyResponse {
+  string id = 1;
+  string tenant_id = 2;
+  string name = 3;
+  string description = 4;
+  string scope = 5;
+  int32 version = 6;
+  string status = 7;
+  string source = 8;
+  string source_document_id = 9;
+  string submitted_by_user_id = 10;
+  string submitted_at = 11;
+  string reviewed_by_user_id = 12;
+  string reviewed_at = 13;
+  string reviewer_comment = 14;
+  string published_by_user_id = 15;
+  string published_at = 16;
+  string rejection_reason = 17;
+  string superseded_at = 18;
+  string created_at = 19;
+  string updated_at = 20;
+  repeated RiskRuleResponse rules = 21;
+}
+
+message CreateRiskPolicyDraftRequest {
+  string name = 1;
+  string description = 2;
+  string scope = 3;
+  string source = 4;
+  string source_document_id = 5;
+  repeated RiskRuleInput rules = 6;
+}
+
+message UpdateRiskPolicyDraftRequest {
+  string policy_id = 1;
+  string name = 2;
+  string description = 3;
+  repeated RiskRuleInput rules = 4;
+}
+
+message SubmitRiskPolicyRequest {
+  string policy_id = 1;
+}
+
+message RejectRiskPolicyRequest {
+  string policy_id = 1;
+  string reason = 2;
+  string comment = 3;
+}
+
+message PublishRiskPolicyRequest {
+  string policy_id = 1;
+}
+
+message GetRiskPolicyRequest {
+  string policy_id = 1;
+}
+
+message GetActiveRiskPolicyRequest {
+  string scope = 1;
+}
+
+message ListRiskPolicyVersionsRequest {
+  string scope = 1;
+  int32 page = 2;
+  int32 limit = 3;
+}
+
+message ListRiskPolicyVersionsResponse {
+  repeated RiskPolicyResponse policies = 1;
+  int32 total_items = 2;
+  int32 page = 3;
+  int32 limit = 4;
+}
+
+message DeleteRiskPolicyDraftRequest {
+  string policy_id = 1;
+}
+
+message DeleteRiskPolicyDraftResponse {
+  bool success = 1;
 }

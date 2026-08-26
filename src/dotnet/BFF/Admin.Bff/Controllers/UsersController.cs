@@ -19,7 +19,7 @@ public class UsersController(
     ILogger<UsersController> logger) : AdminControllerBase
 {
     [HttpPost("invite")]
-    [RequirePermission(PermissionConstants.Modules.Iam, PermissionConstants.Create)]
+    [RequirePermission(PermissionConstants.Iam.UserInvite, "iam:create")]
     public async Task<IActionResult> InviteUser([FromBody] InviteUserBody body)
     {
         try
@@ -52,7 +52,7 @@ public class UsersController(
     }
 
     [HttpGet("{id}")]
-    [RequirePermission(PermissionConstants.Modules.Iam, PermissionConstants.Read)]
+    [RequirePermission(PermissionConstants.Iam.UserRead, "iam:read")]
     public async Task<IActionResult> GetUser([FromRoute] string id)
     {
         try

@@ -20,7 +20,7 @@ public class ShipmentsController(
     ILogger<ShipmentsController> logger) : StaffControllerBase
 {
     [HttpPost]
-    [RequirePermission(PermissionConstants.Modules.Documents, PermissionConstants.Create)]
+    [RequirePermission(PermissionConstants.Shipment.Create, "documents:create")]
     public async Task<IActionResult> CreateShipment([FromBody] CreateShipmentBody body, CancellationToken ct = default)
     {
         try
@@ -59,7 +59,7 @@ public class ShipmentsController(
     }
 
     [HttpGet("{id}")]
-    [RequirePermission(PermissionConstants.Modules.Documents, PermissionConstants.Read)]
+    [RequirePermission(PermissionConstants.Shipment.Read, "documents:read")]
     public async Task<IActionResult> GetShipment([FromRoute] string id, CancellationToken ct = default)
     {
         try
@@ -74,7 +74,7 @@ public class ShipmentsController(
     }
 
     [HttpGet]
-    [RequirePermission(PermissionConstants.Modules.Documents, PermissionConstants.Read)]
+    [RequirePermission(PermissionConstants.Shipment.Read, "documents:read")]
     public async Task<IActionResult> ListShipments(
         [FromQuery] int page = 1,
         [FromQuery] int limit = 10,
@@ -101,7 +101,7 @@ public class ShipmentsController(
     }
 
     [HttpPut("{id}")]
-    [RequirePermission(PermissionConstants.Modules.Documents, PermissionConstants.Update)]
+    [RequirePermission(PermissionConstants.Shipment.Update, "documents:update")]
     public async Task<IActionResult> UpdateShipment([FromRoute] string id, [FromBody] UpdateShipmentBody body, CancellationToken ct = default)
     {
         try
@@ -130,7 +130,7 @@ public class ShipmentsController(
     }
 
     [HttpPost("{id}/submit")]
-    [RequirePermission(PermissionConstants.Modules.Documents, PermissionConstants.Update)]
+    [RequirePermission(PermissionConstants.Shipment.Submit, "documents:update")]
     public async Task<IActionResult> SubmitShipment([FromRoute] string id, CancellationToken ct = default)
     {
         try
@@ -149,7 +149,7 @@ public class ShipmentsController(
     }
 
     [HttpPatch("{id}/status")]
-    [RequirePermission(PermissionConstants.Modules.Documents, PermissionConstants.Update)]
+    [RequirePermission(PermissionConstants.Shipment.Update, "documents:update")]
     public async Task<IActionResult> UpdateShipmentStatus([FromRoute] string id, [FromBody] UpdateStatusBody body, CancellationToken ct = default)
     {
         try
@@ -170,7 +170,7 @@ public class ShipmentsController(
     }
 
     [HttpPost("{id}/cancel")]
-    [RequirePermission(PermissionConstants.Modules.Documents, PermissionConstants.Update)]
+    [RequirePermission(PermissionConstants.Shipment.Cancel, "documents:update")]
     public async Task<IActionResult> CancelShipment([FromRoute] string id, [FromBody] CancelShipmentBody body, CancellationToken ct = default)
     {
         try
@@ -186,7 +186,7 @@ public class ShipmentsController(
     }
 
     [HttpDelete("{id}")]
-    [RequirePermission(PermissionConstants.Modules.Documents, PermissionConstants.Delete)]
+    [RequirePermission(PermissionConstants.Shipment.Delete, "documents:delete")]
     public async Task<IActionResult> DeleteDraftShipment([FromRoute] string id, CancellationToken ct = default)
     {
         try
@@ -205,7 +205,7 @@ public class ShipmentsController(
     }
 
     [HttpPost("import")]
-    [RequirePermission(PermissionConstants.Modules.Documents, PermissionConstants.Import)]
+    [RequirePermission(PermissionConstants.Shipment.Import, "documents:import")]
     public async Task<IActionResult> ImportShipments([FromBody] ImportShipmentsBody body, CancellationToken ct = default)
     {
         var req = new ImportShipmentsRequest
@@ -220,7 +220,7 @@ public class ShipmentsController(
     }
 
     [HttpPost("{id}/cargo")]
-    [RequirePermission(PermissionConstants.Modules.Documents, PermissionConstants.Create)]
+    [RequirePermission(PermissionConstants.Shipment.Create, "documents:create")]
     public async Task<IActionResult> AddCargoItem([FromRoute] string id, [FromBody] CargoItemDto item, CancellationToken ct = default)
     {
         var req = new AddCargoItemRequest
@@ -236,7 +236,7 @@ public class ShipmentsController(
     }
 
     [HttpPut("{id}/cargo/{itemId}")]
-    [RequirePermission(PermissionConstants.Modules.Documents, PermissionConstants.Update)]
+    [RequirePermission(PermissionConstants.Shipment.Update, "documents:update")]
     public async Task<IActionResult> UpdateCargoItem([FromRoute] string id, [FromRoute] string itemId, [FromBody] CargoItemDto item, CancellationToken ct = default)
     {
         var req = new UpdateCargoItemRequest
@@ -253,7 +253,7 @@ public class ShipmentsController(
     }
 
     [HttpDelete("{id}/cargo/{itemId}")]
-    [RequirePermission(PermissionConstants.Modules.Documents, PermissionConstants.Delete)]
+    [RequirePermission(PermissionConstants.Shipment.Delete, "documents:delete")]
     public async Task<IActionResult> RemoveCargoItem([FromRoute] string id, [FromRoute] string itemId, CancellationToken ct = default)
     {
         var response = await shipmentClient.RemoveCargoItemAsync(new RemoveCargoItemRequest { ShipmentId = id, CargoItemId = itemId }, cancellationToken: ct);
@@ -261,7 +261,7 @@ public class ShipmentsController(
     }
 
     [HttpPost("{id}/locations")]
-    [RequirePermission(PermissionConstants.Modules.Documents, PermissionConstants.Create)]
+    [RequirePermission(PermissionConstants.Shipment.Create, "documents:create")]
     public async Task<IActionResult> AddShipmentLocation([FromRoute] string id, [FromBody] LocationDto loc, CancellationToken ct = default)
     {
         var req = new AddShipmentLocationRequest
@@ -281,7 +281,7 @@ public class ShipmentsController(
     }
 
     [HttpPut("{id}/locations/{locationId}")]
-    [RequirePermission(PermissionConstants.Modules.Documents, PermissionConstants.Update)]
+    [RequirePermission(PermissionConstants.Shipment.Update, "documents:update")]
     public async Task<IActionResult> UpdateShipmentLocation([FromRoute] string id, [FromRoute] string locationId, [FromBody] LocationDto loc, CancellationToken ct = default)
     {
         var req = new UpdateShipmentLocationRequest
@@ -302,7 +302,7 @@ public class ShipmentsController(
     }
 
     [HttpDelete("{id}/locations/{locationId}")]
-    [RequirePermission(PermissionConstants.Modules.Documents, PermissionConstants.Delete)]
+    [RequirePermission(PermissionConstants.Shipment.Delete, "documents:delete")]
     public async Task<IActionResult> RemoveShipmentLocation([FromRoute] string id, [FromRoute] string locationId, CancellationToken ct = default)
     {
         var response = await shipmentClient.RemoveShipmentLocationAsync(new RemoveShipmentLocationRequest { ShipmentId = id, LocationId = locationId }, cancellationToken: ct);
@@ -310,7 +310,7 @@ public class ShipmentsController(
     }
 
     [HttpPost("{id}/documents")]
-    [RequirePermission(PermissionConstants.Modules.Documents, PermissionConstants.Create)]
+    [RequirePermission(PermissionConstants.Shipment.Create, "documents:create")]
     public async Task<IActionResult> AttachShipmentDocument([FromRoute] string id, [FromBody] DocumentDto doc, CancellationToken ct = default)
     {
         var req = new AttachShipmentDocumentRequest
@@ -332,7 +332,7 @@ public class ShipmentsController(
     }
 
     [HttpDelete("{id}/documents/{documentId}")]
-    [RequirePermission(PermissionConstants.Modules.Documents, PermissionConstants.Delete)]
+    [RequirePermission(PermissionConstants.Shipment.Delete, "documents:delete")]
     public async Task<IActionResult> RemoveShipmentDocument([FromRoute] string id, [FromRoute] string documentId, CancellationToken ct = default)
     {
         var response = await shipmentClient.RemoveShipmentDocumentAsync(new RemoveShipmentDocumentRequest { ShipmentId = id, DocumentId = documentId }, cancellationToken: ct);
@@ -340,7 +340,7 @@ public class ShipmentsController(
     }
 
     [HttpPost("{id}/milestones")]
-    [RequirePermission(PermissionConstants.Modules.Documents, PermissionConstants.Create)]
+    [RequirePermission(PermissionConstants.Shipment.Create, "documents:create")]
     public async Task<IActionResult> AddShipmentMilestone([FromRoute] string id, [FromBody] MilestoneDto m, CancellationToken ct = default)
     {
         var req = new AddShipmentMilestoneRequest
@@ -365,7 +365,7 @@ public class ShipmentsController(
     }
 
     [HttpGet("{id}/timeline")]
-    [RequirePermission(PermissionConstants.Modules.Documents, PermissionConstants.Read)]
+    [RequirePermission(PermissionConstants.Shipment.Read, "documents:read")]
     public async Task<IActionResult> GetShipmentTimeline([FromRoute] string id, CancellationToken ct = default)
     {
         var response = await shipmentClient.GetShipmentTimelineAsync(new GetShipmentTimelineRequest { ShipmentId = id }, cancellationToken: ct);

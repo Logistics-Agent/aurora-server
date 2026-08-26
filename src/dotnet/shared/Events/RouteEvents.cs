@@ -113,3 +113,58 @@ public record RouteRejectedEvent
     public string Reason { get; init; } = string.Empty;
     public string? Comment { get; init; }
 }
+
+[EntityName("tenant_risk_policy_created_event")]
+public record TenantRiskPolicyCreatedEvent
+{
+    public Guid PolicyId { get; init; }
+    public Guid TenantId { get; init; }
+    public string Scope { get; init; } = "RoutePlanning";
+    public int Version { get; init; }
+    public string Source { get; init; } = string.Empty;
+    public Guid CreatedByUserId { get; init; }
+}
+
+[EntityName("tenant_risk_policy_submitted_event")]
+public record TenantRiskPolicySubmittedEvent
+{
+    public Guid PolicyId { get; init; }
+    public Guid TenantId { get; init; }
+    public string Scope { get; init; } = "RoutePlanning";
+    public int Version { get; init; }
+    public Guid SubmittedByUserId { get; init; }
+}
+
+[EntityName("tenant_risk_policy_rejected_event")]
+public record TenantRiskPolicyRejectedEvent
+{
+    public Guid PolicyId { get; init; }
+    public Guid TenantId { get; init; }
+    public string Scope { get; init; } = "RoutePlanning";
+    public int Version { get; init; }
+    public Guid ReviewedByUserId { get; init; }
+    public string RejectionReason { get; init; } = string.Empty;
+}
+
+[EntityName("tenant_risk_policy_published_event")]
+public record TenantRiskPolicyPublishedEvent
+{
+    public Guid PolicyId { get; init; }
+    public Guid TenantId { get; init; }
+    public string Scope { get; init; } = "RoutePlanning";
+    public int Version { get; init; }
+    public Guid PublishedByUserId { get; init; }
+    public Guid? SupersededPolicyId { get; init; }
+    public int? SupersededVersion { get; init; }
+}
+
+[EntityName("tenant_risk_policy_superseded_event")]
+public record TenantRiskPolicySupersededEvent
+{
+    public Guid PolicyId { get; init; }
+    public Guid TenantId { get; init; }
+    public string Scope { get; init; } = "RoutePlanning";
+    public int Version { get; init; }
+    public Guid SupersededByPolicyId { get; init; }
+    public int SupersededByVersion { get; init; }
+}

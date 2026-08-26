@@ -49,6 +49,9 @@ public class OutboundPipelineContext
     public Guid? DraftRootId { get; set; }
     public Guid? FinalDraftRevisionId { get; set; }
     public DraftSource DraftSource { get; set; } = DraftSource.Manual;
+    public Guid? SentByUserId { get; set; }
+    public Guid? ThreadId { get; set; }
+    public string? ReplyToMessageId { get; set; }
     public ProcessedMessage ProcessedMessage { get; set; } = new();
     public List<StageResult> StageResults { get; } = new();
     public string? StalwartQueueId { get; set; }

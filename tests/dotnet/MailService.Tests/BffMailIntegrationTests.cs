@@ -536,4 +536,53 @@ public class BffMailIntegrationTests
         Assert.Equal(75 * 1024 * 1024, MailLimits.MaxGrpcMessageBytes);
         Assert.Equal(80 * 1024 * 1024, MailLimits.MaxHttpRequestBodyBytes);
     }
+
+    [Fact]
+    public async Task StaffBff_GetThread_ValidId_ReturnsOk()
+    {
+        var controller = new MailController(_mockMailClient.Object, _mockCurrentUser.Object, _mockStaffLogger.Object);
+        SetupControllerContext(controller);
+
+        var threadId = Guid.NewGuid().ToString();
+        var mailboxId = Guid.NewGuid().ToString();
+        var expectedThread = new ThreadResponse(
+            threadId,
+            mailboxId,
+            "Quotation Thread",
+            new List<string> { "client@example.com" },
+            new List<ThreadMessageResponse>(),
+            new List<DraftResponse>(),
+            DateTimeOffset.UtcNow.AddHours(-1),
+            DateTimeOffset.UtcNow);
+
+        _mockMailClient.Setup(c => c.GetThreadAsync(threadId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(expectedThread);
+
+        var actionResult = await controller.GetThread(threadId);
+
+        var okResult = Assert.IsType<OkObjectResult>(actionResult);
+        var response = Assert.IsType<ThreadResponse>(okResult.Value);
+        Assert.Equal(threadId, response.ThreadId);
+    }
+
+    [Fact]
+    public async Task StaffBff_ListThreads_ReturnsOk()
+    {
+        var controller = new MailController(_mockMailClient.Object, _mockCurrentUser.Object, _mockStaffLogger.Object);
+        SetupControllerContext(controller);
+
+        var summaries = new List<ThreadSummaryResponse>
+        {
+            new(Guid.NewGuid().ToString(), Guid.NewGuid().ToString(), "Thread 1", new List<string> { "a@a.com" }, DateTimeOffset.UtcNow, 2, 1, false, "Snippet 1")
+        };
+
+        _mockMailClient.Setup(c => c.ListThreadsAsync(null, 20, null, null, null, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ThreadListResponse(summaries, null));
+
+        var actionResult = await controller.ListThreads();
+
+        var okResult = Assert.IsType<OkObjectResult>(actionResult);
+        var response = Assert.IsType<ThreadListResponse>(okResult.Value);
+        Assert.Single(response.Threads);
+    }
 }

@@ -31,6 +31,7 @@ using MailService.Domain.Entities;
 using MailService.GrpcServices;
 using MailService.Infrastructure.AI;
 using MailService.Infrastructure.Cache;
+using MailService.Infrastructure.Classification;
 using MailService.Infrastructure.Health;
 using MailService.Infrastructure.Messaging;
 using MailService.Infrastructure.Messaging.Consumers;
@@ -264,15 +265,3 @@ app.MapGet("/", () => "Aurora Mail Platform Security Service running.");
 
 app.Run();
 
-public class SimpleClassifier : IEmailClassifier
-{
-    public Task<MailService.Domain.Enums.EmailCategory> ClassifyAsync(string subject, string body, CancellationToken cancellationToken = default)
-    {
-        string text = $"{subject} {body}".ToLowerInvariant();
-        if (text.Contains("booking")) return Task.FromResult(MailService.Domain.Enums.EmailCategory.BookingRequest);
-        if (text.Contains("shipment") || text.Contains("tracking")) return Task.FromResult(MailService.Domain.Enums.EmailCategory.ShipmentUpdate);
-        if (text.Contains("quote") || text.Contains("price")) return Task.FromResult(MailService.Domain.Enums.EmailCategory.Quotation);
-        if (text.Contains("complaint")) return Task.FromResult(MailService.Domain.Enums.EmailCategory.Complaint);
-        return Task.FromResult(MailService.Domain.Enums.EmailCategory.Unknown);
-    }
-}

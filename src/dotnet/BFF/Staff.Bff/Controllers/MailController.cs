@@ -25,7 +25,7 @@ public class MailController(
     // ─── Drafts ───────────────────────────────────────────────────────────────
 
     [HttpPost("drafts")]
-    [RequirePermission(PermissionConstants.Modules.Mail, PermissionConstants.Create)]
+    [RequirePermission(PermissionConstants.Mail.DraftCreate, "mail:create")]
     public async Task<IActionResult> CreateDraft([FromBody] CreateDraftRequest body)
     {
         var validator = new CreateDraftRequestValidator();
@@ -50,7 +50,7 @@ public class MailController(
     }
 
     [HttpGet("drafts")]
-    [RequirePermission(PermissionConstants.Modules.Mail, PermissionConstants.Read)]
+    [RequirePermission(PermissionConstants.Mail.Read)]
     public async Task<IActionResult> ListDrafts(
         [FromQuery] string? mailboxId = null,
         [FromQuery] string? status = null,
@@ -70,7 +70,7 @@ public class MailController(
     }
 
     [HttpGet("drafts/{id}")]
-    [RequirePermission(PermissionConstants.Modules.Mail, PermissionConstants.Read)]
+    [RequirePermission(PermissionConstants.Mail.Read)]
     public async Task<IActionResult> GetDraft([FromRoute] string id)
     {
         try
@@ -84,10 +84,117 @@ public class MailController(
         }
     }
 
+    // ─── Threads (Gmail-Like Threading & Responsibility) ────────────────────
+
+    [HttpGet("threads")]
+    [RequirePermission(PermissionConstants.Mail.Read)]
+    public async Task<IActionResult> ListThreads(
+        [FromQuery] string? mailboxId = null,
+        [FromQuery] int pageSize = 20,
+        [FromQuery] string? pageToken = null,
+        [FromQuery] string? scope = null,
+        [FromQuery] string? status = null)
+    {
+        try
+        {
+            var boundedPageSize = Math.Clamp(pageSize, 1, 100);
+            var result = await mailClient.ListThreadsAsync(mailboxId, boundedPageSize, pageToken, scope, status, HttpContext.RequestAborted);
+            return Ok(result);
+        }
+        catch (RpcException ex)
+        {
+            return ex.ToActionResult();
+        }
+    }
+
+    [HttpGet("threads/{id}")]
+    [RequirePermission(PermissionConstants.Mail.Read)]
+    public async Task<IActionResult> GetThread([FromRoute] string id)
+    {
+        try
+        {
+            var thread = await mailClient.GetThreadAsync(id, HttpContext.RequestAborted);
+            return Ok(thread);
+        }
+        catch (RpcException ex)
+        {
+            return ex.ToActionResult();
+        }
+    }
+
+    [HttpPost("threads/{id}/claim")]
+    [RequirePermission(PermissionConstants.Mail.ThreadClaim, "mail:update")]
+    public async Task<IActionResult> ClaimThread([FromRoute] string id)
+    {
+        try
+        {
+            var result = await mailClient.ClaimThreadAsync(id, HttpContext.RequestAborted);
+            logger.LogInformation("Thread {ThreadId} claimed by staff user {UserId}", id, currentUser.UserId);
+            return Ok(result);
+        }
+        catch (RpcException ex)
+        {
+            return ex.ToActionResult();
+        }
+    }
+
+    [HttpPost("threads/{id}/reassign")]
+    [RequirePermission(PermissionConstants.Mail.ThreadReassign, "mail:assign")]
+    public async Task<IActionResult> ReassignThread([FromRoute] string id, [FromBody] ReassignThreadRequest body)
+    {
+        if (string.IsNullOrWhiteSpace(body.TargetUserId))
+        {
+            return BadRequest(new { errors = new[] { "TargetUserId is required." } });
+        }
+
+        try
+        {
+            var result = await mailClient.ReassignThreadAsync(id, body, HttpContext.RequestAborted);
+            logger.LogInformation("Thread {ThreadId} reassigned to {TargetUserId} by {UserId}",
+                id, body.TargetUserId, currentUser.UserId);
+            return Ok(result);
+        }
+        catch (RpcException ex)
+        {
+            return ex.ToActionResult();
+        }
+    }
+
+    [HttpPost("threads/{id}/unassign")]
+    [RequirePermission(PermissionConstants.Mail.ThreadUnassign, "mail:assign")]
+    public async Task<IActionResult> UnassignThread([FromRoute] string id, [FromBody] UnassignThreadRequest? body = null)
+    {
+        try
+        {
+            var result = await mailClient.UnassignThreadAsync(id, body ?? new UnassignThreadRequest(), HttpContext.RequestAborted);
+            logger.LogInformation("Thread {ThreadId} unassigned by user {UserId}", id, currentUser.UserId);
+            return Ok(result);
+        }
+        catch (RpcException ex)
+        {
+            return ex.ToActionResult();
+        }
+    }
+
+    [HttpGet("threads/{id}/assignment-history")]
+    [RequirePermission(PermissionConstants.Mail.Read)]
+    public async Task<IActionResult> GetThreadAssignmentHistory([FromRoute] string id)
+    {
+        try
+        {
+            var result = await mailClient.GetThreadAssignmentHistoryAsync(id, HttpContext.RequestAborted);
+            return Ok(result);
+        }
+        catch (RpcException ex)
+        {
+            return ex.ToActionResult();
+        }
+    }
+
     // ─── Outbound Send ────────────────────────────────────────────────────────
 
     [HttpPost("messages/outbound")]
-    [RequirePermission(PermissionConstants.Modules.Mail, PermissionConstants.Send)]
+    [RequirePermission(PermissionConstants.Mail.Send)]
     public async Task<IActionResult> SubmitOutboundMessage([FromBody] SubmitOutboundMessageRequest body)
     {
         var validator = new SubmitOutboundMessageRequestValidator();
@@ -114,7 +221,7 @@ public class MailController(
     // ─── Processed Messages ───────────────────────────────────────────────────
 
     [HttpGet("messages")]
-    [RequirePermission(PermissionConstants.Modules.Mail, PermissionConstants.Read)]
+    [RequirePermission(PermissionConstants.Mail.Read)]
     public async Task<IActionResult> ListProcessedMessages(
         [FromQuery] string? direction = null,
         [FromQuery] string? emailCategory = null,
@@ -135,7 +242,7 @@ public class MailController(
     }
 
     [HttpGet("messages/{id}")]
-    [RequirePermission(PermissionConstants.Modules.Mail, PermissionConstants.Read)]
+    [RequirePermission(PermissionConstants.Mail.Read)]
     public async Task<IActionResult> GetProcessedMessage([FromRoute] string id)
     {
         try
@@ -152,7 +259,7 @@ public class MailController(
     // ─── Quarantine Operations ────────────────────────────────────────────────
 
     [HttpGet("quarantine")]
-    [RequirePermission(PermissionConstants.Modules.Mail, PermissionConstants.Read)]
+    [RequirePermission(PermissionConstants.Mail.QuarantineRead, "mail:read")]
     public async Task<IActionResult> ListQuarantineRecords(
         [FromQuery] string? status = null,
         [FromQuery] int pageSize = 20,
@@ -171,7 +278,7 @@ public class MailController(
     }
 
     [HttpGet("quarantine/{id}")]
-    [RequirePermission(PermissionConstants.Modules.Mail, PermissionConstants.Read)]
+    [RequirePermission(PermissionConstants.Mail.QuarantineRead, "mail:read")]
     public async Task<IActionResult> GetQuarantineRecord([FromRoute] string id)
     {
         try
@@ -186,7 +293,7 @@ public class MailController(
     }
 
     [HttpPost("quarantine/{id}/release")]
-    [RequirePermission(PermissionConstants.Modules.Mail, PermissionConstants.Release)]
+    [RequirePermission(PermissionConstants.Mail.QuarantineRelease, "mail:release")]
     public async Task<IActionResult> ReleaseQuarantine([FromRoute] string id)
     {
         try

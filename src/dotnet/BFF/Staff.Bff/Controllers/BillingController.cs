@@ -19,7 +19,7 @@ public class BillingController(
     ILogger<BillingController> logger) : StaffControllerBase
 {
     [HttpPost("/api/v{version:apiVersion}/invoices/generate")]
-    [RequirePermission(PermissionConstants.Modules.BillingSettlement, PermissionConstants.Create)]
+    [RequirePermission(PermissionConstants.Billing.InvoiceCreate, "billing_settlement:create")]
     public async Task<IActionResult> GenerateInvoice(
         [FromBody] GenerateInvoiceBody body,
         CancellationToken ct = default)
@@ -48,7 +48,7 @@ public class BillingController(
     }
 
     [HttpPost("/api/v{version:apiVersion}/invoices")]
-    [RequirePermission(PermissionConstants.Modules.BillingSettlement, PermissionConstants.Create)]
+    [RequirePermission(PermissionConstants.Billing.InvoiceCreate, "billing_settlement:create")]
     public async Task<IActionResult> CreateInvoice(
         [FromBody] CreateInvoiceBody body,
         CancellationToken ct = default)
@@ -85,7 +85,7 @@ public class BillingController(
     }
 
     [HttpGet("/api/v{version:apiVersion}/invoices/{id}")]
-    [RequirePermission(PermissionConstants.Modules.BillingSettlement, PermissionConstants.Read)]
+    [RequirePermission(PermissionConstants.Billing.Read)]
     public async Task<IActionResult> GetInvoiceDetail(
         [FromRoute] string id,
         CancellationToken ct = default)
@@ -102,7 +102,7 @@ public class BillingController(
     }
 
     [HttpGet("/api/v{version:apiVersion}/invoices")]
-    [RequirePermission(PermissionConstants.Modules.BillingSettlement, PermissionConstants.Read)]
+    [RequirePermission(PermissionConstants.Billing.Read)]
     public async Task<IActionResult> ListInvoices(
         [FromQuery] int page = 1,
         [FromQuery] int limit = 10,
@@ -122,7 +122,7 @@ public class BillingController(
     }
 
     [HttpPatch("/api/v{version:apiVersion}/invoices/{id}/status")]
-    [RequirePermission(PermissionConstants.Modules.BillingSettlement, PermissionConstants.Update)]
+    [RequirePermission(PermissionConstants.Billing.InvoiceUpdate, "billing_settlement:update")]
     public async Task<IActionResult> UpdateInvoiceStatus(
         [FromRoute] string id,
         [FromBody] UpdateInvoiceStatusBody body,
@@ -145,7 +145,7 @@ public class BillingController(
     }
 
     [HttpPost("/api/v{version:apiVersion}/billing/credit-check")]
-    [RequirePermission(PermissionConstants.Modules.BillingSettlement, PermissionConstants.Read)]
+    [RequirePermission(PermissionConstants.Billing.CreditCheck, "billing_settlement:read")]
     public async Task<IActionResult> CheckCustomerCredit(
         [FromBody] CreditCheckBody body,
         CancellationToken ct = default)
@@ -162,7 +162,7 @@ public class BillingController(
     }
 
     [HttpGet("/api/v{version:apiVersion}/escrow/wallets/{id}")]
-    [RequirePermission(PermissionConstants.Modules.BillingSettlement, PermissionConstants.Read)]
+    [RequirePermission(PermissionConstants.Billing.EscrowRead, "billing_settlement:read")]
     public async Task<IActionResult> GetWalletBalance(
         [FromRoute] string id,
         CancellationToken ct = default)

@@ -5,12 +5,15 @@ using System.Threading.Tasks;
 using Grpc.Core;
 using MediatR;
 using RoutePlanningAgent.Application.Commands.Configs;
+using RoutePlanningAgent.Application.Commands.Policies;
 using RoutePlanningAgent.Application.Commands.Routes;
 using RoutePlanningAgent.Application.DTOs.Configs;
 using RoutePlanningAgent.Application.DTOs.Routes;
 using RoutePlanningAgent.Application.Queries.Configs;
+using RoutePlanningAgent.Application.Queries.Policies;
 using RoutePlanningAgent.Application.Queries.Routes;
 using RoutePlanningAgent.Grpc;
+using Shared.Enums;
 
 namespace RoutePlanningAgent.GrpcServices;
 
@@ -236,6 +239,163 @@ public class RoutePlanningGrpcService(IMediator mediator)
         RejectionReason = dto.RejectionReason ?? string.Empty,
         CreatedAt = dto.CreatedAt.ToString("O")
     };
+
+    // ===== Tenant Risk Policies =====
+
+    public override async Task<RiskPolicyResponse> CreateRiskPolicyDraft(CreateRiskPolicyDraftRequest request, ServerCallContext context)
+    {
+        var source = Enum.TryParse<RiskPolicySource>(request.Source, true, out var parsedSource)
+            ? parsedSource
+            : RiskPolicySource.Tenant;
+
+        var rules = request.Rules.Select(r => new TenantRiskRuleInputDto(
+            r.RuleCode,
+            r.RuleName,
+            r.ThresholdsJson,
+            r.RiskEffect,
+            r.IsEnabled,
+            r.SourceReference
+        )).ToList();
+
+        var command = new CreateTenantRiskPolicyDraftCommand(
+            request.Name,
+            request.Description,
+            request.Scope,
+            source,
+            request.SourceDocumentId,
+            rules
+        );
+
+        var dto = await mediator.Send(command, context.CancellationToken);
+        return MapToPolicyResponse(dto);
+    }
+
+    public override async Task<RiskPolicyResponse> UpdateRiskPolicyDraft(UpdateRiskPolicyDraftRequest request, ServerCallContext context)
+    {
+        var policyId = ParseGuid(request.PolicyId, "Policy ID");
+
+        var rules = request.Rules.Select(r => new TenantRiskRuleInputDto(
+            r.RuleCode,
+            r.RuleName,
+            r.ThresholdsJson,
+            r.RiskEffect,
+            r.IsEnabled,
+            r.SourceReference
+        )).ToList();
+
+        var command = new UpdateTenantRiskPolicyDraftCommand(
+            policyId,
+            request.Name,
+            request.Description,
+            rules
+        );
+
+        var dto = await mediator.Send(command, context.CancellationToken);
+        return MapToPolicyResponse(dto);
+    }
+
+    public override async Task<RiskPolicyResponse> SubmitRiskPolicyForReview(SubmitRiskPolicyRequest request, ServerCallContext context)
+    {
+        var policyId = ParseGuid(request.PolicyId, "Policy ID");
+        var dto = await mediator.Send(new SubmitTenantRiskPolicyCommand(policyId), context.CancellationToken);
+        return MapToPolicyResponse(dto);
+    }
+
+    public override async Task<RiskPolicyResponse> RejectRiskPolicy(RejectRiskPolicyRequest request, ServerCallContext context)
+    {
+        var policyId = ParseGuid(request.PolicyId, "Policy ID");
+        var dto = await mediator.Send(new RejectTenantRiskPolicyCommand(policyId, request.Reason, request.Comment), context.CancellationToken);
+        return MapToPolicyResponse(dto);
+    }
+
+    public override async Task<RiskPolicyResponse> PublishRiskPolicy(PublishRiskPolicyRequest request, ServerCallContext context)
+    {
+        var policyId = ParseGuid(request.PolicyId, "Policy ID");
+        var dto = await mediator.Send(new PublishTenantRiskPolicyCommand(policyId), context.CancellationToken);
+        return MapToPolicyResponse(dto);
+    }
+
+    public override async Task<RiskPolicyResponse> GetRiskPolicy(GetRiskPolicyRequest request, ServerCallContext context)
+    {
+        var policyId = ParseGuid(request.PolicyId, "Policy ID");
+        var dto = await mediator.Send(new GetTenantRiskPolicyByIdQuery(policyId), context.CancellationToken);
+        return MapToPolicyResponse(dto);
+    }
+
+    public override async Task<RiskPolicyResponse> GetActiveRiskPolicy(GetActiveRiskPolicyRequest request, ServerCallContext context)
+    {
+        var dto = await mediator.Send(new GetActiveTenantRiskPolicyQuery(request.Scope), context.CancellationToken);
+        if (dto == null)
+        {
+            throw new RpcException(new Status(StatusCode.NotFound, $"Không tìm thấy chính sách rủi ro ACTIVE cho Scope '{request.Scope}'."));
+        }
+        return MapToPolicyResponse(dto);
+    }
+
+    public override async Task<ListRiskPolicyVersionsResponse> ListRiskPolicyVersions(ListRiskPolicyVersionsRequest request, ServerCallContext context)
+    {
+        var paged = await mediator.Send(new ListTenantRiskPolicyVersionsQuery(request.Scope, request.Page, request.Limit), context.CancellationToken);
+        var response = new ListRiskPolicyVersionsResponse
+        {
+            TotalItems = paged.TotalItems,
+            Page = paged.Page,
+            Limit = paged.Limit
+        };
+        response.Policies.AddRange(paged.Items.Select(MapToPolicyResponse));
+        return response;
+    }
+
+    public override async Task<DeleteRiskPolicyDraftResponse> DeleteRiskPolicyDraft(DeleteRiskPolicyDraftRequest request, ServerCallContext context)
+    {
+        var policyId = ParseGuid(request.PolicyId, "Policy ID");
+        var success = await mediator.Send(new DeleteTenantRiskPolicyDraftCommand(policyId), context.CancellationToken);
+        return new DeleteRiskPolicyDraftResponse { Success = success };
+    }
+
+    private static RiskPolicyResponse MapToPolicyResponse(TenantRiskPolicyDto dto)
+    {
+        var response = new RiskPolicyResponse
+        {
+            Id = dto.Id.ToString(),
+            TenantId = dto.TenantId.ToString(),
+            Name = dto.Name,
+            Description = dto.Description ?? string.Empty,
+            Scope = dto.Scope,
+            Version = dto.Version,
+            Status = dto.Status,
+            Source = dto.Source,
+            SourceDocumentId = dto.SourceDocumentId ?? string.Empty,
+            SubmittedByUserId = dto.SubmittedByUserId?.ToString() ?? string.Empty,
+            SubmittedAt = dto.SubmittedAt?.ToString("O") ?? string.Empty,
+            ReviewedByUserId = dto.ReviewedByUserId?.ToString() ?? string.Empty,
+            ReviewedAt = dto.ReviewedAt?.ToString("O") ?? string.Empty,
+            ReviewerComment = dto.ReviewerComment ?? string.Empty,
+            PublishedByUserId = dto.PublishedByUserId?.ToString() ?? string.Empty,
+            PublishedAt = dto.PublishedAt?.ToString("O") ?? string.Empty,
+            RejectionReason = dto.RejectionReason ?? string.Empty,
+            SupersededAt = dto.SupersededAt?.ToString("O") ?? string.Empty,
+            CreatedAt = dto.CreatedAt.ToString("O"),
+            UpdatedAt = dto.UpdatedAt?.ToString("O") ?? string.Empty
+        };
+
+        if (dto.Rules != null)
+        {
+            response.Rules.AddRange(dto.Rules.Select(r => new RiskRuleResponse
+            {
+                Id = r.Id.ToString(),
+                PolicyId = r.PolicyId.ToString(),
+                RuleCode = r.RuleCode,
+                RuleName = r.RuleName,
+                ThresholdsJson = r.ThresholdsJson,
+                RiskEffect = r.RiskEffect,
+                IsEnabled = r.IsEnabled,
+                SourceReference = r.SourceReference ?? string.Empty,
+                CreatedAt = r.CreatedAt.ToString("O")
+            }));
+        }
+
+        return response;
+    }
 
     private static TenantRuleConfigResponse MapToRuleConfigResponse(TenantRuleConfigDto dto)
     {

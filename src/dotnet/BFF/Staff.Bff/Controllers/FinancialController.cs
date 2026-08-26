@@ -19,7 +19,7 @@ public class FinancialController(
     ILogger<FinancialController> logger) : StaffControllerBase
 {
     [HttpPost("estimate-cost")]
-    [RequirePermission(PermissionConstants.Modules.FinancialTax, PermissionConstants.Read)]
+    [RequirePermission(PermissionConstants.Financial.Calculate, "financial_tax:read")]
     public async Task<IActionResult> EstimateCost(
         [FromBody] EstimateCostBody body,
         CancellationToken ct = default)
@@ -58,7 +58,7 @@ public class FinancialController(
     }
 
     [HttpPost("customs-duty")]
-    [RequirePermission(PermissionConstants.Modules.FinancialTax, PermissionConstants.Read)]
+    [RequirePermission(PermissionConstants.Financial.Calculate, "financial_tax:read")]
     public async Task<IActionResult> GetCustomsDuty(
         [FromBody] CustomsDutyBody body,
         CancellationToken ct = default)

@@ -20,7 +20,7 @@ public class StaffController(
     ILogger<StaffController> logger) : AdminControllerBase
 {
     [HttpPost]
-    [RequirePermission(PermissionConstants.Modules.Iam, PermissionConstants.Create)]
+    [RequirePermission(PermissionConstants.Iam.UserInvite, "iam:create")]
     public async Task<IActionResult> CreateStaff([FromBody] CreateStaffBody body)
     {
         try
@@ -53,7 +53,7 @@ public class StaffController(
     }
 
     [HttpGet]
-    [RequirePermission(PermissionConstants.Modules.Iam, PermissionConstants.Read)]
+    [RequirePermission(PermissionConstants.Iam.UserRead, "iam:read")]
     public async Task<IActionResult> ListStaff([FromQuery] int page = 1, [FromQuery] int limit = 10)
     {
         var response = await iamClient.GetManyUsersAsync(
@@ -70,7 +70,7 @@ public class StaffController(
     }
 
     [HttpGet("{id}")]
-    [RequirePermission(PermissionConstants.Modules.Iam, PermissionConstants.Read)]
+    [RequirePermission(PermissionConstants.Iam.UserRead, "iam:read")]
     public async Task<IActionResult> GetStaff([FromRoute] string id)
     {
         try
@@ -85,7 +85,7 @@ public class StaffController(
     }
 
     [HttpPut("{id}")]
-    [RequirePermission(PermissionConstants.Modules.Iam, PermissionConstants.Update)]
+    [RequirePermission(PermissionConstants.Iam.UserUpdate, "iam:update")]
     public async Task<IActionResult> UpdateStaff([FromRoute] string id, [FromBody] UpdateStaffBody body)
     {
         try
@@ -116,7 +116,7 @@ public class StaffController(
     }
 
     [HttpPost("{id}/activate")]
-    [RequirePermission(PermissionConstants.Modules.Iam, PermissionConstants.Update)]
+    [RequirePermission(PermissionConstants.Iam.UserUpdate, "iam:update")]
     public async Task<IActionResult> ActivateStaff([FromRoute] string id)
     {
         try
@@ -136,7 +136,7 @@ public class StaffController(
     }
 
     [HttpPost("{id}/deactivate")]
-    [RequirePermission(PermissionConstants.Modules.Iam, PermissionConstants.Update)]
+    [RequirePermission(PermissionConstants.Iam.UserUpdate, "iam:update")]
     public async Task<IActionResult> DeactivateStaff([FromRoute] string id)
     {
         try
@@ -156,7 +156,7 @@ public class StaffController(
     }
 
     [HttpPost("{id}/reset-password")]
-    [RequirePermission(PermissionConstants.Modules.Iam, PermissionConstants.Update)]
+    [RequirePermission(PermissionConstants.Iam.UserUpdate, "iam:update")]
     public async Task<IActionResult> ResetPassword([FromRoute] string id)
     {
         try
@@ -176,7 +176,7 @@ public class StaffController(
     }
 
     [HttpPut("{id}/roles")]
-    [RequirePermission(PermissionConstants.Modules.Iam, PermissionConstants.Assign)]
+    [RequirePermission(PermissionConstants.Iam.RoleManage, "iam:assign")]
     public async Task<IActionResult> AssignRoles([FromRoute] string id, [FromBody] AssignRolesBody body)
     {
         try
