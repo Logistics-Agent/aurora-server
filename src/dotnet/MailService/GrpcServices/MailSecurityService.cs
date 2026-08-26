@@ -29,7 +29,7 @@ public class MailSecurityService : MailSecurity.MailSecurityBase
         Guid? staffId = string.IsNullOrEmpty(request.AssignedStaffId) ? null : Guid.Parse(request.AssignedStaffId);
         var source = System.Enum.TryParse<DraftSource>(request.Source, true, out var parsedSource) ? parsedSource : DraftSource.Manual;
 
-        var draft = await _mediator.Send(new CreateDraftMessageCommand(mailboxId, staffId, request.Subject, request.Body, source), context.CancellationToken);
+        var draft = await _mediator.Send(new MailService.Application.Commands.Drafts.CreateDraftMessageCommand(mailboxId, staffId, request.Subject, request.Body, source), context.CancellationToken);
 
         return new CreateDraftMessageResponse
         {

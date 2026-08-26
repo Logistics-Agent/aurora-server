@@ -10,6 +10,7 @@ public static class RoleConstants
     public const string SystemAdmin = "SYSTEM_ADMIN";
     public const string TenantAdmin = "TENANT_ADMIN";
     public const string Staff = "STAFF";
+    public const string Manager = "MANAGER";
 
     public static readonly IReadOnlyList<string> All = [SystemAdmin, TenantAdmin, Staff];
 }

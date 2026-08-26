@@ -169,18 +169,14 @@ public class RoutePlanningGrpcService(IMediator mediator)
 
     // ===== Tenant AI / Rule configuration =====
 
-    public override async Task<TenantAiConfigResponse> GetTenantAiConfig(GetTenantAiConfigRequest request, ServerCallContext context)
+    public override Task<TenantAiConfigResponse> GetTenantAiConfig(GetTenantAiConfigRequest request, ServerCallContext context)
     {
-        var dto = await mediator.Send(new GetTenantAiConfigQuery(request.Feature), context.CancellationToken);
-        return MapToAiConfigResponse(dto);
+        throw new RpcException(new Status(StatusCode.Unimplemented, "AI configuration is centrally managed by AiGovernance service. RoutePlanningAgent does not own AI configuration."));
     }
 
-    public override async Task<TenantAiConfigResponse> UpsertTenantAiConfig(UpsertTenantAiConfigRequest request, ServerCallContext context)
+    public override Task<TenantAiConfigResponse> UpsertTenantAiConfig(UpsertTenantAiConfigRequest request, ServerCallContext context)
     {
-        var command = new UpsertTenantAiConfigCommand(
-            request.Feature, request.Policy, request.AiProvider, request.IsActive);
-        var dto = await mediator.Send(command, context.CancellationToken);
-        return MapToAiConfigResponse(dto);
+        throw new RpcException(new Status(StatusCode.Unimplemented, "AI configuration is centrally managed by AiGovernance service. RoutePlanningAgent does not own AI configuration."));
     }
 
     public override async Task<TenantRuleConfigResponse> UpsertTenantRuleConfig(UpsertTenantRuleConfigRequest request, ServerCallContext context)
@@ -239,17 +235,6 @@ public class RoutePlanningGrpcService(IMediator mediator)
         ComplianceSummary = dto.ComplianceSummary ?? string.Empty,
         RejectionReason = dto.RejectionReason ?? string.Empty,
         CreatedAt = dto.CreatedAt.ToString("O")
-    };
-
-    private static TenantAiConfigResponse MapToAiConfigResponse(TenantAiConfigDto dto) => new()
-    {
-        Id = dto.Id.ToString(),
-        TenantId = dto.TenantId.ToString(),
-        Feature = dto.Feature,
-        Policy = dto.Policy,
-        AiProvider = dto.AiProvider,
-        IsActive = dto.IsActive,
-        UpdatedAt = dto.UpdatedAt.ToString("O")
     };
 
     private static TenantRuleConfigResponse MapToRuleConfigResponse(TenantRuleConfigDto dto)

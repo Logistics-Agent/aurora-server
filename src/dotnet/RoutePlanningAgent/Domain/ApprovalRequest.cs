@@ -7,6 +7,9 @@ namespace RoutePlanningAgent.Domain;
 public class ApprovalRequest : TenantAuditableEntity
 {
     public Guid RouteId { get; set; }
+    public int RouteVersion { get; set; } = 1;
+    public string PolicyId { get; set; } = "platform-default-route-governance";
+    public int PolicyVersion { get; set; } = 1;
     public string Feature { get; set; } = default!;
     public ApprovalStatus Status { get; set; } = ApprovalStatus.Pending;
     public string Reason { get; set; } = default!;

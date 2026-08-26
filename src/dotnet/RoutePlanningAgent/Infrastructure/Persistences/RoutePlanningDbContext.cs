@@ -17,8 +17,9 @@ public class RoutePlanningDbContext(
     public DbSet<Route> Routes => Set<Route>();
     public DbSet<RouteStop> RouteStops => Set<RouteStop>();
     public DbSet<RouteOptimizationHistory> OptimizationHistories => Set<RouteOptimizationHistory>();
-    public DbSet<TenantAiConfig> TenantAiConfigs => Set<TenantAiConfig>();
+    public DbSet<TenantRiskPolicyConfig> TenantRiskPolicyConfigs => Set<TenantRiskPolicyConfig>();
     public DbSet<ApprovalRequest> ApprovalRequests => Set<ApprovalRequest>();
+    public DbSet<RiskAssessment> RiskAssessments => Set<RiskAssessment>();
     public DbSet<RouteDecisionAuditLog> DecisionAuditLogs => Set<RouteDecisionAuditLog>();
     public DbSet<TenantRuleConfig> TenantRuleConfigs => Set<TenantRuleConfig>();
     public DbSet<OutboxMessage> OutboxMessages => Set<OutboxMessage>();
@@ -69,25 +70,36 @@ public class RoutePlanningDbContext(
             e.Property(h => h.TotalDistanceKm).HasPrecision(12, 3);
         });
 
-        modelBuilder.Entity<TenantAiConfig>(e =>
-        {
-            e.HasIndex(c => new { c.TenantId, c.Feature }).IsUnique();
-
-            e.Property(c => c.Feature).HasMaxLength(100).IsRequired();
-            e.Property(c => c.AiProvider).HasMaxLength(50).IsRequired();
-        });
-
         modelBuilder.Entity<ApprovalRequest>(e =>
         {
             e.HasQueryFilter(a =>
                 _tenantId.HasValue && a.TenantId == _tenantId.Value);
 
             e.HasIndex(a => a.RouteId);
+            e.HasIndex(a => new { a.RouteId, a.RouteVersion, a.PolicyVersion });
 
+            e.Property(a => a.PolicyId).HasMaxLength(100).IsRequired();
             e.Property(a => a.Feature).HasMaxLength(100).IsRequired();
             e.Property(a => a.Reason).HasMaxLength(2000).IsRequired();
             e.Property(a => a.ReviewerComment).HasMaxLength(1000);
             e.Property(a => a.RejectionReason).HasMaxLength(1000);
+        });
+
+        modelBuilder.Entity<RiskAssessment>(e =>
+        {
+            e.HasQueryFilter(a =>
+                _tenantId.HasValue && a.TenantId == _tenantId.Value);
+
+            e.HasIndex(a => a.RouteId);
+            e.HasIndex(a => new { a.RouteId, a.RouteVersion });
+            e.HasIndex(a => new { a.RouteId, a.RouteVersion, a.PolicyVersion });
+
+            e.Property(a => a.PolicyId).HasMaxLength(100).IsRequired();
+            e.Property(a => a.MatchedRuleCodes).HasMaxLength(1000).IsRequired();
+            e.Property(a => a.Source).HasMaxLength(100).IsRequired();
+            e.Property(a => a.ReasonCodes).HasMaxLength(500).IsRequired();
+            e.Property(a => a.ReasonDetails).HasMaxLength(2000).IsRequired();
+            e.Property(a => a.PolicyApplied).HasMaxLength(100).IsRequired();
         });
 
         modelBuilder.Entity<RouteDecisionAuditLog>(e =>
@@ -109,6 +121,13 @@ public class RoutePlanningDbContext(
             e.HasIndex(c => new { c.TenantId, c.RuleName }).IsUnique();
 
             e.Property(c => c.RuleName).HasMaxLength(100).IsRequired();
+        });
+
+        modelBuilder.Entity<TenantRiskPolicyConfig>(e =>
+        {
+            e.HasIndex(c => c.TenantId).IsUnique();
+
+            e.Property(c => c.ActivePolicyId).HasMaxLength(100).IsRequired();
         });
 
         modelBuilder.Entity<OutboxMessage>(e =>

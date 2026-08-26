@@ -1,26 +1,23 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { AiGovernanceNegotiationClient, GenerateSpeechInput } from './ai-governance-negotiation.client';
 
-export interface GenerateSpeechInput {
-  decision: 'ACCEPT' | 'COUNTER_OFFER' | 'HUMAN_HANDOFF' | 'REJECT';
-  offerPrice: number;
-  counterOfferPrice?: number;
-  shipmentId: string;
-  round: number;
-}
-
+/**
+ * @deprecated Use AiGovernanceNegotiationClient directly.
+ * Maintained as lightweight shim for backwards compatibility.
+ */
 @Injectable()
 export class GeminiAIClient {
   private readonly logger = new Logger(GeminiAIClient.name);
 
-  constructor() {}
+  constructor(private readonly aiGovernanceClient?: AiGovernanceNegotiationClient) {}
 
-  /**
-   * Generates natural language speech response for negotiation based on deterministic decision
-   */
   async generateNegotiationSpeech(input: GenerateSpeechInput): Promise<string> {
+    if (this.aiGovernanceClient) {
+      const result = await this.aiGovernanceClient.generateNegotiationSpeech(input);
+      return result.speech;
+    }
     return this.getFallbackSpeech(input);
   }
-
 
   private getFallbackSpeech(input: GenerateSpeechInput): string {
     switch (input.decision) {

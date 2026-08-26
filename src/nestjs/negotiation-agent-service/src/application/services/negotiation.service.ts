@@ -1,7 +1,10 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { NegotiationStrategyDomainService } from '../../domain/services/negotiation-strategy.domain-service';
-import { GeminiAIClient } from '../../infrastructure/ai/gemini.client';
+import {
+  AiGovernanceNegotiationClient,
+  NegotiationSpeechResult,
+} from '../../infrastructure/ai/ai-governance-negotiation.client';
 
 export interface SubmitOfferInput {
   tenantId: string;
@@ -11,6 +14,8 @@ export interface SubmitOfferInput {
   listPrice?: number;
   bottomPrice?: number;
   customerTier?: string;
+  traceId?: string;
+  correlationId?: string;
 }
 
 export interface NegotiationResult {
@@ -21,6 +26,9 @@ export interface NegotiationResult {
   counterOfferPrice?: number;
   aiSpeech: string;
   status: string;
+  aiDraftUsed: boolean;
+  fallbackUsed: boolean;
+  decisionId?: string;
   createdAt: string;
 }
 
@@ -31,7 +39,7 @@ export class NegotiationService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly strategy: NegotiationStrategyDomainService,
-    private readonly geminiClient: GeminiAIClient,
+    private readonly aiClient: AiGovernanceNegotiationClient,
   ) {}
 
   async submitOffer(input: SubmitOfferInput): Promise<NegotiationResult> {
@@ -64,7 +72,7 @@ export class NegotiationService {
       });
     }
 
-    // 2. Evaluate Strategy Decision via Deterministic Engine
+    // 2. Evaluate Strategy Decision via Deterministic Engine (Authoritative)
     const strategyResult = this.strategy.determineDecision({
       offerPrice: input.offerPrice,
       bottomPrice: session.bottomPrice,
@@ -74,16 +82,25 @@ export class NegotiationService {
       customerTier: input.customerTier,
     });
 
-    // 3. Generate Speech via Gemini AI
-    const speech = await this.geminiClient.generateNegotiationSpeech({
+    // 3. Draft Speech via AiGovernance (Governed LLM with strict deterministic guards)
+    const speechResult: NegotiationSpeechResult = await this.aiClient.generateNegotiationSpeech({
       decision: strategyResult.decision,
       offerPrice: input.offerPrice,
       counterOfferPrice: strategyResult.counterOfferPrice,
       shipmentId: input.shipmentId,
       round: session.currentRound,
+      bottomPrice: session.bottomPrice,
+      listPrice: session.listPrice,
+      businessReason: strategyResult.reason,
+      context: {
+        tenantId,
+        userId: input.customerId,
+        traceId: input.traceId,
+        correlationId: input.correlationId,
+      },
     });
 
-    // 4. Determine new session status
+    // 4. Determine new session status based strictly on deterministic strategy
     let newStatus = session.status;
     if (strategyResult.decision === 'ACCEPT') {
       newStatus = 'ACCEPTED';
@@ -98,7 +115,7 @@ export class NegotiationService {
           sessionId: session.id,
           round: session.currentRound,
           sender: 'AI',
-          message: speech,
+          message: speechResult.speech,
           offerPrice: strategyResult.counterOfferPrice || input.offerPrice,
           decision: strategyResult.decision,
         },
@@ -113,7 +130,7 @@ export class NegotiationService {
     ]);
 
     this.logger.log(
-      `[Negotiation] Session ${session.id} | Round ${session.currentRound} | Decision: ${strategyResult.decision} | Speech: "${speech}"`,
+      `[Negotiation] Session ${session.id} | Round ${session.currentRound} | Decision: ${strategyResult.decision} | AI Draft: ${speechResult.aiDraftUsed} | Fallback: ${speechResult.fallbackUsed}`,
     );
 
     return {
@@ -122,8 +139,11 @@ export class NegotiationService {
       round: session.currentRound,
       decision: strategyResult.decision,
       counterOfferPrice: strategyResult.counterOfferPrice,
-      aiSpeech: speech,
+      aiSpeech: speechResult.speech,
       status: newStatus,
+      aiDraftUsed: speechResult.aiDraftUsed,
+      fallbackUsed: speechResult.fallbackUsed,
+      decisionId: speechResult.decisionId,
       createdAt: savedMsg.createdAt.toISOString(),
     };
   }

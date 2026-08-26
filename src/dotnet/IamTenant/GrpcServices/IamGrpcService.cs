@@ -455,14 +455,14 @@ public class IamGrpcService(IMediator mediator, ICurrentUserService currentUser)
     private static Common.Grpc.PlanType MapPlanTypeToGrpc(IamTenant.Domain.Enums.PlanType planType) => planType switch
     {
         IamTenant.Domain.Enums.PlanType.Standard => Common.Grpc.PlanType.Standard,
-        IamTenant.Domain.Enums.PlanType.Premium => Common.Grpc.PlanType.Enterprise,
+        IamTenant.Domain.Enums.PlanType.Enterprise => Common.Grpc.PlanType.Enterprise,
         _ => Common.Grpc.PlanType.Unspecified
     };
 
     private static IamTenant.Domain.Enums.PlanType MapPlanTypeToDomain(Common.Grpc.PlanType planType) => planType switch
     {
         Common.Grpc.PlanType.Standard => IamTenant.Domain.Enums.PlanType.Standard,
-        Common.Grpc.PlanType.Enterprise => IamTenant.Domain.Enums.PlanType.Premium,
+        Common.Grpc.PlanType.Enterprise => IamTenant.Domain.Enums.PlanType.Enterprise,
         _ => IamTenant.Domain.Enums.PlanType.Standard
     };
 

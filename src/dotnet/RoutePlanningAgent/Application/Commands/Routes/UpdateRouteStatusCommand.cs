@@ -20,13 +20,17 @@ public record UpdateRouteStatusCommand(Guid Id, string NewStatus) : IRequest<Rou
 
 public class UpdateRouteStatusHandler(
     RoutePlanningDbContext context,
+    IRouteGovernanceService governanceService,
+    IRouteRiskPolicyProvider policyProvider,
     ICurrentUserService currentUser,
     IOutboxWriter outbox)
     : IRequestHandler<UpdateRouteStatusCommand, RouteDto>
 {
+    private const string Feature = "RoutePlanning";
+
     /// <summary>
     /// Bảng chuyển trạng thái hợp lệ. Approval flow (Approve/Reject) là "người ghi" thứ hai
-    /// được phép set Ready/Cancelled trực tiếp qua ApprovalService.
+    /// được phép set Ready/Draft/Cancelled trực tiếp qua ApprovalService.
     /// </summary>
     public static readonly IReadOnlyDictionary<RouteStatus, RouteStatus[]> AllowedTransitions =
         new Dictionary<RouteStatus, RouteStatus[]>
@@ -58,6 +62,13 @@ public class UpdateRouteStatusHandler(
             throw new DomainException(
                 $"Không thể chuyển từ {route.Status} sang {newStatus}. " +
                 $"Trạng thái cho phép: {(allowed.Length > 0 ? string.Join(", ", allowed) : "(không có)")}");
+
+        // EXECUTION BOUNDARY: Kiểm tra thẩm quyền quản trị toàn diện khi kích hoạt vận hành (Active)
+        if (newStatus == RouteStatus.Active)
+        {
+            var effectivePolicy = await policyProvider.GetEffectivePolicyAsync(tenantId, Feature, cancellationToken);
+            await governanceService.ValidateExecutionAuthorizedAsync(route, effectivePolicy, cancellationToken);
+        }
 
         var oldStatus = route.Status;
         route.Status = newStatus;

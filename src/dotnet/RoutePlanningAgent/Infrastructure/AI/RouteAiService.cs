@@ -16,6 +16,7 @@ namespace RoutePlanningAgent.Infrastructure.AI;
 
 /// <summary>
 /// Gọi LLM thông qua dịch vụ tập trung AI Governance (AiExecutionService.Generate) — KHÔNG gọi trực tiếp LLM provider.
+/// Toàn bộ cấu hình AI, quota, routing, provider và model thuộc quyền quản trị của AiGovernance.
 /// Token usage và provider metadata được lấy trực tiếp từ phản hồi của AI Governance.
 /// </summary>
 public class RouteAiService(
@@ -44,7 +45,6 @@ public class RouteAiService(
         RouteDto route,
         IReadOnlyList<RuleResult> ruleResults,
         ComplianceCheckResultDto? complianceResult,
-        string provider,
         CancellationToken ct = default)
     {
         var sw = Stopwatch.StartNew();
@@ -66,14 +66,18 @@ public class RouteAiService(
         var inputTokens = 0L;
         var outputTokens = 0L;
         var model = string.Empty;
-        var usedProvider = provider;
+        var usedProvider = string.Empty;
         var success = true;
 
         try
         {
+            var capability = !string.IsNullOrWhiteSpace(options.Value.CapabilityCode)
+                ? options.Value.CapabilityCode
+                : "route.plan";
+
             var request = new AiGenerateRequest
             {
-                CapabilityCode = options.Value.CapabilityCode,
+                CapabilityCode = capability,
                 Prompt = prompt,
                 MaxOutputTokens = 1000
             };
@@ -84,9 +88,8 @@ public class RouteAiService(
             inputTokens = response.InputTokens;
             outputTokens = response.OutputTokens;
             model = response.Model ?? string.Empty;
-            if (!string.IsNullOrEmpty(response.Provider)) usedProvider = response.Provider;
+            usedProvider = response.Provider ?? string.Empty;
         }
-
         catch (Exception ex)
         {
             success = false;
@@ -157,7 +160,7 @@ public class RouteAiService(
         {
             RouteId = routeId,
             RiskLevel = complianceResult is { HasViolations: true } ? "High" : "Medium",
-            AutomationDecision = "ExecutedByLlm",
+            AutomationDecision = "ExecutedByAi",
             RecommendationSource = "AI",
             Summary = summary,
             Suggestions = suggestions,
@@ -183,8 +186,8 @@ public class RouteAiService(
             AutomationDecision = "ExecutedByRules",
             RecommendationSource = "Rules",
             Summary = failed.Count > 0
-                ? $"LLM không khả dụng — kết quả rule engine: {string.Join("; ", failed)}"
-                : "LLM không khả dụng — rule engine không phát hiện vi phạm.",
+                ? $"AiGovernance không khả dụng — kết quả rule engine: {string.Join("; ", failed)}"
+                : "AiGovernance không khả dụng — rule engine không phát hiện vi phạm.",
             Suggestions = [],
             ConfidenceScore = null,
             ApplicableRegulations = complianceResult?.ApplicableRegulations ?? []

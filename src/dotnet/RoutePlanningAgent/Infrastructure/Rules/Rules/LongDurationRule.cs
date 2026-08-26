@@ -9,6 +9,7 @@ namespace RoutePlanningAgent.Infrastructure.Rules.Rules;
 public class LongDurationRule : IRule<RouteRuleContext>
 {
     public string Name => "LongDurationRule";
+    public const string Code = "ROUTE_DURATION_LIMIT";
 
     private const decimal GlobalMaxDurationMinutes = 480m;
 
@@ -20,7 +21,7 @@ public class LongDurationRule : IRule<RouteRuleContext>
             context.TenantId, Name, ct);
 
         if (!thresholds.IsEnabled)
-            return new RuleResult { RuleName = Name, Passed = true, RiskLevel = RouteRiskLevel.Low };
+            return new RuleResult { RuleName = Name, RuleCode = Code, Passed = true, RiskLevel = RouteRiskLevel.Low };
 
         var maxDuration = thresholds.Get("maxDurationMinutes", GlobalMaxDurationMinutes);
 
@@ -29,12 +30,13 @@ public class LongDurationRule : IRule<RouteRuleContext>
             return new RuleResult
             {
                 RuleName = Name,
+                RuleCode = Code,
                 Passed = false,
                 RiskLevel = RouteRiskLevel.High,
                 Message = $"EstimatedDurationMinutes {context.Route.EstimatedDurationMinutes} vượt ngưỡng {maxDuration} phút"
             };
         }
 
-        return new RuleResult { RuleName = Name, Passed = true, RiskLevel = RouteRiskLevel.Low };
+        return new RuleResult { RuleName = Name, RuleCode = Code, Passed = true, RiskLevel = RouteRiskLevel.Low };
     }
 }

@@ -11,6 +11,7 @@ namespace RoutePlanningAgent.Infrastructure.Rules.Rules;
 public class MultiHubRule : IRule<RouteRuleContext>
 {
     public string Name => "MultiHubRule";
+    public const string Code = "ROUTE_MULTI_HUB_COMPLEXITY";
 
     private const decimal GlobalMaxHubCount = 2m;
 
@@ -22,7 +23,7 @@ public class MultiHubRule : IRule<RouteRuleContext>
             context.TenantId, Name, ct);
 
         if (!thresholds.IsEnabled)
-            return new RuleResult { RuleName = Name, Passed = true, RiskLevel = RouteRiskLevel.Low };
+            return new RuleResult { RuleName = Name, RuleCode = Code, Passed = true, RiskLevel = RouteRiskLevel.Low };
 
         var maxHubCount = thresholds.Get("maxHubCount", GlobalMaxHubCount);
 
@@ -36,6 +37,7 @@ public class MultiHubRule : IRule<RouteRuleContext>
             return new RuleResult
             {
                 RuleName = Name,
+                RuleCode = Code,
                 Passed = false,
                 RiskLevel = RouteRiskLevel.High,
                 Message = $"Số lượng Hub/Port/Customs stops ({hubCount}) vượt quá mức tối đa ({maxHubCount})",
@@ -44,6 +46,6 @@ public class MultiHubRule : IRule<RouteRuleContext>
             };
         }
 
-        return new RuleResult { RuleName = Name, Passed = true, RiskLevel = RouteRiskLevel.Low };
+        return new RuleResult { RuleName = Name, RuleCode = Code, Passed = true, RiskLevel = RouteRiskLevel.Low };
     }
 }

@@ -10,70 +10,32 @@ option csharp_namespace = "IamTenant.Grpc";
 service IamService {
 
   // Tenant
-  rpc CreateTenant(CreateTenantRequest)
-      returns (TenantResponse);
-
-  rpc GetTenant(GetTenantRequest)
-      returns (TenantResponse);
-
-  rpc UpdateTenantStatus(UpdateTenantStatusRequest)
-      returns (TenantResponse);
-
-  rpc ListTenants(ListTenantsRequest)
-      returns (ListTenantsResponse);
-
-  rpc DeleteTenant(DeleteTenantRequest)
-      returns (EmptyResponse);
+  rpc CreateTenant(CreateTenantRequest)                              returns (TenantResponse);
+  rpc GetTenant(GetTenantRequest)                                    returns (TenantResponse);
+  rpc UpdateTenantStatus(UpdateTenantStatusRequest)                  returns (TenantResponse);
+  rpc ListTenants(ListTenantsRequest)                                returns (ListTenantsResponse);
+  rpc DeleteTenant(DeleteTenantRequest)                              returns (EmptyResponse);
 
   // User
-  rpc InviteUser(InviteUserRequest)
-      returns (UserResponse);
-
-  rpc GetUser(GetUserRequest)
-      returns (UserResponse);
-
-  rpc GetManyUsers(GetManyUsersRequest)
-      returns (GetManyUsersResponse);
-
-  rpc UpdateUser(UpdateUserRequest)
-      returns (UserResponse);
-
-  rpc ActivateUser(ActivateUserRequest)
-      returns (UserResponse);
-
-  rpc ResetUserPassword(ResetUserPasswordRequest)
-      returns (EmptyResponse);
-
-  rpc AssignRoles(AssignRolesRequest)
-      returns (UserResponse);
-
-  rpc SuspendUser(SuspendUserRequest)
-      returns (UserResponse);
+  rpc InviteUser(InviteUserRequest)                                  returns (UserResponse);
+  rpc GetUser(GetUserRequest)                                        returns (UserResponse);
+  rpc GetManyUsers(GetManyUsersRequest)                              returns (GetManyUsersResponse);
+  rpc UpdateUser(UpdateUserRequest)                                  returns (UserResponse);
+  rpc ActivateUser(ActivateUserRequest)                              returns (UserResponse);
+  rpc ResetUserPassword(ResetUserPasswordRequest)                    returns (EmptyResponse);
+  rpc AssignRoles(AssignRolesRequest)                                returns (UserResponse);
+  rpc SuspendUser(SuspendUserRequest)                                returns (UserResponse);
 
   // Role
-  rpc CreateCustomRole(CreateCustomRoleRequest)
-      returns (RoleResponse);
-
-  rpc GetRole(GetRoleRequest)
-      returns (RoleResponse);
-
-  rpc GetManyRoles(GetManyRolesRequest)
-      returns (GetManyRolesResponse);
-
-  rpc UpdateRole(UpdateRoleRequest)
-      returns (RoleResponse);
-
-  rpc DeleteRole(DeleteRoleRequest)
-      returns (EmptyResponse);
+  rpc CreateCustomRole(CreateCustomRoleRequest)                      returns (RoleResponse);
+  rpc GetRole(GetRoleRequest)                                        returns (RoleResponse);
+  rpc GetManyRoles(GetManyRolesRequest)                              returns (GetManyRolesResponse);
+  rpc UpdateRole(UpdateRoleRequest)                                  returns (RoleResponse);
+  rpc DeleteRole(DeleteRoleRequest)                                  returns (EmptyResponse);
 
   // Permission
-  rpc AssignPermissionsToRole(
-      AssignPermissionsToRoleRequest)
-      returns (RoleResponse);
-
-  rpc GetUserPermissions(
-      GetUserPermissionsRequest)
-      returns (GetUserPermissionsResponse);
+  rpc AssignPermissionsToRole(AssignPermissionsToRoleRequest)        returns (RoleResponse);
+  rpc GetUserPermissions(GetUserPermissionsRequest)                  returns (GetUserPermissionsResponse);
 }
 
 message EmptyResponse {}

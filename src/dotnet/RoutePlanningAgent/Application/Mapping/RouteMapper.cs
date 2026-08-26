@@ -20,6 +20,7 @@ public static class RouteMapper
         RouteType = route.Type.ToString(),
         Status = route.Status.ToString(),
         RiskLevel = route.RiskLevel.ToString(),
+        GovernanceDecision = route.GovernanceDecision.ToString(),
         EstimatedDistanceKm = route.EstimatedDistanceKm,
         EstimatedDurationMinutes = route.EstimatedDurationMinutes,
         MaxWeightKg = route.MaxWeightKg,

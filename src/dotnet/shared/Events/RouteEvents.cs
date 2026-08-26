@@ -76,3 +76,40 @@ public record TenantRuleConfigChangedEvent
     public Guid TenantId { get; init; }
     public string RuleName { get; init; } = string.Empty; // Empty = invalidate all rules
 }
+
+[EntityName("route_risk_evaluated_event")]
+public record RouteRiskEvaluatedEvent
+{
+    public Guid RouteId { get; init; }
+    public int RouteVersion { get; init; } = 1;
+    public Guid TenantId { get; init; }
+    public string RiskLevel { get; init; } = string.Empty;
+    public string GovernanceDecision { get; init; } = string.Empty;
+    public string PolicyId { get; init; } = string.Empty;
+    public int PolicyVersion { get; init; } = 1;
+    public string PolicySource { get; init; } = string.Empty;
+    public string[] MatchedRuleCodes { get; init; } = [];
+    public string Source { get; init; } = string.Empty;
+    public Guid EvaluatedByUserId { get; init; }
+}
+
+[EntityName("route_approved_event")]
+public record RouteApprovedEvent
+{
+    public Guid ApprovalRequestId { get; init; }
+    public Guid RouteId { get; init; }
+    public Guid TenantId { get; init; }
+    public Guid ReviewerUserId { get; init; }
+    public string? Comment { get; init; }
+}
+
+[EntityName("route_rejected_event")]
+public record RouteRejectedEvent
+{
+    public Guid ApprovalRequestId { get; init; }
+    public Guid RouteId { get; init; }
+    public Guid TenantId { get; init; }
+    public Guid ReviewerUserId { get; init; }
+    public string Reason { get; init; } = string.Empty;
+    public string? Comment { get; init; }
+}

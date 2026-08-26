@@ -78,6 +78,36 @@ public static class GrpcClientExtensions
 
         services.AddScoped<BuildingBlocks.BFF.Mail.Clients.IMailServiceClient, BuildingBlocks.BFF.Mail.Clients.GrpcMailServiceClient>();
 
+        var shipmentUrl = config["Grpc:ShipmentWorkflow:Url"] ?? "http://localhost:5001";
+        services.AddGrpcClient<ShipmentWorkflow.Grpc.ShipmentWorkflowService.ShipmentWorkflowServiceClient>(
+                o => o.Address = new Uri(shipmentUrl))
+            .AddInterceptor<ClientMetadataInterceptor>(InterceptorScope.Client)
+            .AddStandardResilienceHandler(ConfigureBusinessResilience);
+
+        var gpsUrl = config["Grpc:GpsTracking:Url"] ?? "http://localhost:5004";
+        services.AddGrpcClient<GpsTracking.Grpc.GpsTrackingService.GpsTrackingServiceClient>(
+                o => o.Address = new Uri(gpsUrl))
+            .AddInterceptor<ClientMetadataInterceptor>(InterceptorScope.Client)
+            .AddStandardResilienceHandler(ConfigureBusinessResilience);
+
+        var notificationUrl = config["Grpc:Notification:Url"] ?? "http://localhost:5008";
+        services.AddGrpcClient<Notification.Grpc.NotificationService.NotificationServiceClient>(
+                o => o.Address = new Uri(notificationUrl))
+            .AddInterceptor<ClientMetadataInterceptor>(InterceptorScope.Client)
+            .AddStandardResilienceHandler(ConfigureBusinessResilience);
+
+        var billingUrl = config["Grpc:BillingService:Url"] ?? "http://localhost:5009";
+        services.AddGrpcClient<BillingService.Grpc.BillingService.BillingServiceClient>(
+                o => o.Address = new Uri(billingUrl))
+            .AddInterceptor<ClientMetadataInterceptor>(InterceptorScope.Client)
+            .AddStandardResilienceHandler(ConfigureBusinessResilience);
+
+        var financialUrl = config["Grpc:FinancialService:Url"] ?? "http://localhost:5010";
+        services.AddGrpcClient<FinancialService.Grpc.FinancialService.FinancialServiceClient>(
+                o => o.Address = new Uri(financialUrl))
+            .AddInterceptor<ClientMetadataInterceptor>(InterceptorScope.Client)
+            .AddStandardResilienceHandler(ConfigureBusinessResilience);
+
         return services;
     }
 

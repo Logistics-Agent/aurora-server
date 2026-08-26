@@ -11,6 +11,7 @@ using RoutePlanningAgent.Application.DTOs.Routes;
 using RoutePlanningAgent.Application.Interfaces;
 using RoutePlanningAgent.Application.Mapping;
 using RoutePlanningAgent.Domain;
+using RoutePlanningAgent.Domain.Enums;
 using RoutePlanningAgent.Infrastructure.Persistences;
 using RoutePlanningAgent.Infrastructure.Rules;
 using Shared.Enums;
@@ -18,14 +19,17 @@ using Shared.Events;
 using Shared.Exceptions;
 using Shared.Rules;
 using Shared.Security;
+using Route = RoutePlanningAgent.Domain.Route;
 
 namespace RoutePlanningAgent.Application.Commands.Routes;
 
 /// <summary>
-/// Đánh giá route theo automation policy của tenant: rule engine → compliance → LLM → approval.
-/// Là COMMAND (không phải Query) vì nó ghi: audit log, approval request, optimization history, outbox.
+/// Đánh giá route theo mô hình quản trị rủi ro vận hành (Risk-based Operational Governance):
+/// resolve effective policy → rule engine → compliance RAG → AiGovernance (route.plan) → governance decision engine.
+/// Toàn bộ cấu hình AI, quota, provider/model thuộc quyền quản lý của AiGovernance.
+/// RoutePlanningAgent sở hữu chính sách rủi ro vận hành (TenantRiskPolicyConfig) và quyết định thẩm quyền.
+/// Manager KHÔNG còn là bottleneck cho các tác vụ LOW/MEDIUM thông thường.
 /// Toàn bộ ghi trong MỘT SaveChangesAsync — atomic cùng outbox events.
-/// gRPC method GetRouteRecommendation map vào command này (wire contract không đổi).
 /// </summary>
 public record RequestRouteRecommendationCommand(Guid RouteId) : IRequest<RouteRecommendationDto>;
 
@@ -34,9 +38,10 @@ public class RequestRouteRecommendationHandler(
     IRouteRuleEngine ruleEngine,
     IRouteAiService aiService,
     IComplianceRagService complianceRag,
-    ITenantAiConfigService configService,
     ITenantRuleConfigService ruleConfigService,
+    IRouteRiskPolicyProvider policyProvider,
     IApprovalService approvalService,
+    IRouteGovernanceService governanceService,
     IOutboxWriter outbox,
     ICurrentUserService currentUser,
     ILogger<RequestRouteRecommendationHandler> logger)
@@ -58,65 +63,18 @@ public class RequestRouteRecommendationHandler(
             .FirstOrDefaultAsync(r => r.Id == request.RouteId, ct)
             ?? throw new NotFoundException($"Route '{request.RouteId}' not found");
 
-        // 2. Đọc Automation Policy từ TenantAiConfig (cache-aside)
-        var config = await configService.GetConfigAsync(tenantId, Feature, ct);
-        var policy = config?.Policy ?? AutomationPolicy.RulesOnly;
+        // 2. Phân giải Effective Risk Policy cho Tenant (Tenant Custom > Platform Default, Fail-Closed nếu chưa cấu hình)
+        var effectivePolicy = await policyProvider.GetEffectivePolicyAsync(tenantId, Feature, ct);
 
-        // 3. Manual mode — không phân tích tự động
-        if (policy == AutomationPolicy.Manual)
-        {
-            AddAuditLog(route.Id, tenantId, userId, policy,
-                ruleResultsJson: "[]",
-                riskLevel: RouteRiskLevel.Low.ToString(),
-                decision: "ManualRequired");
-
-            await context.SaveChangesAsync(ct);
-
-            return new RouteRecommendationDto
-            {
-                RouteId = route.Id,
-                RiskLevel = RouteRiskLevel.Low.ToString(),
-                AutomationDecision = "ManualRequired",
-                RecommendationSource = "None",
-                Summary = "Automation policy đang là Manual — không thực hiện phân tích tự động."
-            };
-        }
-
-        // 4. Chạy rule engine
+        // 3. Chạy Deterministic Rule Engine
         var ruleContext = new RouteRuleContext(route, tenantId, ruleConfigService);
         var ruleResults = await ruleEngine.EvaluateAllAsync(ruleContext, ct);
 
-        var maxRisk = ruleResults.Count > 0 ? ruleResults.Max(r => r.RiskLevel) : RouteRiskLevel.Low;
+        // 4. Compliance RAG (nếu rule yêu cầu kiểm tra tuân thủ pháp lý)
         var needsComplianceCheck = ruleResults.Any(r => r.RequiresComplianceCheck);
-
-        // Ghi nhận risk đã đánh giá lên chính route
-        route.RiskLevel = maxRisk;
-
-        // 5. RulesOnly mode
-        if (policy == AutomationPolicy.RulesOnly)
-        {
-            const string decision = "ExecutedByRules";
-            AddAuditLog(route.Id, tenantId, userId, policy,
-                ruleResultsJson: JsonSerializer.Serialize(ruleResults),
-                riskLevel: maxRisk.ToString(),
-                decision: decision);
-
-            await context.SaveChangesAsync(ct);
-
-            var failedMessages = ruleResults.Where(r => !r.Passed).Select(r => r.Message);
-            return new RouteRecommendationDto
-            {
-                RouteId = route.Id,
-                RiskLevel = maxRisk.ToString(),
-                AutomationDecision = decision,
-                RecommendationSource = "Rules",
-                Summary = $"Rule engine đã đánh giá. Vi phạm: {string.Join("; ", failedMessages)}"
-            };
-        }
-
-        // 6. Compliance RAG (nếu rule yêu cầu) — soft-fail, service chưa triển khai
-        var routeDto = RouteMapper.ToDto(route); // serialize DTO — không cycle
+        var routeDto = RouteMapper.ToDto(route);
         ComplianceCheckResultDto? complianceResult = null;
+
         if (needsComplianceCheck)
         {
             var riskReasons = ruleResults
@@ -141,28 +99,56 @@ public class RequestRouteRecommendationHandler(
             }
         }
 
-        // 7. Gọi LLM (Gemini/AzureOpenAI) với ngữ cảnh rules + compliance
-        var provider = config?.AiProvider ?? "Gemini";
+        // 5. Gọi AI qua AiGovernance trung tâm (capability: route.plan)
         var aiResult = await aiService.GetRecommendationAsync(
-            routeDto, ruleResults, complianceResult, provider, ct);
+            routeDto, ruleResults, complianceResult, ct);
 
-        // 8. Xác định có cần người duyệt không
-        var needsApproval = policy == AutomationPolicy.RulesLlmApproval
-            || ruleResults.Any(r => r.RequiresApproval)
-            || (complianceResult?.RequiresHumanApproval ?? false);
+        // 6. Đánh giá rủi ro tổng hợp qua Governance Service
+        var compositeGovernance = await governanceService.AssessRouteAsync(
+            route, effectivePolicy, ruleResults, complianceResult, aiResult, ct);
 
-        string finalDecision;
+        return await ProcessGovernanceResultAsync(
+            route, tenantId, userId, effectivePolicy, compositeGovernance,
+            ruleResults, complianceResult, aiResult, ct);
+    }
+
+    private async Task<RouteRecommendationDto> ProcessGovernanceResultAsync(
+        Route route,
+        Guid tenantId,
+        Guid userId,
+        EffectiveRiskPolicy effectivePolicy,
+        RiskAssessmentResult governance,
+        IReadOnlyList<RuleResult> ruleResults,
+        ComplianceCheckResultDto? complianceResult,
+        RouteAiResult? aiResult,
+        CancellationToken ct)
+    {
+        route.RiskLevel = governance.RiskLevel;
+        route.GovernanceDecision = governance.Decision;
+        route.LastAssessedAt = DateTimeOffset.UtcNow;
+
         Guid? approvalId = null;
+        string finalDecision;
 
-        if (needsApproval)
+        if (governance.Decision == GovernanceDecision.ManagerApprovalRequired)
         {
-            // CreateAsync KHÔNG SaveChanges — nằm chung transaction với audit + history + outbox
+            // Rủi ro cao hoặc vi phạm bắt buộc: Tạo ApprovalRequest gắn chặt với RouteVersion và PolicyVersion
+            var reason = BuildApprovalReason(ruleResults, complianceResult, governance.ReasonDetails);
+            var aiSummary = aiResult?.Recommendation.Summary ?? governance.ReasonDetails;
+            var compSummary = complianceResult?.MergedContext;
+
             var approval = await approvalService.CreateAsync(
                 route.Id,
-                reason: BuildApprovalReason(ruleResults, complianceResult),
-                aiSummary: aiResult.Recommendation.Summary,
-                complianceSummary: complianceResult?.MergedContext,
-                ct);
+                reason: reason,
+                aiSummary: aiSummary,
+                complianceSummary: compSummary,
+                routeVersion: route.Version,
+                policyId: effectivePolicy.PolicyId,
+                policyVersion: effectivePolicy.Version,
+                ct: ct);
+
+            approvalId = approval.Id;
+            finalDecision = "PendingApproval";
 
             outbox.Enqueue(new RouteApprovalRequestedEvent
             {
@@ -170,74 +156,124 @@ public class RequestRouteRecommendationHandler(
                 RouteId = route.Id,
                 TenantId = tenantId,
                 Reason = approval.Reason,
-                AiSummary = aiResult.Recommendation.Summary
+                AiSummary = aiSummary
             });
-
-            finalDecision = "PendingApproval";
-            approvalId = approval.Id;
+        }
+        else if (governance.Decision == GovernanceDecision.Blocked)
+        {
+            finalDecision = "Blocked";
         }
         else
         {
-            finalDecision = "ExecutedByLlm";
+            // LOW (NoApprovalRequired) hoặc MEDIUM (StaffAllowed): Nhân viên được phép thực thi -> Route tự động sẵn sàng (Ready)
+            if (route.Status is RouteStatus.Draft or RouteStatus.Optimizing)
+            {
+                route.Status = RouteStatus.Ready;
+            }
+
+            finalDecision = (aiResult != null && aiResult.Success) ? "ExecutedByAi" : "ExecutedByRules";
         }
 
-        // 9. Optimization history + AI usage event — token usage THẬT từ LLM response
-        context.OptimizationHistories.Add(new RouteOptimizationHistory
-        {
-            RouteId = route.Id,
-            Provider = aiResult.Provider,
-            Model = aiResult.Model,
-            PromptVersion = aiResult.PromptVersion,
-            TotalDistanceKm = route.EstimatedDistanceKm,
-            TotalDurationMinutes = route.EstimatedDurationMinutes,
-            InputTokens = aiResult.InputTokens,
-            OutputTokens = aiResult.OutputTokens
-        });
+        // Lưu bản ghi RiskAssessment bất biến phục vụ kiểm toán và phát hiện stale
+        AddRiskAssessment(
+            route.Id, route.Version, tenantId, userId,
+            governance.RiskLevel, governance.Decision, governance.Source,
+            effectivePolicy.PolicyId, effectivePolicy.Version, effectivePolicy.Source,
+            governance.MatchedRuleCodes,
+            governance.ReasonCodes, governance.ReasonDetails,
+            policy: effectivePolicy.PolicyId, confidence: governance.ConfidenceScore);
 
-        outbox.Enqueue(new AiUsageEvent
+        // Lưu AI Optimization History nếu có gọi LLM thành công
+        if (aiResult is not null && aiResult.Success)
         {
-            TenantId = tenantId,
-            ServiceName = "RoutePlanningAgent",
-            Feature = "RouteRecommendation",
-            Provider = aiResult.Provider,
-            Model = aiResult.Model,
-            PromptVersion = aiResult.PromptVersion,
-            InputTokens = aiResult.InputTokens,
-            OutputTokens = aiResult.OutputTokens,
-            LatencyMs = aiResult.LatencyMs,
-            Success = aiResult.Success,
-            OccurredAt = DateTimeOffset.UtcNow
-        });
+            context.OptimizationHistories.Add(new RouteOptimizationHistory
+            {
+                RouteId = route.Id,
+                Provider = aiResult.Provider,
+                Model = aiResult.Model,
+                PromptVersion = aiResult.PromptVersion,
+                TotalDistanceKm = route.EstimatedDistanceKm,
+                TotalDurationMinutes = route.EstimatedDurationMinutes,
+                InputTokens = aiResult.InputTokens,
+                OutputTokens = aiResult.OutputTokens
+            });
 
-        // 10. Audit log — RiskLevel là giá trị TÍNH được (không phải literal)
-        AddAuditLog(route.Id, tenantId, userId, policy,
+            outbox.Enqueue(new AiUsageEvent
+            {
+                TenantId = tenantId,
+                ServiceName = "RoutePlanningAgent",
+                Feature = "RouteRecommendation",
+                Provider = aiResult.Provider,
+                Model = aiResult.Model,
+                PromptVersion = aiResult.PromptVersion,
+                InputTokens = aiResult.InputTokens,
+                OutputTokens = aiResult.OutputTokens,
+                LatencyMs = aiResult.LatencyMs,
+                Success = aiResult.Success,
+                OccurredAt = DateTimeOffset.UtcNow
+            });
+        }
+
+        // Audit Log
+        AddAuditLog(route.Id, tenantId, userId, effectivePolicy.PolicyId,
             ruleResultsJson: JsonSerializer.Serialize(ruleResults),
-            riskLevel: maxRisk.ToString(),
+            riskLevel: governance.RiskLevel.ToString(),
             decision: finalDecision,
-            complianceCheckPerformed: needsComplianceCheck,
+            complianceCheckPerformed: complianceResult != null,
             complianceDocRefs: complianceResult != null ? string.Join(", ", complianceResult.DocumentRefs) : null,
             complianceSummary: complianceResult?.MergedContext,
-            llmProvider: aiResult.Provider,
-            llmModel: aiResult.Model,
-            llmSummary: aiResult.Recommendation.Summary,
+            llmProvider: aiResult?.Provider,
+            llmModel: aiResult?.Model,
+            llmSummary: aiResult?.Recommendation.Summary,
             approvalRequestId: approvalId);
 
-        // MỘT transaction duy nhất: route.RiskLevel + approval + history + audit + outbox
+        // Outbox: Phát sự kiện đánh giá rủi ro thành công kèm đầy đủ dữ liệu provenance
+        outbox.Enqueue(new RouteRiskEvaluatedEvent
+        {
+            RouteId = route.Id,
+            RouteVersion = route.Version,
+            TenantId = tenantId,
+            RiskLevel = governance.RiskLevel.ToString(),
+            GovernanceDecision = governance.Decision.ToString(),
+            PolicyId = effectivePolicy.PolicyId,
+            PolicyVersion = effectivePolicy.Version,
+            PolicySource = effectivePolicy.Source.ToString(),
+            MatchedRuleCodes = governance.MatchedRuleCodes.ToArray(),
+            Source = governance.Source,
+            EvaluatedByUserId = userId
+        });
+
         await context.SaveChangesAsync(ct);
 
-        return aiResult.Recommendation with
+        if (aiResult is not null && aiResult.Success)
         {
-            RiskLevel = maxRisk.ToString(),
+            return aiResult.Recommendation with
+            {
+                RiskLevel = governance.RiskLevel.ToString(),
+                AutomationDecision = finalDecision,
+                ApprovalRequestId = approvalId
+            };
+        }
+
+        var failedMessages = ruleResults.Where(r => !r.Passed).Select(r => r.Message);
+        return new RouteRecommendationDto
+        {
+            RouteId = route.Id,
+            RiskLevel = governance.RiskLevel.ToString(),
             AutomationDecision = finalDecision,
-            ApprovalRequestId = approvalId
+            RecommendationSource = "Rules",
+            ApprovalRequestId = approvalId,
+            Summary = failedMessages.Any()
+                ? $"Rule engine đã đánh giá ({governance.RiskLevel}) theo chính sách {effectivePolicy.PolicyId} v{effectivePolicy.Version}. Vi phạm: {string.Join("; ", failedMessages)}"
+                : $"Đánh giá rủi ro thành công ({governance.RiskLevel}) theo chính sách {effectivePolicy.PolicyId} v{effectivePolicy.Version}. Quyết định: {governance.Decision}."
         };
     }
 
     private static string BuildApprovalReason(
-        IReadOnlyList<RuleResult> ruleResults, ComplianceCheckResultDto? complianceResult)
+        IReadOnlyList<RuleResult> ruleResults, ComplianceCheckResultDto? complianceResult, string fallback)
     {
         var reasons = new List<string>();
-        foreach (var rule in ruleResults.Where(r => r.RequiresApproval))
+        foreach (var rule in ruleResults.Where(r => r.RequiresApproval || !r.Passed))
         {
             reasons.Add($"Vi phạm {rule.RuleName}: {rule.Message}");
         }
@@ -245,14 +281,52 @@ public class RequestRouteRecommendationHandler(
         {
             reasons.Add("Compliance RAG đánh dấu ràng buộc cứng — cần người phê duyệt.");
         }
-        return reasons.Count > 0 ? string.Join("; ", reasons) : "Chính sách yêu cầu người phê duyệt.";
+        return reasons.Count > 0 ? string.Join("; ", reasons) : fallback;
+    }
+
+    private void AddRiskAssessment(
+        Guid routeId,
+        int routeVersion,
+        Guid tenantId,
+        Guid userId,
+        RouteRiskLevel riskLevel,
+        GovernanceDecision decision,
+        string source,
+        string policyId,
+        int policyVersion,
+        RiskPolicySource policySource,
+        IReadOnlyList<string> matchedRuleCodes,
+        IReadOnlyList<string> reasonCodes,
+        string reasonDetails,
+        string policy,
+        double? confidence = null)
+    {
+        context.RiskAssessments.Add(new RiskAssessment
+        {
+            RouteId = routeId,
+            RouteVersion = routeVersion,
+            TenantId = tenantId,
+            RiskLevel = riskLevel,
+            GovernanceDecision = decision,
+            Source = source,
+            PolicyId = policyId,
+            PolicyVersion = policyVersion,
+            PolicySource = policySource,
+            MatchedRuleCodes = JsonSerializer.Serialize(matchedRuleCodes),
+            ReasonCodes = JsonSerializer.Serialize(reasonCodes),
+            ReasonDetails = reasonDetails,
+            PolicyApplied = policy,
+            ConfidenceScore = confidence,
+            AssessedByUserId = userId,
+            AssessedAt = DateTimeOffset.UtcNow
+        });
     }
 
     private void AddAuditLog(
         Guid routeId,
         Guid tenantId,
         Guid userId,
-        AutomationPolicy policyApplied,
+        string policyApplied,
         string ruleResultsJson,
         string riskLevel,
         string decision,
@@ -281,6 +355,5 @@ public class RequestRouteRecommendationHandler(
             AutomationDecision = decision,
             ApprovalRequestId = approvalRequestId
         });
-        // Không SaveChanges — handler chính gọi một lần
     }
 }

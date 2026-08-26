@@ -39,5 +39,5 @@ public enum StaffType
 public enum PlanType
 {
     Standard,
-    Premium
+    Enterprise
 }

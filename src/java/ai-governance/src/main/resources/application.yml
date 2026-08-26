@@ -44,10 +44,14 @@ spring:
     caffeine:
       spec: maximumSize=1000,expireAfterWrite=300s
 
-# gRPC server
+# gRPC server and clients
 grpc:
   server:
     port: ${GRPC_SERVER_PORT:9090}
+  client:
+    iam-service:
+      address: ${IAM_TENANT_GRPC_ADDRESS:static://localhost:5001}
+      negotiation-type: plaintext
 
 # Actuator
 management:
@@ -73,6 +77,8 @@ management:
 
 # AI Governance configuration
 ai-governance:
+  tenant-plan:
+    cache-ttl: ${AI_TENANT_PLAN_CACHE_TTL:PT1H}
   provider:
     capacity-headroom-ratio: ${AI_CAPACITY_HEADROOM_RATIO:0.20}
   credential:

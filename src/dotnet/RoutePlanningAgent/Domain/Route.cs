@@ -12,7 +12,9 @@ public class Route : TenantAuditableEntity
     public string? Description { get; set; }
     public RouteType Type { get; set; }
     public RouteStatus Status { get; set; }
-    public RouteRiskLevel RiskLevel { get; set; }
+    public RouteRiskLevel RiskLevel { get; set; } = RouteRiskLevel.Low;
+    public GovernanceDecision GovernanceDecision { get; set; } = GovernanceDecision.NoApprovalRequired;
+    public DateTimeOffset? LastAssessedAt { get; set; }
     public decimal EstimatedDistanceKm { get; set; }
     public int EstimatedDurationMinutes { get; set; }
     public decimal MaxWeightKg { get; set; }
