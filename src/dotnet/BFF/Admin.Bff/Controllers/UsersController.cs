@@ -1,10 +1,13 @@
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading.Tasks;
 using Asp.Versioning;
 using BuildingBlocks.BFF.Attributes;
-using Common.Grpc;
 using Grpc.Core;
-using Shared.Constants;
 using IamTenant.Grpc;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Logging;
+using Shared.Constants;
 using Shared.Security;
 
 namespace AdminBff.Controllers;
@@ -24,16 +27,22 @@ public class UsersController(
     {
         try
         {
-            var response = await iamClient.InviteUserAsync(
-                new InviteUserRequest
-                {
-                    FirstName   = body.FirstName,
-                    LastName    = body.LastName,
-                    Email       = body.Email,
-                    PhoneNumber = body.PhoneNumber ?? string.Empty,
-                    StaffType   = body.StaffType ?? string.Empty,
-                    RoleIds     = { body.RoleIds }
-                });
+            var req = new InviteUserRequest
+            {
+                FirstName = body.FirstName,
+                LastName = body.LastName,
+                Email = body.Email,
+                PhoneNumber = body.PhoneNumber ?? string.Empty,
+                Role = string.IsNullOrWhiteSpace(body.Role) ? RoleConstants.Staff : body.Role,
+                ApplyDefaultPermissions = body.ApplyDefaultPermissions
+            };
+
+            if (body.Permissions != null && body.Permissions.Count > 0)
+            {
+                req.Permissions.AddRange(body.Permissions);
+            }
+
+            var response = await iamClient.InviteUserAsync(req);
 
             logger.LogInformation(
                 "User {Email} invited to tenant {TenantId} by {AdminId}",
@@ -69,7 +78,14 @@ public class UsersController(
     }
 
     // --- DTOs ---
-    public record InviteUserBody(string FirstName, string LastName, string Email, string? PhoneNumber, string? StaffType, List<string> RoleIds);
+    public record InviteUserBody(
+        string FirstName,
+        string LastName,
+        string Email,
+        string? PhoneNumber = null,
+        string? Role = RoleConstants.Staff,
+        bool ApplyDefaultPermissions = true,
+        List<string>? Permissions = null);
 
     private static object MapUserResponse(UserResponse r) => new
     {
@@ -78,11 +94,12 @@ public class UsersController(
         r.LastName,
         r.Email,
         r.PhoneNumber,
-        Status      = r.Status.ToString(),
-        r.StaffType,
-        r.RoleIds,
-        SystemRoles = r.SystemRoles.Select(sr => sr.ToString()),
-        CreatedAt   = r.CreatedAt?.ToDateTime(),
-        UpdatedAt   = r.UpdatedAt?.ToDateTime()
+        Status = r.Status.ToString(),
+        r.Role,
+        Permissions = r.Permissions.ToList(),
+        r.PermissionVersion,
+        r.TenantId,
+        CreatedAt = r.CreatedAt?.ToDateTime(),
+        UpdatedAt = r.UpdatedAt?.ToDateTime()
     };
 }

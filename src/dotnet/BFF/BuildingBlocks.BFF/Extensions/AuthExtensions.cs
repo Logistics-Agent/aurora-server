@@ -23,7 +23,7 @@ public static class AuthExtensions
     /// <summary>
     /// Đăng ký cookie session + OpenIdConnect (Cognito) + Authorization.
     /// Session được lưu trong HttpOnly cookie, còn OIDC xử lý đăng nhập và callback.
-    /// Các custom claims (user_id, tenant_id, role_ids, permission_version — xem JwtClaims)
+    /// Các custom claims (user_id, tenant_id, role, permission_version — xem JwtClaims)
     /// cần Pre Token Generation lambda phía Cognito.
     /// </summary>
     public static IServiceCollection AddBffAuthentication(

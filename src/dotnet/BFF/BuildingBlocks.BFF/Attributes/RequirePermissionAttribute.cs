@@ -59,18 +59,11 @@ public class RequirePermissionAttribute : Attribute, IAsyncAuthorizationFilter
             return Task.CompletedTask;
         }
 
-        // 4. SYSTEM_ADMIN bypass (Super Admin)
-        if (currentUser.RoleIds != null && currentUser.RoleIds.Any(r => string.Equals(r, RoleConstants.SystemAdmin, StringComparison.OrdinalIgnoreCase)))
-        {
-            return Task.CompletedTask;
-        }
-
-        // 5. Capability Permission Check
-        var permissions = currentUser.Permissions ?? (IReadOnlyList<string>)Array.Empty<string>();
-        bool hasPermission = permissions.Contains(RequiredPermission);
+        // 4. Capability Permission Check (Pure Capability-Based Authorization: ZERO role bypasses)
+        bool hasPermission = currentUser.HasPermission(RequiredPermission);
 
         // Optional legacy fallback with audit logging
-        if (!hasPermission && !string.IsNullOrWhiteSpace(LegacyFallbackPermission) && permissions.Contains(LegacyFallbackPermission))
+        if (!hasPermission && !string.IsNullOrWhiteSpace(LegacyFallbackPermission) && currentUser.HasPermission(LegacyFallbackPermission))
         {
             var logger = context.HttpContext.RequestServices.GetService<ILogger<RequirePermissionAttribute>>();
             logger?.LogWarning(
