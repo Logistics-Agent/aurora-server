@@ -9,7 +9,7 @@ public static class GrpcClientExtensions
     /// Đăng ký tất cả gRPC clients với Resilience Pipelines (retry + circuit breaker).
     /// - IamTenant (IamService + AuthService): bắt buộc — Grpc:IamTenant:Url
     /// - RoutePlanningAgent: optional theo config — Grpc:RoutePlanning:Url (System.Bff không cần)
-    /// ClientMetadataInterceptor forward x-user-id/x-tenant-id/x-role-ids/x-permission-version
+    /// ClientMetadataInterceptor forward x-user-id/x-tenant-id/x-role/x-permission-version
     /// xuống gRPC service (AuthInterceptor phía server đọc lại các metadata này).
     /// ⚠ InterceptorScope.Client bắt buộc — interceptor phụ thuộc scoped ICurrentUserService.
     /// </summary>

@@ -2,11 +2,13 @@ using IamTenant.Application.Interfaces;
 using IamTenant.Infrastructure.Persistences;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
+using Shared.Constants;
+using Shared.Enums;
 using IamTenant.Domain.Enums;
 
 namespace IamTenant.Application.Commands.Auth;
 
-public record LoginResult(string AccessToken, string RefreshToken, int ExpiresIn, string UserId, string TenantId, List<string> Roles, List<string> Permissions);
+public record LoginResult(string AccessToken, string RefreshToken, int ExpiresIn, string UserId, string TenantId, string Role, List<string> Permissions);
 
 public record LoginCommand(string TenantCode, string Email, string Password) : IRequest<LoginResult>;
 
@@ -29,7 +31,8 @@ public class LoginCommandHandler(ICognitoAuthService cognitoService, IamTenantDb
                     u.Id,
                     u.TenantId,
                     u.Status,
-                    u.PermissionVersion
+                    u.PermissionVersion,
+                    u.Role
                 })
                 .FirstOrDefaultAsync(cancellationToken)
                 ?? throw new Shared.Exceptions.NotFoundException("User not found");
@@ -49,7 +52,7 @@ public class LoginCommandHandler(ICognitoAuthService cognitoService, IamTenantDb
                 systemAuthResult.ExpiresIn,
                 systemUser.Id.ToString(),
                 systemUser.TenantId == Guid.Empty ? string.Empty : systemUser.TenantId.ToString(),
-                systemPermissions.RoleCodes,
+                systemUser.Role.ToCode(),
                 systemPermissions.Permissions.Select(p => p.Code).ToList());
         }
 
@@ -73,12 +76,12 @@ public class LoginCommandHandler(ICognitoAuthService cognitoService, IamTenantDb
                 u.TenantId,
                 u.Status,
                 u.PermissionVersion,
-                u.UserType
+                u.Role
             })
             .FirstOrDefaultAsync(cancellationToken)
         ?? throw new Shared.Exceptions.NotFoundException("User not found");
 
-        var clientId = user.UserType == UserType.TenantAdmin
+        var clientId = user.Role == Shared.Enums.BaseRole.TenantAdmin
             ? tenant.AdminUserPoolClientId
             : tenant.UserUserPoolClientId;
 
@@ -107,7 +110,7 @@ public class LoginCommandHandler(ICognitoAuthService cognitoService, IamTenantDb
             authResult.ExpiresIn,
             user.Id.ToString(),
             user.TenantId == Guid.Empty ? "" : user.TenantId.ToString(),
-            userPermissions.RoleCodes,
+            user.Role.ToCode(),
             userPermissions.Permissions.Select(p => p.Code).ToList());
     }
 }

@@ -63,12 +63,11 @@ public class PermissionVersionMiddleware(
             }
 
             // ✅ Version khớp — load permissions từ Redis vào user context
-            // Dùng RoleCodes (SYSTEM_ADMIN, ...) — RoleIds là List<Guid> không dùng cho role check
-            currentUser.PopulatePermissions(cached.Permissions, cached.RoleCodes);
+            currentUser.PopulatePermissions(cached.Permissions, cached.Role);
 
             logger.LogDebug(
-                "Permissions loaded for User {UserId}: {PermissionCount} permissions, version {Version}.",
-                currentUser.UserId, cached.Permissions.Count, cached.Version);
+                "Permissions loaded for User {UserId}: {PermissionCount} permissions, role {Role}, version {Version}.",
+                currentUser.UserId, cached.Permissions.Count, cached.Role, cached.Version);
         }
 
         await next(context);

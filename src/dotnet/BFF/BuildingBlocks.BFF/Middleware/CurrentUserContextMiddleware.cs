@@ -23,13 +23,11 @@ public class CurrentUserContextMiddleware(RequestDelegate next)
             var permVersion = GetClaimInt(context.User, JwtClaims.PermissionVersion);
             var traceId     = context.TraceIdentifier;
 
-            var roleIds = context.User.Claims
-                .Where(c => c.Type == JwtClaims.RoleIds)
-                .SelectMany(c => c.Value.Split(',', StringSplitOptions.RemoveEmptyEntries))
-                .ToList();
+            var role = context.User.FindFirstValue(JwtClaims.Role)
+                ?? context.User.FindFirstValue(ClaimTypes.Role);
 
             // Permissions sẽ được load từ Redis bởi PermissionVersionMiddleware (bước tiếp theo)
-            currentUser.Populate(userId, tenantId, traceId, permVersion, roleIds, []);
+            currentUser.Populate(userId, tenantId, traceId, permVersion, role, []);
         }
 
         await next(context);

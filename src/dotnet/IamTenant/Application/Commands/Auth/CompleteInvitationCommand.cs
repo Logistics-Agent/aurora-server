@@ -1,8 +1,13 @@
+using System;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 using IamTenant.Application.Interfaces;
 using IamTenant.Infrastructure.Persistences;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 using IamTenant.Domain.Enums;
+using Shared.Enums;
 
 namespace IamTenant.Application.Commands.Auth;
 
@@ -14,14 +19,15 @@ public class CompleteInvitationCommandHandler(ICognitoAuthService cognitoService
     {
         var user = await context.Users
             .IgnoreQueryFilters()
-            .AsNoTracking()
             .Include(u => u.Tenant)
+            .Include(u => u.UserPermissions)
+            .ThenInclude(up => up.Permission)
             .FirstOrDefaultAsync(u => u.Email == request.Email && !u.IsDeleted, cancellationToken)
             ?? throw new Exception("User not found in database.");
 
         var tenant = user.Tenant ?? throw new Exception("Tenant not found for user.");
 
-        var clientId = user.UserType == UserType.TenantAdmin
+        var clientId = user.Role == BaseRole.TenantAdmin
             ? tenant.AdminUserPoolClientId
             : tenant.UserUserPoolClientId;
 
@@ -40,18 +46,11 @@ public class CompleteInvitationCommandHandler(ICognitoAuthService cognitoService
             request.ConfirmationCode,
             cancellationToken);
 
-        // Fetch Roles and Permissions via Projection to avoid deep Includes
-        var userPermissions = await context.UserRoles
-            .Where(ur => ur.UserId == user.Id)
-            .Select(ur => new
-            {
-                RoleCode = ur.Role!.Code,
-                Permissions = ur.Role.RolePermissions.Select(rp => rp.Permission!.Code).ToList()
-            })
-            .ToListAsync(cancellationToken);
-
-        var roles = userPermissions.Select(x => x.RoleCode).Distinct().ToList();
-        var permissions = userPermissions.SelectMany(x => x.Permissions).Distinct().ToList();
+        var permissions = user.UserPermissions
+            .Where(up => up.Permission != null)
+            .Select(up => up.Permission!.Code)
+            .Distinct()
+            .ToList();
 
         // 3. Mark User as ACTIVE if they were PENDING/INVITED
         if (user.Status != UserStatus.Active)
@@ -66,7 +65,7 @@ public class CompleteInvitationCommandHandler(ICognitoAuthService cognitoService
             authResult.ExpiresIn,
             user.Id.ToString(),
             user.TenantId == Guid.Empty ? "" : user.TenantId.ToString(),
-            roles,
+            user.Role.ToCode(),
             permissions);
     }
 }
