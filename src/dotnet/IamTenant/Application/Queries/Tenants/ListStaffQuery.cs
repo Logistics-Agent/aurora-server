@@ -1,12 +1,16 @@
+using System;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 using IamTenant.Infrastructure.Persistences;
 using IamTenant.Application.DTOs.Tenants;
 using MediatR;
+using Shared.Enums;
 using Shared.Pagination;
 
 namespace IamTenant.Application.Queries.Tenants;
 
-public class ListStaffQuery : PagedRequest, IRequest<PagedResult<StaffDto>> { };
-
+public class ListStaffQuery : PagedRequest, IRequest<PagedResult<StaffDto>> { }
 
 public class ListStaffHandler(IamTenantDbContext context) : IRequestHandler<ListStaffQuery, PagedResult<StaffDto>>
 {
@@ -22,9 +26,14 @@ public class ListStaffHandler(IamTenantDbContext context) : IRequestHandler<List
                 Email = u.Email,
                 FirstName = u.FirstName,
                 LastName = u.LastName,
-                UserType = u.UserType,
+                Role = u.Role.ToCode(),
+                Permissions = u.UserPermissions
+                    .Where(up => up.Permission != null)
+                    .Select(up => up.Permission!.Code)
+                    .OrderBy(p => p)
+                    .ToList(),
+                PermissionVersion = u.PermissionVersion,
                 Status = u.Status,
-                StaffType = u.StaffType,
                 CreatedAt = u.CreatedAt
             });
 

@@ -1,8 +1,14 @@
+using System;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 using IamTenant.Infrastructure.Persistences;
 using IamTenant.Application.DTOs.Roles;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Shared.Cache;
+using Shared.Enums;
+using Shared.Exceptions;
 
 namespace IamTenant.Application.Queries.Permissions;
 
@@ -25,64 +31,48 @@ public class GetUserPermissionsHandler(
             return new UserPermissionsDto
             {
                 UserId = request.UserId,
-                RoleIds = cached.RoleIds,
-                RoleCodes = cached.RoleCodes,
+                Role = cached.Role,
                 Permissions = [.. cached.Permissions.Select(p => new PermissionDto { Code = p })],
                 Version = cached.Version,
                 FromCache = true
             };
         }
 
-        var userData = await context.Users
-            .Where(u => u.Id == request.UserId)
+        var user = await context.Users
+            .Where(u => u.Id == request.UserId && !u.IsDeleted)
             .Select(u => new
             {
                 u.PermissionVersion,
-                RoleIds = u.UserRoles.Select(ur => ur.RoleId).ToList(),
-                RoleCodes = u.UserRoles.Select(ur => ur.Role!.Code).ToList(),
-                RolePermissions = u.UserRoles
-                    .SelectMany(ur => ur.Role!.RolePermissions.Select(rp => rp.Permission))
-                    .Where(p => p != null)
-                    .Select(p => new { p!.Id, p.Code, p.Module, p.Description })
-                    .ToList(),
-
-                DirectPermissions = u.UserPermissions
-                    .Select(up => up.Permission)
-                    .Where(p => p != null)
-                    .Select(p => new { p!.Id, p.Code, p.Module, p.Description })
+                RoleCode = u.Role.ToCode(),
+                Permissions = u.UserPermissions
+                    .Where(up => up.Permission != null)
+                    .Select(up => new PermissionDto
+                    {
+                        Id = up.Permission!.Id,
+                        Code = up.Permission.Code,
+                        Module = up.Permission.Module,
+                        Description = up.Permission.Description
+                    })
+                    .OrderBy(p => p.Code)
                     .ToList()
             })
             .FirstOrDefaultAsync(cancellationToken)
-        ?? throw new Shared.Exceptions.NotFoundException("User not found");
-        
-        var permissions = userData.RolePermissions
-            .Concat(userData.DirectPermissions)
-            .DistinctBy(p => p.Id)
-            .Select(p => new PermissionDto
-            {
-                Id = p.Id,
-                Code = p.Code,
-                Module = p.Module,
-                Description = p.Description
-            })
-            .ToList();
+            ?? throw new NotFoundException("User not found");
 
         var newCache = new UserPermissionCache
         {
-            Version = userData.PermissionVersion,
-            RoleIds = userData.RoleIds,
-            RoleCodes = userData.RoleCodes,
-            Permissions = [.. permissions.Select(p => p.Code)]
+            Version = user.PermissionVersion,
+            Role = user.RoleCode,
+            Permissions = [.. user.Permissions.Select(p => p.Code)]
         };
         await permissionCache.SetAsync(request.UserId, newCache, cancellationToken);
 
         return new UserPermissionsDto
         {
             UserId = request.UserId,
-            RoleIds = userData.RoleIds,
-            RoleCodes = userData.RoleCodes,
-            Permissions = permissions,
-            Version = userData.PermissionVersion,
+            Role = user.RoleCode,
+            Permissions = user.Permissions,
+            Version = user.PermissionVersion,
             FromCache = false
         };
     }

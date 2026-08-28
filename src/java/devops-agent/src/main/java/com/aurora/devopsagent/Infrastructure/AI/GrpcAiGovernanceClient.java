@@ -185,8 +185,8 @@ public class GrpcAiGovernanceClient implements AiGovernanceClient {
                         if (userContext.getPermissionVersion() != null) {
                             headers.put(GrpcMetadataKeys.PERMISSION_VERSION, userContext.getPermissionVersion().toString());
                         }
-                        if (userContext.getRoleIds() != null && !userContext.getRoleIds().isEmpty()) {
-                            headers.put(GrpcMetadataKeys.ROLE_IDS, String.join(",", userContext.getRoleIds()));
+                        if (userContext.getRole() != null && !userContext.getRole().isEmpty()) {
+                            headers.put(GrpcMetadataKeys.ROLE, userContext.getRole());
                         }
                     }
 

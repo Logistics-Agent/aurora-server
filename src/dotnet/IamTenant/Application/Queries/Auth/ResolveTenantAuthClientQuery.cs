@@ -3,6 +3,7 @@ using IamTenant.Domain.Enums;
 using IamTenant.Infrastructure.Persistences;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
+using Shared.Enums;
 
 namespace IamTenant.Application.Queries.Auth;
 
@@ -25,13 +26,11 @@ public class ResolveTenantAuthClientQueryHandler(IamTenantDbContext context) : I
         if (tenant.Status != TenantStatus.Active)
             throw new Shared.Exceptions.ForbiddenException("Tenant is suspended.");
 
-        var parsedUserType = Enum.TryParse<UserType>(request.UserType, true, out var userType)
-            ? userType
-            : UserType.TenantStaff;
+        BaseRoleExtensions.TryParseRole(request.UserType, out var baseRole);
 
-        var clientId = parsedUserType switch
+        var clientId = baseRole switch
         {
-            UserType.TenantAdmin => tenant.AdminUserPoolClientId,
+            Shared.Enums.BaseRole.TenantAdmin => tenant.AdminUserPoolClientId,
             _ => tenant.UserUserPoolClientId
         };
 

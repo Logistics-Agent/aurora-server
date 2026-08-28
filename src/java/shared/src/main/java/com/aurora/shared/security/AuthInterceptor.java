@@ -34,15 +34,14 @@ public class AuthInterceptor implements ServerInterceptor {
         String tenantIdStr = headers.get(GrpcMetadataKeys.TENANT_ID);
         String traceId = headers.get(GrpcMetadataKeys.TRACE_ID);
         String permissionVersionStr = headers.get(GrpcMetadataKeys.PERMISSION_VERSION);
-        String roleIdsStr = headers.get(GrpcMetadataKeys.ROLE_IDS);
+        String role = headers.get(GrpcMetadataKeys.ROLE);
 
         UUID userId = parseUuid(userIdStr);
         UUID tenantId = parseUuid(tenantIdStr);
         Integer permissionVersion = parseInteger(permissionVersionStr);
-        List<String> roleIds = parseList(roleIdsStr);
 
         CurrentUserContext userContext = new CurrentUserContext();
-        userContext.populate(userId, tenantId, traceId, permissionVersion, roleIds, Collections.emptyList());
+        userContext.populate(userId, tenantId, traceId, permissionVersion, role, Collections.emptyList());
         CurrentUserContext.setCurrent(userContext);
 
         // --- Service/workload identity context ---
@@ -52,8 +51,8 @@ public class AuthInterceptor implements ServerInterceptor {
         serviceContext.populate(serviceId);
         CurrentServiceContext.setCurrent(serviceContext);
 
-        log.debug("AuthInterceptor: UserId={}, TenantId={}, TraceId={}, RoleIds={}, ServiceId={}",
-                userId, tenantId, traceId, roleIds, serviceId);
+        log.debug("AuthInterceptor: UserId={}, TenantId={}, TraceId={}, Role={}, ServiceId={}",
+                userId, tenantId, traceId, role, serviceId);
 
         return new ForwardingServerCallListener.SimpleForwardingServerCallListener<ReqT>(
                 next.startCall(call, headers)) {

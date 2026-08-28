@@ -265,6 +265,8 @@ public static class PermissionConstants
         RoutePlanning.ApprovalRead,
         RoutePlanning.Approve,
         RoutePlanning.Reject,
+        RoutePlanning.PolicyManage,
+        RoutePlanning.PolicyPublish,
 
         // OCR review
         Ocr.Review,
@@ -289,9 +291,22 @@ public static class PermissionConstants
     ];
 
     /// <summary>
+    /// System-only capabilities strictly reserved for SYSTEM_ADMIN (platform scope).
+    /// Tenant admins are barred from granting or possessing these capabilities.
+    /// </summary>
+    public static readonly IReadOnlyList<string> SystemOnlyPermissions =
+    [
+        Mail.SystemManage,
+        Compliance.PlatformIngest
+    ];
+
+    public static bool IsSystemOnlyPermission(string permission) =>
+        SystemOnlyPermissions.Contains(permission, StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
     /// Gets administrative permissions for the TENANT_ADMIN role (all tenant-scoped permissions).
     /// Excludes system-only permissions (Mail.SystemManage, Compliance.PlatformIngest).
     /// </summary>
     public static IReadOnlyList<string> GetTenantAdminPermissions() =>
-        [.. GetAllPermissions().Where(p => p != Mail.SystemManage && p != Compliance.PlatformIngest)];
+        [.. GetAllPermissions().Where(p => !IsSystemOnlyPermission(p))];
 }

@@ -4,6 +4,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using MediatR;
 using Shared.Security;
+using Shared.Constants;
 using MailService.Application.Interfaces.Stalwart;
 using MailService.Domain.Enums;
 using MailService.Infrastructure.Persistence;
@@ -44,9 +45,9 @@ public class ReleaseQuarantineCommandHandler : IRequestHandler<ReleaseQuarantine
         if (isMalware)
         {
             bool isAdmin = request.AdminOverride ||
-                           _currentUserService.RoleIds.Contains("SYSTEM_ADMIN") ||
-                           _currentUserService.RoleIds.Contains("TENANT_ADMIN") ||
-                           _currentUserService.RoleIds.Contains("Tenant_Admin");
+                           _currentUserService.Role == RoleConstants.SystemAdmin ||
+                           _currentUserService.Role == RoleConstants.TenantAdmin ||
+                           _currentUserService.HasPermission(PermissionConstants.Mail.QuarantineRelease);
 
             if (!isAdmin)
             {

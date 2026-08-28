@@ -1,10 +1,12 @@
+using System;
+using System.Linq;
+using System.Threading.Tasks;
 using Google.Protobuf.WellKnownTypes;
 using Grpc.Core;
 using IamTenant.Application.Commands.Permissions;
 using IamTenant.Application.Commands.Tenants;
 using IamTenant.Application.Commands.Users;
 using IamTenant.Application.Queries.Permissions;
-using IamTenant.Application.Queries.Roles;
 using IamTenant.Application.Queries.Tenants;
 using MediatR;
 using IamTenant.Grpc;
@@ -55,8 +57,7 @@ public class IamGrpcService(IMediator mediator, ICurrentUserService currentUser)
     {
         try
         {
-            Guid id;
-            if (!Guid.TryParse(request.Id, out id))
+            if (!Guid.TryParse(request.Id, out var id))
                 throw new RpcException(new Status(StatusCode.InvalidArgument, "Invalid tenant ID."));
 
             var dto = await mediator.Send(new GetTenantQuery(id), context.CancellationToken);
@@ -113,7 +114,7 @@ public class IamGrpcService(IMediator mediator, ICurrentUserService currentUser)
             TotalItems = result.TotalItems,
             TotalPages = result.TotalPages
         };
-        response.Tenants.AddRange(result.Items.Select(t => MapTenantResponse(t)));
+        response.Tenants.AddRange(result.Items.Select(MapTenantResponse));
         return response;
     }
 
@@ -142,27 +143,15 @@ public class IamGrpcService(IMediator mediator, ICurrentUserService currentUser)
     {
         try
         {
-            var roleGuids = request.RoleIds
-                .Select(id => Guid.TryParse(id, out var g) ? g : Guid.Empty)
-                .Where(g => g != Guid.Empty)
-                .ToList();
-
             var dto = await mediator.Send(new CreateStaffCommand(
                 Email: request.Email,
                 FirstName: request.FirstName,
                 LastName: request.LastName,
-                RoleIds: roleGuids), context.CancellationToken);
+                Role: string.IsNullOrWhiteSpace(request.Role) ? "STAFF" : request.Role,
+                ApplyDefaultPermissions: request.ApplyDefaultPermissions,
+                Permissions: request.Permissions.ToList()), context.CancellationToken);
 
-            var userResponse = new UserResponse
-            {
-                Id = dto.Id.ToString(),
-                FirstName = dto.FirstName,
-                LastName = dto.LastName,
-                Email = dto.Email,
-                Status = MapUserStatusToGrpc(dto.Status)
-            };
-            userResponse.RoleIds.AddRange(request.RoleIds);
-            return userResponse;
+            return MapUserResponse(dto);
         }
         catch (RpcException) { throw; }
         catch (Exception ex)
@@ -178,20 +167,11 @@ public class IamGrpcService(IMediator mediator, ICurrentUserService currentUser)
             if (!Guid.TryParse(request.Id, out var id))
                 throw new RpcException(new Status(StatusCode.InvalidArgument, "Invalid user ID."));
 
-            // TenantId lấy từ context người gọi (trước đây truyền Guid.Empty → không bao giờ match)
             var tenantId = currentUser.TenantId
                 ?? throw new RpcException(new Status(StatusCode.PermissionDenied, "Tenant context is missing."));
 
             var dto = await mediator.Send(new GetStaffQuery(id, tenantId), context.CancellationToken);
-
-            return new UserResponse
-            {
-                Id = dto.Id.ToString(),
-                FirstName = dto.FirstName,
-                LastName = dto.LastName,
-                Email = dto.Email,
-                Status = MapUserStatusToGrpc(dto.Status)
-            };
+            return MapUserResponse(dto);
         }
         catch (RpcException) { throw; }
         catch (Exception ex)
@@ -215,14 +195,7 @@ public class IamGrpcService(IMediator mediator, ICurrentUserService currentUser)
             TotalItems = result.TotalItems,
             TotalPages = result.TotalPages
         };
-        response.Users.AddRange(result.Items.Select(u => new UserResponse
-        {
-            Id = u.Id.ToString(),
-            FirstName = u.FirstName,
-            LastName = u.LastName,
-            Email = u.Email,
-            Status = MapUserStatusToGrpc(u.Status)
-        }));
+        response.Users.AddRange(result.Items.Select(MapUserResponse));
         return response;
     }
 
@@ -237,7 +210,7 @@ public class IamGrpcService(IMediator mediator, ICurrentUserService currentUser)
                 ?? throw new RpcException(new Status(StatusCode.PermissionDenied, "Tenant context is missing."));
 
             var dto = await mediator.Send(new UpdateStaffCommand(
-                id, tenantId, request.FirstName, request.LastName, request.StaffType), context.CancellationToken);
+                id, tenantId, request.FirstName, request.LastName), context.CancellationToken);
 
             return MapUserResponse(dto);
         }
@@ -287,36 +260,6 @@ public class IamGrpcService(IMediator mediator, ICurrentUserService currentUser)
         }
     }
 
-    public override async Task<UserResponse> AssignRoles(AssignRolesRequest request, ServerCallContext context)
-    {
-        try
-        {
-            if (!Guid.TryParse(request.UserId, out var userId))
-                throw new RpcException(new Status(StatusCode.InvalidArgument, "Invalid user ID."));
-
-            var roleIds = request.RoleIds.Select(id =>
-                Guid.TryParse(id, out var g) ? g : throw new RpcException(new Status(StatusCode.InvalidArgument, $"Invalid role ID: {id}"))).ToList();
-
-            var dto = await mediator.Send(new AssignRolesCommand(userId, roleIds), context.CancellationToken);
-
-            var userResponse = new UserResponse
-            {
-                Id = dto.Id.ToString(),
-                FirstName = dto.FirstName,
-                LastName = dto.LastName,
-                Email = dto.Email,
-                Status = MapUserStatusToGrpc(dto.Status)
-            };
-            userResponse.RoleIds.AddRange(request.RoleIds);
-            return userResponse;
-        }
-        catch (RpcException) { throw; }
-        catch (Exception ex)
-        {
-            throw new RpcException(new Status(StatusCode.Internal, ex.Message));
-        }
-    }
-
     public override async Task<UserResponse> SuspendUser(SuspendUserRequest request, ServerCallContext context)
     {
         try
@@ -328,7 +271,6 @@ public class IamGrpcService(IMediator mediator, ICurrentUserService currentUser)
                 ?? throw new RpcException(new Status(StatusCode.PermissionDenied, "Tenant context is missing."));
 
             var dto = await mediator.Send(new GetStaffQuery(userId, tenantId), context.CancellationToken);
-
             await mediator.Send(new DeactivateStaffCommand(userId, tenantId), context.CancellationToken);
 
             return MapUserResponse(dto);
@@ -341,81 +283,89 @@ public class IamGrpcService(IMediator mediator, ICurrentUserService currentUser)
     }
 
     // ═══════════════════════════════════════════════════════════════════════
-    // ROLE RPCs (Read-Only as specified: No Write operations)
+    // USER BASE ROLE UPDATE (Single Persona Role)
     // ═══════════════════════════════════════════════════════════════════════
 
-    public override Task<RoleResponse> CreateCustomRole(CreateCustomRoleRequest request, ServerCallContext context)
-    {
-        throw new RpcException(new Status(StatusCode.Unimplemented, "Role is Read-Only. Custom Role creation is disabled."));
-    }
-
-    public override async Task<RoleResponse> GetRole(GetRoleRequest request, ServerCallContext context)
+    public override async Task<UserRoleResponse> UpdateUserRole(UpdateUserRoleRequest request, ServerCallContext context)
     {
         try
         {
-            if (!Guid.TryParse(request.Id, out var id))
-                throw new RpcException(new Status(StatusCode.InvalidArgument, "Invalid role ID."));
+            if (!Guid.TryParse(request.UserId, out var userId))
+                throw new RpcException(new Status(StatusCode.InvalidArgument, "Invalid user ID."));
 
-            var dto = await mediator.Send(new GetRoleQuery(id), context.CancellationToken);
-            return MapRoleResponse(dto);
+            var result = await mediator.Send(new UpdateUserRoleCommand(
+                userId, request.NewRole, request.ApplyDefaultPermissions), context.CancellationToken);
+
+            var response = new UserRoleResponse
+            {
+                UserId = result.UserId.ToString(),
+                Role = result.Role,
+                PermissionVersion = result.PermissionVersion
+            };
+            response.Permissions.AddRange(result.Permissions);
+            response.ElevatedPermissionsRetained.AddRange(result.ElevatedPermissionsRetained);
+            return response;
         }
         catch (RpcException) { throw; }
         catch (Exception ex)
         {
-            throw new RpcException(new Status(StatusCode.NotFound, ex.Message));
+            throw new RpcException(new Status(StatusCode.InvalidArgument, ex.Message));
         }
     }
 
-    public override async Task<GetManyRolesResponse> GetManyRoles(GetManyRolesRequest request, ServerCallContext context)
-    {
-        var result = await mediator.Send(new ListRolesQuery
-        {
-            Page = request.Page,
-            Limit = request.Limit
-        }, context.CancellationToken);
-
-        var response = new GetManyRolesResponse
-        {
-            Page = result.Page,
-            Limit = result.Limit,
-            TotalItems = result.TotalItems,
-            TotalPages = result.TotalPages
-        };
-        response.Roles.AddRange(result.Items.Select(MapRoleResponse));
-        return response;
-    }
-
-    public override Task<RoleResponse> UpdateRole(UpdateRoleRequest request, ServerCallContext context)
-    {
-        throw new RpcException(new Status(StatusCode.Unimplemented, "Role is Read-Only. Custom Role update is disabled."));
-    }
-
-    public override Task<EmptyResponse> DeleteRole(DeleteRoleRequest request, ServerCallContext context)
-    {
-        throw new RpcException(new Status(StatusCode.Unimplemented, "Role is Read-Only. Custom Role deletion is disabled."));
-    }
-
     // ═══════════════════════════════════════════════════════════════════════
-    // PERMISSION RPCs
+    // DIRECT USER PERMISSION RPCs (Delta Grant / Revoke)
     // ═══════════════════════════════════════════════════════════════════════
 
-    public override async Task<RoleResponse> AssignPermissionsToRole(AssignPermissionsToRoleRequest request, ServerCallContext context)
+    public override async Task<UserPermissionsResponse> UpdateUserPermissions(UpdateUserPermissionsRequest request, ServerCallContext context)
     {
         try
         {
-            if (!Guid.TryParse(request.RoleId, out var roleId))
-                throw new RpcException(new Status(StatusCode.InvalidArgument, "Invalid role ID."));
+            if (!Guid.TryParse(request.UserId, out var userId))
+                throw new RpcException(new Status(StatusCode.InvalidArgument, "Invalid user ID."));
 
-            var permIds = request.PermissionIds.Select(id =>
-                Guid.TryParse(id, out var g) ? g : throw new RpcException(new Status(StatusCode.InvalidArgument, $"Invalid permission ID: {id}"))).ToList();
+            var dto = await mediator.Send(new UpdateUserPermissionsCommand(
+                userId, request.Grant.ToList(), request.Revoke.ToList()), context.CancellationToken);
 
-            var dto = await mediator.Send(new AssignPermissionsToRoleCommand(roleId, permIds), context.CancellationToken);
-            return MapRoleResponse(dto);
+            var response = new UserPermissionsResponse
+            {
+                UserId = dto.UserId.ToString(),
+                Role = dto.Role,
+                PermissionVersion = dto.Version
+            };
+            response.Permissions.AddRange(dto.Permissions.Select(p => p.Code));
+            return response;
         }
         catch (RpcException) { throw; }
         catch (Exception ex)
         {
-            throw new RpcException(new Status(StatusCode.Internal, ex.Message));
+            throw new RpcException(new Status(StatusCode.InvalidArgument, ex.Message));
+        }
+    }
+
+    public override async Task<BulkUpdateUserPermissionsResponse> BulkUpdateUserPermissions(BulkUpdateUserPermissionsRequest request, ServerCallContext context)
+    {
+        try
+        {
+            var userGuids = request.UserIds
+                .Select(id => Guid.TryParse(id, out var g) ? g : Guid.Empty)
+                .Where(g => g != Guid.Empty)
+                .ToList();
+
+            var result = await mediator.Send(new BulkUpdateUserPermissionsCommand(
+                userGuids, request.Grant.ToList(), request.Revoke.ToList()), context.CancellationToken);
+
+            var response = new BulkUpdateUserPermissionsResponse
+            {
+                UpdatedUsersCount = result.UpdatedUsersCount
+            };
+            response.AffectedUserIds.AddRange(result.AffectedUserIds.Select(id => id.ToString()));
+            return response;
+        }
+        catch (RpcException) { throw; }
+        catch (Exception ex)
+        {
+            throw new RpcException(new Status(StatusCode.InvalidArgument, ex.Message));
         }
     }
 
@@ -430,15 +380,11 @@ public class IamGrpcService(IMediator mediator, ICurrentUserService currentUser)
 
             var response = new GetUserPermissionsResponse
             {
-                UserId = dto.UserId.ToString()
+                UserId = dto.UserId.ToString(),
+                Role = dto.Role,
+                PermissionVersion = dto.Version
             };
-            response.RoleIds.AddRange(dto.RoleIds.Select(id => id.ToString()));
-            response.Permissions.AddRange(dto.Permissions.Select(p => new PermissionInfo
-            {
-                Id = p.Id.ToString(),
-                Code = p.Code,
-                Module = p.Module
-            }));
+            response.Permissions.AddRange(dto.Permissions.Select(p => p.Code));
             return response;
         }
         catch (RpcException) { throw; }
@@ -473,13 +419,6 @@ public class IamGrpcService(IMediator mediator, ICurrentUserService currentUser)
         _ => Common.Grpc.TenantStatus.Unspecified
     };
 
-    private static IamTenant.Domain.Enums.TenantStatus MapTenantStatusToDomain(Common.Grpc.TenantStatus status) => status switch
-    {
-        Common.Grpc.TenantStatus.Active => IamTenant.Domain.Enums.TenantStatus.Active,
-        Common.Grpc.TenantStatus.Suspended => IamTenant.Domain.Enums.TenantStatus.Suspended,
-        _ => IamTenant.Domain.Enums.TenantStatus.Provisioning
-    };
-
     private static Common.Grpc.UserStatus MapUserStatusToGrpc(IamTenant.Domain.Enums.UserStatus status) => status switch
     {
         IamTenant.Domain.Enums.UserStatus.Active => Common.Grpc.UserStatus.Active,
@@ -487,28 +426,6 @@ public class IamGrpcService(IMediator mediator, ICurrentUserService currentUser)
         IamTenant.Domain.Enums.UserStatus.Invited => Common.Grpc.UserStatus.Unspecified,
         _ => Common.Grpc.UserStatus.Unspecified
     };
-
-    private static IamTenant.Domain.Enums.UserStatus MapUserStatusToDomain(Common.Grpc.UserStatus status) => status switch
-    {
-        Common.Grpc.UserStatus.Active => IamTenant.Domain.Enums.UserStatus.Active,
-        Common.Grpc.UserStatus.Blocked => IamTenant.Domain.Enums.UserStatus.Blocked,
-        Common.Grpc.UserStatus.Inactive => IamTenant.Domain.Enums.UserStatus.Invited,
-        _ => IamTenant.Domain.Enums.UserStatus.Invited
-    };
-
-    private static RoleResponse MapRoleResponse(Application.DTOs.Roles.RoleDto dto)
-    {
-        var r = new RoleResponse
-        {
-            Id = dto.Id.ToString(),
-            Code = dto.Code,
-            Name = dto.Name,
-            Description = dto.Description ?? string.Empty,
-            CreatedAt = Timestamp.FromDateTimeOffset(dto.CreatedAt)
-        };
-        r.PermissionIds.AddRange(dto.PermissionIds);
-        return r;
-    }
 
     private static TenantResponse MapTenantResponse(Application.DTOs.Tenants.TenantDto dto)
     {
@@ -525,13 +442,19 @@ public class IamGrpcService(IMediator mediator, ICurrentUserService currentUser)
 
     private static UserResponse MapUserResponse(Application.DTOs.Tenants.StaffDto dto)
     {
-        return new UserResponse
+        var r = new UserResponse
         {
             Id = dto.Id.ToString(),
             FirstName = dto.FirstName,
             LastName = dto.LastName,
             Email = dto.Email,
-            Status = MapUserStatusToGrpc(dto.Status)
+            Status = MapUserStatusToGrpc(dto.Status),
+            Role = dto.Role,
+            PermissionVersion = dto.PermissionVersion,
+            TenantId = dto.TenantId.ToString(),
+            CreatedAt = Timestamp.FromDateTimeOffset(dto.CreatedAt)
         };
+        r.Permissions.AddRange(dto.Permissions);
+        return r;
     }
 }

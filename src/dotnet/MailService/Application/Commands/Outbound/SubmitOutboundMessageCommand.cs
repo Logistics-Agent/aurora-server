@@ -134,11 +134,8 @@ public class SubmitOutboundMessageCommandHandler : IRequestHandler<SubmitOutboun
                 }
                 else if (currentUserId.HasValue && thread.PrimaryAssigneeUserId.Value != currentUserId.Value)
                 {
-                    bool hasSupervisoryAccess = _currentUserService.IsSystemAdmin()
-                        || _currentUserService.IsTenantAdmin()
-                        || _currentUserService.RoleIds.Any(r => string.Equals(r, RoleConstants.Manager, StringComparison.OrdinalIgnoreCase))
-                        || _currentUserService.RoleIds.Any(r => string.Equals(r, RoleConstants.TenantAdmin, StringComparison.OrdinalIgnoreCase))
-                        || _currentUserService.Permissions.Contains("mail:assign");
+                    bool hasSupervisoryAccess = _currentUserService.HasPermission(PermissionConstants.Mail.ThreadReassign)
+                        || _currentUserService.HasPermission("mail:assign");
 
                     if (!hasSupervisoryAccess)
                     {

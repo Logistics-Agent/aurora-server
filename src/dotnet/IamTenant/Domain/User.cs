@@ -1,4 +1,6 @@
 using Shared.Entity;
+using Shared.Enums;
+
 namespace IamTenant.Domain;
 
 public class User : TenantAuditableEntity
@@ -13,9 +15,12 @@ public class User : TenantAuditableEntity
     public string? StaffCode { get; set; }
     public string? Department { get; set; }
 
-    public Enums.UserType UserType { get; set; } = Enums.UserType.TenantStaff;
+    /// <summary>
+    /// Persona / UI presentation role (SYSTEM_ADMIN, TENANT_ADMIN, MANAGER, STAFF).
+    /// Authority comes strictly from UserPermissions.
+    /// </summary>
+    public BaseRole Role { get; set; } = BaseRole.Staff;
     public Enums.UserStatus Status { get; set; } = Enums.UserStatus.Invited;
-    public Enums.StaffType StaffType {get; set;} = Enums.StaffType.Normal;
 
     public int PermissionVersion { get; set; } = 1;
 
@@ -29,6 +34,5 @@ public class User : TenantAuditableEntity
     }
 
     public Tenant? Tenant { get; set; }
-    public ICollection<UserRole> UserRoles { get; set; } = [];
     public ICollection<UserPermission> UserPermissions { get; set; } = [];
 }

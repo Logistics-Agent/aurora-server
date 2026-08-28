@@ -45,7 +45,7 @@ public class AuthGrpcService(
                 TenantId = result.TenantId
             };
 
-            response.Roles.AddRange(result.Roles);
+            response.Roles.Add(result.Role);
             response.Permissions.AddRange(result.Permissions);
 
             return response;
@@ -71,7 +71,7 @@ public class AuthGrpcService(
                 TenantId = result.TenantId
             };
 
-            response.Roles.AddRange(result.Roles);
+            response.Roles.Add(result.Role);
             response.Permissions.AddRange(result.Permissions);
 
             return response;

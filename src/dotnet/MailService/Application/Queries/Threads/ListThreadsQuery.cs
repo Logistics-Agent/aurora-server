@@ -36,14 +36,10 @@ public class ListThreadsQueryHandler : IRequestHandler<ListThreadsQuery, List<Em
         Guid tenantId = _currentUserService.TenantId
             ?? throw new UnauthorizedAccessException("Tenant context is required to list email threads.");
 
-        var roleIds = _currentUserService.RoleIds ?? (IReadOnlyList<string>)Array.Empty<string>();
-        var permissions = _currentUserService.Permissions ?? (IReadOnlyList<string>)Array.Empty<string>();
-        bool hasSupervisoryAccess = _currentUserService.IsSystemAdmin()
-            || _currentUserService.IsTenantAdmin()
-            || roleIds.Any(r => string.Equals(r, RoleConstants.Manager, StringComparison.OrdinalIgnoreCase))
-            || roleIds.Any(r => string.Equals(r, RoleConstants.TenantAdmin, StringComparison.OrdinalIgnoreCase))
-            || permissions.Contains("mail:assign")
-            || permissions.Contains("mail:read_all");
+        bool hasSupervisoryAccess = _currentUserService.HasPermission(PermissionConstants.Mail.ThreadReadAll)
+            || _currentUserService.HasPermission(PermissionConstants.Mail.ThreadReassign)
+            || _currentUserService.HasPermission("mail:read_all")
+            || _currentUserService.HasPermission("mail:assign");
 
         Guid? currentUserId = _currentUserService.UserId;
 

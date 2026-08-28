@@ -35,8 +35,8 @@ public class ClientMetadataInterceptor implements ClientInterceptor {
                     if (current.getPermissionVersion() != null) {
                         headers.put(GrpcMetadataKeys.PERMISSION_VERSION, current.getPermissionVersion().toString());
                     }
-                    if (current.getRoleIds() != null && !current.getRoleIds().isEmpty()) {
-                        headers.put(GrpcMetadataKeys.ROLE_IDS, String.join(",", current.getRoleIds()));
+                    if (current.getRole() != null && !current.getRole().isEmpty()) {
+                        headers.put(GrpcMetadataKeys.ROLE, current.getRole());
                     }
                 }
 
