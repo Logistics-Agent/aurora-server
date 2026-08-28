@@ -1,6 +1,8 @@
 # Aurora Mailbox Auto-Provisioning Architecture & Flow Documentation
 
-This document defines the authoritative, distributed event-driven auto-provisioning system for Aurora Mailboxes across `IamTenant`, `RabbitMQ`, `MailService`, and the underlying `Stalwart` mail server.
+> **Cross-Reference**: For the full authoritative Mail Platform architecture and APIs, refer to [docs/technical/mail/ARCHITECTURE.md](file:///D:/IT/CD/aurora-server/docs/technical/mail/ARCHITECTURE.md) and [docs/technical/mail/OVERVIEW.md](file:///D:/IT/CD/aurora-server/docs/technical/mail/OVERVIEW.md).
+
+This document defines the distributed event-driven auto-provisioning system for Aurora Mailboxes across `IamTenant`, `RabbitMQ`, `MailService`, and the underlying `Stalwart` mail server.
 
 ---
 

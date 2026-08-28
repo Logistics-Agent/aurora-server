@@ -5,6 +5,7 @@ using Moq;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using Shared.Security;
+using Shared.Constants;
 using Shared.Events;
 using MailService.Application.Commands.Outbound;
 using MailService.Application.Commands.Quarantine;
@@ -90,7 +91,7 @@ public class MailServiceTests
     {
         // Arrange
         var mockUser = new Mock<ICurrentUserService>();
-        mockUser.Setup(u => u.RoleIds).Returns(new List<string> { "AiAgent" });
+        mockUser.Setup(u => u.Role).Returns("AiAgent");
 
         var stage = new PolicyValidationStage(mockUser.Object);
         var context = new OutboundPipelineContext
@@ -469,7 +470,7 @@ public class MailServiceTests
         var mockUser = new Mock<ICurrentUserService>();
         var tenantId = Guid.NewGuid();
         mockUser.Setup(u => u.TenantId).Returns(tenantId);
-        mockUser.Setup(u => u.RoleIds).Returns(new List<string> { "Staff" });
+        mockUser.Setup(u => u.Role).Returns(RoleConstants.Staff);
         using var dbContext = CreateInMemoryDbContext("DraftToSendDb", mockUser.Object);
 
         var draftRepo = new EmailDraftRepository(dbContext, mockUser.Object);
@@ -562,10 +563,10 @@ public class MailServiceTests
     {
         // Arrange
         var mockStaffUser = new Mock<ICurrentUserService>();
-        mockStaffUser.Setup(u => u.RoleIds).Returns(new List<string> { "Staff" });
+        mockStaffUser.Setup(u => u.Role).Returns(RoleConstants.Staff);
 
         var mockAdminUser = new Mock<ICurrentUserService>();
-        mockAdminUser.Setup(u => u.RoleIds).Returns(new List<string> { "SYSTEM_ADMIN" });
+        mockAdminUser.Setup(u => u.Role).Returns(RoleConstants.SystemAdmin);
 
         using var dbContext = CreateInMemoryDbContext("QuarantineMalwareDb", mockStaffUser.Object);
         var mockStalwart = new Mock<IStalwartManagementClient>();
@@ -671,7 +672,7 @@ public class MailServiceTests
         mockUser.Setup(u => u.TenantId).Returns(tenantId);
         mockUser.Setup(u => u.UserId).Returns(userId);
         mockUser.Setup(u => u.TraceId).Returns("trace-12345");
-        mockUser.Setup(u => u.RoleIds).Returns(new List<string> { "TenantAdmin", "Staff" });
+        mockUser.Setup(u => u.Role).Returns(RoleConstants.TenantAdmin);
 
         var interceptor = new Shared.Interceptors.ClientMetadataInterceptor(mockUser.Object, "mail-service");
         var metadata = new Grpc.Core.Metadata();
@@ -686,7 +687,7 @@ public class MailServiceTests
         Assert.Equal(tenantId.ToString(), metadata.GetValue(Shared.Security.GrpcMetadataKeys.TenantId));
         Assert.Equal(userId.ToString(), metadata.GetValue(Shared.Security.GrpcMetadataKeys.UserId));
         Assert.Equal("trace-12345", metadata.GetValue(Shared.Security.GrpcMetadataKeys.TraceId));
-        Assert.Equal("TenantAdmin,Staff", metadata.GetValue(Shared.Security.GrpcMetadataKeys.RoleIds));
+        Assert.Equal(RoleConstants.TenantAdmin, metadata.GetValue(Shared.Security.GrpcMetadataKeys.Role));
     }
 
     [Fact]
@@ -938,6 +939,7 @@ public class MailServiceTests
         // Seed tenant
         using (var seedDb = CreateInMemoryIamDbContext(dbName, mockCurrentUser.Object))
         {
+            seedDb.Database.EnsureCreated();
             var tenant = IamTenant.Domain.Tenant.Create("Logistics Corp", "logistics.vn", null, Guid.NewGuid());
             tenant.Id = tenantId;
             tenant.UserUserPoolId = "pool-123";
@@ -955,7 +957,7 @@ public class MailServiceTests
 
             var result = await handler.Handle(
                 new IamTenant.Application.Commands.Tenants.CreateStaffCommand(
-                    "alice@logistics.vn", "Alice", "Smith", new List<Guid>()),
+                    "alice@logistics.vn", "Alice", "Smith", "STAFF"),
                 CancellationToken.None);
 
             Assert.NotNull(result);
@@ -1055,7 +1057,7 @@ public class MailServiceTests
 
         // Seed audit records for Tenant A and Tenant B
         var mockSysAdmin = new Mock<ICurrentUserService>();
-        mockSysAdmin.Setup(u => u.RoleIds).Returns(new List<string> { Shared.Constants.RoleConstants.SystemAdmin });
+        mockSysAdmin.Setup(u => u.Role).Returns(Shared.Constants.RoleConstants.SystemAdmin);
         mockSysAdmin.Setup(u => u.TenantId).Returns((Guid?)null);
 
         using (var seedContext = CreateInMemoryDbContext(dbName, mockSysAdmin.Object))
@@ -1105,7 +1107,7 @@ public class MailServiceTests
 
         // Seed audit records for Tenant A and Tenant B
         var mockSysAdmin = new Mock<ICurrentUserService>();
-        mockSysAdmin.Setup(u => u.RoleIds).Returns(new List<string> { Shared.Constants.RoleConstants.SystemAdmin });
+        mockSysAdmin.Setup(u => u.Role).Returns(Shared.Constants.RoleConstants.SystemAdmin);
 
         using (var seedContext = CreateInMemoryDbContext(dbName, mockSysAdmin.Object))
         {
@@ -1134,7 +1136,7 @@ public class MailServiceTests
 
         // Act - Query as TENANT_ADMIN of Tenant A
         var mockTenantAAdmin = new Mock<ICurrentUserService>();
-        mockTenantAAdmin.Setup(u => u.RoleIds).Returns(new List<string> { Shared.Constants.RoleConstants.TenantAdmin });
+        mockTenantAAdmin.Setup(u => u.Role).Returns(Shared.Constants.RoleConstants.TenantAdmin);
         mockTenantAAdmin.Setup(u => u.TenantId).Returns(tenantA);
 
         using (var queryContext = CreateInMemoryDbContext(dbName, mockTenantAAdmin.Object))
@@ -1153,7 +1155,7 @@ public class MailServiceTests
     {
         var dbName = Guid.NewGuid().ToString();
         var mockUserWithoutTenant = new Mock<ICurrentUserService>();
-        mockUserWithoutTenant.Setup(u => u.RoleIds).Returns(new List<string> { Shared.Constants.RoleConstants.Staff });
+        mockUserWithoutTenant.Setup(u => u.Role).Returns(Shared.Constants.RoleConstants.Staff);
         mockUserWithoutTenant.Setup(u => u.TenantId).Returns((Guid?)null);
 
         using var queryContext = CreateInMemoryDbContext(dbName, mockUserWithoutTenant.Object);

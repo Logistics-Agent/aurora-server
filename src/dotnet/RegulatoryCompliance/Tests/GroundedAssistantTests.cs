@@ -217,9 +217,7 @@ public sealed class GroundedAssistantTests
     {
         public Guid? TenantId { get; } = tenantId;
         public Guid? UserId { get; } = userId;
-        public string? TraceId { get; } = "trace-test";
-        public int? PermissionVersion => 1;
-        public IReadOnlyList<string> RoleIds => ["Staff"];
+        public string? Role => RoleConstants.Staff;
         public IReadOnlyList<string> Permissions => [];
     }
 }

@@ -24,7 +24,7 @@ namespace MailService.Tests;
 
 public class ThreadAssignmentTests
 {
-    private static MailServiceDbContext CreateInMemoryDbContext(Guid tenantId, Guid? userId = null, List<string>? roleIds = null, List<string>? permissions = null)
+    private static MailServiceDbContext CreateInMemoryDbContext(Guid tenantId, Guid? userId = null, string? role = null, List<string>? permissions = null)
     {
         var options = new DbContextOptionsBuilder<MailServiceDbContext>()
             .UseInMemoryDatabase(Guid.NewGuid().ToString())
@@ -33,7 +33,7 @@ public class ThreadAssignmentTests
         var mockUser = new Mock<ICurrentUserService>();
         mockUser.Setup(u => u.TenantId).Returns(tenantId);
         mockUser.Setup(u => u.UserId).Returns(userId);
-        mockUser.Setup(u => u.RoleIds).Returns(roleIds ?? [RoleConstants.Staff]);
+        mockUser.Setup(u => u.Role).Returns(role ?? RoleConstants.Staff);
         mockUser.Setup(u => u.Permissions).Returns(permissions ?? ["mail:read", "mail:send", "mail:create", "mail:update"]);
 
         return new MailServiceDbContext(options, mockUser.Object);
@@ -318,7 +318,7 @@ public class ThreadAssignmentTests
         var mockUserB = new Mock<ICurrentUserService>();
         mockUserB.Setup(u => u.TenantId).Returns(tenantId);
         mockUserB.Setup(u => u.UserId).Returns(staffB);
-        mockUserB.Setup(u => u.RoleIds).Returns([RoleConstants.Staff]);
+        mockUserB.Setup(u => u.Role).Returns(RoleConstants.Staff);
         mockUserB.Setup(u => u.Permissions).Returns(["mail:send"]);
 
         var mockDraftRepo = new Mock<IEmailDraftRepository>();
@@ -369,7 +369,7 @@ public class ThreadAssignmentTests
         var mockManager = new Mock<ICurrentUserService>();
         mockManager.Setup(u => u.TenantId).Returns(tenantId);
         mockManager.Setup(u => u.UserId).Returns(managerId);
-        mockManager.Setup(u => u.RoleIds).Returns([RoleConstants.Manager]);
+        mockManager.Setup(u => u.Role).Returns(RoleConstants.Manager);
         mockManager.Setup(u => u.Permissions).Returns(["mail:read", "mail:assign"]);
 
         var handler = new GetThreadQueryHandler(db, mockManager.Object);
@@ -401,7 +401,7 @@ public class ThreadAssignmentTests
         var mockStaffB = new Mock<ICurrentUserService>();
         mockStaffB.Setup(u => u.TenantId).Returns(tenantId);
         mockStaffB.Setup(u => u.UserId).Returns(staffB);
-        mockStaffB.Setup(u => u.RoleIds).Returns([RoleConstants.Staff]);
+        mockStaffB.Setup(u => u.Role).Returns(RoleConstants.Staff);
         mockStaffB.Setup(u => u.Permissions).Returns(["mail:read"]);
 
         var handler = new GetThreadQueryHandler(db, mockStaffB.Object);
@@ -449,7 +449,7 @@ public class ThreadAssignmentTests
         var mockStaffA = new Mock<ICurrentUserService>();
         mockStaffA.Setup(u => u.TenantId).Returns(tenantId);
         mockStaffA.Setup(u => u.UserId).Returns(staffA);
-        mockStaffA.Setup(u => u.RoleIds).Returns([RoleConstants.Staff]);
+        mockStaffA.Setup(u => u.Role).Returns(RoleConstants.Staff);
         mockStaffA.Setup(u => u.Permissions).Returns(["mail:read"]);
 
         var handler = new ListThreadsQueryHandler(db, mockStaffA.Object);
@@ -488,7 +488,7 @@ public class ThreadAssignmentTests
         var mockManager = new Mock<ICurrentUserService>();
         mockManager.Setup(u => u.TenantId).Returns(tenantId);
         mockManager.Setup(u => u.UserId).Returns(managerId);
-        mockManager.Setup(u => u.RoleIds).Returns([RoleConstants.Manager]);
+        mockManager.Setup(u => u.Role).Returns(RoleConstants.Manager);
         mockManager.Setup(u => u.Permissions).Returns(["mail:assign"]);
 
         var reassignHandler = new ReassignThreadCommandHandler(db, mockManager.Object);
@@ -515,7 +515,7 @@ public class ThreadAssignmentTests
         var mockStaffB = new Mock<ICurrentUserService>();
         mockStaffB.Setup(u => u.TenantId).Returns(tenantId);
         mockStaffB.Setup(u => u.UserId).Returns(staffB);
-        mockStaffB.Setup(u => u.RoleIds).Returns([RoleConstants.Staff]);
+        mockStaffB.Setup(u => u.Role).Returns(RoleConstants.Staff);
         mockStaffB.Setup(u => u.Permissions).Returns(["mail:read"]);
 
         var getHandler = new GetThreadQueryHandler(db, mockStaffB.Object);
@@ -604,7 +604,7 @@ public class ThreadAssignmentTests
         var mockStaffA = new Mock<ICurrentUserService>();
         mockStaffA.Setup(u => u.TenantId).Returns(tenantId);
         mockStaffA.Setup(u => u.UserId).Returns(staffA);
-        mockStaffA.Setup(u => u.RoleIds).Returns([RoleConstants.Staff]);
+        mockStaffA.Setup(u => u.Role).Returns(RoleConstants.Staff);
         mockStaffA.Setup(u => u.Permissions).Returns(["mail:read"]);
 
         var handler = new ListThreadsQueryHandler(db, mockStaffA.Object);

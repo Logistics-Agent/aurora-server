@@ -36,10 +36,11 @@ public class RejectTenantRiskPolicyHandler(
         var userId = currentUser.UserId
             ?? throw new ForbiddenException("User context is missing");
 
-        // Authority check: Must be Manager, TenantAdmin, SystemAdmin, or have appropriate permission
-        if (!currentUser.CanPublishRiskPolicy())
+        // Authority check: Pure Capability Authorization (Requires route_planning:policy:publish or route_planning:policy:manage)
+        if (!currentUser.HasPermission(PermissionConstants.RoutePlanning.PolicyPublish) &&
+            !currentUser.HasPermission(PermissionConstants.RoutePlanning.PolicyManage))
         {
-            throw new ForbiddenException("Bạn không có quyền từ chối / xét duyệt chính sách rủi ro (yêu cầu quyền Manager hoặc TenantAdmin).");
+            throw new ForbiddenException("Bạn không có quyền từ chối / xét duyệt chính sách rủi ro (yêu cầu quyền 'route_planning:policy:publish' hoặc 'route_planning:policy:manage').");
         }
 
         if (string.IsNullOrWhiteSpace(request.Reason))

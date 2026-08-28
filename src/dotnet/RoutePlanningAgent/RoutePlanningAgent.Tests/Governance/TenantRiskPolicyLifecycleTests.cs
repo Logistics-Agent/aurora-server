@@ -35,8 +35,15 @@ public class TenantRiskPolicyLifecycleTests
         var user = Substitute.For<ICurrentUserService>();
         user.TenantId.Returns(tenantId);
         user.UserId.Returns(userId);
-        user.RoleIds.Returns(roles.ToList());
-        user.Permissions.Returns(new List<string>());
+        var primaryRole = roles.FirstOrDefault() ?? RoleConstants.Staff;
+        user.Role.Returns(primaryRole);
+        var permissions = primaryRole switch
+        {
+            RoleConstants.Manager => PermissionConstants.GetDefaultManagerPermissions().ToList(),
+            RoleConstants.TenantAdmin => PermissionConstants.GetTenantAdminPermissions().ToList(),
+            _ => PermissionConstants.GetDefaultStaffPermissions().ToList()
+        };
+        user.Permissions.Returns(permissions);
         return user;
     }
 

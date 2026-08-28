@@ -254,7 +254,7 @@ public class MailServiceRuntimeSmokeTests
         public Guid? TenantId { get; }
         public string? TraceId => "trace-123";
         public int? PermissionVersion => 1;
-        public IReadOnlyList<string> RoleIds => new[] { "Admin" };
+        public string? Role => "TENANT_ADMIN";
         public IReadOnlyList<string> Permissions => new[] { "Mail:Read", "Mail:Write" };
     }
 }

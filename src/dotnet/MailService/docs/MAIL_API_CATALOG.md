@@ -1,7 +1,10 @@
 # Aurora Mail Platform — Consolidated Mail API Catalog
 
-**Version:** 1.1.0 (API Freeze & Consistency Patch)  
-**Target Audience:** Frontend Developers, Mobile Developers, QA Engineers, Backend Developers, DevOps/SRE, AI Agent Integrators, Aurora Core Team.
+> [!WARNING]
+> **DEPRECATED / SUPERSEDED DOCUMENT**  
+> This document is retained for historical reference only. The authoritative, code-audited API specification is located at [docs/technical/mail/API.md](file:///D:/IT/CD/aurora-server/docs/technical/mail/API.md) and [docs/technical/mail/OVERVIEW.md](file:///D:/IT/CD/aurora-server/docs/technical/mail/OVERVIEW.md).
+
+**Version:** 1.1.0 (Historical Archive)  
 
 ---
 

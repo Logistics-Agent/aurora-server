@@ -37,10 +37,10 @@ public class PublishTenantRiskPolicyHandler(
         var userId = currentUser.UserId
             ?? throw new ForbiddenException("User context is missing");
 
-        // 1. Authority Guard: Must be Manager, TenantAdmin, SystemAdmin, or have publish permission
-        if (!currentUser.CanPublishRiskPolicy())
+        // 1. Authority Guard: Pure Capability Authorization (Requires route_planning:policy:publish permission)
+        if (!currentUser.HasPermission(PermissionConstants.RoutePlanning.PolicyPublish))
         {
-            throw new ForbiddenException("Bạn không có thẩm quyền phát hành (Publish) chính sách rủi ro (yêu cầu vai trò Manager hoặc Admin).");
+            throw new ForbiddenException("Bạn không có thẩm quyền phát hành chính sách rủi ro (yêu cầu quyền 'route_planning:policy:publish').");
         }
 
         var policy = await context.TenantRiskPolicies
