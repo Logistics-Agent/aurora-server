@@ -4,29 +4,18 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
   </PropertyGroup>
-
   <ItemGroup>
-    <Compile Remove="Tests/**/*.cs" />
-    <Content Remove="Tests/**/*" />
-    <EmbeddedResource Remove="Tests/**/*" />
-    <None Remove="Tests/**/*" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <Protobuf Include="../../../protos/notification.proto" GrpcServices="Server" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <PackageReference Include="Grpc.AspNetCore" Version="2.64.0" />
-    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.9" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.9" />
+    <PackageReference Include="FirebaseAdmin" Version="3.4.0" />
+    <PackageReference Include="MassTransit.RabbitMQ" Version="8.2.5" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.9">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.2" />
   </ItemGroup>
-
   <ItemGroup>
     <ProjectReference Include="../shared/shared.csproj" />
-    <ProjectReference Include="../Contracts/DocumentOcr.Contracts/DocumentOcr.Contracts.csproj" />
-    <ProjectReference Include="../Contracts/GpsTracking.Contracts/GpsTracking.Contracts.csproj" />
-    <ProjectReference Include="../Contracts/RegulatoryCompliance.Contracts/RegulatoryCompliance.Contracts.csproj" />
     <ProjectReference Include="../Contracts/Shipment.Contracts/Shipment.Contracts.csproj" />
   </ItemGroup>
 </Project>
