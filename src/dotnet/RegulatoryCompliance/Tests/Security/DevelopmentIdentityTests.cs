@@ -27,7 +27,7 @@ public sealed class DevelopmentIdentityTests
         Assert.Equal(DevelopmentUserId, currentUser.UserId);
         Assert.Equal(DevelopmentTenantId, currentUser.TenantId);
         Assert.Equal(1, currentUser.PermissionVersion);
-        Assert.Equal(["local-admin"], currentUser.RoleIds);
+        Assert.Equal("local-admin", currentUser.Role);
         Assert.Equal(
             [
                 "regulatory-compliance.sources.ingest",
@@ -48,7 +48,7 @@ public sealed class DevelopmentIdentityTests
             { GrpcMetadataKeys.UserId, userId.ToString() },
             { GrpcMetadataKeys.TenantId, tenantId.ToString() },
             { GrpcMetadataKeys.PermissionVersion, "7" },
-            { GrpcMetadataKeys.RoleIds, "dispatcher,operator" }
+            { GrpcMetadataKeys.Role, "MANAGER" }
         };
 
         await InvokeAsync(interceptor, headers);
@@ -56,7 +56,7 @@ public sealed class DevelopmentIdentityTests
         Assert.Equal(userId, currentUser.UserId);
         Assert.Equal(tenantId, currentUser.TenantId);
         Assert.Equal(7, currentUser.PermissionVersion);
-        Assert.Equal(["dispatcher", "operator"], currentUser.RoleIds);
+        Assert.Equal("MANAGER", currentUser.Role);
         Assert.Empty(currentUser.Permissions);
     }
 
@@ -125,7 +125,7 @@ public sealed class DevelopmentIdentityTests
             UserId = DevelopmentUserId,
             TenantId = DevelopmentTenantId,
             PermissionVersion = 1,
-            RoleIds = ["local-admin"],
+            Role = "local-admin",
             Permissions =
             [
                 "regulatory-compliance.sources.ingest",

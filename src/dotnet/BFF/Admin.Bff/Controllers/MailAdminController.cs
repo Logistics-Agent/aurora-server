@@ -27,7 +27,7 @@ public class MailAdminController(
     // ─── Domain Provisioning ──────────────────────────────────────────────────
 
     [HttpPost("domains")]
-    [RequirePermission(PermissionConstants.Modules.Mail, PermissionConstants.Create)]
+    [RequirePermission(PermissionConstants.Mail.DomainManage, "mail:create")]
     public async Task<IActionResult> ProvisionDomain([FromBody] ProvisionDomainRequest body)
     {
         var validator = new ProvisionDomainRequestValidator();
@@ -54,7 +54,7 @@ public class MailAdminController(
     // ─── Mailbox Management ───────────────────────────────────────────────────
 
     [HttpPost("mailboxes")]
-    [RequirePermission(PermissionConstants.Modules.Mail, PermissionConstants.Create)]
+    [RequirePermission(PermissionConstants.Mail.MailboxManage, "mail:create")]
     public async Task<IActionResult> CreateMailbox([FromBody] CreateMailboxRequest body)
     {
         var validator = new CreateMailboxRequestValidator();
@@ -79,7 +79,7 @@ public class MailAdminController(
     }
 
     [HttpPost("aliases")]
-    [RequirePermission(PermissionConstants.Modules.Mail, PermissionConstants.Create)]
+    [RequirePermission(PermissionConstants.Mail.MailboxManage, "mail:create")]
     public async Task<IActionResult> CreateAlias([FromBody] CreateAliasRequest body)
     {
         var validator = new CreateAliasRequestValidator();
@@ -104,7 +104,7 @@ public class MailAdminController(
     }
 
     [HttpPost("mailboxes/{id}/reset-password")]
-    [RequirePermission(PermissionConstants.Modules.Mail, PermissionConstants.Update)]
+    [RequirePermission(PermissionConstants.Mail.MailboxManage, "mail:update")]
     public async Task<IActionResult> ResetPassword([FromRoute] string id)
     {
         try
@@ -121,7 +121,7 @@ public class MailAdminController(
     // ─── Quarantine Administration ────────────────────────────────────────────
 
     [HttpDelete("quarantine/{id}")]
-    [RequirePermission(PermissionConstants.Modules.Mail, PermissionConstants.Delete)]
+    [RequirePermission(PermissionConstants.Mail.QuarantineDelete, "mail:delete")]
     public async Task<IActionResult> DeleteQuarantine([FromRoute] string id)
     {
         try
@@ -139,7 +139,7 @@ public class MailAdminController(
     // ─── Audit Trail ──────────────────────────────────────────────────────────
 
     [HttpGet("audit")]
-    [RequirePermission(PermissionConstants.Modules.Mail, PermissionConstants.Read)]
+    [RequirePermission(PermissionConstants.Mail.AuditRead, "mail:read")]
     public async Task<IActionResult> GetAuditRecords(
         [FromQuery] string? resourceType = null,
         [FromQuery] string? resourceId = null,

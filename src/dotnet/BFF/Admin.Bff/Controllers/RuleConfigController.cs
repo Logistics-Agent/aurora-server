@@ -22,7 +22,7 @@ public class RuleConfigController(
     ILogger<RuleConfigController> logger) : AdminControllerBase
 {
     [HttpGet]
-    [RequirePermission(PermissionConstants.Modules.RoutePlanning, PermissionConstants.Read)]
+    [RequirePermission(PermissionConstants.RoutePlanning.PolicyManage)]
     public async Task<IActionResult> ListRuleConfigs([FromQuery] int page = 1, [FromQuery] int limit = 20)
     {
         var response = await routeClient.ListTenantRuleConfigsAsync(
@@ -38,7 +38,7 @@ public class RuleConfigController(
     }
 
     [HttpPut("{ruleName}")]
-    [RequirePermission(PermissionConstants.Modules.RoutePlanning, PermissionConstants.Update)]
+    [RequirePermission(PermissionConstants.RoutePlanning.PolicyManage)]
     public async Task<IActionResult> UpsertRuleConfig([FromRoute] string ruleName, [FromBody] UpsertRuleConfigBody body)
     {
         try

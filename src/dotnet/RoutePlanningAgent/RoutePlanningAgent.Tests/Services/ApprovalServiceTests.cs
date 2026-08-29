@@ -52,7 +52,7 @@ public class ApprovalServiceTests
     }
 
     [Fact]
-    public async Task Reject_BatBuocReason_RouteChuyenSangCancelled()
+    public async Task Reject_BatBuocReason_RouteChuyenSangDraft()
     {
         var (context, connection) = TestDb.Create();
         await using var _ = connection;
@@ -73,7 +73,7 @@ public class ApprovalServiceTests
 
         Assert.Equal(ApprovalStatus.Rejected, result.Status);
         Assert.Equal("Quá tải trọng cho phép", result.RejectionReason);
-        Assert.Equal(RouteStatus.Cancelled, route.Status);
+        Assert.Equal(RouteStatus.Draft, route.Status);
     }
 
     [Fact]

@@ -1,0 +1,106 @@
+syntax = "proto3";
+
+package negotiation;
+option csharp_namespace = "Negotiation.Grpc";
+option java_package = "com.aurora.negotiation.grpc";
+option java_multiple_files = true;
+
+import "google/protobuf/timestamp.proto";
+
+// ==============================================================================
+// Aurora SaaS Logistics — Negotiation Agent gRPC Service
+// Contract Version: 1.0.0
+// ==============================================================================
+
+service NegotiationService {
+  rpc SubmitOffer        (SubmitOfferRequest)        returns (SubmitOfferResponse);
+  rpc GetSessionHistory  (GetSessionHistoryRequest)  returns (GetSessionHistoryResponse);
+  rpc GetDraftSuggestion (GetDraftSuggestionRequest) returns (GetDraftSuggestionResponse);
+}
+
+message SubmitOfferRequest {
+  string shipment_id       = 1;
+  string customer_id       = 2;
+  double offer_price       = 3;
+  double list_price        = 4;
+  double bottom_price      = 5;
+  string customer_tier     = 6; // 'STANDARD' | 'VIP' | 'ENTERPRISE'
+  string session_id        = 7; // Optional: reuse existing session if provided
+  string source_message_id = 8; // Inbound Mail MessageId (RFC / UUID)
+  string source_thread_id  = 9; // Inbound Mail ThreadId
+}
+
+message SuggestedReplyDto {
+  string subject_suggestion = 1;
+  string body               = 2;
+  string language           = 3; // 'en', 'vi', etc.
+}
+
+message SubmitOfferResponse {
+  string session_id                = 1;
+  string shipment_id               = 2;
+  int32  round                     = 3;
+  string decision                  = 4; // 'ACCEPT' | 'COUNTER_OFFER' | 'HUMAN_HANDOFF' | 'REJECT'
+  double counter_offer_price       = 5;
+  string currency                  = 6; // MVP default: "USD"
+  string ai_speech                 = 7;
+  string status                    = 8; // 'OPEN' | 'ACCEPTED' | 'HANDOFF' | 'REJECTED'
+  google.protobuf.Timestamp created_at = 9;
+
+  SuggestedReplyDto suggested_reply          = 10;
+  bool              suggested_reply_available = 11;
+  bool              ai_draft_used            = 12;
+  bool              fallback_used            = 13;
+}
+
+message GetSessionHistoryRequest {
+  string session_id = 1;
+}
+
+message NegotiationMessageDto {
+  string id                         = 1;
+  string session_id                 = 2;
+  int32  round                      = 3;
+  string sender                     = 4; // 'AI' | 'CUSTOMER' | 'HUMAN'
+  string message                    = 5;
+  double offer_price                = 6;
+  string decision                   = 7;
+  string currency                   = 8;
+  google.protobuf.Timestamp created_at = 9;
+}
+
+message GetSessionHistoryResponse {
+  string session_id                 = 1;
+  string tenant_id                  = 2;
+  string shipment_id                = 3;
+  string customer_id                = 4;
+  string status                     = 5;
+  int32  current_round              = 6;
+  int32  max_rounds                 = 7;
+  double list_price                 = 8;
+  double bottom_price               = 9;
+  string currency                   = 10;
+  repeated NegotiationMessageDto messages = 11;
+  google.protobuf.Timestamp created_at = 12;
+  google.protobuf.Timestamp updated_at = 13;
+}
+
+message GetDraftSuggestionRequest {
+  string negotiation_session_id = 1;
+}
+
+message GetDraftSuggestionResponse {
+  string negotiation_session_id    = 1;
+  string shipment_id               = 2;
+  bool   suggested_reply_available = 3;
+  bool   ai_draft_used             = 4;
+  bool   fallback_used             = 5;
+  string subject                   = 6;
+  string body                      = 7;
+  string language                  = 8;
+  string decision                  = 9;
+  double approved_amount           = 10;
+  string currency                  = 11;
+  string source_message_id         = 12;
+  string source_thread_id          = 13;
+}

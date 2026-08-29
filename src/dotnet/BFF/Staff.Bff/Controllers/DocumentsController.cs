@@ -1,6 +1,7 @@
 using System.Net;
 using System.Text.Json;
 using Asp.Versioning;
+using BuildingBlocks.BFF.Attributes;
 using DocumentOcr.Grpc;
 using Google.Protobuf;
 using Google.Protobuf.WellKnownTypes;
@@ -8,6 +9,7 @@ using Grpc.Core;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using RegulatoryCompliance.Grpc;
+using Shared.Constants;
 
 namespace StaffBff.Controllers;
 
@@ -31,6 +33,7 @@ public sealed class DocumentsController(
     /// </summary>
     [HttpPost("shipment")]
     [HttpPost("shipment-documents")]
+    [RequirePermission(PermissionConstants.Shipment.Create, "documents:create")]
     [ProducesResponseType(typeof(UnifiedDocumentStatusResponse), 200)]
     public async Task<IActionResult> SubmitShipmentDocument(
         [FromBody] SubmitShipmentDocumentRequest request,
@@ -86,6 +89,7 @@ public sealed class DocumentsController(
     /// </summary>
     [HttpGet("shipment/{id}")]
     [HttpGet("shipment-documents/{id}")]
+    [RequirePermission(PermissionConstants.Shipment.Read, "documents:read")]
     [ProducesResponseType(typeof(UnifiedDocumentStatusResponse), 200)]
     public async Task<IActionResult> GetShipmentDocumentStatus(
         [FromRoute] string id,
@@ -127,6 +131,7 @@ public sealed class DocumentsController(
     /// Box 1: List recent shipment document jobs for the current tenant.
     /// </summary>
     [HttpGet("shipment-documents")]
+    [RequirePermission(PermissionConstants.Shipment.Read, "documents:read")]
     [ProducesResponseType(typeof(ListShipmentDocumentsResponse), 200)]
     public async Task<IActionResult> ListShipmentDocuments(
         [FromQuery] int page = 1,
@@ -171,6 +176,7 @@ public sealed class DocumentsController(
     /// Box 1 OCR Human Review: Get detailed field-level review payload for a document requiring review.
     /// </summary>
     [HttpGet("shipment-documents/{id}/review")]
+    [RequirePermission(PermissionConstants.Ocr.Review)]
     [ProducesResponseType(typeof(OcrReviewDetailsResponse), 200)]
     public async Task<IActionResult> GetShipmentDocumentReview(
         [FromRoute] string id,
@@ -241,6 +247,7 @@ public sealed class DocumentsController(
     /// Preserves original AI extraction alongside human corrections and audit trail.
     /// </summary>
     [HttpPost("shipment-documents/{id}/review")]
+    [RequirePermission(PermissionConstants.Ocr.Review)]
     [ProducesResponseType(typeof(UnifiedDocumentStatusResponse), 200)]
     public async Task<IActionResult> SubmitShipmentDocumentReview(
         [FromRoute] string id,
@@ -305,6 +312,7 @@ public sealed class DocumentsController(
     /// Box 1: Cancel an active shipment document OCR job (Allowed only while RECEIVED or PROCESSING).
     /// </summary>
     [HttpPost("shipment-documents/{id}/cancel")]
+    [RequirePermission(PermissionConstants.Shipment.Update, "documents:update")]
     [ProducesResponseType(typeof(UnifiedDocumentStatusResponse), 200)]
     public async Task<IActionResult> CancelShipmentDocument(
         [FromRoute] string id,
@@ -352,6 +360,7 @@ public sealed class DocumentsController(
     /// Box 1: Retry a failed shipment document OCR job.
     /// </summary>
     [HttpPost("shipment-documents/{id}/retry")]
+    [RequirePermission(PermissionConstants.Shipment.Update, "documents:update")]
     [ProducesResponseType(typeof(UnifiedDocumentStatusResponse), 200)]
     public async Task<IActionResult> RetryShipmentDocument(
         [FromRoute] string id,
@@ -405,6 +414,7 @@ public sealed class DocumentsController(
     /// </summary>
     [HttpPost("regulatory")]
     [HttpPost("regulatory-sources")]
+    [RequirePermission(PermissionConstants.Documents.Ingest, "documents:create")]
     [ProducesResponseType(typeof(UnifiedDocumentStatusResponse), 200)]
     public async Task<IActionResult> SubmitRegulatorySource(
         [FromBody] SubmitRegulatorySourceRequest request,
@@ -527,6 +537,7 @@ public sealed class DocumentsController(
     /// </summary>
     [HttpPost("knowledge")]
     [HttpPost("knowledge-documents")]
+    [RequirePermission(PermissionConstants.Documents.Ingest, "documents:create")]
     [ProducesResponseType(typeof(UnifiedDocumentStatusResponse), 200)]
     public async Task<IActionResult> SubmitKnowledgeDocument(
         [FromBody] SubmitKnowledgeDocumentRequest request,

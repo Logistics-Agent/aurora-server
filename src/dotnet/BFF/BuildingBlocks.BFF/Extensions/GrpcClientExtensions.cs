@@ -9,7 +9,7 @@ public static class GrpcClientExtensions
     /// Đăng ký tất cả gRPC clients với Resilience Pipelines (retry + circuit breaker).
     /// - IamTenant (IamService + AuthService): bắt buộc — Grpc:IamTenant:Url
     /// - RoutePlanningAgent: optional theo config — Grpc:RoutePlanning:Url (System.Bff không cần)
-    /// ClientMetadataInterceptor forward x-user-id/x-tenant-id/x-role-ids/x-permission-version
+    /// ClientMetadataInterceptor forward x-user-id/x-tenant-id/x-role/x-permission-version
     /// xuống gRPC service (AuthInterceptor phía server đọc lại các metadata này).
     /// ⚠ InterceptorScope.Client bắt buộc — interceptor phụ thuộc scoped ICurrentUserService.
     /// </summary>
@@ -77,6 +77,42 @@ public static class GrpcClientExtensions
             .AddStandardResilienceHandler(ConfigureBusinessResilience);
 
         services.AddScoped<BuildingBlocks.BFF.Mail.Clients.IMailServiceClient, BuildingBlocks.BFF.Mail.Clients.GrpcMailServiceClient>();
+
+        var shipmentUrl = config["Grpc:ShipmentWorkflow:Url"] ?? "http://localhost:5001";
+        services.AddGrpcClient<ShipmentWorkflow.Grpc.ShipmentWorkflowService.ShipmentWorkflowServiceClient>(
+                o => o.Address = new Uri(shipmentUrl))
+            .AddInterceptor<ClientMetadataInterceptor>(InterceptorScope.Client)
+            .AddStandardResilienceHandler(ConfigureBusinessResilience);
+
+        var gpsUrl = config["Grpc:GpsTracking:Url"] ?? "http://localhost:5004";
+        services.AddGrpcClient<GpsTracking.Grpc.GpsTrackingService.GpsTrackingServiceClient>(
+                o => o.Address = new Uri(gpsUrl))
+            .AddInterceptor<ClientMetadataInterceptor>(InterceptorScope.Client)
+            .AddStandardResilienceHandler(ConfigureBusinessResilience);
+
+        var notificationUrl = config["Grpc:Notification:Url"] ?? "http://localhost:5008";
+        services.AddGrpcClient<Notification.Grpc.NotificationService.NotificationServiceClient>(
+                o => o.Address = new Uri(notificationUrl))
+            .AddInterceptor<ClientMetadataInterceptor>(InterceptorScope.Client)
+            .AddStandardResilienceHandler(ConfigureBusinessResilience);
+
+        var billingUrl = config["Grpc:BillingService:Url"] ?? "http://localhost:5009";
+        services.AddGrpcClient<BillingService.Grpc.BillingService.BillingServiceClient>(
+                o => o.Address = new Uri(billingUrl))
+            .AddInterceptor<ClientMetadataInterceptor>(InterceptorScope.Client)
+            .AddStandardResilienceHandler(ConfigureBusinessResilience);
+
+        var financialUrl = config["Grpc:FinancialService:Url"] ?? "http://localhost:5010";
+        services.AddGrpcClient<FinancialService.Grpc.FinancialService.FinancialServiceClient>(
+                o => o.Address = new Uri(financialUrl))
+            .AddInterceptor<ClientMetadataInterceptor>(InterceptorScope.Client)
+            .AddStandardResilienceHandler(ConfigureBusinessResilience);
+
+        var negotiationUrl = config["Grpc:NegotiationService:Url"] ?? "http://localhost:5006";
+        services.AddGrpcClient<Negotiation.Grpc.NegotiationService.NegotiationServiceClient>(
+                o => o.Address = new Uri(negotiationUrl))
+            .AddInterceptor<ClientMetadataInterceptor>(InterceptorScope.Client)
+            .AddStandardResilienceHandler(ConfigureBusinessResilience);
 
         return services;
     }

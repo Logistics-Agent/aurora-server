@@ -9,6 +9,7 @@ namespace RoutePlanningAgent.Infrastructure.Rules.Rules;
 public class HeavyWeightRule : IRule<RouteRuleContext>
 {
     public string Name => "HeavyWeightRule";
+    public const string Code = "ROUTE_WEIGHT_CAPACITY";
 
     private const decimal GlobalHighRiskKg = 5000m;
     private const decimal GlobalApprovalKg = 3000m;
@@ -21,7 +22,7 @@ public class HeavyWeightRule : IRule<RouteRuleContext>
             context.TenantId, Name, ct);
 
         if (!thresholds.IsEnabled)
-            return new RuleResult { RuleName = Name, Passed = true, RiskLevel = RouteRiskLevel.Low };
+            return new RuleResult { RuleName = Name, RuleCode = Code, Passed = true, RiskLevel = RouteRiskLevel.Low };
 
         var highRiskKg = thresholds.Get("maxWeightKg", GlobalHighRiskKg);
         var approvalKg = thresholds.Get("requiresApprovalThreshold", GlobalApprovalKg);
@@ -31,6 +32,7 @@ public class HeavyWeightRule : IRule<RouteRuleContext>
             return new RuleResult
             {
                 RuleName = Name,
+                RuleCode = Code,
                 Passed = false,
                 RiskLevel = RouteRiskLevel.High,
                 Message = $"MaxWeightKg {context.Route.MaxWeightKg} vượt ngưỡng {highRiskKg}kg",
@@ -39,6 +41,6 @@ public class HeavyWeightRule : IRule<RouteRuleContext>
             };
         }
 
-        return new RuleResult { RuleName = Name, Passed = true, RiskLevel = RouteRiskLevel.Low };
+        return new RuleResult { RuleName = Name, RuleCode = Code, Passed = true, RiskLevel = RouteRiskLevel.Low };
     }
 }

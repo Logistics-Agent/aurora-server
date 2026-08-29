@@ -70,26 +70,7 @@ public class OutboxProcessorBackgroundService(
                     var eventObject = JsonSerializer.Deserialize(message.Payload, eventType);
                     if (eventObject != null)
                     {
-                        if (eventObject is RolePermissionsChangedEvent roleEvent)
-                        {
-                            var affectedUsers = await context.UserRoles
-                                .Where(ur => ur.RoleId == roleEvent.RoleId)
-                                .Select(ur => ur.User)
-                                .ToListAsync(stoppingToken);
-
-                            foreach (var user in affectedUsers)
-                            {
-                                if (user != null)
-                                {
-                                    user.PermissionVersion++;
-                                    await permissionCache.InvalidateAsync(user.Id, stoppingToken);
-                                }
-                            }
-                        }
-                        else
-                        {
-                            await publishEndpoint.Publish(eventObject, eventType, stoppingToken);
-                        }
+                        await publishEndpoint.Publish(eventObject, eventType, stoppingToken);
                     }
                 }
 

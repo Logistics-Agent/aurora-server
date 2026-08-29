@@ -41,6 +41,12 @@ service MailSecurity {
   rpc ListQuarantineRecords  (ListQuarantineRecordsRequest)   returns (ListQuarantineRecordsResponse);
   rpc ReleaseQuarantine      (ReleaseQuarantineRequest)       returns (ReleaseQuarantineResponse);
   rpc DeleteQuarantine       (DeleteQuarantineRequest)        returns (DeleteQuarantineResponse);
+  rpc GetThread              (GetThreadRequest)               returns (ThreadDto);
+  rpc ListThreads            (ListThreadsRequest)             returns (ListThreadsResponse);
+  rpc ClaimThread            (ClaimThreadRequest)             returns (ClaimThreadResponse);
+  rpc ReassignThread         (ReassignThreadRequest)          returns (ReassignThreadResponse);
+  rpc UnassignThread         (UnassignThreadRequest)          returns (UnassignThreadResponse);
+  rpc GetThreadAssignmentHistory (GetThreadAssignmentHistoryRequest) returns (GetThreadAssignmentHistoryResponse);
 }
 
 // ─── Management Messages ──────────────────────────────────────────────────
@@ -133,6 +139,12 @@ message CreateDraftMessageRequest {
   string subject                     = 3;
   string body                        = 4;
   string source                      = 5; // "Manual" | "AiAgent"
+  string source_type                 = 6; // optional, e.g. "NEGOTIATION" | "MANUAL"
+  string source_id                   = 7; // optional, e.g. negotiation session ID
+  string idempotency_key             = 8; // optional client idempotency key
+  repeated string to_recipients      = 9; // optional recipient list
+  string thread_id                   = 10; // optional existing thread ID
+  string reply_to_message_id         = 11; // optional parent processed message ID
 }
 
 message CreateDraftMessageResponse {
@@ -140,6 +152,12 @@ message CreateDraftMessageResponse {
   string draft_root_id                     = 2;
   int32  revision_number                   = 3;
   google.protobuf.Timestamp created_at     = 4;
+  string source_type                       = 5;
+  string source_id                         = 6;
+  bool   is_existing                       = 7; // true if returned by idempotency key
+  string thread_id                         = 8;
+  string reply_to_message_id               = 9;
+  string status                            = 10; // "DRAFT"
 }
 
 message ListDraftsRequest {
@@ -171,6 +189,11 @@ message DraftDto {
   string body                 = 10;
   string content_hash         = 11;
   google.protobuf.Timestamp created_at = 12;
+  string source_type          = 13;
+  string source_id            = 14;
+  repeated string to_recipients = 15;
+  string thread_id            = 16;
+  string reply_to_message_id  = 17;
 }
 
 message SubmitOutboundMessageRequest {
@@ -182,6 +205,9 @@ message SubmitOutboundMessageRequest {
   repeated AttachmentDto attachments = 6;
   string idempotency_key           = 7;  // caller-supplied; use MessageId from header if available
   optional string draft_root_id    = 8;  // nullable — absent means manually composed, no revision pre-check
+  optional string sent_by_user_id  = 9;  // authenticated human actor
+  optional string thread_id        = 10; // optional associated thread ID
+  optional string reply_to_message_id = 11; // optional parent processed message ID
 }
 
 message AttachmentDto {
@@ -216,6 +242,10 @@ message ProcessedMessageDto {
   bool   is_quarantined       = 13;
   string r2_raw_eml_path      = 14;
   repeated SecurityCheckResultDto security_checks = 15;
+  string thread_id            = 16;
+  string reply_to_message_id  = 17;
+  string body_text            = 18;
+  string body_html            = 19;
 }
 
 message SecurityCheckResultDto {
@@ -280,3 +310,126 @@ message DeleteQuarantineRequest {
 message DeleteQuarantineResponse {
   bool success = 1;
 }
+
+// ─── Thread Messages (Gmail-Like Threading) ────────────────────────────────
+
+message GetThreadRequest {
+  string thread_id = 1;
+}
+
+message ListThreadsRequest {
+  string mailbox_id      = 1; // optional filter
+  string next_page_token = 2;
+  int32  page_size       = 3; // max 100, default 20
+  string scope           = 4; // "UNASSIGNED" | "MY_WORK" | "ALL" | ""
+  string status          = 5; // optional "UNASSIGNED" | "IN_PROGRESS" | "WAITING_CUSTOMER" | "RESOLVED"
+}
+
+message ListThreadsResponse {
+  repeated ThreadSummaryDto threads = 1;
+  string next_page_token            = 2;
+}
+
+message ThreadSummaryDto {
+  string thread_id                        = 1;
+  string mailbox_id                       = 2;
+  string subject                          = 3;
+  repeated string participants            = 4;
+  google.protobuf.Timestamp last_message_at = 5;
+  int32  message_count                    = 6;
+  int32  draft_count                      = 7;
+  bool   has_unread                       = 8;
+  string snippet                          = 9;
+  string primary_assignee_user_id         = 10;
+  google.protobuf.Timestamp assigned_at   = 11;
+  string status                           = 12; // "UNASSIGNED" | "IN_PROGRESS" | "WAITING_CUSTOMER" | "RESOLVED"
+  string priority                         = 13; // "NORMAL" | "HIGH" | "URGENT" | "LOW"
+}
+
+message ThreadDto {
+  string thread_id                        = 1;
+  string mailbox_id                       = 2;
+  string subject                          = 3;
+  repeated string participants            = 4;
+  repeated ThreadMessageDto messages      = 5;
+  repeated DraftDto drafts                = 6;
+  google.protobuf.Timestamp created_at    = 7;
+  google.protobuf.Timestamp updated_at    = 8;
+  string primary_assignee_user_id         = 9;
+  google.protobuf.Timestamp assigned_at   = 10;
+  string status                           = 11;
+  string priority                         = 12;
+  repeated ThreadAssignmentHistoryDto assignment_history = 13;
+}
+
+message ThreadMessageDto {
+  string message_id                       = 1;
+  string direction                        = 2; // "Inbound" | "Outbound"
+  string sender_address                   = 3;
+  repeated string recipient_addresses     = 4;
+  string subject                          = 5;
+  string body_text                        = 6;
+  string body_preview                     = 7;
+  string reply_to_message_id              = 8;
+  google.protobuf.Timestamp received_at   = 9;
+  google.protobuf.Timestamp sent_at       = 10;
+}
+
+message ClaimThreadRequest {
+  string thread_id = 1;
+}
+
+message ClaimThreadResponse {
+  bool   success                  = 1;
+  string thread_id                = 2;
+  string primary_assignee_user_id = 3;
+  google.protobuf.Timestamp assigned_at = 4;
+  string status                   = 5;
+}
+
+message ReassignThreadRequest {
+  string thread_id      = 1;
+  string target_user_id = 2;
+  string reason         = 3;
+}
+
+message ReassignThreadResponse {
+  bool   success                  = 1;
+  string thread_id                = 2;
+  string primary_assignee_user_id = 3;
+  google.protobuf.Timestamp assigned_at = 4;
+  string status                   = 5;
+}
+
+message UnassignThreadRequest {
+  string thread_id = 1;
+  string reason    = 2;
+}
+
+message UnassignThreadResponse {
+  bool   success   = 1;
+  string thread_id = 2;
+  string status    = 3;
+}
+
+message GetThreadAssignmentHistoryRequest {
+  string thread_id = 1;
+}
+
+message GetThreadAssignmentHistoryResponse {
+  string thread_id                            = 1;
+  repeated ThreadAssignmentHistoryDto history = 2;
+}
+
+message ThreadAssignmentHistoryDto {
+  string id            = 1;
+  string thread_id     = 2;
+  string from_user_id  = 3;
+  string to_user_id    = 4;
+  string action        = 5; // "CLAIMED" | "ASSIGNED" | "REASSIGNED" | "UNASSIGNED"
+  string actor_user_id = 6;
+  string reason        = 7;
+  google.protobuf.Timestamp created_at = 8;
+}
+
+

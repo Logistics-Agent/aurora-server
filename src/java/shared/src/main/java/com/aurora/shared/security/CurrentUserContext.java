@@ -16,7 +16,7 @@ public class CurrentUserContext implements ICurrentUserService {
     private UUID tenantId;
     private String traceId;
     private Integer permissionVersion;
-    private List<String> roleIds = new ArrayList<>();
+    private String role;
     private List<String> permissions = new ArrayList<>();
 
     public static CurrentUserContext getCurrent() {
@@ -32,12 +32,12 @@ public class CurrentUserContext implements ICurrentUserService {
     }
 
     public void populate(UUID userId, UUID tenantId, String traceId, Integer permissionVersion,
-                         List<String> roleIds, List<String> permissions) {
+                         String role, List<String> permissions) {
         this.userId = userId;
         this.tenantId = tenantId;
         this.traceId = traceId;
         this.permissionVersion = permissionVersion;
-        this.roleIds = roleIds != null ? new ArrayList<>(roleIds) : new ArrayList<>();
+        this.role = role;
         this.permissions = permissions != null ? new ArrayList<>(permissions) : new ArrayList<>();
     }
 
@@ -62,8 +62,8 @@ public class CurrentUserContext implements ICurrentUserService {
     }
 
     @Override
-    public List<String> getRoleIds() {
-        return Collections.unmodifiableList(roleIds);
+    public String getRole() {
+        return role;
     }
 
     @Override
@@ -73,6 +73,6 @@ public class CurrentUserContext implements ICurrentUserService {
 
     @Override
     public boolean isSystemAdmin() {
-        return roleIds != null && (roleIds.contains("SYSTEM_ADMIN") || roleIds.contains("1"));
+        return "SYSTEM_ADMIN".equalsIgnoreCase(role);
     }
 }

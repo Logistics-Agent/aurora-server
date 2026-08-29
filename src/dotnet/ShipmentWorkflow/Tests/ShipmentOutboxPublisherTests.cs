@@ -216,9 +216,7 @@ public sealed class ShipmentOutboxPublisherTests
     {
         public Guid? UserId => null;
         public Guid? TenantId => null;
-        public string? TraceId => null;
-        public int? PermissionVersion => null;
-        public IReadOnlyList<string> RoleIds => [];
+        public string? Role => null;
         public IReadOnlyList<string> Permissions => [];
     }
 }

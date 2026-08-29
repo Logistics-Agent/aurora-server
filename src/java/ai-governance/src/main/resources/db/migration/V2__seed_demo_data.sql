@@ -65,7 +65,9 @@ VALUES
     (gen_random_uuid(), '22222222-2222-2222-2222-222222222222', 'compliance.embed', 'GEMINI,AZURE_OPENAI', 'STANDARD', 4096, 'FULL_AUTONOMOUS', false, NOW(), 'system', 1),
     (gen_random_uuid(), '22222222-2222-2222-2222-222222222222', 'knowledge.embed', 'GEMINI,AZURE_OPENAI', 'STANDARD', 4096, 'FULL_AUTONOMOUS', false, NOW(), 'system', 1),
     (gen_random_uuid(), '22222222-2222-2222-2222-222222222222', 'ocr.extract', 'GEMINI', 'STANDARD', 4096, 'SEMI_AUTONOMOUS', false, NOW(), 'system', 1),
-    (gen_random_uuid(), '22222222-2222-2222-2222-222222222222', 'route.plan', 'GEMINI', 'STANDARD', 4096, 'SEMI_AUTONOMOUS', true, NOW(), 'system', 1);
+    (gen_random_uuid(), '22222222-2222-2222-2222-222222222222', 'route.plan', 'GEMINI', 'STANDARD', 4096, 'SEMI_AUTONOMOUS', true, NOW(), 'system', 1),
+    (gen_random_uuid(), '22222222-2222-2222-2222-222222222222', 'negotiation.draft', 'GEMINI,AZURE_OPENAI', 'STANDARD', 4096, 'SEMI_AUTONOMOUS', false, NOW(), 'system', 1),
+    (gen_random_uuid(), '22222222-2222-2222-2222-222222222222', 'mail.security', 'GEMINI,AZURE_OPENAI', 'STANDARD', 4096, 'SEMI_AUTONOMOUS', false, NOW(), 'system', 1);
 
 -- ENTERPRISE Plan capabilities
 INSERT INTO plan_capabilities (id, plan_id, capability_code, allowed_providers, model_tier, max_tokens, automation_level, require_approval, created_at, created_by, version)
@@ -80,7 +82,9 @@ VALUES
     (gen_random_uuid(), '33333333-3333-3333-3333-333333333333', 'knowledge.embed', 'GEMINI,AZURE_OPENAI', 'PREMIUM', 8192, 'FULL_AUTONOMOUS', false, NOW(), 'system', 1),
     (gen_random_uuid(), '33333333-3333-3333-3333-333333333333', 'ocr.extract', 'GEMINI,AZURE_OPENAI', 'PREMIUM', 8192, 'SUPERVISED_AUTONOMOUS', false, NOW(), 'system', 1),
     (gen_random_uuid(), '33333333-3333-3333-3333-333333333333', 'route.plan', 'GEMINI,AZURE_OPENAI', 'PREMIUM', 8192, 'SUPERVISED_AUTONOMOUS', true, NOW(), 'system', 1),
-    (gen_random_uuid(), '33333333-3333-3333-3333-333333333333', 'devops.diagnose', 'AZURE_OPENAI,GEMINI', 'PREMIUM', 8192, 'SUPERVISED_AUTONOMOUS', false, NOW(), 'system', 1);
+    (gen_random_uuid(), '33333333-3333-3333-3333-333333333333', 'devops.diagnose', 'AZURE_OPENAI,GEMINI', 'PREMIUM', 8192, 'SUPERVISED_AUTONOMOUS', false, NOW(), 'system', 1),
+    (gen_random_uuid(), '33333333-3333-3333-3333-333333333333', 'negotiation.draft', 'GEMINI,AZURE_OPENAI', 'PREMIUM', 8192, 'SUPERVISED_AUTONOMOUS', false, NOW(), 'system', 1),
+    (gen_random_uuid(), '33333333-3333-3333-3333-333333333333', 'mail.security', 'GEMINI,AZURE_OPENAI', 'PREMIUM', 8192, 'SUPERVISED_AUTONOMOUS', false, NOW(), 'system', 1);
 
 -- ========================================================
 -- 4. Demo Tenant

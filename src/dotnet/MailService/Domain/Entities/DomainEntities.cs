@@ -1,5 +1,6 @@
 using Shared.Entity;
 using MailService.Domain.Enums;
+using ThreadPriority = MailService.Domain.Enums.ThreadPriority;
 
 namespace MailService.Domain.Entities;
 
@@ -45,6 +46,31 @@ public class Alias : TenantAuditableEntity
     public List<string> Targets { get; set; } = new();
 }
 
+public class EmailThread : TenantAuditableEntity
+{
+    public Guid MailboxId { get; set; }
+    public Mailbox? Mailbox { get; set; }
+    public string Subject { get; set; } = string.Empty;
+    public List<string> Participants { get; set; } = new();
+    public DateTimeOffset LastMessageAt { get; set; } = DateTimeOffset.UtcNow;
+    public int MessageCount { get; set; } = 1;
+    public int DraftCount { get; set; } = 0;
+    public bool HasUnread { get; set; } = false;
+    public string? Snippet { get; set; }
+    public string? ExternalThreadId { get; set; }
+
+    // MVP Responsibility & Assignment
+    public Guid? PrimaryAssigneeUserId { get; set; }
+    public DateTimeOffset? AssignedAt { get; set; }
+    public ThreadStatus Status { get; set; } = ThreadStatus.Unassigned;
+    public ThreadPriority Priority { get; set; } = ThreadPriority.Normal;
+    public uint Version { get; set; } = 1;
+
+    public ICollection<ProcessedMessage> Messages { get; set; } = new List<ProcessedMessage>();
+    public ICollection<EmailDraft> Drafts { get; set; } = new List<EmailDraft>();
+    public ICollection<ThreadAssignmentHistory> AssignmentHistories { get; set; } = new List<ThreadAssignmentHistory>();
+}
+
 public class EmailDraft : TenantAuditableEntity
 {
     public Guid DraftRootId { get; set; }
@@ -59,6 +85,15 @@ public class EmailDraft : TenantAuditableEntity
     public string Subject { get; set; } = string.Empty;
     public string Body { get; set; } = string.Empty;
     public string ContentHash { get; set; } = string.Empty; // SHA-256 of normalized Subject+Body
+
+    // Threading & Source Linkage (Human-in-the-Loop MVP)
+    public Guid? ThreadId { get; set; }
+    public EmailThread? Thread { get; set; }
+    public string? ReplyToMessageId { get; set; }
+    public string? SourceType { get; set; } // e.g. "NEGOTIATION", "MANUAL"
+    public string? SourceId { get; set; }   // e.g. negotiation session ID
+    public string? IdempotencyKey { get; set; }
+    public List<string> ToRecipients { get; set; } = new();
 }
 
 public class ProcessedMessage : TenantAuditableEntity
@@ -86,7 +121,28 @@ public class ProcessedMessage : TenantAuditableEntity
     public Guid? FinalDraftRevisionId { get; set; }
     public EmailDraft? FinalDraftRevision { get; set; }
 
+    // Threading & Body Content
+    public Guid? ThreadId { get; set; }
+    public EmailThread? Thread { get; set; }
+    public string? InReplyTo { get; set; }
+    public string? References { get; set; }
+    public string? BodyText { get; set; }
+    public string? BodyHtml { get; set; }
+    public Guid? MailboxId { get; set; }
+    public Guid? SentByUserId { get; set; } // Authenticated human actor for outbound
+
     public ICollection<SecurityCheckResult> SecurityCheckResults { get; set; } = new List<SecurityCheckResult>();
+}
+
+public class ThreadAssignmentHistory : TenantAuditableEntity
+{
+    public Guid ThreadId { get; set; }
+    public EmailThread? Thread { get; set; }
+    public Guid? FromUserId { get; set; }
+    public Guid? ToUserId { get; set; }
+    public ThreadAssignmentAction Action { get; set; }
+    public Guid ActorUserId { get; set; }
+    public string? Reason { get; set; }
 }
 
 public class SecurityCheckResult : TenantAuditableEntity

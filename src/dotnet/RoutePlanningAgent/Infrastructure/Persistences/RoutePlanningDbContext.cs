@@ -17,8 +17,11 @@ public class RoutePlanningDbContext(
     public DbSet<Route> Routes => Set<Route>();
     public DbSet<RouteStop> RouteStops => Set<RouteStop>();
     public DbSet<RouteOptimizationHistory> OptimizationHistories => Set<RouteOptimizationHistory>();
-    public DbSet<TenantAiConfig> TenantAiConfigs => Set<TenantAiConfig>();
+    public DbSet<TenantRiskPolicyConfig> TenantRiskPolicyConfigs => Set<TenantRiskPolicyConfig>();
+    public DbSet<TenantRiskPolicy> TenantRiskPolicies => Set<TenantRiskPolicy>();
+    public DbSet<TenantRiskRule> TenantRiskRules => Set<TenantRiskRule>();
     public DbSet<ApprovalRequest> ApprovalRequests => Set<ApprovalRequest>();
+    public DbSet<RiskAssessment> RiskAssessments => Set<RiskAssessment>();
     public DbSet<RouteDecisionAuditLog> DecisionAuditLogs => Set<RouteDecisionAuditLog>();
     public DbSet<TenantRuleConfig> TenantRuleConfigs => Set<TenantRuleConfig>();
     public DbSet<OutboxMessage> OutboxMessages => Set<OutboxMessage>();
@@ -69,25 +72,36 @@ public class RoutePlanningDbContext(
             e.Property(h => h.TotalDistanceKm).HasPrecision(12, 3);
         });
 
-        modelBuilder.Entity<TenantAiConfig>(e =>
-        {
-            e.HasIndex(c => new { c.TenantId, c.Feature }).IsUnique();
-
-            e.Property(c => c.Feature).HasMaxLength(100).IsRequired();
-            e.Property(c => c.AiProvider).HasMaxLength(50).IsRequired();
-        });
-
         modelBuilder.Entity<ApprovalRequest>(e =>
         {
             e.HasQueryFilter(a =>
                 _tenantId.HasValue && a.TenantId == _tenantId.Value);
 
             e.HasIndex(a => a.RouteId);
+            e.HasIndex(a => new { a.RouteId, a.RouteVersion, a.PolicyVersion });
 
+            e.Property(a => a.PolicyId).HasMaxLength(100).IsRequired();
             e.Property(a => a.Feature).HasMaxLength(100).IsRequired();
             e.Property(a => a.Reason).HasMaxLength(2000).IsRequired();
             e.Property(a => a.ReviewerComment).HasMaxLength(1000);
             e.Property(a => a.RejectionReason).HasMaxLength(1000);
+        });
+
+        modelBuilder.Entity<RiskAssessment>(e =>
+        {
+            e.HasQueryFilter(a =>
+                _tenantId.HasValue && a.TenantId == _tenantId.Value);
+
+            e.HasIndex(a => a.RouteId);
+            e.HasIndex(a => new { a.RouteId, a.RouteVersion });
+            e.HasIndex(a => new { a.RouteId, a.RouteVersion, a.PolicyVersion });
+
+            e.Property(a => a.PolicyId).HasMaxLength(100).IsRequired();
+            e.Property(a => a.MatchedRuleCodes).HasMaxLength(1000).IsRequired();
+            e.Property(a => a.Source).HasMaxLength(100).IsRequired();
+            e.Property(a => a.ReasonCodes).HasMaxLength(500).IsRequired();
+            e.Property(a => a.ReasonDetails).HasMaxLength(2000).IsRequired();
+            e.Property(a => a.PolicyApplied).HasMaxLength(100).IsRequired();
         });
 
         modelBuilder.Entity<RouteDecisionAuditLog>(e =>
@@ -109,6 +123,50 @@ public class RoutePlanningDbContext(
             e.HasIndex(c => new { c.TenantId, c.RuleName }).IsUnique();
 
             e.Property(c => c.RuleName).HasMaxLength(100).IsRequired();
+        });
+
+        modelBuilder.Entity<TenantRiskPolicyConfig>(e =>
+        {
+            e.HasIndex(c => c.TenantId).IsUnique();
+
+            e.Property(c => c.ActivePolicyId).HasMaxLength(100).IsRequired();
+        });
+
+        modelBuilder.Entity<TenantRiskPolicy>(e =>
+        {
+            e.HasQueryFilter(p =>
+                _tenantId.HasValue && p.TenantId == _tenantId.Value
+                && !p.IsDeleted);
+
+            e.HasIndex(p => p.TenantId);
+            e.HasIndex(p => new { p.TenantId, p.Scope, p.Version });
+            e.HasIndex(p => new { p.TenantId, p.Scope, p.Status });
+
+            e.Property(p => p.Name).HasMaxLength(200).IsRequired();
+            e.Property(p => p.Description).HasMaxLength(1000);
+            e.Property(p => p.Scope).HasMaxLength(100).IsRequired();
+            e.Property(p => p.SourceDocumentId).HasMaxLength(200);
+            e.Property(p => p.ReviewerComment).HasMaxLength(1000);
+            e.Property(p => p.RejectionReason).HasMaxLength(1000);
+
+            e.HasMany(p => p.Rules)
+                .WithOne(r => r.Policy)
+                .HasForeignKey(r => r.PolicyId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<TenantRiskRule>(e =>
+        {
+            e.HasQueryFilter(r =>
+                _tenantId.HasValue && r.TenantId == _tenantId.Value
+                && !r.IsDeleted);
+
+            e.HasIndex(r => r.PolicyId);
+            e.HasIndex(r => new { r.PolicyId, r.RuleCode });
+
+            e.Property(r => r.RuleCode).HasMaxLength(100).IsRequired();
+            e.Property(r => r.RuleName).HasMaxLength(100).IsRequired();
+            e.Property(r => r.SourceReference).HasMaxLength(500);
         });
 
         modelBuilder.Entity<OutboxMessage>(e =>

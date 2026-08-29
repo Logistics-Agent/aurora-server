@@ -131,7 +131,7 @@ public class AiGovernanceGrpcClient : IAiGovernanceClient
                 var headers = CreateHeaders(tenantId);
                 var request = new AiGenerateRequest
                 {
-                    CapabilityCode = "mail_security",
+                    CapabilityCode = "mail.security",
                     Prompt = string.IsNullOrEmpty(systemInstruction) ? prompt : $"{systemInstruction}\n\n{prompt}",
                     MaxOutputTokens = 1000
                 };

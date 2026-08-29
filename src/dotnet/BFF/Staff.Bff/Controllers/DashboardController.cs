@@ -21,7 +21,7 @@ public class DashboardController(
     ILogger<DashboardController> logger) : StaffControllerBase
 {
     [HttpGet("summary")]
-    [RequirePermission(PermissionConstants.Modules.RoutePlanning, PermissionConstants.Read)]
+    [RequirePermission(PermissionConstants.RoutePlanning.Read)]
     public async Task<IActionResult> GetDashboardSummary()
     {
         try

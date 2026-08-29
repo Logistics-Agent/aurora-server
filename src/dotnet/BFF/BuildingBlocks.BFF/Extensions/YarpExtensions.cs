@@ -32,6 +32,7 @@ public static class YarpExtensions
                     // STEP 1: Strip client-injected internal headers
                     reqCtx.ProxyRequest.Headers.Remove("x-user-id");
                     reqCtx.ProxyRequest.Headers.Remove("x-tenant-id");
+                    reqCtx.ProxyRequest.Headers.Remove("x-role");
                     reqCtx.ProxyRequest.Headers.Remove("x-role-ids");
                     reqCtx.ProxyRequest.Headers.Remove("x-permission-version");
                     reqCtx.ProxyRequest.Headers.Remove("x-trace-id");
@@ -49,9 +50,9 @@ public static class YarpExtensions
                         reqCtx.ProxyRequest.Headers.TryAddWithoutValidation(
                             "x-tenant-id", currentUser.TenantId.ToString());
 
-                    if (currentUser.RoleIds.Count > 0)
+                    if (!string.IsNullOrEmpty(currentUser.Role))
                         reqCtx.ProxyRequest.Headers.TryAddWithoutValidation(
-                            "x-role-ids", string.Join(',', currentUser.RoleIds));
+                            "x-role", currentUser.Role);
 
                     if (currentUser.PermissionVersion.HasValue)
                         reqCtx.ProxyRequest.Headers.TryAddWithoutValidation(

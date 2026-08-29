@@ -41,6 +41,6 @@ public class FakeCurrentUser(Guid? tenantId, Guid? userId) : ICurrentUserService
     public Guid? TenantId => tenantId;
     public string? TraceId => "test-trace";
     public int? PermissionVersion => 1;
-    public IReadOnlyList<string> RoleIds => [];
+    public string? Role => "STAFF";
     public IReadOnlyList<string> Permissions => [];
 }

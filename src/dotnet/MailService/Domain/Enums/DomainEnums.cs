@@ -88,3 +88,34 @@ public enum ActorType
     Staff = 2,
     Service = 3
 }
+
+public enum ThreadStatus
+{
+    Unassigned = 0,
+    InProgress = 1,
+    WaitingCustomer = 2,
+    Resolved = 3
+}
+
+public enum ThreadPriority
+{
+    Normal = 0,
+    High = 1,
+    Urgent = 2,
+    Low = 3
+}
+
+public enum ThreadAssignmentAction
+{
+    Claimed = 0,
+    Assigned = 1,
+    Reassigned = 2,
+    Unassigned = 3
+}
+
+public enum ThreadScope
+{
+    Unassigned = 0,
+    MyWork = 1,
+    All = 2
+}

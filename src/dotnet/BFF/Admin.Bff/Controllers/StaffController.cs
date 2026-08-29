@@ -1,17 +1,20 @@
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading.Tasks;
 using Asp.Versioning;
 using BuildingBlocks.BFF.Attributes;
 using Grpc.Core;
 using IamTenant.Grpc;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Logging;
 using Shared.Constants;
 using Shared.Security;
 
 namespace AdminBff.Controllers;
 
 /// <summary>
-/// Quản lý vòng đời staff trong tenant (surface chính — UsersController giữ cho backward-compat).
-/// Route: /api/v1/admin/staff — chỉ TENANT_ADMIN + [RequirePermission] module iam.
-/// StaffType: Normal | Operations | Documentation | CustomerService | Finance.
+/// Quản lý vòng đời staff & phân quyền direct permissions trong tenant.
+/// Route: /api/v1/admin/staff — phân quyền bằng [RequirePermission] module iam.
 /// </summary>
 [ApiVersion("1.0")]
 public class StaffController(
@@ -20,25 +23,31 @@ public class StaffController(
     ILogger<StaffController> logger) : AdminControllerBase
 {
     [HttpPost]
-    [RequirePermission(PermissionConstants.Modules.Iam, PermissionConstants.Create)]
+    [RequirePermission(PermissionConstants.Iam.UserInvite, "iam:create")]
     public async Task<IActionResult> CreateStaff([FromBody] CreateStaffBody body)
     {
         try
         {
-            var response = await iamClient.InviteUserAsync(
-                new InviteUserRequest
-                {
-                    FirstName   = body.FirstName,
-                    LastName    = body.LastName,
-                    Email       = body.Email,
-                    PhoneNumber = body.PhoneNumber ?? string.Empty,
-                    StaffType   = body.StaffType ?? string.Empty,
-                    RoleIds     = { body.RoleIds ?? [] }
-                });
+            var req = new InviteUserRequest
+            {
+                FirstName = body.FirstName,
+                LastName = body.LastName,
+                Email = body.Email,
+                PhoneNumber = body.PhoneNumber ?? string.Empty,
+                Role = string.IsNullOrWhiteSpace(body.Role) ? RoleConstants.Staff : body.Role,
+                ApplyDefaultPermissions = body.ApplyDefaultPermissions
+            };
+
+            if (body.Permissions != null && body.Permissions.Count > 0)
+            {
+                req.Permissions.AddRange(body.Permissions);
+            }
+
+            var response = await iamClient.InviteUserAsync(req);
 
             logger.LogInformation(
-                "Staff {Email} (type={StaffType}) invited to tenant {TenantId} by {AdminId}",
-                body.Email, body.StaffType ?? "Normal", currentUser.TenantId, currentUser.UserId);
+                "Staff {Email} (role={Role}) invited to tenant {TenantId} by {AdminId}",
+                body.Email, req.Role, currentUser.TenantId, currentUser.UserId);
 
             return Created($"/api/v1/admin/staff/{response.Id}", MapUserResponse(response));
         }
@@ -53,7 +62,7 @@ public class StaffController(
     }
 
     [HttpGet]
-    [RequirePermission(PermissionConstants.Modules.Iam, PermissionConstants.Read)]
+    [RequirePermission(PermissionConstants.Iam.UserRead, "iam:read")]
     public async Task<IActionResult> ListStaff([FromQuery] int page = 1, [FromQuery] int limit = 10)
     {
         var response = await iamClient.GetManyUsersAsync(
@@ -70,7 +79,7 @@ public class StaffController(
     }
 
     [HttpGet("{id}")]
-    [RequirePermission(PermissionConstants.Modules.Iam, PermissionConstants.Read)]
+    [RequirePermission(PermissionConstants.Iam.UserRead, "iam:read")]
     public async Task<IActionResult> GetStaff([FromRoute] string id)
     {
         try
@@ -85,7 +94,7 @@ public class StaffController(
     }
 
     [HttpPut("{id}")]
-    [RequirePermission(PermissionConstants.Modules.Iam, PermissionConstants.Update)]
+    [RequirePermission(PermissionConstants.Iam.UserUpdate, "iam:update")]
     public async Task<IActionResult> UpdateStaff([FromRoute] string id, [FromBody] UpdateStaffBody body)
     {
         try
@@ -93,10 +102,9 @@ public class StaffController(
             var response = await iamClient.UpdateUserAsync(
                 new UpdateUserRequest
                 {
-                    Id        = id,
+                    Id = id,
                     FirstName = body.FirstName,
-                    LastName  = body.LastName,
-                    StaffType = body.StaffType ?? string.Empty
+                    LastName = body.LastName
                 });
 
             logger.LogInformation(
@@ -116,7 +124,7 @@ public class StaffController(
     }
 
     [HttpPost("{id}/activate")]
-    [RequirePermission(PermissionConstants.Modules.Iam, PermissionConstants.Update)]
+    [RequirePermission(PermissionConstants.Iam.UserUpdate, "iam:update")]
     public async Task<IActionResult> ActivateStaff([FromRoute] string id)
     {
         try
@@ -136,7 +144,7 @@ public class StaffController(
     }
 
     [HttpPost("{id}/deactivate")]
-    [RequirePermission(PermissionConstants.Modules.Iam, PermissionConstants.Update)]
+    [RequirePermission(PermissionConstants.Iam.UserUpdate, "iam:update")]
     public async Task<IActionResult> DeactivateStaff([FromRoute] string id)
     {
         try
@@ -156,7 +164,7 @@ public class StaffController(
     }
 
     [HttpPost("{id}/reset-password")]
-    [RequirePermission(PermissionConstants.Modules.Iam, PermissionConstants.Update)]
+    [RequirePermission(PermissionConstants.Iam.UserUpdate, "iam:update")]
     public async Task<IActionResult> ResetPassword([FromRoute] string id)
     {
         try
@@ -175,28 +183,135 @@ public class StaffController(
         }
     }
 
-    [HttpPut("{id}/roles")]
-    [RequirePermission(PermissionConstants.Modules.Iam, PermissionConstants.Assign)]
-    public async Task<IActionResult> AssignRoles([FromRoute] string id, [FromBody] AssignRolesBody body)
+    /// <summary>
+    /// PATCH /api/v1/admin/staff/{id}/role — thay đổi single base role cho user.
+    /// Giữ nguyên permissions hiện tại; nếu ApplyDefaultPermissions = true sẽ union defaults.
+    /// </summary>
+    [HttpPatch("{id}/role")]
+    [RequirePermission(PermissionConstants.Iam.RoleManage, "iam:assign")]
+    public async Task<IActionResult> UpdateStaffRole([FromRoute] string id, [FromBody] UpdateStaffRoleBody body)
     {
         try
         {
-            var response = await iamClient.AssignRolesAsync(
-                new AssignRolesRequest
+            var response = await iamClient.UpdateUserRoleAsync(
+                new UpdateUserRoleRequest
                 {
-                    UserId  = id,
-                    RoleIds = { body.RoleIds }
+                    UserId = id,
+                    NewRole = body.Role,
+                    ApplyDefaultPermissions = body.ApplyDefaultPermissions
                 });
 
             logger.LogInformation(
-                "Roles assigned to staff {StaffId} in tenant {TenantId} by {AdminId}",
-                id, currentUser.TenantId, currentUser.UserId);
+                "Role for staff {StaffId} updated to {Role} in tenant {TenantId} by {AdminId}",
+                id, body.Role, currentUser.TenantId, currentUser.UserId);
 
-            return Ok(MapUserResponse(response));
+            return Ok(new
+            {
+                response.UserId,
+                response.Role,
+                Permissions = response.Permissions.ToList(),
+                response.PermissionVersion,
+                ElevatedPermissionsRetained = response.ElevatedPermissionsRetained.ToList()
+            });
         }
         catch (RpcException ex) when (ex.StatusCode == Grpc.Core.StatusCode.NotFound)
         {
             return NotFound(new { detail = $"Staff '{id}' not found." });
+        }
+        catch (RpcException ex) when (ex.StatusCode == Grpc.Core.StatusCode.InvalidArgument)
+        {
+            return BadRequest(new { detail = ex.Status.Detail });
+        }
+    }
+
+    /// <summary>
+    /// GET /api/v1/admin/staff/{id}/permissions — lấy thông tin authorization (Role + Direct Permissions).
+    /// </summary>
+    [HttpGet("{id}/permissions")]
+    [RequirePermission(PermissionConstants.Iam.UserRead, "iam:read")]
+    public async Task<IActionResult> GetStaffPermissions([FromRoute] string id)
+    {
+        try
+        {
+            var response = await iamClient.GetUserPermissionsAsync(
+                new GetUserPermissionsRequest { UserId = id });
+
+            return Ok(new
+            {
+                response.UserId,
+                response.Role,
+                Permissions = response.Permissions.ToList(),
+                response.PermissionVersion
+            });
+        }
+        catch (RpcException ex) when (ex.StatusCode == Grpc.Core.StatusCode.NotFound)
+        {
+            return NotFound(new { detail = $"Staff '{id}' not found." });
+        }
+    }
+
+    /// <summary>
+    /// PATCH /api/v1/admin/staff/{id}/permissions — cập nhật delta (grant/revoke) quyền trực tiếp cho 1 user.
+    /// </summary>
+    [HttpPatch("{id}/permissions")]
+    [RequirePermission(PermissionConstants.Iam.PermissionManage, "iam:assign")]
+    public async Task<IActionResult> UpdateStaffPermissions([FromRoute] string id, [FromBody] UpdateStaffPermissionsBody body)
+    {
+        try
+        {
+            var req = new UpdateUserPermissionsRequest { UserId = id };
+            if (body.Grant != null) req.Grant.AddRange(body.Grant);
+            if (body.Revoke != null) req.Revoke.AddRange(body.Revoke);
+
+            var response = await iamClient.UpdateUserPermissionsAsync(req);
+
+            logger.LogInformation(
+                "Direct permissions updated for staff {StaffId} in tenant {TenantId} by {AdminId}",
+                id, currentUser.TenantId, currentUser.UserId);
+
+            return Ok(new
+            {
+                response.UserId,
+                response.Role,
+                Permissions = response.Permissions.ToList(),
+                response.PermissionVersion
+            });
+        }
+        catch (RpcException ex) when (ex.StatusCode == Grpc.Core.StatusCode.NotFound)
+        {
+            return NotFound(new { detail = $"Staff '{id}' not found." });
+        }
+        catch (RpcException ex) when (ex.StatusCode == Grpc.Core.StatusCode.InvalidArgument)
+        {
+            return BadRequest(new { detail = ex.Status.Detail });
+        }
+    }
+
+    /// <summary>
+    /// PATCH /api/v1/admin/staff/permissions — cập nhật bulk delta permissions cho nhiều users.
+    /// </summary>
+    [HttpPatch("permissions")]
+    [RequirePermission(PermissionConstants.Iam.PermissionManage, "iam:assign")]
+    public async Task<IActionResult> BulkUpdateStaffPermissions([FromBody] BulkUpdateStaffPermissionsBody body)
+    {
+        try
+        {
+            var req = new BulkUpdateUserPermissionsRequest();
+            if (body.UserIds != null) req.UserIds.AddRange(body.UserIds);
+            if (body.Grant != null) req.Grant.AddRange(body.Grant);
+            if (body.Revoke != null) req.Revoke.AddRange(body.Revoke);
+
+            var response = await iamClient.BulkUpdateUserPermissionsAsync(req);
+
+            logger.LogInformation(
+                "Bulk direct permissions updated for {Count} staff users in tenant {TenantId} by {AdminId}",
+                response.UpdatedUsersCount, currentUser.TenantId, currentUser.UserId);
+
+            return Ok(new
+            {
+                response.UpdatedUsersCount,
+                AffectedUserIds = response.AffectedUserIds.ToList()
+            });
         }
         catch (RpcException ex) when (ex.StatusCode == Grpc.Core.StatusCode.InvalidArgument)
         {
@@ -209,13 +324,18 @@ public class StaffController(
         string FirstName,
         string LastName,
         string Email,
-        string? PhoneNumber,
-        string? StaffType,
-        List<string>? RoleIds);
+        string? PhoneNumber = null,
+        string? Role = RoleConstants.Staff,
+        bool ApplyDefaultPermissions = true,
+        List<string>? Permissions = null);
 
-    public record UpdateStaffBody(string FirstName, string LastName, string? StaffType);
+    public record UpdateStaffBody(string FirstName, string LastName);
 
-    public record AssignRolesBody(List<string> RoleIds);
+    public record UpdateStaffRoleBody(string Role, bool ApplyDefaultPermissions = false);
+
+    public record UpdateStaffPermissionsBody(List<string>? Grant = null, List<string>? Revoke = null);
+
+    public record BulkUpdateStaffPermissionsBody(List<string> UserIds, List<string>? Grant = null, List<string>? Revoke = null);
 
     private static object MapUserResponse(UserResponse r) => new
     {
@@ -224,11 +344,12 @@ public class StaffController(
         r.LastName,
         r.Email,
         r.PhoneNumber,
-        Status      = r.Status.ToString(),
-        r.StaffType,
-        r.RoleIds,
-        SystemRoles = r.SystemRoles.Select(sr => sr.ToString()),
-        CreatedAt   = r.CreatedAt?.ToDateTime(),
-        UpdatedAt   = r.UpdatedAt?.ToDateTime()
+        Status = r.Status.ToString(),
+        r.Role,
+        Permissions = r.Permissions.ToList(),
+        r.PermissionVersion,
+        r.TenantId,
+        CreatedAt = r.CreatedAt?.ToDateTime(),
+        UpdatedAt = r.UpdatedAt?.ToDateTime()
     };
 }

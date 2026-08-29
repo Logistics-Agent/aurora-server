@@ -25,7 +25,6 @@ builder.Services.AddSharedServices(builder.Configuration);
 // 2. MassTransit with Consumers (retry exponential đã cấu hình trong AddSharedMassTransit)
 builder.Services.AddSharedMassTransit(builder.Configuration, x =>
 {
-    x.AddConsumer<TenantAiConfigChangedConsumer>();
     x.AddConsumer<TenantRuleConfigChangedConsumer>();
 });
 
@@ -67,9 +66,10 @@ builder.Services.AddScoped<IRouteAiService, RouteAiService>();
 
 
 // 8. Services Layer
-builder.Services.AddScoped<ITenantAiConfigService, TenantAiConfigService>();
 builder.Services.AddScoped<ITenantRuleConfigService, TenantRuleConfigService>();
+builder.Services.AddScoped<IRouteRiskPolicyProvider, RouteRiskPolicyProvider>();
 builder.Services.AddScoped<IApprovalService, ApprovalService>();
+builder.Services.AddScoped<IRouteGovernanceService, RouteGovernanceService>();
 
 // 9. Transactional Outbox — writer (scoped, cùng DbContext transaction) + background relay
 builder.Services.AddScoped<IOutboxWriter, OutboxWriter>();

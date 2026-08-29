@@ -10,10 +10,11 @@ using IamTenant.Application.DTOs.Tenants;
 using IamTenant.Application.Interfaces;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
+using Shared.Constants;
+using Shared.Enums;
 using Shared.Events;
 using Shared.Exceptions;
 using Shared.Security;
-using IamTenant.Domain.Enums;
 
 namespace IamTenant.Application.Commands.Tenants;
 
@@ -21,8 +22,9 @@ public record CreateStaffCommand(
     string Email,
     string FirstName,
     string LastName,
-    List<Guid> RoleIds,
-    string? StaffType = null) : IRequest<StaffDto>;
+    string? Role = BaseRoleExtensions.StaffCode,
+    bool ApplyDefaultPermissions = true,
+    List<string>? Permissions = null) : IRequest<StaffDto>;
 
 public class CreateStaffHandler(
     IamTenantDbContext context,
@@ -35,7 +37,6 @@ public class CreateStaffHandler(
         if (!currentUser.TenantId.HasValue)
             throw new ForbiddenException("TenantId is required.");
 
-        // Lấy đúng tenant của người gọi (không lấy "tenant đầu tiên")
         var tenant = await context.Tenants
             .FirstOrDefaultAsync(t => t.Id == currentUser.TenantId.Value, cancellationToken)
             ?? throw new NotFoundException("Tenant not found.");
@@ -44,16 +45,54 @@ public class CreateStaffHandler(
         if (!request.Email.EndsWith($"@{tenant.CompanyDomain}", StringComparison.OrdinalIgnoreCase))
             throw new DomainException($"Staff Email must belong to the Company Domain: {tenant.CompanyDomain}");
 
-        var staffType = ParseStaffType(request.StaffType);
+        var baseRole = BaseRoleExtensions.ParseRole(request.Role);
 
-        var roleIds = request.RoleIds.Distinct().ToList();
+        // Security Invariant: SYSTEM_ADMIN cannot be assigned within a tenant context
+        if (baseRole == BaseRole.SystemAdmin || !baseRole.IsTenantAssignable())
+            throw new DomainException("Cannot assign SYSTEM_ADMIN role within a tenant context. Assignable roles: STAFF, MANAGER, TENANT_ADMIN.");
 
-        // Query roles from DB to determine if any assigned role is TENANT_ADMIN
-        var assignedRoles = roleIds.Count > 0
-            ? await context.Roles.Where(r => roleIds.Contains(r.Id)).ToListAsync(cancellationToken)
-            : [];
+        // Resolve Permissions to provision (Role templates are provisioning seeds only)
+        var permissionCodesToAssign = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        var isAdmin = assignedRoles.Any(r => r.Code == "TENANT_ADMIN");
+        if (request.ApplyDefaultPermissions)
+        {
+            var defaultCodes = baseRole switch
+            {
+                BaseRole.TenantAdmin => PermissionConstants.GetTenantAdminPermissions(),
+                BaseRole.Manager => PermissionConstants.GetDefaultManagerPermissions(),
+                BaseRole.Staff => PermissionConstants.GetDefaultStaffPermissions(),
+                _ => PermissionConstants.GetDefaultStaffPermissions()
+            };
+
+            foreach (var code in defaultCodes)
+                permissionCodesToAssign.Add(code);
+        }
+
+        if (request.Permissions != null)
+        {
+            foreach (var code in request.Permissions.Where(p => !string.IsNullOrWhiteSpace(p)))
+                permissionCodesToAssign.Add(code.Trim());
+        }
+
+        // Security Invariant: Tenant Admin / Staff cannot grant system-only permissions
+        var forbiddenSystemPerms = permissionCodesToAssign
+            .Where(PermissionConstants.IsSystemOnlyPermission)
+            .ToList();
+
+        if (forbiddenSystemPerms.Count > 0)
+            throw new DomainException($"Cannot grant platform system-only permissions: {string.Join(", ", forbiddenSystemPerms)}");
+
+        // Validate that requested permissions exist in DB catalog
+        var catalogPermissions = await context.Permissions
+            .Where(p => permissionCodesToAssign.Contains(p.Code))
+            .ToListAsync(cancellationToken);
+
+        var validCodeMap = catalogPermissions.ToDictionary(p => p.Code, p => p.Id, StringComparer.OrdinalIgnoreCase);
+        var unknownCodes = permissionCodesToAssign.Where(c => !validCodeMap.ContainsKey(c)).ToList();
+        if (unknownCodes.Count > 0)
+            throw new DomainException($"Unknown permission codes: {string.Join(", ", unknownCodes)}");
+
+        var isAdmin = baseRole == BaseRole.TenantAdmin;
 
         var staffUser = new User
         {
@@ -61,9 +100,9 @@ public class CreateStaffHandler(
             Email = request.Email,
             FirstName = request.FirstName,
             LastName = request.LastName,
-            UserType = Domain.Enums.UserType.TenantStaff,
+            Role = baseRole,
             Status = Domain.Enums.UserStatus.Invited,
-            StaffType = staffType,
+            PermissionVersion = 1
         };
 
         // Create user in AWS Cognito User Pool
@@ -82,14 +121,17 @@ public class CreateStaffHandler(
 
         context.Users.Add(staffUser);
 
-        // Save UserRoles mapping
-        if (roleIds.Count > 0)
+        // Attach Direct User Permissions
+        foreach (var permCode in permissionCodesToAssign)
         {
-            context.UserRoles.AddRange(roleIds.Select(roleId => new UserRole
+            staffUser.UserPermissions.Add(new UserPermission
             {
                 UserId = staffUser.Id,
-                RoleId = roleId
-            }));
+                PermissionId = validCodeMap[permCode],
+                TenantId = tenant.Id,
+                GrantedByUserId = currentUser.UserId,
+                GrantedAt = DateTimeOffset.UtcNow
+            });
         }
 
         // Transactional Outbox: atomically enqueue provisioning event
@@ -111,7 +153,7 @@ public class CreateStaffHandler(
 
         context.OutboxMessages.Add(outboxMessage);
 
-        // Atomic commit: User + UserRoles + OutboxMessage
+        // Atomic commit: User + Direct UserPermissions + OutboxMessage
         await context.SaveChangesAsync(cancellationToken);
 
         return new StaffDto
@@ -121,22 +163,11 @@ public class CreateStaffHandler(
             Email = staffUser.Email,
             FirstName = staffUser.FirstName,
             LastName = staffUser.LastName,
-            UserType = staffUser.UserType,
+            Role = staffUser.Role.ToCode(),
+            Permissions = permissionCodesToAssign.OrderBy(p => p).ToList(),
+            PermissionVersion = staffUser.PermissionVersion,
             Status = staffUser.Status,
-            StaffType = staffUser.StaffType,
             CreatedAt = staffUser.CreatedAt
         };
-    }
-
-    internal static Domain.Enums.StaffType ParseStaffType(string? value)
-    {
-        if (string.IsNullOrWhiteSpace(value))
-            return Domain.Enums.StaffType.Normal;
-
-        if (!Enum.TryParse<Domain.Enums.StaffType>(value, true, out var staffType))
-            throw new DomainException(
-                $"StaffType '{value}' không hợp lệ. Giá trị cho phép: {string.Join(", ", Enum.GetNames<Domain.Enums.StaffType>())}");
-
-        return staffType;
     }
 }

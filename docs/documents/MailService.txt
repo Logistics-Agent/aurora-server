@@ -1,0 +1,112 @@
+Viewed InboundStages.cs:1-80
+Viewed InboundStages.cs:250-380
+Viewed InboundStages.cs:380-422
+Viewed OutboundStages.cs:1-100
+Viewed OutboundStages.cs:101-200
+
+Hiện tại trong hệ thống Aurora, **AI được áp dụng đa tầng (Multi-layered AI)** cho cả chiều **Inbound (Email đến)**, **Outbound (Email đi)**, và **Agentic Workflow (Negotiation Agent / Human-in-the-Loop)** theo kiến trúc bảo mật nghiêm ngặt:
+
+---
+
+### 1. Chiều Inbound (Email gửi đến hệ thống)
+
+Khi một email từ khách hàng / đối tác gửi đến Stalwart Mail Server, [InboundPipelineRunner](file:///d:/IT/CD/aurora-server/src/dotnet/MailService/Application/Pipeline/PipelineRunners.cs) sẽ thực thi tuần tự qua các chặng:
+
+```text
+Inbound EML
+   ↓
+[Stage 1] TLS Verification & Header Parsing (Anti-Replay SETNX)
+   ↓
+[Stage 2] SPF / DKIM / DMARC Validation (DNS Cryptographic Verification)
+   ↓
+[Stage 3] Attachment Antivirus Scan (ClamAV)
+   ↓
+[Stage 4] Spam Scoring (SpamAssassin)
+   ↓
+[Stage 5] AI Phishing Detection (AiPhishingDetectionStage) ─────────► [AiGovernance Client]
+   ↓                                                                - Phân tích Subject + Body + Link
+   ↓                                                                - Tính Phishing Score (0.0 - 1.0)
+   ↓                                                                - Nếu Score >= 0.70 -> Cách ly (Quarantine)
+[Stage 6] AI Classification Stage (AiEmailClassifier) ──────────────► [AiGovernance Client]
+   ↓                                                                - Phân loại email: Quotation, Booking,
+   ↓                                                                  Customs, Dispute, Inquiry...
+[Stage 7] Persist ProcessedMessage & EmailThread (Neon DB)
+   ↓
+[Stage 8] Publish RabbitMQ Event (InboundEmailProcessedEvent)
+```
+
+* **[AiPhishingDetectionStage](file:///d:/IT/CD/aurora-server/src/dotnet/MailService/Application/Pipeline/Stages/InboundStages.cs#L329-L382)**:
+  * Gọi qua [IAiGovernanceClient](file:///d:/IT/CD/aurora-server/src/dotnet/MailService/Application/Interfaces/AI/IAiGovernanceClient.cs) với policy `PhishingDetection`.
+  * Quét nội dung để phát hiện lừa đảo, giả mạo tài khoản ngân hàng, hoặc liên kết độc hại. Nếu vượt ngưỡng `0.70`, email bị đưa ngay vào bảng `quarantine_records` và cách ly an toàn.
+* **[ClassificationStage](file:///d:/IT/CD/aurora-server/src/dotnet/MailService/Application/Pipeline/Stages/InboundStages.cs#L395-L421)**:
+  * Sử dụng [AiEmailClassifier](file:///d:/IT/CD/aurora-server/src/dotnet/MailService/Infrastructure/AI/AiEmailClassifier.cs) để tự động gán nhãn nghiệp vụ logistics (`Quotation`, `BookingRequest`, `CustomsDeclaration`, v.v.) vào trường `EmailCategory` của tin nhắn.
+
+---
+
+### 2. Tầng Nghiệp vụ AI: Negotiation Agent (Human-in-the-Loop MVP)
+
+Sau khi email được xử lý Inbound an toàn, sự kiện được phát ra RabbitMQ để các AI Agent nghiệp vụ tiêu thụ (ví dụ: [Negotiation Agent](file:///d:/IT/CD/aurora-server/src/nestjs/negotiation-agent-service)):
+
+```text
+Inbound Email Processed
+           ↓
+  Negotiation Agent (NestJS)
+           ↓
+  [1] Deterministic Strategy (100% Code thuần, tiền tệ USD)
+      - Tính toán List Price, Bottom Price, Counter-offer Price
+           ↓
+  [2] AI Drafting (AiGovernance.Generate)
+      - capability = "negotiation.draft"
+      - Sinh câu từ trả lời lịch sự, chuyên nghiệp khớp chính xác với giá đã tính
+           ↓
+  [3] Persist Suggestion vào `negotiation_sessions`
+      - (KHÔNG tự tạo draft, KHÔNG tự gửi mail)
+           ↓
+  [4] Nhân viên (Staff) xem gợi ý trên màn hình & bấm [Create Mail Draft]
+           ↓
+  [5] BFF gọi gRPC `GetDraftSuggestion` (Đọc từ DB, KHÔNG gọi lại LLM)
+           ↓
+  [6] MailService tạo `EmailDraft` liên kết vào `EmailThread` & `ReplyToMessageId`
+```
+
+* **Quy tắc bất biến (Invariant)**: AI chỉ đóng vai trò **Gợi ý (Copilot)**. Email không bao giờ tự động tạo draft hay tự động bắn đi khi chỉ vừa nhận mail từ client.
+
+---
+
+### 3. Chiều Outbound (Email nhân viên gửi ra ngoài)
+
+Khi nhân viên duyệt nội dung và bấm **Send Email**, [OutboundPipelineRunner](file:///d:/IT/CD/aurora-server/src/dotnet/MailService/Application/Pipeline/PipelineRunners.cs) kiểm soát bảo mật trước khi bàn giao cho máy chủ SMTP:
+
+```text
+Staff Clicks [Send Mail]
+   ↓
+[Stage 1] Policy Validation (Chặn trực tiếp token AI Agent / Service Account gửi mail)
+   ↓
+[Stage 2] Outbound Attachment Antivirus Scan (ClamAV)
+   ↓
+[Stage 3] AI BEC / Risk Scoring Stage (AiRiskScoringStage) ─────────► [AiGovernance Client]
+   ↓                                                                - Quét nguy cơ Business Email Compromise
+   ↓                                                                - Phát hiện rò rỉ PII, số tài khoản lạ
+[Stage 4] Rate Limiting Check (Redis Token Bucket - Max 200 mail/giờ/tenant)
+   ↓
+[Stage 5] DKIM Signing & SMTP Relay Submission (Stalwart SMTP)
+   ↓
+[Stage 6] Persist Outbound ProcessedMessage & Audit Log
+```
+
+* **[PolicyValidationStage](file:///d:/IT/CD/aurora-server/src/dotnet/MailService/Application/Pipeline/Stages/OutboundStages.cs#L62-L101)**:
+  * Đảm bảo chỉ có token của người dùng thực (`Staff`, `TenantAdmin`, `SystemAdmin`) mới được phép kích hoạt gửi mail. Nếu JWT là `AiAgent` hoặc `ServiceAccount`, pipeline sẽ reject ngay lập tức với lỗi `PERMISSION_DENIED`.
+* **[AiRiskScoringStage](file:///d:/IT/CD/aurora-server/src/dotnet/MailService/Application/Pipeline/Stages/OutboundStages.cs#L103-L152)**:
+  * Đánh giá rủi ro BEC (Business Email Compromise) và ngăn ngừa thất thoát dữ liệu (DLP), cảnh báo nếu có dấu hiệu email bị can thiệp trái phép trước khi gửi ra môi trường Internet.
+
+---
+
+### 4. Tóm tắt vai trò AI trong toàn bộ hệ thống
+
+| Luồng | Module AI | Nơi thực thi | Mục đích | Ràng buộc bảo mật |
+|---|---|---|---|---|
+| **Inbound** | Phishing Detector | [AiPhishingDetectionStage](file:///d:/IT/CD/aurora-server/src/dotnet/MailService/Application/Pipeline/Stages/InboundStages.cs) | Phát hiện mail độc hại / lừa đảo | Tự động cách ly vào Quarantine nếu score $\ge 0.7$ |
+| **Inbound** | Email Classifier | [ClassificationStage](file:///d:/IT/CD/aurora-server/src/dotnet/MailService/Application/Pipeline/Stages/InboundStages.cs) | Phân loại mục đích mail (Báo giá, Khiếu nại...) | Gán nhãn để định tuyến sự kiện |
+| **Agentic** | Negotiation Assistant | [NegotiationService](file:///d:/IT/CD/aurora-server/src/nestjs/negotiation-agent-service/src/application/services/negotiation.service.ts) | Sinh nội dung đề xuất trả lời đàm phán | 100% Deterministic pricing + Human-in-the-Loop gate |
+| **Outbound**| BEC Risk Scoring | [AiRiskScoringStage](file:///d:/IT/CD/aurora-server/src/dotnet/MailService/Application/Pipeline/Stages/OutboundStages.cs) | Ngăn chặn mạo danh & rò rỉ dữ liệu | AI Governance kiểm duyệt policy theo Tenant |
+| **Outbound**| Guardrail Gate | [PolicyValidationStage](file:///d:/IT/CD/aurora-server/src/dotnet/MailService/Application/Pipeline/Stages/OutboundStages.cs) | Chặn AI tự gửi email | Bắt buộc phải có Human Staff xác thực qua BFF |

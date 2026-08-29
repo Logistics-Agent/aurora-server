@@ -7,7 +7,7 @@ using Shared.Rules;
 namespace RoutePlanningAgent.Application.Interfaces;
 
 /// <summary>
-/// Adapter thuần gọi LLM (không DbContext, không publish event — persistence thuộc về handler).
+/// Adapter thuần gọi LLM qua AiGovernance gRPC (không DbContext, không publish event — persistence thuộc về handler).
 /// Nhận RouteDto (không phải entity) để tránh JSON cycle khi serialize.
 /// </summary>
 public interface IRouteAiService
@@ -16,11 +16,10 @@ public interface IRouteAiService
         RouteDto route,
         IReadOnlyList<RuleResult> ruleResults,
         ComplianceCheckResultDto? complianceResult,
-        string provider,
         CancellationToken ct = default);
 }
 
-/// <summary>Kết quả gọi LLM kèm telemetry THẬT (token usage lấy từ response metadata).</summary>
+/// <summary>Kết quả gọi LLM kèm telemetry THẬT (token usage lấy từ response metadata của AiGovernance).</summary>
 public record RouteAiResult
 {
     public required RouteRecommendationDto Recommendation { get; init; }

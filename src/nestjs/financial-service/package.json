@@ -1,7 +1,7 @@
 {
   "name": "financial-service",
   "version": "1.0.0",
-  "description": "Financial & Cost Estimation Service [AI + CORE] built with NestJS & gRPC",
+  "description": "Financial & Shipment Cost Service [CORE DETERMINISTIC] built with NestJS & gRPC",
   "author": "",
   "private": true,
   "license": "UNLICENSED",

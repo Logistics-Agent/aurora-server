@@ -92,7 +92,6 @@ public class OutboxProcessorBackgroundService(
         nameof(RouteStatusChangedEvent) => typeof(RouteStatusChangedEvent),
         nameof(RouteOptimizedEvent) => typeof(RouteOptimizedEvent),
         nameof(RouteApprovalRequestedEvent) => typeof(RouteApprovalRequestedEvent),
-        nameof(TenantAiConfigChangedEvent) => typeof(TenantAiConfigChangedEvent),
         nameof(TenantRuleConfigChangedEvent) => typeof(TenantRuleConfigChangedEvent),
         nameof(AiUsageEvent) => typeof(AiUsageEvent),
         _ => null

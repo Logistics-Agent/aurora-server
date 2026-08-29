@@ -1,4 +1,7 @@
+using System;
+using System.Collections.Generic;
 using IamTenant.Domain.Enums;
+using Shared.Enums;
 
 namespace IamTenant.Application.DTOs.Tenants;
 
@@ -22,7 +25,8 @@ public class StaffDto
     public string FirstName { get; set; } = string.Empty;
     public string LastName { get; set; } = string.Empty;
     public UserStatus Status { get; set; } = UserStatus.Invited;
-    public UserType UserType { get; set; } = UserType.TenantStaff;
-    public StaffType StaffType { get; set; } = StaffType.Normal;
+    public string Role { get; set; } = BaseRoleExtensions.StaffCode;
+    public List<string> Permissions { get; set; } = [];
+    public int PermissionVersion { get; set; } = 1;
     public DateTimeOffset CreatedAt { get; set; }
 }

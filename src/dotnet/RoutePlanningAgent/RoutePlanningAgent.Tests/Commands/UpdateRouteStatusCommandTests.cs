@@ -1,8 +1,12 @@
 using Microsoft.EntityFrameworkCore;
+using NSubstitute;
 using RoutePlanningAgent.Application.Commands.Routes;
+using RoutePlanningAgent.Application.Interfaces;
+using RoutePlanningAgent.Domain;
 using RoutePlanningAgent.Domain.Enums;
 using RoutePlanningAgent.Infrastructure.Services;
 using RoutePlanningAgent.Tests.TestHelpers;
+using Shared.Enums;
 using Shared.Events;
 using Shared.Exceptions;
 using Xunit;
@@ -37,10 +41,47 @@ public class UpdateRouteStatusCommandTests
 
         var route = RouteBuilder.Build(status: from);
         context.Routes.Add(route);
+
+        if (to == RouteStatus.Active)
+        {
+            context.TenantRiskPolicyConfigs.Add(new TenantRiskPolicyConfig
+            {
+                TenantId = TestDb.TenantId,
+                PolicyMode = RiskPolicyMode.UsePlatformDefault,
+                ActivePolicyId = RouteRiskPolicyProvider.PlatformDefaultPolicyId,
+                ActivePolicyVersion = 1
+            });
+
+            context.RiskAssessments.Add(new RiskAssessment
+            {
+                RouteId = route.Id,
+                RouteVersion = route.Version,
+                TenantId = TestDb.TenantId,
+                RiskLevel = RouteRiskLevel.Low,
+                GovernanceDecision = GovernanceDecision.NoApprovalRequired,
+                PolicyId = RouteRiskPolicyProvider.PlatformDefaultPolicyId,
+                PolicyVersion = RouteRiskPolicyProvider.PlatformDefaultVersion,
+                PolicySource = RiskPolicySource.PlatformDefault,
+                Source = "Test",
+                ReasonCodes = "[]",
+                ReasonDetails = "Valid test assessment",
+                PolicyApplied = "RulesOnly",
+                AssessedByUserId = TestDb.UserId
+            });
+        }
+
         await context.SaveChangesAsync();
 
+        var policyProvider = new RouteRiskPolicyProvider(
+            context, Substitute.For<ITenantRuleConfigService>());
+
         var handler = new UpdateRouteStatusHandler(
-            context, new FakeCurrentUser(TestDb.TenantId, TestDb.UserId), new OutboxWriter(context));
+            context,
+            new RouteGovernanceService(context),
+            policyProvider,
+            new FakeCurrentUser(TestDb.TenantId, TestDb.UserId),
+            new OutboxWriter(context));
+
         var command = new UpdateRouteStatusCommand(route.Id, to.ToString());
 
         if (allowed)
@@ -68,8 +109,15 @@ public class UpdateRouteStatusCommandTests
         context.Routes.Add(route);
         await context.SaveChangesAsync();
 
+        var policyProvider = new RouteRiskPolicyProvider(
+            context, Substitute.For<ITenantRuleConfigService>());
+
         var handler = new UpdateRouteStatusHandler(
-            context, new FakeCurrentUser(TestDb.TenantId, TestDb.UserId), new OutboxWriter(context));
+            context,
+            new RouteGovernanceService(context),
+            policyProvider,
+            new FakeCurrentUser(TestDb.TenantId, TestDb.UserId),
+            new OutboxWriter(context));
 
         await Assert.ThrowsAsync<DomainException>(
             () => handler.Handle(new UpdateRouteStatusCommand(route.Id, "KhongTonTai"), CancellationToken.None));
@@ -81,8 +129,15 @@ public class UpdateRouteStatusCommandTests
         var (context, connection) = TestDb.Create();
         await using var _ = connection;
 
+        var policyProvider = new RouteRiskPolicyProvider(
+            context, Substitute.For<ITenantRuleConfigService>());
+
         var handler = new UpdateRouteStatusHandler(
-            context, new FakeCurrentUser(TestDb.TenantId, TestDb.UserId), new OutboxWriter(context));
+            context,
+            new RouteGovernanceService(context),
+            policyProvider,
+            new FakeCurrentUser(TestDb.TenantId, TestDb.UserId),
+            new OutboxWriter(context));
 
         await Assert.ThrowsAsync<NotFoundException>(
             () => handler.Handle(new UpdateRouteStatusCommand(Guid.NewGuid(), "Optimizing"), CancellationToken.None));
