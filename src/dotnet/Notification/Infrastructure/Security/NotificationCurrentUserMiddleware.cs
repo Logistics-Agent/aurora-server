@@ -9,7 +9,7 @@ public sealed class NotificationCurrentUserMiddleware(RequestDelegate next)
     {
         if (context.User.Identity?.IsAuthenticated == true)
         {
-            currentUser.Populate(ParseGuid(context.User, JwtClaims.UserId), ParseGuid(context.User, JwtClaims.TenantId), context.TraceIdentifier, null, [], []);
+            currentUser.Populate(ParseGuid(context.User, JwtClaims.UserId), ParseGuid(context.User, JwtClaims.TenantId), context.TraceIdentifier, null, null, []);
         }
         await next(context);
     }
