@@ -2,6 +2,7 @@ using IamTenant.Domain.Enums;
 using IamTenant.Infrastructure.Persistences;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
+using Shared.Enums;
 
 namespace IamTenant.Application.Queries.Auth;
 
@@ -21,7 +22,7 @@ public class IdentifyUserQueryHandler(IamTenantDbContext context) : IRequestHand
             .Where(u => u.Email == request.Email && !u.IsDeleted)
             .Select(u => new 
             { 
-                u.UserType, 
+                u.Role, 
                 TenantCode = u.Tenant != null ? u.Tenant.Code : null 
             })
             .FirstOrDefaultAsync(cancellationToken);
@@ -31,6 +32,6 @@ public class IdentifyUserQueryHandler(IamTenantDbContext context) : IRequestHand
             return new IdentifyUserResult(false, null, null);
         }
 
-        return new IdentifyUserResult(true, user.TenantCode ?? "SYSTEM", user.UserType.ToString());
+        return new IdentifyUserResult(true, user.TenantCode ?? "SYSTEM_ADMIN", user.Role.ToCode());
     }
 }

@@ -258,9 +258,7 @@ public sealed class ShipmentAggregateExpansionTests
     {
         public Guid? UserId { get; } = userId ?? Guid.NewGuid();
         public Guid? TenantId { get; } = tenantId;
-        public string? TraceId { get; } = Guid.NewGuid().ToString();
-        public int? PermissionVersion { get; } = 1;
-        public IReadOnlyList<string> RoleIds { get; } = [];
+        public string? Role { get; } = "STAFF";
         public IReadOnlyList<string> Permissions { get; } = [];
     }
 }

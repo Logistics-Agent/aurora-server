@@ -46,7 +46,7 @@ public class AuthInterceptor(
         var tenantIdStr = headers.GetValue(GrpcMetadataKeys.TenantId);
         var traceId = headers.GetValue(GrpcMetadataKeys.TraceId);
         var versionStr = headers.GetValue(GrpcMetadataKeys.PermissionVersion);
-        var roleIdsStr = headers.GetValue(GrpcMetadataKeys.RoleIds);
+        var role = headers.GetValue(GrpcMetadataKeys.Role);
 
         var hasIdentityMetadata =
             !string.IsNullOrWhiteSpace(userIdStr) ||
@@ -68,14 +68,10 @@ public class AuthInterceptor(
         if (Guid.TryParse(tenantIdStr, out var tenantId)) parsedTenantId = tenantId;
         if (int.TryParse(versionStr, out var version)) parsedVersion = version;
 
-        var roleIds = roleIdsStr?
-            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-            .ToList() ?? [];
+        currentUser.Populate(parsedUserId, parsedTenantId, traceId, parsedVersion, role, new List<string>());
 
-        currentUser.Populate(parsedUserId, parsedTenantId, traceId, parsedVersion, roleIds, new List<string>());
-
-        logger.LogDebug("AuthInterceptor: UserId={UserId} TenantId={TenantId} Version={Version}",
-            currentUser.UserId, currentUser.TenantId, currentUser.PermissionVersion);
+        logger.LogDebug("AuthInterceptor: UserId={UserId} TenantId={TenantId} Version={Version} Role={Role}",
+            currentUser.UserId, currentUser.TenantId, currentUser.PermissionVersion, currentUser.Role);
     }
 
     private void PopulateDevelopmentIdentity(string? traceId)
@@ -86,12 +82,13 @@ public class AuthInterceptor(
             identity.TenantId,
             traceId ?? Guid.CreateVersion7().ToString(),
             identity.PermissionVersion,
-            [.. identity.RoleIds],
+            identity.Role,
             [.. identity.Permissions]);
 
         logger.LogInformation(
-            "Using configured development identity UserId={UserId} TenantId={TenantId}",
+            "Using configured development identity UserId={UserId} TenantId={TenantId} Role={Role}",
             identity.UserId,
-            identity.TenantId);
+            identity.TenantId,
+            identity.Role);
     }
 }

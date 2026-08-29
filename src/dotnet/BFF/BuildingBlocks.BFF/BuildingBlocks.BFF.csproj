@@ -48,6 +48,12 @@
     <Protobuf Include="../../../../protos/document_ocr.proto" GrpcServices="Client" />
     <Protobuf Include="../../../../protos/regulatory_compliance.proto" GrpcServices="Client" />
     <Protobuf Include="../../../../protos/mail_platform.proto" GrpcServices="Client" />
+    <Protobuf Include="../../../../protos/shipment_workflow.proto" GrpcServices="Client" />
+    <Protobuf Include="../../../../protos/gps_tracking.proto" GrpcServices="Client" />
+    <Protobuf Include="../../../../protos/notification.proto" GrpcServices="Client" />
+    <Protobuf Include="../../../../protos/billing.proto" GrpcServices="Client" />
+    <Protobuf Include="../../../../protos/financial.proto" GrpcServices="Client" />
+    <Protobuf Include="../../../../protos/negotiation.proto" GrpcServices="Client" />
     <Protobuf Include="../../../../protos/common.proto" GrpcServices="None" />
   </ItemGroup>
 

@@ -20,12 +20,14 @@ public class MailServiceDbContext : DbContext
     public DbSet<Domain.Entities.Domain> Domains => Set<Domain.Entities.Domain>();
     public DbSet<Mailbox> Mailboxes => Set<Mailbox>();
     public DbSet<Alias> Aliases => Set<Alias>();
+    public DbSet<EmailThread> EmailThreads => Set<EmailThread>();
     public DbSet<EmailDraft> EmailDrafts => Set<EmailDraft>();
     public DbSet<ProcessedMessage> ProcessedMessages => Set<ProcessedMessage>();
     public DbSet<SecurityCheckResult> SecurityCheckResults => Set<SecurityCheckResult>();
     public DbSet<QuarantineRecord> QuarantineRecords => Set<QuarantineRecord>();
     public DbSet<AuditRecord> AuditRecords => Set<AuditRecord>();
     public DbSet<OutboxMessage> OutboxMessages => Set<OutboxMessage>();
+    public DbSet<ThreadAssignmentHistory> ThreadAssignmentHistories => Set<ThreadAssignmentHistory>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -60,12 +62,40 @@ public class MailServiceDbContext : DbContext
             b.HasQueryFilter(a => _tenantId.HasValue && a.TenantId == _tenantId);
         });
 
+        modelBuilder.Entity<EmailThread>(b =>
+        {
+            b.ToTable("email_threads");
+            b.HasKey(t => t.Id);
+            b.HasIndex(t => t.TenantId);
+            b.HasIndex(t => new { t.TenantId, t.MailboxId });
+            b.HasIndex(t => new { t.TenantId, t.PrimaryAssigneeUserId });
+            b.HasIndex(t => new { t.TenantId, t.Status });
+            b.HasIndex(t => new { t.TenantId, t.LastMessageAt });
+            b.Property(t => t.Version).IsConcurrencyToken();
+            b.HasQueryFilter(t => _tenantId.HasValue && t.TenantId == _tenantId);
+        });
+
+        modelBuilder.Entity<ThreadAssignmentHistory>(b =>
+        {
+            b.ToTable("thread_assignment_histories");
+            b.HasKey(h => h.Id);
+            b.HasIndex(h => h.TenantId);
+            b.HasIndex(h => new { h.TenantId, h.ThreadId });
+            b.HasIndex(h => new { h.TenantId, h.ToUserId });
+            b.HasQueryFilter(h => _tenantId.HasValue && h.TenantId == _tenantId);
+        });
+
         modelBuilder.Entity<EmailDraft>(b =>
         {
             b.ToTable("email_drafts");
             b.HasKey(d => d.Id);
             b.HasIndex(d => new { d.DraftRootId, d.RevisionNumber });
             b.HasIndex(d => new { d.MailboxId, d.Status, d.IsLatestRevision });
+            b.HasIndex(d => d.ThreadId);
+            b.HasIndex(d => new { d.TenantId, d.SourceType, d.SourceId });
+            b.HasIndex(d => new { d.TenantId, d.IdempotencyKey })
+                .IsUnique()
+                .HasFilter("\"IdempotencyKey\" IS NOT NULL");
             b.HasQueryFilter(d => _tenantId.HasValue && d.TenantId == _tenantId);
         });
 
@@ -75,6 +105,8 @@ public class MailServiceDbContext : DbContext
             b.HasKey(p => p.Id);
             b.HasIndex(p => new { p.TenantId, p.ReceivedAt });
             b.HasIndex(p => new { p.TenantId, p.MessageId });
+            b.HasIndex(p => p.ThreadId);
+            b.HasIndex(p => new { p.TenantId, p.SentByUserId });
             b.HasQueryFilter(p => _tenantId.HasValue && p.TenantId == _tenantId);
         });
 
@@ -102,7 +134,6 @@ public class MailServiceDbContext : DbContext
             b.HasIndex(a => new { a.TenantId, a.Timestamp });
             b.HasQueryFilter(a => _tenantId.HasValue && a.TenantId == _tenantId);
         });
-
 
         modelBuilder.Entity<OutboxMessage>(b =>
         {

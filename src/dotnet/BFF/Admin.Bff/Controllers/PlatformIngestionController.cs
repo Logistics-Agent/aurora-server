@@ -1,9 +1,11 @@
 using Asp.Versioning;
+using BuildingBlocks.BFF.Attributes;
 using Google.Protobuf;
 using Google.Protobuf.WellKnownTypes;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using RegulatoryCompliance.Grpc;
+using Shared.Constants;
 
 namespace AdminBff.Controllers;
 
@@ -21,6 +23,7 @@ public sealed class PlatformIngestionController(
     /// Platform Admin Ingestion: Regulatory Source (PLATFORM scope)
     /// </summary>
     [HttpPost("regulatory-sources")]
+    [RequirePermission(PermissionConstants.Compliance.PlatformIngest)]
     public async Task<IActionResult> IngestPlatformRegulatorySource(
         [FromBody] AdminPlatformRegulatoryRequest request,
         CancellationToken cancellationToken)
@@ -70,6 +73,7 @@ public sealed class PlatformIngestionController(
     /// Platform Admin Ingestion: Knowledge Document (PLATFORM scope)
     /// </summary>
     [HttpPost("knowledge-documents")]
+    [RequirePermission(PermissionConstants.Compliance.PlatformIngest)]
     public async Task<IActionResult> IngestPlatformKnowledgeDocument(
         [FromBody] AdminPlatformKnowledgeRequest request,
         CancellationToken cancellationToken)

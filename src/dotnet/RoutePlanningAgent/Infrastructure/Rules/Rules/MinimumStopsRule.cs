@@ -9,6 +9,7 @@ namespace RoutePlanningAgent.Infrastructure.Rules.Rules;
 public class MinimumStopsRule : IRule<RouteRuleContext>
 {
     public string Name => "MinimumStopsRule";
+    public const string Code = "ROUTE_MINIMUM_STOPS";
 
     private const decimal GlobalMinStops = 2m;
 
@@ -20,7 +21,7 @@ public class MinimumStopsRule : IRule<RouteRuleContext>
             context.TenantId, Name, ct);
 
         if (!thresholds.IsEnabled)
-            return new RuleResult { RuleName = Name, Passed = true, RiskLevel = RouteRiskLevel.Low };
+            return new RuleResult { RuleName = Name, RuleCode = Code, Passed = true, RiskLevel = RouteRiskLevel.Low };
 
         var minStops = thresholds.Get("minStops", GlobalMinStops);
 
@@ -31,12 +32,13 @@ public class MinimumStopsRule : IRule<RouteRuleContext>
             return new RuleResult
             {
                 RuleName = Name,
+                RuleCode = Code,
                 Passed = false,
                 RiskLevel = RouteRiskLevel.Low,
                 Message = $"Số lượng stops ({stopCount}) ít hơn mức tối thiểu yêu cầu ({minStops})"
             };
         }
 
-        return new RuleResult { RuleName = Name, Passed = true, RiskLevel = RouteRiskLevel.Low };
+        return new RuleResult { RuleName = Name, RuleCode = Code, Passed = true, RiskLevel = RouteRiskLevel.Low };
     }
 }

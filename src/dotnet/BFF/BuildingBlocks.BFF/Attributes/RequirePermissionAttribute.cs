@@ -1,49 +1,80 @@
-using Shared.Constants;
+using System;
+using System.Linq;
+using System.Threading.Tasks;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Filters;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+using Shared.Constants;
 using Shared.Security;
-
 
 namespace BuildingBlocks.BFF.Attributes;
 
 /// <summary>
-/// Áp dụng trên Class hoặc Method để yêu cầu người dùng phải có quyền nhất định.
-/// Ví dụ: [RequirePermission(PermissionConstants.Modules.Iam, PermissionConstants.Read)]
+/// Requires the current authenticated user to possess a specific capability permission.
+/// Supports optional endpoint-specific legacy fallback permissions for non-breaking migrations.
 /// </summary>
 [AttributeUsage(AttributeTargets.Class | AttributeTargets.Method, AllowMultiple = true)]
-public class RequirePermissionAttribute(string module, string action) : Attribute, IAsyncAuthorizationFilter
+public class RequirePermissionAttribute : Attribute, IAsyncAuthorizationFilter
 {
-    public string RequiredPermission { get; } = PermissionConstants.Build(module, action);
+    public string RequiredPermission { get; }
+    public string? LegacyFallbackPermission { get; }
+
+    public RequirePermissionAttribute(string permission)
+    {
+        RequiredPermission = permission;
+        LegacyFallbackPermission = null;
+    }
+
+    public RequirePermissionAttribute(string permissionOrModule, string legacyFallbackOrAction)
+    {
+        if (permissionOrModule.Contains(':'))
+        {
+            RequiredPermission = permissionOrModule;
+            LegacyFallbackPermission = legacyFallbackOrAction;
+        }
+        else
+        {
+            RequiredPermission = $"{permissionOrModule}:{legacyFallbackOrAction}";
+            LegacyFallbackPermission = null;
+        }
+    }
 
     public Task OnAuthorizationAsync(AuthorizationFilterContext context)
     {
-        // 1. Nếu endpoint có [AllowAnonymous] thì bỏ qua
+        // 1. If endpoint has [AllowAnonymous], skip
         if (context.ActionDescriptor.EndpointMetadata.Any(em => em.GetType() == typeof(Microsoft.AspNetCore.Authorization.AllowAnonymousAttribute)))
         {
             return Task.CompletedTask;
         }
 
-        // 2. Lấy ICurrentUserService từ DI container
+        // 2. Resolve ICurrentUserService
         var currentUser = context.HttpContext.RequestServices.GetRequiredService<ICurrentUserService>();
 
-        // 3. Nếu chưa đăng nhập (không có UserId)
+        // 3. If unauthenticated
         if (!currentUser.UserId.HasValue)
         {
             context.Result = new UnauthorizedResult();
             return Task.CompletedTask;
         }
 
-        // 4. Nếu user có Role là SYSTEM_ADMIN, tự động bypass (Super Admin)
-        // Lưu ý: RoleIds ở đây chứa role CODES (SYSTEM_ADMIN, TENANT_ADMIN, ...) — khớp seed data
-        if (currentUser.RoleIds.Contains("SYSTEM_ADMIN"))
+        // 4. Capability Permission Check (Pure Capability-Based Authorization: ZERO role bypasses)
+        bool hasPermission = currentUser.HasPermission(RequiredPermission);
+
+        // Optional legacy fallback with audit logging
+        if (!hasPermission && !string.IsNullOrWhiteSpace(LegacyFallbackPermission) && currentUser.HasPermission(LegacyFallbackPermission))
         {
-            return Task.CompletedTask;
+            var logger = context.HttpContext.RequestServices.GetService<ILogger<RequirePermissionAttribute>>();
+            logger?.LogWarning(
+                "Legacy authorization fallback: User {UserId} accessed {Path} using deprecated permission '{Legacy}' instead of capability '{Required}'.",
+                currentUser.UserId, context.HttpContext.Request.Path, LegacyFallbackPermission, RequiredPermission);
+
+            hasPermission = true;
         }
 
-        // 5. Kiểm tra xem danh sách quyền của User có chứa quyền yêu cầu không
-        if (!currentUser.Permissions.Contains(RequiredPermission))
+        if (!hasPermission)
         {
-            // Trả về 403 Forbidden kèm theo thông báo chi tiết
             context.Result = new ObjectResult(new { detail = $"Missing required permission: {RequiredPermission}" })
             {
                 StatusCode = StatusCodes.Status403Forbidden

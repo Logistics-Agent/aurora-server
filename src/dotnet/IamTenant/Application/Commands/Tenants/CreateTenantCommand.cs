@@ -69,9 +69,27 @@ public class CreateTenantHandler(
         {
             TenantId = tenant.Id,
             Email = request.AdminEmail,
-            UserType = UserType.TenantAdmin,
+            Role = Shared.Enums.BaseRole.TenantAdmin,
             Status = UserStatus.Invited,
+            PermissionVersion = 1
         };
+
+        // Attach Tenant Admin direct permissions
+        var adminPermCodes = Shared.Constants.PermissionConstants.GetTenantAdminPermissions();
+        var adminPerms = await context.Permissions
+            .Where(p => adminPermCodes.Contains(p.Code))
+            .ToListAsync(cancellationToken);
+
+        foreach (var perm in adminPerms)
+        {
+            adminUser.UserPermissions.Add(new UserPermission
+            {
+                UserId = adminUser.Id,
+                PermissionId = perm.Id,
+                TenantId = tenant.Id,
+                GrantedAt = DateTimeOffset.UtcNow
+            });
+        }
 
         // Cognito AdminCreateUser in the newly provisioned Admin User Pool
         var cognitoSub = await cognitoService.AdminCreateUserInPoolAsync(tenant.AdminUserPoolId, request.AdminEmail, tempPassword, cancellationToken);

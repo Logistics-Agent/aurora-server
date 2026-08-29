@@ -1,3 +1,6 @@
+using System;
+using System.Collections.Generic;
+using IamTenant.Infrastructure.Persistences;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Design;
 using Shared.Interceptors;
@@ -10,8 +13,7 @@ public class DesignTimeDbContextFactory : IDesignTimeDbContextFactory<IamTenantD
     public IamTenantDbContext CreateDbContext(string[] args)
     {
         var optionsBuilder = new DbContextOptionsBuilder<IamTenantDbContext>();
-        optionsBuilder.UseNpgsql("DefaultConnectionString",
-            npgsql => npgsql.MigrationsAssembly("IamTenant"));
+        optionsBuilder.UseNpgsql("Host=localhost;Database=iam_tenant_db;Username=postgres;Password=postgres");
 
         var mockUser = new DummyCurrentUserService();
         var mockInterceptor = new AuditSaveChangesInterceptor(mockUser);
@@ -26,9 +28,9 @@ internal class DummyCurrentUserService : ICurrentUserContext
     public Guid? TenantId => Guid.Empty;
     public string? TraceId => null;
     public int? PermissionVersion => 1;
-    public IReadOnlyList<string> RoleIds => [];
+    public string? Role => "STAFF";
     public IReadOnlyList<string> Permissions => [];
 
-    public void Populate(Guid? userId, Guid? tenantId, string? traceId, int? permissionVersion, List<string> roleIds, List<string> permissions) { }
-    public void PopulatePermissions(List<string> permissions, List<string> roleIds) { }
+    public void Populate(Guid? userId, Guid? tenantId, string? traceId, int? permissionVersion, string? role, List<string> permissions) { }
+    public void PopulatePermissions(List<string> permissions, string? role) { }
 }

@@ -6,6 +6,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Shared.Security;
+using Shared.Constants;
 using MailService.Application.Interfaces.AI;
 using MailService.Application.Interfaces.RateLimiting;
 using MailService.Application.Interfaces.Security;
@@ -74,10 +75,10 @@ public class PolicyValidationStage : IOutboundPipelineStage
     {
         var sw = Stopwatch.StartNew();
 
-        // Enforce role authorization: reject AI Agent / Service Account JWTs calling SubmitOutboundMessage directly
-        var roleIds = _currentUserService.RoleIds;
-        bool isStaffOrAdmin = roleIds.Contains("Staff") || roleIds.Contains("Tenant_Admin") || roleIds.Contains("SYSTEM_ADMIN") || roleIds.Contains("TENANT_ADMIN");
-        bool isAiAgentServiceAccount = roleIds.Contains("AiAgent") || roleIds.Contains("ServiceAccount");
+        // Enforce role authorization: reject AI Agent / Service Account calling SubmitOutboundMessage directly
+        var role = _currentUserService.Role;
+        bool isStaffOrAdmin = role == RoleConstants.Staff || role == RoleConstants.Manager || role == RoleConstants.TenantAdmin || role == RoleConstants.SystemAdmin;
+        bool isAiAgentServiceAccount = string.Equals(role, "AiAgent", StringComparison.OrdinalIgnoreCase) || string.Equals(role, "ServiceAccount", StringComparison.OrdinalIgnoreCase);
 
         if (isAiAgentServiceAccount && !isStaffOrAdmin)
         {

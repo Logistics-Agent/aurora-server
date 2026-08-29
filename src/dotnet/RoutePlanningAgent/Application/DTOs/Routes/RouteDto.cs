@@ -12,6 +12,7 @@ public record RouteDto
     public string RouteType { get; init; } = string.Empty;
     public string Status { get; init; } = string.Empty;
     public string RiskLevel { get; init; } = string.Empty;
+    public string GovernanceDecision { get; init; } = string.Empty;
     public decimal EstimatedDistanceKm { get; init; }
     public int EstimatedDurationMinutes { get; init; }
     public decimal MaxWeightKg { get; init; }

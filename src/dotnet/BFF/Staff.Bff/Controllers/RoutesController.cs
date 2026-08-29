@@ -19,7 +19,7 @@ public class RoutesController(
     ILogger<RoutesController> logger) : StaffControllerBase
 {
     [HttpPost]
-    [RequirePermission(PermissionConstants.Modules.RoutePlanning, PermissionConstants.Create)]
+    [RequirePermission(PermissionConstants.RoutePlanning.Create)]
     public async Task<IActionResult> CreateRoute([FromBody] CreateRouteBody body)
     {
         try
@@ -51,7 +51,7 @@ public class RoutesController(
     }
 
     [HttpGet]
-    [RequirePermission(PermissionConstants.Modules.RoutePlanning, PermissionConstants.Read)]
+    [RequirePermission(PermissionConstants.RoutePlanning.Read)]
     public async Task<IActionResult> ListRoutes(
         [FromQuery] int page = 1, [FromQuery] int limit = 10, [FromQuery] string? status = null)
     {
@@ -80,7 +80,7 @@ public class RoutesController(
     }
 
     [HttpGet("{id}")]
-    [RequirePermission(PermissionConstants.Modules.RoutePlanning, PermissionConstants.Read)]
+    [RequirePermission(PermissionConstants.RoutePlanning.Read)]
     public async Task<IActionResult> GetRoute([FromRoute] string id)
     {
         try
@@ -95,7 +95,7 @@ public class RoutesController(
     }
 
     [HttpPut("{id}")]
-    [RequirePermission(PermissionConstants.Modules.RoutePlanning, PermissionConstants.Update)]
+    [RequirePermission(PermissionConstants.RoutePlanning.Update)]
     public async Task<IActionResult> UpdateRoute([FromRoute] string id, [FromBody] UpdateRouteBody body)
     {
         try
@@ -136,7 +136,7 @@ public class RoutesController(
     }
 
     [HttpDelete("{id}")]
-    [RequirePermission(PermissionConstants.Modules.RoutePlanning, PermissionConstants.Delete)]
+    [RequirePermission(PermissionConstants.RoutePlanning.Delete)]
     public async Task<IActionResult> DeleteRoute([FromRoute] string id)
     {
         try
@@ -161,7 +161,7 @@ public class RoutesController(
 
     /// <summary>Chuyển trạng thái route theo bảng transition hợp lệ (Draft→Optimizing→Ready→Active→...).</summary>
     [HttpPatch("{id}/status")]
-    [RequirePermission(PermissionConstants.Modules.RoutePlanning, PermissionConstants.Update)]
+    [RequirePermission(PermissionConstants.RoutePlanning.Update)]
     public async Task<IActionResult> UpdateRouteStatus([FromRoute] string id, [FromBody] UpdateRouteStatusBody body)
     {
         try
@@ -190,7 +190,7 @@ public class RoutesController(
 
     /// <summary>Tối ưu thứ tự điểm dừng bằng VROOM + OSRM (MLD) — cập nhật ETA/distance/duration thật.</summary>
     [HttpPost("{id}/optimize")]
-    [RequirePermission(PermissionConstants.Modules.RoutePlanning, PermissionConstants.Update)]
+    [RequirePermission(PermissionConstants.RoutePlanning.Optimize, "route_planning:update")]
     public async Task<IActionResult> OptimizeRoute([FromRoute] string id)
     {
         try
@@ -219,7 +219,7 @@ public class RoutesController(
 
     /// <summary>Yêu cầu đánh giá/khuyến nghị AI theo automation policy của tenant (rule → compliance → LLM → approval).</summary>
     [HttpPost("{id}/recommendation")]
-    [RequirePermission(PermissionConstants.Modules.RoutePlanning, PermissionConstants.Read)]
+    [RequirePermission(PermissionConstants.RoutePlanning.Read)]
     public async Task<IActionResult> GetRouteRecommendation([FromRoute] string id)
     {
         try

@@ -1,13 +1,12 @@
 using System;
 using Shared.Entity;
-using Shared.Enums;
 
 namespace RoutePlanningAgent.Domain;
 
 public class RouteDecisionAuditLog : TenantAuditableEntity
 {
     public Guid RouteId { get; set; }
-    public AutomationPolicy PolicyApplied { get; set; }
+    public string PolicyApplied { get; set; } = "RiskBasedGovernance";
     public string RiskLevel { get; set; } = default!;
     public string RuleResultsJson { get; set; } = default!;
     public bool ComplianceCheckPerformed { get; set; }

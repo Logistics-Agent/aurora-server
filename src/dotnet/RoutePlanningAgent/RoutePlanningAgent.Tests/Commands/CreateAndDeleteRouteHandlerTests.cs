@@ -1,9 +1,15 @@
+using System.Collections.Generic;
 using Microsoft.EntityFrameworkCore;
+using NSubstitute;
 using RoutePlanningAgent.Application.Commands.Routes;
 using RoutePlanningAgent.Application.DTOs.Routes;
+using RoutePlanningAgent.Application.Interfaces;
+using RoutePlanningAgent.Domain;
 using RoutePlanningAgent.Domain.Enums;
+using RoutePlanningAgent.Infrastructure.Persistences;
 using RoutePlanningAgent.Infrastructure.Services;
 using RoutePlanningAgent.Tests.TestHelpers;
+using Shared.Enums;
 using Shared.Events;
 using Shared.Exceptions;
 using Xunit;
@@ -29,6 +35,17 @@ public class CreateAndDeleteRouteHandlerTests
             });
         }
         return stops;
+    }
+
+    private static void SeedDefaultRiskPolicy(RoutePlanningDbContext context)
+    {
+        context.TenantRiskPolicyConfigs.Add(new TenantRiskPolicyConfig
+        {
+            TenantId = TestDb.TenantId,
+            PolicyMode = RiskPolicyMode.UsePlatformDefault,
+            ActivePolicyId = RouteRiskPolicyProvider.PlatformDefaultPolicyId,
+            ActivePolicyVersion = 1
+        });
     }
 
     [Fact]
@@ -88,12 +105,16 @@ public class CreateAndDeleteRouteHandlerTests
         var (context, connection) = TestDb.Create();
         await using var _ = connection;
 
+        SeedDefaultRiskPolicy(context);
         var route = RouteBuilder.Build();
         context.Routes.Add(route);
         await context.SaveChangesAsync();
 
+        var policyProvider = new RouteRiskPolicyProvider(
+            context, Substitute.For<ITenantRuleConfigService>());
+
         var handler = new DeleteRouteHandler(
-            context, new FakeCurrentUser(TestDb.TenantId, TestDb.UserId), new OutboxWriter(context));
+            context, new RouteGovernanceService(context), policyProvider, new FakeCurrentUser(TestDb.TenantId, TestDb.UserId), new OutboxWriter(context));
 
         var result = await handler.Handle(new DeleteRouteCommand(route.Id), CancellationToken.None);
 
@@ -113,12 +134,16 @@ public class CreateAndDeleteRouteHandlerTests
         var (context, connection) = TestDb.Create();
         await using var _ = connection;
 
+        SeedDefaultRiskPolicy(context);
         var route = RouteBuilder.Build(status: RouteStatus.Active);
         context.Routes.Add(route);
         await context.SaveChangesAsync();
 
+        var policyProvider = new RouteRiskPolicyProvider(
+            context, Substitute.For<ITenantRuleConfigService>());
+
         var handler = new DeleteRouteHandler(
-            context, new FakeCurrentUser(TestDb.TenantId, TestDb.UserId), new OutboxWriter(context));
+            context, new RouteGovernanceService(context), policyProvider, new FakeCurrentUser(TestDb.TenantId, TestDb.UserId), new OutboxWriter(context));
 
         await Assert.ThrowsAsync<ConflictException>(
             () => handler.Handle(new DeleteRouteCommand(route.Id), CancellationToken.None));

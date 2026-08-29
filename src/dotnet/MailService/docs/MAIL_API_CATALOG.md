@@ -1,7 +1,10 @@
 # Aurora Mail Platform — Consolidated Mail API Catalog
 
-**Version:** 1.1.0 (API Freeze & Consistency Patch)  
-**Target Audience:** Frontend Developers, Mobile Developers, QA Engineers, Backend Developers, DevOps/SRE, AI Agent Integrators, Aurora Core Team.
+> [!WARNING]
+> **DEPRECATED / SUPERSEDED DOCUMENT**  
+> This document is retained for historical reference only. The authoritative, code-audited API specification is located at [docs/technical/mail/API.md](file:///D:/IT/CD/aurora-server/docs/technical/mail/API.md) and [docs/technical/mail/OVERVIEW.md](file:///D:/IT/CD/aurora-server/docs/technical/mail/OVERVIEW.md).
+
+**Version:** 1.1.0 (Historical Archive)  
 
 ---
 
@@ -26,6 +29,9 @@
 | 15 | `GET` | `/api/v1/admin/mail/audit` | Query tenant mail security audit logs | `mail:read` (`TENANT_ADMIN`) | `MailManagement.GetAuditRecords` | Neon DB |
 | 16 | `POST` | `/api/v1/system/mail/dead-letter/{id}/requeue` | Replay dead-lettered message to queue | `SYSTEM_ADMIN` (Role Gate) | `MailManagement.RequeueDeadLetter` | Neon DB, Outbox, RabbitMQ |
 | 17 | `GET` | `/api/v1/system/mail/audit` | System-wide mail audit trail | `SYSTEM_ADMIN` (Role Gate) | `MailManagement.GetAuditRecords` | Neon DB |
+| 18 | `GET` | `/api/v1/mail/threads` | List Gmail-like conversation threads | `mail:read` (Staff / Admin) | `MailSecurity.ListThreads` | Neon DB |
+| 19 | `GET` | `/api/v1/mail/threads/{id}` | Get thread detail with messages & drafts | `mail:read` (Staff / Admin) | `MailSecurity.GetThread` | Neon DB |
+| 20 | `POST` | `/api/v1/negotiations/{id}/mail-draft` | Create threaded draft from Negotiation Suggestion | `mail:create` (Staff / Admin) | `Negotiation.GetDraftSuggestion` + `MailSecurity.CreateDraftMessage` | Neon DB, Negotiation gRPC |
 
 ---
 
@@ -35,11 +41,13 @@
 2. **Mailbox Management** (Tenant Admin)
 3. **Alias Management** (Tenant Admin)
 4. **Draft Management** (Staff, Admin, AI Agent)
-5. **Outbound Mail Delivery** (Staff & Admin)
-6. **Processed Message History** (Staff & Admin)
-7. **Quarantine & Threat Review** (Staff & Admin)
-8. **Audit Trail** (Admin & System Admin)
-9. **Operations & Dead Letter Requeue** (System Admin)
+5. **Thread Management (Gmail-Like Threading)** (Staff & Admin)
+6. **Negotiation AI Human-in-the-Loop Draft Flow** (Staff & Admin)
+7. **Outbound Mail Delivery** (Staff & Admin)
+8. **Processed Message History** (Staff & Admin)
+9. **Quarantine & Threat Review** (Staff & Admin)
+10. **Audit Trail** (Admin & System Admin)
+11. **Operations & Dead Letter Requeue** (System Admin)
 
 ---
 

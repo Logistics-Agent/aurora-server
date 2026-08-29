@@ -21,7 +21,7 @@ public class AiConfigController(
     ILogger<AiConfigController> logger) : AdminControllerBase
 {
     [HttpGet("{feature}")]
-    [RequirePermission(PermissionConstants.Modules.RoutePlanning, PermissionConstants.Read)]
+    [RequirePermission(PermissionConstants.RoutePlanning.PolicyManage)]
     public async Task<IActionResult> GetAiConfig([FromRoute] string feature)
     {
         try
@@ -38,7 +38,7 @@ public class AiConfigController(
     }
 
     [HttpPut("{feature}")]
-    [RequirePermission(PermissionConstants.Modules.RoutePlanning, PermissionConstants.Update)]
+    [RequirePermission(PermissionConstants.RoutePlanning.PolicyManage)]
     public async Task<IActionResult> UpsertAiConfig([FromRoute] string feature, [FromBody] UpsertAiConfigBody body)
     {
         try

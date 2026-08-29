@@ -19,7 +19,7 @@ public class ApprovalsController(
     ILogger<ApprovalsController> logger) : StaffControllerBase
 {
     [HttpGet("pending")]
-    [RequirePermission(PermissionConstants.Modules.RoutePlanning, PermissionConstants.Read)]
+    [RequirePermission(PermissionConstants.RoutePlanning.ApprovalRead, "route_planning:read")]
     public async Task<IActionResult> ListPendingApprovals([FromQuery] int page = 1, [FromQuery] int limit = 10)
     {
         var response = await routeClient.ListPendingApprovalsAsync(new ListPendingApprovalsRequest
@@ -40,7 +40,7 @@ public class ApprovalsController(
 
     /// <summary>Phê duyệt approval request — route chuyển sang Ready.</summary>
     [HttpPost("{id}/approve")]
-    [RequirePermission(PermissionConstants.Modules.RoutePlanning, PermissionConstants.Update)]
+    [RequirePermission(PermissionConstants.RoutePlanning.Approve, "route_planning:update")]
     public async Task<IActionResult> Approve([FromRoute] string id, [FromBody] ApproveBody? body)
     {
         try
@@ -70,7 +70,7 @@ public class ApprovalsController(
 
     /// <summary>Từ chối approval request — BẮT BUỘC kèm reason; route chuyển sang Cancelled.</summary>
     [HttpPost("{id}/reject")]
-    [RequirePermission(PermissionConstants.Modules.RoutePlanning, PermissionConstants.Update)]
+    [RequirePermission(PermissionConstants.RoutePlanning.Reject, "route_planning:update")]
     public async Task<IActionResult> Reject([FromRoute] string id, [FromBody] RejectBody body)
     {
         if (string.IsNullOrWhiteSpace(body.Reason))

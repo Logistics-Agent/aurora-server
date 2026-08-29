@@ -9,6 +9,7 @@ namespace RoutePlanningAgent.Infrastructure.Rules.Rules;
 public class LargeVolumeRule : IRule<RouteRuleContext>
 {
     public string Name => "LargeVolumeRule";
+    public const string Code = "ROUTE_VOLUME_CAPACITY";
 
     private const decimal GlobalHighRiskM3 = 50m;
     private const decimal GlobalApprovalM3 = 40m;
@@ -21,7 +22,7 @@ public class LargeVolumeRule : IRule<RouteRuleContext>
             context.TenantId, Name, ct);
 
         if (!thresholds.IsEnabled)
-            return new RuleResult { RuleName = Name, Passed = true, RiskLevel = RouteRiskLevel.Low };
+            return new RuleResult { RuleName = Name, RuleCode = Code, Passed = true, RiskLevel = RouteRiskLevel.Low };
 
         var highRiskM3 = thresholds.Get("maxVolumeM3", GlobalHighRiskM3);
         var approvalM3 = thresholds.Get("requiresApprovalThreshold", GlobalApprovalM3);
@@ -31,6 +32,7 @@ public class LargeVolumeRule : IRule<RouteRuleContext>
             return new RuleResult
             {
                 RuleName = Name,
+                RuleCode = Code,
                 Passed = false,
                 RiskLevel = RouteRiskLevel.High,
                 Message = $"MaxVolumeM3 {context.Route.MaxVolumeM3} vượt ngưỡng {highRiskM3}m³",
@@ -39,6 +41,6 @@ public class LargeVolumeRule : IRule<RouteRuleContext>
             };
         }
 
-        return new RuleResult { RuleName = Name, Passed = true, RiskLevel = RouteRiskLevel.Low };
+        return new RuleResult { RuleName = Name, RuleCode = Code, Passed = true, RiskLevel = RouteRiskLevel.Low };
     }
 }

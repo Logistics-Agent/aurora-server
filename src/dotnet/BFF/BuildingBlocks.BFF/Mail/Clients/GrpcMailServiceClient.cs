@@ -137,14 +137,25 @@ public class GrpcMailServiceClient : IMailServiceClient
             AssignedStaffId = request.AssignedStaffId ?? string.Empty,
             Subject = request.Subject,
             Body = request.Body,
-            Source = "Manual"
+            Source = "Manual",
+            SourceType = request.SourceType ?? "MANUAL",
+            SourceId = request.SourceId ?? string.Empty,
+            IdempotencyKey = request.IdempotencyKey ?? string.Empty,
+            ThreadId = request.ThreadId ?? string.Empty,
+            ReplyToMessageId = request.ReplyToMessageId ?? string.Empty,
         };
+
+        if (request.To != null)
+        {
+            protoReq.ToRecipients.AddRange(request.To);
+        }
 
         var createResp = await _securityClient.CreateDraftMessageAsync(protoReq, cancellationToken: cancellationToken);
 
         var draft = await _securityClient.GetDraftAsync(new GrpcModels.GetDraftRequest { DraftId = createResp.DraftId }, cancellationToken: cancellationToken);
 
-        return MapDraftResponse(draft);
+        var response = MapDraftResponse(draft);
+        return response with { IsExisting = createResp.IsExisting };
     }
 
     public async Task<BffModels.DraftListResponse> ListDraftsAsync(string? mailboxId, string? status, int pageSize, string? nextPageToken, CancellationToken cancellationToken = default)
@@ -179,7 +190,9 @@ public class GrpcMailServiceClient : IMailServiceClient
             BodyText = request.BodyText,
             BodyHtml = request.BodyHtml,
             IdempotencyKey = request.IdempotencyKey ?? string.Empty,
-            DraftRootId = request.DraftRootId
+            DraftRootId = request.DraftRootId,
+            ThreadId = request.ThreadId,
+            ReplyToMessageId = request.ReplyToMessageId
         };
         protoReq.RecipientAddresses.AddRange(request.RecipientAddresses);
 
@@ -246,7 +259,6 @@ public class GrpcMailServiceClient : IMailServiceClient
         };
 
         var response = await _securityClient.ListQuarantineRecordsAsync(protoReq, cancellationToken: cancellationToken);
-
         var records = response.Records.Select(MapQuarantineRecordResponse).ToList();
         return new BffModels.QuarantineListResponse(records, response.NextPageToken);
     }
@@ -265,6 +277,138 @@ public class GrpcMailServiceClient : IMailServiceClient
         return new BffModels.DeleteQuarantineResponse(response.Success);
     }
 
+    public async Task<BffModels.ThreadResponse> GetThreadAsync(string threadId, CancellationToken cancellationToken = default)
+    {
+        var protoReq = new GrpcModels.GetThreadRequest { ThreadId = threadId };
+        var thread = await _securityClient.GetThreadAsync(protoReq, cancellationToken: cancellationToken);
+
+        var messages = thread.Messages.Select(m => new BffModels.ThreadMessageResponse(
+            m.MessageId,
+            m.Direction,
+            m.SenderAddress,
+            m.RecipientAddresses.ToList(),
+            m.Subject,
+            m.BodyText,
+            m.BodyPreview,
+            m.ReplyToMessageId,
+            m.ReceivedAt.ToDateTimeOffset(),
+            m.SentAt.ToDateTimeOffset())).ToList();
+
+        var drafts = thread.Drafts.Select(MapDraftResponse).ToList();
+        var histories = thread.AssignmentHistory.Select(h => new BffModels.ThreadAssignmentHistoryResponse(
+            h.Id,
+            h.ThreadId,
+            h.FromUserId,
+            h.ToUserId,
+            h.Action,
+            h.ActorUserId,
+            h.Reason,
+            h.CreatedAt.ToDateTimeOffset())).ToList();
+
+        return new BffModels.ThreadResponse(
+            thread.ThreadId,
+            thread.MailboxId,
+            thread.Subject,
+            thread.Participants.ToList(),
+            messages,
+            drafts,
+            thread.CreatedAt.ToDateTimeOffset(),
+            thread.UpdatedAt.ToDateTimeOffset(),
+            string.IsNullOrEmpty(thread.PrimaryAssigneeUserId) ? null : thread.PrimaryAssigneeUserId,
+            thread.AssignedAt?.ToDateTimeOffset(),
+            thread.Status,
+            thread.Priority,
+            histories);
+    }
+
+    public async Task<BffModels.ThreadListResponse> ListThreadsAsync(string? mailboxId, int pageSize, string? nextPageToken, string? scope = null, string? status = null, CancellationToken cancellationToken = default)
+    {
+        var protoReq = new GrpcModels.ListThreadsRequest
+        {
+            MailboxId = mailboxId ?? string.Empty,
+            PageSize = pageSize,
+            NextPageToken = nextPageToken ?? string.Empty,
+            Scope = scope ?? string.Empty,
+            Status = status ?? string.Empty
+        };
+
+        var response = await _securityClient.ListThreadsAsync(protoReq, cancellationToken: cancellationToken);
+
+        var summaries = response.Threads.Select(t => new BffModels.ThreadSummaryResponse(
+            t.ThreadId,
+            t.MailboxId,
+            t.Subject,
+            t.Participants.ToList(),
+            t.LastMessageAt.ToDateTimeOffset(),
+            t.MessageCount,
+            t.DraftCount,
+            t.HasUnread,
+            t.Snippet,
+            string.IsNullOrEmpty(t.PrimaryAssigneeUserId) ? null : t.PrimaryAssigneeUserId,
+            t.AssignedAt?.ToDateTimeOffset(),
+            t.Status,
+            t.Priority)).ToList();
+
+        return new BffModels.ThreadListResponse(summaries, response.NextPageToken);
+    }
+
+    public async Task<BffModels.ClaimThreadResponse> ClaimThreadAsync(string threadId, CancellationToken cancellationToken = default)
+    {
+        var protoReq = new GrpcModels.ClaimThreadRequest { ThreadId = threadId };
+        var response = await _securityClient.ClaimThreadAsync(protoReq, cancellationToken: cancellationToken);
+        return new BffModels.ClaimThreadResponse(
+            response.Success,
+            response.ThreadId,
+            response.PrimaryAssigneeUserId,
+            response.AssignedAt.ToDateTimeOffset(),
+            response.Status);
+    }
+
+    public async Task<BffModels.ReassignThreadResponse> ReassignThreadAsync(string threadId, BffModels.ReassignThreadRequest request, CancellationToken cancellationToken = default)
+    {
+        var protoReq = new GrpcModels.ReassignThreadRequest
+        {
+            ThreadId = threadId,
+            TargetUserId = request.TargetUserId,
+            Reason = request.Reason ?? string.Empty
+        };
+        var response = await _securityClient.ReassignThreadAsync(protoReq, cancellationToken: cancellationToken);
+        return new BffModels.ReassignThreadResponse(
+            response.Success,
+            response.ThreadId,
+            response.PrimaryAssigneeUserId,
+            response.AssignedAt.ToDateTimeOffset(),
+            response.Status);
+    }
+
+    public async Task<BffModels.UnassignThreadResponse> UnassignThreadAsync(string threadId, BffModels.UnassignThreadRequest request, CancellationToken cancellationToken = default)
+    {
+        var protoReq = new GrpcModels.UnassignThreadRequest
+        {
+            ThreadId = threadId,
+            Reason = request.Reason ?? string.Empty
+        };
+        var response = await _securityClient.UnassignThreadAsync(protoReq, cancellationToken: cancellationToken);
+        return new BffModels.UnassignThreadResponse(response.Success, response.ThreadId, response.Status);
+    }
+
+    public async Task<BffModels.ThreadAssignmentHistoryListResponse> GetThreadAssignmentHistoryAsync(string threadId, CancellationToken cancellationToken = default)
+    {
+        var protoReq = new GrpcModels.GetThreadAssignmentHistoryRequest { ThreadId = threadId };
+        var response = await _securityClient.GetThreadAssignmentHistoryAsync(protoReq, cancellationToken: cancellationToken);
+        var histories = response.History.Select(h => new BffModels.ThreadAssignmentHistoryResponse(
+            h.Id,
+            h.ThreadId,
+            h.FromUserId,
+            h.ToUserId,
+            h.Action,
+            h.ActorUserId,
+            h.Reason,
+            h.CreatedAt.ToDateTimeOffset())).ToList();
+
+        return new BffModels.ThreadAssignmentHistoryListResponse(response.ThreadId, histories);
+    }
+
     private static BffModels.DraftResponse MapDraftResponse(GrpcModels.DraftDto draft)
     {
         return new BffModels.DraftResponse(
@@ -279,7 +423,12 @@ public class GrpcMailServiceClient : IMailServiceClient
             draft.Subject,
             draft.Body,
             draft.ContentHash,
-            draft.CreatedAt.ToDateTimeOffset());
+            draft.CreatedAt.ToDateTimeOffset(),
+            string.IsNullOrEmpty(draft.SourceType) ? "MANUAL" : draft.SourceType,
+            string.IsNullOrEmpty(draft.SourceId) ? null : draft.SourceId,
+            draft.ToRecipients?.ToList(),
+            string.IsNullOrEmpty(draft.ThreadId) ? null : draft.ThreadId,
+            string.IsNullOrEmpty(draft.ReplyToMessageId) ? null : draft.ReplyToMessageId);
     }
 
     private static BffModels.ProcessedMessageResponse MapProcessedMessageResponse(GrpcModels.ProcessedMessageDto msg)

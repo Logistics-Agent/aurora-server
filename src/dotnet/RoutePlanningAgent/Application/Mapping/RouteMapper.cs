@@ -20,6 +20,7 @@ public static class RouteMapper
         RouteType = route.Type.ToString(),
         Status = route.Status.ToString(),
         RiskLevel = route.RiskLevel.ToString(),
+        GovernanceDecision = route.GovernanceDecision.ToString(),
         EstimatedDistanceKm = route.EstimatedDistanceKm,
         EstimatedDurationMinutes = route.EstimatedDurationMinutes,
         MaxWeightKg = route.MaxWeightKg,
@@ -54,4 +55,40 @@ public static class RouteMapper
         RejectionReason = approval.RejectionReason,
         CreatedAt = approval.CreatedAt
     };
+
+    public static RoutePlanningAgent.Application.DTOs.Configs.TenantRiskRuleDto ToRuleDto(TenantRiskRule rule) => new(
+        rule.Id,
+        rule.PolicyId,
+        rule.RuleCode,
+        rule.RuleName,
+        rule.ThresholdsJson,
+        rule.RiskEffect.ToString(),
+        rule.IsEnabled,
+        rule.SourceReference,
+        rule.CreatedAt
+    );
+
+    public static RoutePlanningAgent.Application.DTOs.Configs.TenantRiskPolicyDto ToPolicyDto(TenantRiskPolicy policy) => new(
+        policy.Id,
+        policy.TenantId,
+        policy.Name,
+        policy.Description,
+        policy.Scope,
+        policy.Version,
+        policy.Status.ToString(),
+        policy.Source.ToString(),
+        policy.SourceDocumentId,
+        policy.SubmittedByUserId,
+        policy.SubmittedAt,
+        policy.ReviewedByUserId,
+        policy.ReviewedAt,
+        policy.ReviewerComment,
+        policy.PublishedByUserId,
+        policy.PublishedAt,
+        policy.RejectionReason,
+        policy.SupersededAt,
+        policy.CreatedAt,
+        policy.UpdatedAt,
+        policy.Rules?.Select(ToRuleDto).ToList() ?? []
+    );
 }

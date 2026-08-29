@@ -13,7 +13,14 @@ namespace RoutePlanningAgent.Infrastructure.Services;
 public class ApprovalService(RoutePlanningDbContext context) : IApprovalService
 {
     public async Task<ApprovalRequest> CreateAsync(
-        Guid routeId, string reason, string aiSummary, string? complianceSummary, CancellationToken ct = default)
+        Guid routeId,
+        string reason,
+        string aiSummary,
+        string? complianceSummary,
+        int routeVersion = 1,
+        string policyId = "platform-default-route-governance",
+        int policyVersion = 1,
+        CancellationToken ct = default)
     {
         var route = await context.Routes.FirstOrDefaultAsync(r => r.Id == routeId, ct)
             ?? throw new NotFoundException($"Route '{routeId}' not found");
@@ -21,6 +28,9 @@ public class ApprovalService(RoutePlanningDbContext context) : IApprovalService
         var approval = new ApprovalRequest
         {
             RouteId = routeId,
+            RouteVersion = routeVersion > 0 ? routeVersion : route.Version,
+            PolicyId = policyId,
+            PolicyVersion = policyVersion > 0 ? policyVersion : 1,
             Feature = "RoutePlanning",
             Status = ApprovalStatus.Pending,
             Reason = reason,
@@ -44,10 +54,11 @@ public class ApprovalService(RoutePlanningDbContext context) : IApprovalService
         approval.ReviewedAt = DateTimeOffset.UtcNow;
         approval.ReviewerComment = comment;
 
-        // Phê duyệt → route sẵn sàng vận hành
+        // Phê duyệt → route sẵn sàng vận hành và cấp quyền StaffAllowed
         if (approval.Route is not null)
         {
             approval.Route.Status = RouteStatus.Ready;
+            approval.Route.GovernanceDecision = Shared.Enums.GovernanceDecision.StaffAllowed;
         }
 
         await context.SaveChangesAsync(ct);
@@ -68,10 +79,11 @@ public class ApprovalService(RoutePlanningDbContext context) : IApprovalService
         approval.RejectionReason = reason;
         approval.ReviewerComment = comment;
 
-        // Từ chối → hủy route
+        // Từ chối → chuyển về Draft (Rework) để nhân viên điều chỉnh dữ liệu nghiệp vụ
         if (approval.Route is not null)
         {
-            approval.Route.Status = RouteStatus.Cancelled;
+            approval.Route.Status = RouteStatus.Draft;
+            approval.Route.GovernanceDecision = Shared.Enums.GovernanceDecision.ManagerApprovalRequired;
         }
 
         await context.SaveChangesAsync(ct);

@@ -33,7 +33,7 @@ public class MailServiceDesignTimeDbContextFactory : IDesignTimeDbContextFactory
         public Guid? TenantId => null;
         public string? TraceId => string.Empty;
         public int? PermissionVersion => 1;
-        public IReadOnlyList<string> RoleIds => Array.Empty<string>();
+        public string? Role => null;
         public IReadOnlyList<string> Permissions => Array.Empty<string>();
     }
 }

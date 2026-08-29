@@ -2,6 +2,8 @@ import { Injectable } from '@nestjs/common';
 
 export type NegotiationDecision = 'ACCEPT' | 'COUNTER_OFFER' | 'HUMAN_HANDOFF' | 'REJECT';
 
+export const DEFAULT_NEGOTIATION_CURRENCY = 'USD';
+
 export interface StrategyInput {
   offerPrice: number;
   bottomPrice: number;
@@ -9,11 +11,14 @@ export interface StrategyInput {
   currentRound: number;
   maxRounds: number;
   customerTier?: string; // 'STANDARD' | 'VIP' | 'ENTERPRISE'
+  currency?: string;
 }
 
 export interface StrategyResult {
   decision: NegotiationDecision;
+  approvedAmount: number;
   counterOfferPrice?: number;
+  currency: string;
   reason: string;
 }
 
@@ -21,18 +26,22 @@ export interface StrategyResult {
  * NegotiationStrategyDomainService
  *
  * Deterministic Engine (NestJS): AI Safety & Deterministic Guardrails.
- * AI Gemini KHÔNG ĐƯỢC TỰ QUYẾT ĐỊNH GIÁ TIỀN mà chỉ diễn đạt ngôn ngữ tự nhiên.
+ * LLM KHÔNG ĐƯỢC TỰ QUYẾT ĐỊNH GIÁ TIỀN mà chỉ diễn đạt ngôn ngữ tự nhiên.
  * Tất cả con số/tài chính được tính toán hoàn toàn bởi Engine này.
+ * Currency MVP: USD.
  */
 @Injectable()
 export class NegotiationStrategyDomainService {
   determineDecision(input: StrategyInput): StrategyResult {
     const { offerPrice, bottomPrice, listPrice, currentRound, maxRounds, customerTier } = input;
+    const currency = input.currency || DEFAULT_NEGOTIATION_CURRENCY;
 
     // Rule 1: VIP/ENTERPRISE customer tier -> Automatic Human Handoff for personalized service
     if (customerTier === 'VIP' || customerTier === 'ENTERPRISE') {
       return {
         decision: 'HUMAN_HANDOFF',
+        approvedAmount: offerPrice,
+        currency,
         reason: `Customer tier '${customerTier}' requires personal account manager negotiation.`,
       };
     }
@@ -41,7 +50,9 @@ export class NegotiationStrategyDomainService {
     if (offerPrice >= bottomPrice) {
       return {
         decision: 'ACCEPT',
+        approvedAmount: offerPrice,
         counterOfferPrice: offerPrice,
+        currency,
         reason: `Offer price $${offerPrice} is above bottom price $${bottomPrice}. Deal accepted!`,
       };
     }
@@ -50,6 +61,8 @@ export class NegotiationStrategyDomainService {
     if (currentRound >= maxRounds) {
       return {
         decision: 'HUMAN_HANDOFF',
+        approvedAmount: bottomPrice,
+        currency,
         reason: `Maximum negotiation rounds (${maxRounds}) reached. Escalate to human sales agent.`,
       };
     }
@@ -61,7 +74,9 @@ export class NegotiationStrategyDomainService {
 
     return {
       decision: 'COUNTER_OFFER',
+      approvedAmount: counterOfferPrice,
       counterOfferPrice,
+      currency,
       reason: `Offer price $${offerPrice} is below bottom price $${bottomPrice}. Proposed counter offer at $${counterOfferPrice}.`,
     };
   }

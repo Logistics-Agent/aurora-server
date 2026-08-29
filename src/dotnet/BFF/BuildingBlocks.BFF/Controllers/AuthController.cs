@@ -6,6 +6,8 @@ using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
+using Shared.Constants;
+using Shared.Security;
 
 namespace BuildingBlocks.BFF.Controllers;
 
@@ -15,9 +17,12 @@ namespace BuildingBlocks.BFF.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/v1/auth")]
-public class AuthController(IOptions<CognitoAuthOptions> cognitoOptions) : ControllerBase
+public class AuthController(
+    IOptions<CognitoAuthOptions> cognitoOptions,
+    ICurrentUserService currentUserService) : ControllerBase
 {
     private readonly CognitoAuthOptions _cognito = cognitoOptions.Value;
+    private readonly ICurrentUserService _currentUser = currentUserService;
 
     /// <summary>
     /// Redirect user sang Cognito Hosted UI (login page).
@@ -39,13 +44,24 @@ public class AuthController(IOptions<CognitoAuthOptions> cognitoOptions) : Contr
     }
 
     /// <summary>
-    /// Logout: clear cookie session + redirect sang Cognito logout endpoint.
+    /// Callback từ Cognito Hosted UI sau khi authenticate thành công.
+    /// Redirect về returnUrl (mặc định: /).
+    /// </summary>
+    [HttpGet("callback")]
+    [AllowAnonymous]
+    public IActionResult Callback([FromQuery] string? returnUrl = "/")
+    {
+        return Redirect(string.IsNullOrWhiteSpace(returnUrl) ? "/" : returnUrl);
+    }
+
+    /// <summary>
+    /// POST /api/v1/auth/logout — sign out khỏi cookie session và chuyển tiếp sang Cognito logout endpoint.
     /// </summary>
     [HttpPost("logout")]
     [Authorize]
-    public IActionResult Logout([FromQuery] string? returnUrl = "/")
+    public async Task<IActionResult> Logout([FromQuery] string? returnUrl = "/")
     {
-        HttpContext.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
+        await HttpContext.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
 
         var logoutUrl = $"{_cognito.LogoutEndpoint}" +
             $"?client_id={_cognito.ClientId}" +
@@ -59,12 +75,11 @@ public class AuthController(IOptions<CognitoAuthOptions> cognitoOptions) : Contr
     /// </summary>
     [HttpGet("logout")]
     [Authorize]
-    public IActionResult LogoutGet([FromQuery] string? returnUrl = "/")
+    public Task<IActionResult> LogoutGet([FromQuery] string? returnUrl = "/")
         => Logout(returnUrl);
 
     /// <summary>
-    /// Trả về thông tin user hiện tại từ cookie session.
-    /// Không cần gọi DB — đọc trực tiếp từ claims đã lưu trong cookie.
+    /// Trả về thông tin user hiện tại từ auth context: Persona Role + N Direct Permissions.
     /// </summary>
     [HttpGet("me")]
     [Authorize]
@@ -79,8 +94,10 @@ public class AuthController(IOptions<CognitoAuthOptions> cognitoOptions) : Contr
             EmailDomain = User.FindFirstValue("email_domain"),
             CognitoSub = User.FindFirstValue("sub")
                        ?? User.FindFirstValue("cognito_sub"),
-            UserId = User.FindFirstValue("user_id"),
-            TenantId = User.FindFirstValue("tenant_id"),
+            UserId = _currentUser.UserId?.ToString() ?? User.FindFirstValue("user_id"),
+            TenantId = _currentUser.TenantId?.ToString() ?? User.FindFirstValue("tenant_id"),
+            Role = _currentUser.Role ?? User.FindFirstValue(JwtClaims.Role) ?? User.FindFirstValue(ClaimTypes.Role) ?? RoleConstants.Staff,
+            Permissions = _currentUser.Permissions ?? [],
             Name = User.FindFirstValue(ClaimTypes.Name)
                 ?? User.FindFirstValue("name")
                 ?? User.FindFirstValue("cognito:username"),

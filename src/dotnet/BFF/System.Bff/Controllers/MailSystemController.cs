@@ -3,9 +3,11 @@ using System.Threading.Tasks;
 using Asp.Versioning;
 using Grpc.Core;
 using Microsoft.AspNetCore.Mvc;
+using BuildingBlocks.BFF.Attributes;
 using BuildingBlocks.BFF.Extensions;
 using BuildingBlocks.BFF.Mail.Clients;
 using BuildingBlocks.BFF.Mail.Models;
+using Shared.Constants;
 using Shared.Security;
 
 namespace SystemBff.Controllers;
@@ -21,6 +23,7 @@ public class MailSystemController(
     ILogger<MailSystemController> logger) : SystemControllerBase
 {
     [HttpPost("dead-letter/{id}/requeue")]
+    [RequirePermission(PermissionConstants.Mail.SystemManage)]
     public async Task<IActionResult> RequeueDeadLetter([FromRoute] string id)
     {
         if (!Guid.TryParse(id, out _))

@@ -179,9 +179,7 @@ public sealed class ShipmentQueryTests
     {
         public Guid? UserId { get; } = Guid.NewGuid();
         public Guid? TenantId { get; } = tenantId;
-        public string? TraceId { get; } = Guid.NewGuid().ToString();
-        public int? PermissionVersion { get; } = 1;
-        public IReadOnlyList<string> RoleIds { get; } = [];
+        public string? Role { get; } = "STAFF";
         public IReadOnlyList<string> Permissions { get; } = [];
     }
 }

@@ -63,11 +63,14 @@ public class UpdateRouteHandler(
         route.EstimatedDurationMinutes = request.EstimatedDurationMinutes;
 
         // Thay toàn bộ danh sách stops
-        context.RouteStops.RemoveRange(route.Stops);
-        route.Stops.Clear();
+        foreach (var existingStop in route.Stops.ToList())
+        {
+            context.RouteStops.Remove(existingStop);
+        }
+
         foreach (var stopInput in request.Stops)
         {
-            route.Stops.Add(new RouteStop
+            context.RouteStops.Add(new RouteStop
             {
                 RouteId = route.Id,
                 Sequence = stopInput.Sequence,
@@ -77,13 +80,14 @@ public class UpdateRouteHandler(
                 Latitude = stopInput.Latitude,
                 Longitude = stopInput.Longitude,
                 EstimatedArrivalMinutes = stopInput.EstimatedArrivalMinutes,
-                ServiceDurationMinutes = stopInput.ServiceDurationMinutes,
-                Route = route
+                ServiceDurationMinutes = stopInput.ServiceDurationMinutes
             });
         }
 
-        // Dữ liệu thay đổi → risk cần đánh giá lại, optimization cũ hết hiệu lực
+        // Dữ liệu thay đổi → risk cần đánh giá lại, optimization cũ hết hiệu lực, version tăng
         route.RiskLevel = Shared.Enums.RouteRiskLevel.Low;
+        route.GovernanceDecision = Shared.Enums.GovernanceDecision.NoApprovalRequired;
+        route.LastAssessedAt = null;
         route.OptimizedAt = null;
         route.Version++;
 

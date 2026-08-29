@@ -1,69 +1,72 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading.Tasks;
 using Asp.Versioning;
 using BuildingBlocks.BFF.Attributes;
-using Grpc.Core;
-using IamTenant.Grpc;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Logging;
 using Shared.Constants;
+using Shared.Enums;
 using Shared.Security;
 
 namespace AdminBff.Controllers;
 
 /// <summary>
-/// Roles là READ-ONLY theo thiết kế — không hỗ trợ tạo/sửa/xóa role qua API.
-/// (System roles được seed sẵn: SYSTEM_ADMIN, TENANT_ADMIN, TENANT_STAFF.)
+/// Roles catalog (Canonical Base Roles & Default Template Permissions).
 /// Route: /api/v1/admin/roles
 /// </summary>
 [ApiVersion("1.0")]
 public class RolesController(
-    IamService.IamServiceClient iamClient,
     ICurrentUserService currentUser,
     ILogger<RolesController> logger) : AdminControllerBase
 {
+    private static readonly List<RoleDefinitionDto> CanonicalTenantRoles =
+    [
+        new RoleDefinitionDto(
+            RoleConstants.TenantAdmin,
+            "Tenant Administrator",
+            "Tenant administrator persona with full administrative permissions across tenant services.",
+            PermissionConstants.GetTenantAdminPermissions()),
+        new RoleDefinitionDto(
+            RoleConstants.Manager,
+            "Operations Manager",
+            "Operations and risk supervisor persona with elevated review and approval capabilities.",
+            PermissionConstants.GetDefaultManagerPermissions()),
+        new RoleDefinitionDto(
+            RoleConstants.Staff,
+            "Tenant Staff",
+            "Standard tenant operational staff persona with baseline operational capabilities.",
+            PermissionConstants.GetDefaultStaffPermissions())
+    ];
+
     [HttpGet]
-    [RequirePermission(PermissionConstants.Modules.Iam, PermissionConstants.Read)]
-    public async Task<IActionResult> ListRoles([FromQuery] int page = 1, [FromQuery] int limit = 10)
+    [RequirePermission(PermissionConstants.Iam.RoleRead, "iam:read")]
+    public IActionResult ListRoles()
     {
-        var response = await iamClient.GetManyRolesAsync(
-            new GetManyRolesRequest { Page = page, Limit = limit });
-
-        logger.LogDebug("Listed roles for tenant {TenantId} by {AdminId}", currentUser.TenantId, currentUser.UserId);
-
+        logger.LogDebug("Listed canonical roles for tenant {TenantId} by {AdminId}", currentUser.TenantId, currentUser.UserId);
         return Ok(new
         {
-            Items = response.Roles.Select(MapRoleResponse),
-            response.Page,
-            response.Limit,
-            response.TotalItems,
-            response.TotalPages
+            Items = CanonicalTenantRoles,
+            TotalItems = CanonicalTenantRoles.Count
         });
     }
 
-    [HttpGet("{id}")]
-    [RequirePermission(PermissionConstants.Modules.Iam, PermissionConstants.Read)]
-    public async Task<IActionResult> GetRole([FromRoute] string id)
+    [HttpGet("{code}")]
+    [RequirePermission(PermissionConstants.Iam.RoleRead, "iam:read")]
+    public IActionResult GetRole([FromRoute] string code)
     {
-        try
+        var role = CanonicalTenantRoles.FirstOrDefault(r => string.Equals(r.Code, code, StringComparison.OrdinalIgnoreCase));
+        if (role == null)
         {
-            var response = await iamClient.GetRoleAsync(
-                new GetRoleRequest { Id = id });
-
-            return Ok(MapRoleResponse(response));
+            return NotFound(new { detail = $"Role '{code}' not found." });
         }
-        catch (RpcException ex) when (ex.StatusCode == Grpc.Core.StatusCode.NotFound)
-        {
-            return NotFound(new { detail = $"Role '{id}' not found." });
-        }
+        return Ok(role);
     }
 
-    // --- DTOs ---
-    private static object MapRoleResponse(RoleResponse r) => new
-    {
-        r.Id,
-        r.Code,
-        r.Name,
-        r.Description,
-        r.PermissionIds,
-        CreatedAt = r.CreatedAt?.ToDateTime(),
-        UpdatedAt = r.UpdatedAt?.ToDateTime()
-    };
+    public record RoleDefinitionDto(
+        string Code,
+        string Name,
+        string Description,
+        IReadOnlyList<string> DefaultPermissions);
 }

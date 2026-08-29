@@ -6,6 +6,7 @@ using Microsoft.EntityFrameworkCore;
 using RoutePlanningAgent.Application.Interfaces;
 using RoutePlanningAgent.Domain.Enums;
 using RoutePlanningAgent.Infrastructure.Persistences;
+using Shared.Enums;
 using Shared.Events;
 using Shared.Exceptions;
 using Shared.Security;
@@ -16,10 +17,14 @@ public record DeleteRouteCommand(Guid Id) : IRequest<bool>;
 
 public class DeleteRouteHandler(
     RoutePlanningDbContext context,
+    IRouteGovernanceService governanceService,
+    IRouteRiskPolicyProvider policyProvider,
     ICurrentUserService currentUser,
     IOutboxWriter outbox)
     : IRequestHandler<DeleteRouteCommand, bool>
 {
+    private const string Feature = "RoutePlanning";
+
     public async Task<bool> Handle(DeleteRouteCommand request, CancellationToken cancellationToken)
     {
         var tenantId = currentUser.TenantId
@@ -29,10 +34,16 @@ public class DeleteRouteHandler(
             .FirstOrDefaultAsync(r => r.Id == request.Id, cancellationToken)
             ?? throw new NotFoundException($"Route '{request.Id}' not found");
 
-        if (route.Status == RouteStatus.Active)
-            throw new ConflictException("Route đang Active — không thể xoá. Hãy Complete/Cancel trước.");
+        var effectivePolicy = await policyProvider.GetEffectivePolicyAsync(tenantId, Feature, cancellationToken);
 
-        // Soft delete — global query filter sẽ ẩn route khỏi mọi query
+        // Đánh giá rủi ro xóa theo tác động nghiệp vụ và chính sách hiệu lực
+        var assessment = governanceService.AssessSoftDeleteRisk(route, effectivePolicy);
+        if (assessment.Decision == GovernanceDecision.Blocked)
+        {
+            throw new ConflictException(assessment.ReasonDetails);
+        }
+
+        // Soft delete — global query filter sẽ ẩn route khỏi mọi query thông thường
         route.IsDeleted = true;
 
         outbox.Enqueue(new RouteDeletedEvent
