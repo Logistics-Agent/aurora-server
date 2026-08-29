@@ -16,9 +16,16 @@ target/
 !**/artifacts/.gitkeep
 # Local Codex planning and execution documents
 
+# Firebase service-account credentials
+/*-firebase-adminsdk-*.json
+/*firebase-service-account*.json
+/*firebase-adminsdk*.json
+
 dist/
 target/
 *Migrations
+!src/dotnet/Notification/Infrastructure/Persistences/Migrations/
+!src/dotnet/Notification/Infrastructure/Persistences/Migrations/*.cs
 # User-specific files
 *.rsuser
 *.suo

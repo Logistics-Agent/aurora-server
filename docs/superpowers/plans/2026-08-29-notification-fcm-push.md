@@ -126,25 +126,25 @@ The first implementation must not silently broadcast a shipment event to every u
 
 ## Implementation Checkpoint
 
-Status at the current implementation checkpoint: **In progress**.
+Status at the current implementation checkpoint: **Backend implementation complete; FE/BFF and external runtime validation remain**.
 
 Completed in `src/dotnet/Notification`:
 
 - [x] .NET 10 executable project referencing shared services and `Shipment.Contracts`.
 - [x] Tenant-scoped notification, device, shipment subscription, delivery-attempt, and processed-event entities.
-- [x] PostgreSQL DbContext and initial migration `20260828174408_InitialNotification`.
+- [x] PostgreSQL DbContext and initial migration `20260829151759_InitialNotification`.
 - [x] JWT/current-user middleware and device registration/deactivation endpoints.
 - [x] Subscription endpoint used as the initial explicit recipient-resolution strategy.
 - [x] Firebase Admin SDK provider and deterministic fake provider.
 - [x] Shipment created/status-changed/cancelled/delivered consumers using MassTransit.
 - [x] Notification list, unread-count, mark-read, and mark-all-read endpoints.
 - [x] Delivery-attempt persistence, bounded retry worker, and invalid-token deactivation.
-- [x] Domain and processor tests; latest result is 3 passed.
+- [x] Domain and processor/provider tests; latest result is 5 passed.
 
 Still required before the plan can be marked complete:
 
-- [ ] Add BFF routing/client integration so the browser reaches Notification through the authenticated gateway.
-- [ ] Add frontend Firebase setup, service worker, permission flow, token refresh handling, `onMessage`, and popup click navigation.
+- [ ] Add BFF routing/client integration so the browser reaches Notification through the authenticated gateway (outside the current Notification-only scope).
+- [ ] Add frontend Firebase setup, service worker, permission flow, token refresh handling, `onMessage`, and popup click navigation (outside the current Notification-only scope).
 - [ ] Add consumer tests for every supported event and explicit no-recipient behavior.
 - [ ] Add API tenant/user-isolation tests and migration/database integration tests.
 - [ ] Verify real local PostgreSQL/RabbitMQ startup and event delivery; Firebase production send remains a secret-configured smoke test.

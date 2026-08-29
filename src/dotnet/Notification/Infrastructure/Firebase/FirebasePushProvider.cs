@@ -17,11 +17,29 @@ public sealed class FirebasePushProvider : IFcmPushProvider
         this.logger = logger;
         var settings = options.Value;
         if (!settings.Enabled) return;
-        if (string.IsNullOrWhiteSpace(settings.ProjectId) || string.IsNullOrWhiteSpace(settings.ClientEmail) || string.IsNullOrWhiteSpace(settings.PrivateKey))
-            throw new InvalidOperationException("Firebase is enabled but server credentials are incomplete.");
 
-        var credentialJson = $$"""{"type":"service_account","project_id":"{{settings.ProjectId}}","client_email":"{{settings.ClientEmail}}","private_key":"{{settings.PrivateKey.Replace("\\n", "\n")}}"}""";
-        app = FirebaseApp.Create(new AppOptions { Credential = GoogleCredential.FromJson(credentialJson), ProjectId = settings.ProjectId });
+        GoogleCredential credential;
+        if (!string.IsNullOrWhiteSpace(settings.CredentialsPath))
+        {
+            if (!File.Exists(settings.CredentialsPath))
+                throw new InvalidOperationException("Firebase credentials file was not found.");
+            credential = GoogleCredential.FromFile(settings.CredentialsPath);
+        }
+        else if (settings.HasInlineCredentials)
+        {
+            var credentialJson = $$"""{"type":"service_account","project_id":"{{settings.ProjectId}}","client_email":"{{settings.ClientEmail}}","private_key":"{{settings.PrivateKey.Replace("\\n", "\n")}}"}""";
+            credential = GoogleCredential.FromJson(credentialJson);
+        }
+        else
+        {
+            throw new InvalidOperationException("Firebase is enabled but credentials are incomplete.");
+        }
+
+        app = FirebaseApp.Create(new AppOptions
+        {
+            Credential = credential,
+            ProjectId = settings.ProjectId
+        });
     }
 
     public async Task<FcmSendResult> SendAsync(NotificationDevice device, FcmMessage message, CancellationToken cancellationToken)

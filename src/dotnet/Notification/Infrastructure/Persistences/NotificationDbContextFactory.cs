@@ -8,7 +8,7 @@ public sealed class NotificationDbContextFactory : IDesignTimeDbContextFactory<N
     public NotificationDbContext CreateDbContext(string[] args)
     {
         var builder = new DbContextOptionsBuilder<NotificationDbContext>();
-        builder.UseNpgsql("Host=localhost;Port=5433;Database=aurora_notification;Username=postgres;Password=postgres");
+        builder.UseNpgsql("Host=localhost;Port=5434;Database=aurora_notification;Username=postgres;Password=postgres");
         return new NotificationDbContext(builder.Options);
     }
 }
