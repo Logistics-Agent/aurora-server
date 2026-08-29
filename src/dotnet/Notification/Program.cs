@@ -37,6 +37,11 @@ builder.Services.AddSharedMassTransit(builder.Configuration, x =>
     x.AddConsumer<Notification.Infrastructure.Messaging.Consumers.ShipmentCancelledConsumer>();
     x.AddConsumer<Notification.Infrastructure.Messaging.Consumers.ShipmentDeliveredConsumer>();
     x.AddConsumer<Notification.Infrastructure.Messaging.Consumers.ShipmentCreatedConsumer>();
+    x.AddConsumer<Notification.Infrastructure.Messaging.Consumers.GpsMonitoringAlertConsumer>();
+    x.AddConsumer<Notification.Infrastructure.Messaging.Consumers.DocumentOcrCompletedConsumer>();
+    x.AddConsumer<Notification.Infrastructure.Messaging.Consumers.DocumentOcrFailedConsumer>();
+    x.AddConsumer<Notification.Infrastructure.Messaging.Consumers.ComplianceEvaluationCompletedConsumer>();
+    x.AddConsumer<Notification.Infrastructure.Messaging.Consumers.ComplianceEvaluationFailedConsumer>();
 });
 builder.Services.AddRouting();
 

@@ -13,10 +13,10 @@ public sealed class NotificationEventProcessor(
     IFcmPushProvider pushProvider,
     ILogger<NotificationEventProcessor> logger)
 {
-    public Task ProcessAsync(Guid eventId, Guid tenantId, Guid shipmentId, string type, string title, string body, string? shipmentNumber, DateTimeOffset occurredAt, CancellationToken ct) =>
+    public Task ProcessAsync(Guid eventId, Guid tenantId, Guid? shipmentId, string type, string title, string body, string? shipmentNumber, DateTimeOffset occurredAt, CancellationToken ct) =>
         ProcessCoreAsync(eventId, tenantId, shipmentId, type, title, body, shipmentNumber, occurredAt, ct);
 
-    private async Task ProcessCoreAsync(Guid eventId, Guid tenantId, Guid shipmentId, string type, string title, string body, string? shipmentNumber, DateTimeOffset occurredAt, CancellationToken ct)
+    private async Task ProcessCoreAsync(Guid eventId, Guid tenantId, Guid? shipmentId, string type, string title, string body, string? shipmentNumber, DateTimeOffset occurredAt, CancellationToken ct)
     {
         var userIds = await recipients.ResolveAsync(tenantId, shipmentId, ct);
         foreach (var userId in userIds)
@@ -25,7 +25,8 @@ public sealed class NotificationEventProcessor(
             if (await db.ProcessedEvents.AnyAsync(x => x.EventId == eventId && x.Rule == rule && x.UserId == userId, ct)) continue;
             await using var transaction = await db.Database.BeginTransactionAsync(ct);
             if (await db.ProcessedEvents.AnyAsync(x => x.EventId == eventId && x.Rule == rule && x.UserId == userId, ct)) { await transaction.RollbackAsync(ct); continue; }
-            var notification = Notification.Domain.Entities.Notification.Create(tenantId, userId, type, title, body, shipmentId, shipmentNumber, $"/shipments/{shipmentId}", NotificationPriority.Info);
+            var actionUrl = shipmentId is null ? "/notifications" : $"/shipments/{shipmentId}";
+            var notification = Notification.Domain.Entities.Notification.Create(tenantId, userId, type, title, body, shipmentId, shipmentNumber, actionUrl, NotificationPriority.Info);
             db.Notifications.Add(notification);
             db.ProcessedEvents.Add(ProcessedNotificationEvent.Create(eventId, tenantId, userId, rule));
             await db.SaveChangesAsync(ct);
@@ -40,7 +41,7 @@ public sealed class NotificationEventProcessor(
                 var result = await pushProvider.SendAsync(device, new FcmMessage(title, body, new Dictionary<string, string>
                 {
                     ["notificationId"] = notification.Id.ToString(), ["type"] = type,
-                    ["shipmentId"] = shipmentId.ToString(), ["actionUrl"] = $"/shipments/{shipmentId}"
+                    ["shipmentId"] = shipmentId?.ToString() ?? string.Empty, ["actionUrl"] = actionUrl
                 }), ct);
                 if (result.Status == FcmSendStatus.Sent) { attempt.Sent(result.ProviderMessageId); delivered = true; }
                 else if (result.Status == FcmSendStatus.InvalidToken) { attempt.Failed(result.ErrorCode ?? "invalid_token", true); device.Deactivate(); }
