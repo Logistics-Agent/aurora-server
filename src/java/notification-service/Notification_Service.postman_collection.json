@@ -1,0 +1,359 @@
+{
+	"info": {
+		"_postman_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+		"name": "Aurora Notification Service - Enterprise Full Suite",
+		"description": "Bộ Test API Chuyên Sâu Đầy Đủ Tất Cả Chức Năng Cho Notification Service",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"item": [
+		{
+			"name": "1. Healthcheck",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test(\"Status code is 200 OK\", function () {",
+							"    pm.response.to.have.status(200);",
+							"});"
+						],
+						"type": "text/javascript"
+					}
+				}
+			],
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "http://localhost:8085/",
+					"protocol": "http",
+					"host": ["localhost"],
+					"port": "8085",
+					"path": [""]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "2. Seed 10 Ngẫu Nhiên Dữ Liệu Test (Auto-Seed)",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test(\"Status code is 200 OK\", function () {",
+							"    pm.response.to.have.status(200);",
+							"});"
+						],
+						"type": "text/javascript"
+					}
+				}
+			],
+			"request": {
+				"method": "POST",
+				"header": [],
+				"url": {
+					"raw": "http://localhost:8085/api/v1/notifications/seed-random?count=10",
+					"protocol": "http",
+					"host": ["localhost"],
+					"port": "8085",
+					"path": ["api", "v1", "notifications", "seed-random"],
+					"query": [{ "key": "count", "value": "10" }]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "3. Tạo Thông báo In-App Mới (Dynamic Random)",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test(\"Status code is 200 OK\", function () {",
+							"    pm.response.to.have.status(200);",
+							"});",
+							"pm.test(\"Notification created and saved notificationId\", function () {",
+							"    var jsonData = pm.response.json();",
+							"    pm.expect(jsonData.id).to.be.a('string');",
+							"    pm.collectionVariables.set(\"notificationId\", jsonData.id);",
+							"});"
+						],
+						"type": "text/javascript"
+					}
+				}
+			],
+			"request": {
+				"method": "POST",
+				"header": [{ "key": "Content-Type", "value": "application/json", "type": "text" }],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n  \"tenantId\": \"tenant-aurora-01\",\n  \"userId\": \"user-123\",\n  \"title\": \"Đơn hàng mới #SHIP-{{$randomInt}}\",\n  \"body\": \"Giao hàng cho khách {{$randomFullName}} tại {{$randomCompanyName}}\",\n  \"actionUrl\": \"https://aurora.logistics.com/shipments/{{$randomInt}}\",\n  \"priority\": \"WARNING\"\n}",
+					"options": { "raw": { "language": "json" } }
+				},
+				"url": {
+					"raw": "http://localhost:8085/api/v1/notifications/in-app",
+					"protocol": "http",
+					"host": ["localhost"],
+					"port": "8085",
+					"path": ["api", "v1", "notifications", "in-app"]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "4. Giả Lập Sự Kiện Lô Hàng Đa Kênh (Shipment Event Multi-Channel)",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test(\"Status code is 200 OK\", function () {",
+							"    pm.response.to.have.status(200);",
+							"});",
+							"pm.test(\"Multi-channel dispatched\", function () {",
+							"    var jsonData = pm.response.json();",
+							"    pm.expect(jsonData.status).to.eql('SUCCESS');",
+							"});"
+						],
+						"type": "text/javascript"
+					}
+				}
+			],
+			"request": {
+				"method": "POST",
+				"header": [{ "key": "Content-Type", "value": "application/json", "type": "text" }],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n  \"tenantId\": \"tenant-aurora-01\",\n  \"userId\": \"user-123\",\n  \"shipmentCode\": \"SHIP-{{$randomInt}}\",\n  \"customerName\": \"{{$randomFullName}}\",\n  \"statusName\": \"DELIVERED\",\n  \"location\": \"Kho Tân Bình, TP.HCM\"\n}",
+					"options": { "raw": { "language": "json" } }
+				},
+				"url": {
+					"raw": "http://localhost:8085/api/v1/notifications/shipment-event-test",
+					"protocol": "http",
+					"host": ["localhost"],
+					"port": "8085",
+					"path": ["api", "v1", "notifications", "shipment-event-test"]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "5. Đếm Số Thông Báo Chưa Đọc (Unread Count Badge)",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test(\"Status code is 200 OK\", function () {",
+							"    pm.response.to.have.status(200);",
+							"});",
+							"pm.test(\"Has unreadCount field\", function () {",
+							"    var jsonData = pm.response.json();",
+							"    pm.expect(jsonData).to.have.property('unreadCount');",
+							"});"
+						],
+						"type": "text/javascript"
+					}
+				}
+			],
+			"request": {
+				"method": "GET",
+				"header": [{ "key": "X-Tenant-Id", "value": "tenant-aurora-01", "type": "text" }],
+				"url": {
+					"raw": "http://localhost:8085/api/v1/notifications/unread-count?userId=user-123",
+					"protocol": "http",
+					"host": ["localhost"],
+					"port": "8085",
+					"path": ["api", "v1", "notifications", "unread-count"],
+					"query": [{ "key": "userId", "value": "user-123" }]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "6. Lấy Danh Sách Thông Báo",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test(\"Status code is 200 OK\", function () {",
+							"    pm.response.to.have.status(200);",
+							"});"
+						],
+						"type": "text/javascript"
+					}
+				}
+			],
+			"request": {
+				"method": "GET",
+				"header": [{ "key": "X-Tenant-Id", "value": "tenant-aurora-01", "type": "text" }],
+				"url": {
+					"raw": "http://localhost:8085/api/v1/notifications",
+					"protocol": "http",
+					"host": ["localhost"],
+					"port": "8085",
+					"path": ["api", "v1", "notifications"]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "7. Lấy Chi Tiết Thông Báo theo ID",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test(\"Status code is 200 OK\", function () {",
+							"    pm.response.to.have.status(200);",
+							"});"
+						],
+						"type": "text/javascript"
+					}
+				}
+			],
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "http://localhost:8085/api/v1/notifications/{{notificationId}}",
+					"protocol": "http",
+					"host": ["localhost"],
+					"port": "8085",
+					"path": ["api", "v1", "notifications", "{{notificationId}}"]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "8. Đánh Dấu 1 Thông Báo Đã Đọc",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test(\"Status code is 200 OK\", function () {",
+							"    pm.response.to.have.status(200);",
+							"});",
+							"pm.test(\"Status updated to READ\", function () {",
+							"    var jsonData = pm.response.json();",
+							"    pm.expect(jsonData.status).to.eql('READ');",
+							"});"
+						],
+						"type": "text/javascript"
+					}
+				}
+			],
+			"request": {
+				"method": "PUT",
+				"header": [],
+				"url": {
+					"raw": "http://localhost:8085/api/v1/notifications/{{notificationId}}/read",
+					"protocol": "http",
+					"host": ["localhost"],
+					"port": "8085",
+					"path": ["api", "v1", "notifications", "{{notificationId}}", "read"]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "9. Đánh Dấu TẤT CẢ Thông Báo Đã Đọc (Mark All As Read)",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test(\"Status code is 200 OK\", function () {",
+							"    pm.response.to.have.status(200);",
+							"});"
+						],
+						"type": "text/javascript"
+					}
+				}
+			],
+			"request": {
+				"method": "PUT",
+				"header": [{ "key": "X-Tenant-Id", "value": "tenant-aurora-01", "type": "text" }],
+				"url": {
+					"raw": "http://localhost:8085/api/v1/notifications/read-all?userId=user-123",
+					"protocol": "http",
+					"host": ["localhost"],
+					"port": "8085",
+					"path": ["api", "v1", "notifications", "read-all"],
+					"query": [{ "key": "userId", "value": "user-123" }]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "10. Test Telegram Bot Alert (DevOpsAgent)",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test(\"Status code is 200 OK\", function () {",
+							"    pm.response.to.have.status(200);",
+							"});"
+						],
+						"type": "text/javascript"
+					}
+				}
+			],
+			"request": {
+				"method": "POST",
+				"header": [{ "key": "Content-Type", "value": "application/json", "type": "text" }],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n  \"eventId\": \"evt-devops-{{$randomInt}}\",\n  \"serviceName\": \"DevOpsAgent\",\n  \"alertTitle\": \"Server High CPU Usage\",\n  \"severity\": \"CRITICAL\",\n  \"details\": \"CPU node-01 đang quá tải 98%!\",\n  \"environment\": \"production\"\n}",
+					"options": { "raw": { "language": "json" } }
+				},
+				"url": {
+					"raw": "http://localhost:8085/api/v1/notifications/telegram-test",
+					"protocol": "http",
+					"host": ["localhost"],
+					"port": "8085",
+					"path": ["api", "v1", "notifications", "telegram-test"]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "11. Xóa Thông Báo (Delete)",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test(\"Status code is 204 No Content\", function () {",
+							"    pm.response.to.have.status(204);",
+							"});"
+						],
+						"type": "text/javascript"
+					}
+				}
+			],
+			"request": {
+				"method": "DELETE",
+				"header": [],
+				"url": {
+					"raw": "http://localhost:8085/api/v1/notifications/{{notificationId}}",
+					"protocol": "http",
+					"host": ["localhost"],
+					"port": "8085",
+					"path": ["api", "v1", "notifications", "{{notificationId}}"]
+				}
+			},
+			"response": []
+		}
+	],
+	"variable": [
+		{
+			"key": "notificationId",
+			"value": ""
+		}
+	]
+}
