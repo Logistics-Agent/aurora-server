@@ -16,8 +16,6 @@ public static class SwaggerExtensions
                 static string PrefixByModule(Type t, string baseName)
                 {
                     var ns = t.Namespace ?? "";
-                    if (ns.Contains("IamTenant")) return "Iam_" + baseName;
-                    if (ns.Contains("RoutePlanning")) return "RoutePlanning_" + baseName;
                     if (ns.Contains("System")) return "System_" + baseName;
                     if (ns.Contains("Admin")) return "Admin_" + baseName;
                     if (ns.Contains("Staff")) return "Staff_" + baseName;
@@ -52,7 +50,6 @@ public static class SwaggerExtensions
                 Name = "access_token",
                 Type = SecuritySchemeType.ApiKey,
                 In = ParameterLocation.Cookie,
-                Description = "Sử dụng Cookie access_token để xác thực. Khi bạn đăng nhập thành công, trình duyệt tự động lưu HttpOnly cookie và Swagger UI sẽ tự động đính kèm cookie này vào các request tiếp theo."
             });
 
             options.AddSecurityRequirement(new OpenApiSecurityRequirement

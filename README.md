@@ -154,35 +154,85 @@ flowchart TB
     YARP -->|/api/v1/admin/*| AdminBFF
     YARP -->|/api/v1/system/*| SystemBFF
 
-    StaffBFF --> Cognito & RedisCluster
-    AdminBFF --> Cognito & RedisCluster
-    SystemBFF --> Cognito & RedisCluster
+    StaffBFF --> Cognito
+    StaffBFF --> RedisCluster
+    AdminBFF --> Cognito
+    AdminBFF --> RedisCluster
+    SystemBFF --> Cognito
+    SystemBFF --> RedisCluster
     RealtimeHub --> RedisCluster
 
-    StaffBFF -->|gRPC| IamSvc & ShipmentSvc & RouteSvc & MailSvc & OcrSvc & ComplianceSvc & GpsSvc & NotificationSvc & BillingSvc & FinancialSvc & NegotiationSvc
+    StaffBFF -->|gRPC| IamSvc
+    StaffBFF -->|gRPC| ShipmentSvc
+    StaffBFF -->|gRPC| RouteSvc
+    StaffBFF -->|gRPC| MailSvc
+    StaffBFF -->|gRPC| OcrSvc
+    StaffBFF -->|gRPC| ComplianceSvc
+    StaffBFF -->|gRPC| GpsSvc
+    StaffBFF -->|gRPC| NotificationSvc
+    StaffBFF -->|gRPC| BillingSvc
+    StaffBFF -->|gRPC| FinancialSvc
+    StaffBFF -->|gRPC| NegotiationSvc
     StaffBFF -->|HTTP| AssistantSvc
-    AdminBFF -->|gRPC| IamSvc & MailSvc & RouteSvc & ComplianceSvc & AiGovSvc
-    SystemBFF -->|gRPC| IamSvc & MailSvc & ComplianceSvc & DevOpsSvc
 
-    %% Service to Service
+    AdminBFF -->|gRPC| IamSvc
+    AdminBFF -->|gRPC| MailSvc
+    AdminBFF -->|gRPC| RouteSvc
+    AdminBFF -->|gRPC| ComplianceSvc
+    AdminBFF -->|gRPC| AiGovSvc
+
+    SystemBFF -->|gRPC| IamSvc
+    SystemBFF -->|gRPC| MailSvc
+    SystemBFF -->|gRPC| ComplianceSvc
+    SystemBFF -->|gRPC| DevOpsSvc
+
+    %% Service to Service gRPC
     RouteSvc -->|gRPC| ComplianceSvc
     BillingSvc -->|gRPC| FinancialSvc
     NegotiationSvc -->|gRPC| FinancialSvc
-    AssistantSvc -->|gRPC| ComplianceSvc & ShipmentSvc & BillingSvc
+    AssistantSvc -->|gRPC| ComplianceSvc
+    AssistantSvc -->|gRPC| ShipmentSvc
+    AssistantSvc -->|gRPC| BillingSvc
 
-    %% AI Governance
-    MailSvc & OcrSvc & ComplianceSvc & RouteSvc & NegotiationSvc & AssistantSvc & DevOpsSvc -->|gRPC| AiGovSvc
+    %% AI Governance Clients
+    MailSvc -->|gRPC| AiGovSvc
+    OcrSvc -->|gRPC| AiGovSvc
+    ComplianceSvc -->|gRPC| AiGovSvc
+    RouteSvc -->|gRPC| AiGovSvc
+    NegotiationSvc -->|gRPC| AiGovSvc
+    AssistantSvc -->|gRPC| AiGovSvc
+    DevOpsSvc -->|gRPC| AiGovSvc
     AiGovSvc --> LLMProviders
 
     %% External Engines
     RouteSvc --> VROOM
-    MailSvc --> StalwartServer & ObjectStore
+    MailSvc --> StalwartServer
+    MailSvc --> ObjectStore
     ComplianceSvc --> PgVectorStore
-    DotNetServices & JavaServices & NestJsServices --> Postgres
+    DotNetServices --> Postgres
+    JavaServices --> Postgres
+    NestJsServices --> Postgres
 
-    %% Async Messaging
-    ShipmentSvc & RouteSvc & MailSvc & OcrSvc & ComplianceSvc & GpsSvc & IamSvc & BillingSvc & NegotiationSvc & AiGovSvc & DevOpsSvc -.->|Publish (Outbox CDC)| RabbitMQ
-    RabbitMQ -.->|Consume Events| NotificationSvc & RealtimeHub & BillingSvc & OcrSvc & ComplianceSvc & GpsSvc & MailSvc
+    %% Async Messaging Outbox
+    ShipmentSvc -.->|Outbox CDC| RabbitMQ
+    RouteSvc -.->|Outbox CDC| RabbitMQ
+    MailSvc -.->|Outbox CDC| RabbitMQ
+    OcrSvc -.->|Outbox CDC| RabbitMQ
+    ComplianceSvc -.->|Outbox CDC| RabbitMQ
+    GpsSvc -.->|Outbox CDC| RabbitMQ
+    IamSvc -.->|Outbox CDC| RabbitMQ
+    BillingSvc -.->|Publish Event| RabbitMQ
+    NegotiationSvc -.->|Publish Event| RabbitMQ
+    AiGovSvc -.->|Outbox CDC| RabbitMQ
+    DevOpsSvc -.->|Outbox CDC| RabbitMQ
+
+    RabbitMQ -.->|Consume| NotificationSvc
+    RabbitMQ -.->|Consume| RealtimeHub
+    RabbitMQ -.->|Consume| BillingSvc
+    RabbitMQ -.->|Consume| OcrSvc
+    RabbitMQ -.->|Consume| ComplianceSvc
+    RabbitMQ -.->|Consume| GpsSvc
+    RabbitMQ -.->|Consume| MailSvc
 ```
 
 ---
@@ -256,11 +306,11 @@ Aurora uses **RabbitMQ** as its distributed asynchronous message broker. Reliabi
 ```mermaid
 sequenceDiagram
     autonumber
-    participant Service as Domain Service (e.g. Shipment)
-    participant DB as PostgreSQL (Business Tables + Outbox)
-    participant Publisher as Outbox Publisher Worker
-    participant Broker as RabbitMQ Topic Exchange
-    participant Consumer as Downstream Consumer (e.g. Compliance)
+    participant Service as "Domain Service (e.g. Shipment)"
+    participant DB as "PostgreSQL (State & Outbox)"
+    participant Publisher as "Outbox Publisher Worker"
+    participant Broker as "RabbitMQ Topic Exchange"
+    participant Consumer as "Downstream Consumer (e.g. Compliance)"
 
     Service->>DB: 1. Begin Database Transaction
     Service->>DB: 2. Update Domain State (Shipment status = SUBMITTED)
