@@ -15,11 +15,13 @@ target/
 **/artifacts/*
 !**/artifacts/.gitkeep
 # Local Codex planning and execution documents
+/docs/technical/DOCKER-LOCAL-ENVIRONMENT.md
 
 # Firebase service-account credentials
 /*-firebase-adminsdk-*.json
 /*firebase-service-account*.json
 /*firebase-adminsdk*.json
+/secrets/firebase/*.json
 
 dist/
 target/
