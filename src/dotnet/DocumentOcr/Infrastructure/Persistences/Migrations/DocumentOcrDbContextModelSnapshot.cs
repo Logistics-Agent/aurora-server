@@ -28,6 +28,10 @@ namespace DocumentOcr.Infrastructure.Persistences.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
+                    b.Property<string>("ArtifactReference")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
                     b.Property<int>("AttemptCount")
                         .HasColumnType("integer");
 
@@ -65,11 +69,20 @@ namespace DocumentOcr.Infrastructure.Persistences.Migrations
                         .HasMaxLength(2000)
                         .HasColumnType("character varying(2000)");
 
+                    b.Property<string>("ExternalContextId")
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)");
+
                     b.Property<Guid>("ExternalDocumentId")
                         .HasColumnType("uuid");
 
                     b.Property<Guid?>("ExternalShipmentId")
                         .HasColumnType("uuid");
+
+                    b.Property<string>("ExtractionMode")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
 
                     b.Property<DateTimeOffset?>("FailedAt")
                         .HasColumnType("timestamp with time zone");
@@ -81,6 +94,9 @@ namespace DocumentOcr.Infrastructure.Persistences.Migrations
                         .IsRequired()
                         .HasMaxLength(255)
                         .HasColumnType("character varying(255)");
+
+                    b.Property<string>("FullTextContent")
+                        .HasColumnType("text");
 
                     b.Property<DateTimeOffset?>("HeartbeatAt")
                         .HasColumnType("timestamp with time zone");
@@ -107,8 +123,23 @@ namespace DocumentOcr.Infrastructure.Persistences.Migrations
                     b.Property<string>("NormalizedJson")
                         .HasColumnType("jsonb");
 
+                    b.Property<string>("OriginalAiNormalizedJson")
+                        .HasColumnType("text");
+
                     b.Property<DateTimeOffset?>("ProcessingStartedAt")
                         .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ReviewAction")
+                        .HasColumnType("text");
+
+                    b.Property<string>("ReviewComment")
+                        .HasColumnType("text");
+
+                    b.Property<DateTimeOffset?>("ReviewedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("ReviewedBy")
+                        .HasColumnType("uuid");
 
                     b.Property<long>("SizeBytes")
                         .HasColumnType("bigint");
