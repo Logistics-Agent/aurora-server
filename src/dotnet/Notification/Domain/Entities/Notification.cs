@@ -4,6 +4,9 @@ namespace Notification.Domain.Entities;
 
 public sealed class Notification
 {
+    private const int MaxTitleLength = 200;
+    private const int MaxBodyLength = 2000;
+
     private Notification() { }
 
     public Guid Id { get; private set; } = Guid.CreateVersion7();
@@ -27,8 +30,13 @@ public sealed class Notification
         if (tenantId == Guid.Empty || userId == Guid.Empty) throw new ArgumentException("Tenant and user are required.");
         if (string.IsNullOrWhiteSpace(type) || string.IsNullOrWhiteSpace(title) || string.IsNullOrWhiteSpace(body))
             throw new ArgumentException("Notification type, title, and body are required.");
+        if (type.Trim().Length > 64) throw new ArgumentException("Notification type exceeds its maximum length.");
+        if (title.Trim().Length > MaxTitleLength) throw new ArgumentException("Notification title exceeds its maximum length.");
+        if (body.Trim().Length > MaxBodyLength) throw new ArgumentException("Notification body exceeds its maximum length.");
         if (actionUrl is not null && (!actionUrl.StartsWith("/", StringComparison.Ordinal) || actionUrl.StartsWith("//", StringComparison.Ordinal)))
             throw new ArgumentException("ActionUrl must be an internal path.");
+        if (actionUrl is not null && actionUrl.Length > 512)
+            throw new ArgumentException("ActionUrl exceeds its maximum length.");
 
         return new Notification
         {

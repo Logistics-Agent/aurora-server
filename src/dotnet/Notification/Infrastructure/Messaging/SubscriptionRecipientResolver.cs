@@ -9,6 +9,6 @@ public sealed class SubscriptionRecipientResolver(NotificationDbContext db) : IR
     public async Task<IReadOnlyCollection<Guid>> ResolveAsync(Guid tenantId, Guid? shipmentId, CancellationToken cancellationToken) =>
         shipmentId is null
             ? []
-            : await db.Subscriptions.Where(x => x.TenantId == tenantId && x.ShipmentId == shipmentId.Value)
+            : await db.SubscriptionsForShipment(tenantId, shipmentId.Value)
             .Select(x => x.UserId).Distinct().ToListAsync(cancellationToken);
 }

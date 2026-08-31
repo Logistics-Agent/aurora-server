@@ -12,6 +12,18 @@ public sealed class NotificationDbContext(DbContextOptions<NotificationDbContext
     public DbSet<NotificationDeliveryAttempt> DeliveryAttempts => Set<NotificationDeliveryAttempt>();
     public DbSet<ProcessedNotificationEvent> ProcessedEvents => Set<ProcessedNotificationEvent>();
 
+    public IQueryable<NotificationEntity> NotificationsFor(Guid tenantId, Guid userId) =>
+        Notifications.Where(x => x.TenantId == tenantId && x.UserId == userId);
+
+    public IQueryable<NotificationDevice> DevicesFor(Guid tenantId, Guid userId) =>
+        Devices.Where(x => x.TenantId == tenantId && x.UserId == userId);
+
+    public IQueryable<NotificationSubscription> SubscriptionsFor(Guid tenantId, Guid userId) =>
+        Subscriptions.Where(x => x.TenantId == tenantId && x.UserId == userId);
+
+    public IQueryable<NotificationSubscription> SubscriptionsForShipment(Guid tenantId, Guid shipmentId) =>
+        Subscriptions.Where(x => x.TenantId == tenantId && x.ShipmentId == shipmentId);
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.Entity<NotificationEntity>(entity =>
@@ -29,7 +41,7 @@ public sealed class NotificationDbContext(DbContextOptions<NotificationDbContext
             entity.ToTable("notification_devices");
             entity.HasKey(x => x.Id);
             entity.Property(x => x.FcmToken).HasMaxLength(4096).IsRequired();
-            entity.HasIndex(x => new { x.TenantId, x.UserId, x.FcmToken }).IsUnique();
+            entity.HasIndex(x => x.FcmToken).IsUnique().HasFilter("\"IsActive\" = true");
             entity.HasIndex(x => new { x.TenantId, x.UserId, x.IsActive });
         });
         modelBuilder.Entity<NotificationSubscription>(entity =>
@@ -44,14 +56,16 @@ public sealed class NotificationDbContext(DbContextOptions<NotificationDbContext
             entity.ToTable("notification_delivery_attempts");
             entity.HasKey(x => x.Id);
             entity.Property(x => x.ErrorCode).HasMaxLength(128);
+            entity.Property(x => x.NextAttemptAt);
             entity.HasIndex(x => new { x.NotificationId, x.DeviceId }).IsUnique();
+            entity.HasIndex(x => new { x.Status, x.NextAttemptAt });
         });
         modelBuilder.Entity<ProcessedNotificationEvent>(entity =>
         {
             entity.ToTable("processed_notification_events");
             entity.HasKey(x => x.Id);
             entity.Property(x => x.Rule).HasMaxLength(100).IsRequired();
-            entity.HasIndex(x => new { x.EventId, x.Rule, x.UserId }).IsUnique();
+            entity.HasIndex(x => new { x.TenantId, x.EventId, x.Rule }).IsUnique();
         });
     }
 }

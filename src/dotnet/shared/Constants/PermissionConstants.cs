@@ -139,6 +139,14 @@ public static class PermissionConstants
     }
 
     // =========================
+    // NOTIFICATION
+    // =========================
+    public static class Notification
+    {
+        public const string Access = "notifications:access";
+    }
+
+    // =========================
     // IAM
     // =========================
     public static class Iam
@@ -196,6 +204,9 @@ public static class PermissionConstants
         // GPS
         Gps.GeofenceManage,
 
+        // Notification
+        Notification.Access,
+
         // IAM
         Iam.UserRead, Iam.UserInvite, Iam.UserUpdate,
         Iam.RoleRead, Iam.RoleManage, Iam.PermissionManage
@@ -237,7 +248,10 @@ public static class PermissionConstants
         Billing.EscrowRead,
 
         // IAM baseline
-        Iam.UserRead
+        Iam.UserRead,
+
+        // Notification baseline
+        Notification.Access
     ];
 
     /// <summary>

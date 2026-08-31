@@ -23,7 +23,12 @@ public sealed class NotificationDeliveryWorker(IServiceScopeFactory scopes, ILog
         await using var scope = scopes.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<NotificationDbContext>();
         var provider = scope.ServiceProvider.GetRequiredService<IFcmPushProvider>();
-        var attempts = await db.DeliveryAttempts.Where(x => x.Status == DeliveryAttemptStatus.Retrying && x.AttemptCount < 5).Take(100).ToListAsync(ct);
+        var now = DateTimeOffset.UtcNow;
+        var attempts = await db.DeliveryAttempts
+            .Where(x => x.Status == DeliveryAttemptStatus.Retrying && x.AttemptCount <= 5 && x.NextAttemptAt <= now)
+            .OrderBy(x => x.NextAttemptAt)
+            .Take(100)
+            .ToListAsync(ct);
         foreach (var attempt in attempts)
         {
             var notification = await db.Notifications.SingleOrDefaultAsync(x => x.Id == attempt.NotificationId, ct);
@@ -37,9 +42,16 @@ public sealed class NotificationDeliveryWorker(IServiceScopeFactory scopes, ILog
             }), ct);
             if (result.Status == FcmSendStatus.Sent) attempt.Sent(result.ProviderMessageId);
             else if (result.Status == FcmSendStatus.InvalidToken) { attempt.Failed(result.ErrorCode ?? "invalid_token", true); device.Deactivate(); }
-            else if (attempt.AttemptCount >= 4) attempt.Failed(result.ErrorCode ?? "retry_exhausted", false);
-            else attempt.Retry(result.ErrorCode ?? "transient_failure");
+            else if (attempt.AttemptCount >= 5) attempt.Failed(result.ErrorCode ?? "retry_exhausted", false);
+            else
+            {
+                var delaySeconds = Math.Min(300, 15 * Math.Pow(2, Math.Max(0, attempt.AttemptCount - 1)));
+                attempt.Retry(result.ErrorCode ?? "transient_failure", now.AddSeconds(delaySeconds));
+            }
             await db.SaveChangesAsync(ct);
+            logger.LogInformation(
+                "Notification retry attempt {AttemptId} completed for notification {NotificationId} with status {Status}",
+                attempt.Id, notification.Id, attempt.Status);
         }
     }
 }

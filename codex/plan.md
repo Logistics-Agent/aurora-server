@@ -5,23 +5,23 @@
 Shipment Workflow CreateShipment vertical slice: Completed
 Shipment Workflow Aggregate Expansion: Completed
 Shipment Workflow full MVP: Completed
-Notification Service: Completed
+Notification Service: FCM popup integration in progress
 GPS Tracking and Monitoring: Completed
 Document OCR Agent: Completed
 Regulatory Compliance RAG: Completed
 
 ## Active Work
 
-Active Service: None
-Active Phase: None - awaiting explicit authorization
-Current Branch: feat/regulatory-compliance-rag
+Active Service: Notification
+Active Phase: FCM popup integration and authenticated BFF boundary
+Current Branch: codex/api-management-fcm
 
 ## Service Progress
 
 | Service | Status |
 | --- | --- |
 | Shipment Workflow | Completed |
-| Notification | Completed |
+| Notification | FCM popup integration in progress |
 | GPS Tracking and Monitoring | Completed |
 | Document OCR Agent | Completed |
 | Regulatory Compliance RAG | Completed |
@@ -202,8 +202,27 @@ No active blocker.
 
 ## Remaining Work
 
-No remaining work in the currently authorized owned-service plans. Do not start another service
-without explicit user or lead authorization.
+Notification FCM integration is authorized and remains active on this branch. The backend contract,
+auth boundary, consumers, delivery retry, and secret-safe configuration are implemented. Remaining
+gates are reconciling the live legacy Notification database migration, adding the dedicated BFF test
+project, frontend Firebase Web popup code in `/home/kaito/project/aurora-client`, and a real runtime
+FCM token smoke test. Do not start another service without explicit user or lead authorization.
+
+## Notification FCM continuation evidence (2026-08-30)
+
+```bash
+rtk proxy dotnet build src/dotnet/Notification/Notification.csproj --no-restore --nologo -v:minimal
+rtk proxy dotnet test tests/dotnet/Notification.Tests/Notification.Tests.csproj --no-restore --nologo -v:minimal
+rtk proxy dotnet restore src/dotnet/BFF/Staff.Bff/Staff.Bff.csproj --nologo
+rtk proxy dotnet build src/dotnet/BFF/Staff.Bff/Staff.Bff.csproj --no-restore --nologo -v:minimal
+```
+
+Notification build passed with 0 warnings/errors; Notification tests passed 41/41 with the known
+NU1903 SQLite advisory; Staff BFF restored and built successfully with existing dependency advisory
+warnings. Generated migration `20260830023639_NotificationFcmAudience` was reviewed but not applied:
+the running database reports legacy migration `20260719124939_InitialNotification` and a different
+legacy schema. Direct Kestrel/RabbitMQ smoke execution is blocked in this sandbox by `SocketException:
+Permission denied`; no real FCM popup delivery is claimed.
 
 ## Build Results
 

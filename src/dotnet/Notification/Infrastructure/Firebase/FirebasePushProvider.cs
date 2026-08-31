@@ -55,10 +55,15 @@ public sealed class FirebasePushProvider : IFcmPushProvider
             }, cancellationToken);
             return new(FcmSendStatus.Sent, id);
         }
-        catch (FirebaseMessagingException ex) when (ex.MessagingErrorCode is MessagingErrorCode.Unregistered or MessagingErrorCode.InvalidArgument)
+        catch (FirebaseMessagingException ex) when (ex.MessagingErrorCode == MessagingErrorCode.Unregistered)
         {
             logger.LogWarning("FCM rejected a device token with code {ErrorCode}", ex.MessagingErrorCode);
             return new(FcmSendStatus.InvalidToken, ErrorCode: ex.MessagingErrorCode.ToString());
+        }
+        catch (FirebaseMessagingException ex) when (ex.MessagingErrorCode == MessagingErrorCode.InvalidArgument)
+        {
+            logger.LogWarning("FCM rejected a notification payload with code {ErrorCode}", ex.MessagingErrorCode);
+            return new(FcmSendStatus.PermanentFailure, ErrorCode: ex.MessagingErrorCode.ToString());
         }
         catch (FirebaseMessagingException ex)
         {

@@ -1,600 +1,472 @@
-# Notification FCM Push Implementation Plan
+# Notification FCM Push — Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:subagent-driven-development` (recommended) or `superpowers:executing-plans` to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Build the empty `.NET Notification` service so authenticated web users can register FCM devices, receive shipment-driven browser popups, and view durable in-app notification history without violating Aurora's service and tenant boundaries.
+**Goal:** Deliver an authenticated, tenant-safe Notification flow in which events from Shipment Workflow, GPS Tracking, Document OCR, and Regulatory Compliance become durable notifications and Firebase Cloud Messaging (FCM) popups.
 
-**Architecture:** Shipment Workflow remains the source of shipment truth and publishes versioned events through its outbox and RabbitMQ/MassTransit. Notification consumes those events, resolves recipients from explicit event/API data, persists a tenant-scoped notification and delivery state, then sends FCM messages through an `IFcmPushProvider` abstraction. The browser renders foreground messages with `onMessage` and background messages through a Firebase service worker.
+**Architecture:** Frontend never calls Notification, RabbitMQ, Firebase Admin, or another service database directly. The frontend calls the authenticated YARP/BFF surface; BFF enforces the capability permission and forwards identity metadata over gRPC. On Notification calls only, Staff.Bff also authenticates itself with `x-service-id: staff-bff` and `x-service-api-key`, sourced from `Grpc:Notification:ServiceApiKey`. Notification validates both service headers before the shared `AuthInterceptor` may populate current-user state. Producer services persist domain state and an outbox row atomically, publish versioned events to RabbitMQ, and Notification consumes them idempotently, resolves an explicit audience, persists delivery state, and sends FCM. Notification owns device tokens and notification history only.
 
-**Tech Stack:** .NET 10, ASP.NET Core, gRPC/REST at the BFF boundary, EF Core, PostgreSQL, MediatR/CQRS where existing service conventions require it, MassTransit, RabbitMQ, Firebase Admin SDK for .NET, xUnit, deterministic fake FCM provider.
+**Tech Stack:** .NET 10, ASP.NET Core, gRPC/Protobuf, ASP.NET Core BFF controllers, EF Core/PostgreSQL, MassTransit/RabbitMQ, Redis permission cache, Firebase Admin SDK for .NET, Firebase Web SDK in the frontend, xUnit, deterministic fake FCM provider.
 
-**Spec:** `codex/specs/notification.md`, `codex/specs/logistics-architecture.md`, `codex/requirement.md`, `codex/tasks/notification/phase-01-project-foundation.md` through `phase-09-testing.md`.
+**Spec:** `codex/requirement.md`, `codex/specs/logistics-architecture.md`, `codex/specs/notification.md`, `docs/technical/iam/AUTHORIZATION_MODEL.md`, `docs/documents/events/*.md`, and the existing service contracts under `src/dotnet/Contracts`.
 
 ## Global Constraints
 
-- Notification is an independent service with its own PostgreSQL database and deployment boundary.
-- Never read or write Shipment Workflow, IAM, or any other service database directly.
-- Use gRPC or integration events for cross-service communication; use the existing Shipment outbox and RabbitMQ/MassTransit path.
-- Resolve `TenantId` and `UserId` from authenticated context for client APIs; never trust client-supplied tenant ownership.
-- Event consumers must be duplicate-safe, retry-aware, and safe to replay.
-- Store shipment/customer/recipient references as external IDs only; do not create cross-service foreign keys.
-- Firebase credentials and FCM tokens must not be committed or written to logs.
-- Automated tests must use a fake provider and must not require paid Firebase credentials.
-- Do not modify Java notification code or any source outside `src/dotnet/Notification` and the explicitly required shared contract files.
-- Do not create `feat/notification-service` or update service progress until implementation is explicitly authorized.
+- Authentication is mandatory for every client API; do not use DevelopmentIdentity as an HTTP authentication bypass.
+- BFF endpoints must enforce `[Authorize]` and the direct capability permission from `AUTHORIZATION_MODEL.md`; base role alone is never authority.
+- Forwarded `x-user-id`/`x-tenant-id` metadata is identity context, not service authentication. Staff.Bff must read `Grpc:Notification:ServiceApiKey` (environment variable `Grpc__Notification__ServiceApiKey`) and a Notification-specific client interceptor must add `x-service-id: staff-bff` plus `x-service-api-key` to Notification calls only.
+- Notification must read `ServiceAuth:AllowedServiceId` (checked-in value `staff-bff`) and `ServiceAuth:ApiKey` (environment variable `ServiceAuth__ApiKey`). Its Notification-specific service-auth interceptor must execute before `AuthInterceptor`, compare the configured and supplied credential values with `CryptographicOperations.FixedTimeEquals`, reject missing or wrong values with gRPC `Unauthenticated`, and never log the API key or metadata collection.
+- The application-level credential is necessary but not sufficient transport security. Production must use TLS for the gRPC channel and restrict Notification to the private service network.
+- TenantId and UserId come from authenticated current-user context; never trust client-supplied tenant or recipient ownership.
+- Notification must not read or write Shipment, GPS, OCR, Regulatory, or IAM databases.
+- Cross-service communication uses gRPC or versioned MassTransit/RabbitMQ events; event publication uses the producer transactional outbox.
+- Consumer processing is at-least-once, duplicate-safe, retry-aware, and fail-closed when no audience is known.
+- FCM Admin service-account credentials and client FCM registration tokens must never be committed or logged.
+- The Admin SDK service-account JSON is a server secret; the frontend uses Firebase Web SDK configuration and a registration token, never the Admin JSON.
+- No real Firebase credentials are required for automated tests; use `FakeFcmPushProvider`.
+- Do not modify non-Notification service behavior unless an explicit shared contract incompatibility blocks this plan.
+- Do not commit this plan or code automatically; each task has an explicit commit step for the human/operator to approve.
 
-## File Map
+## Current Baseline and Decisions
 
-Create the following files under `src/dotnet/Notification`:
+- Branch: `codex/api-management-fcm`, based on `origin/main`.
+- Notification FCM code already exists under `src/dotnet/Notification`; its build passes and its current tests pass 5/5.
+- Notification currently has FCM device/subscription HTTP endpoints and nine consumers, but the architecture documents describe BFF/gRPC and thirteen owned-service events.
+- Staff.Bff already has a legacy `NotificationsController` and Notification gRPC client registration, but the controller has no capability attributes, the proto still exposes Email/InApp preference methods, and Notification has no gRPC server implementation.
+- `PermissionConstants` has no Notification capability. Phase 2 adds the single self-service capability `PermissionConstants.Notification.Access = "notifications:access"`; every Notification BFF action requires it. Add it to the permission catalog and onboarding defaults, which remain templates rather than runtime role grants.
+- Current recipient resolver only maps `ShipmentId -> NotificationSubscription -> UserId -> active FCM devices`. It intentionally does not broadcast when ShipmentId is absent.
+- Current `appsettings.Development.json` must contain RabbitMQ local credentials matching the producers, but must keep Firebase disabled and credentials empty.
+- Checked-in Staff.Bff and Notification settings keep both service API-key values empty. Local and deployed runtimes inject the same secret through `Grpc__Notification__ServiceApiKey` and `ServiceAuth__ApiKey`; startup validation fails when either required value is absent.
+- The authoritative security rule is JWT/session authentication plus direct permissions. No unauthenticated HTTP DevelopmentIdentity fallback is allowed.
+- Existing technical documents contain legacy Notification names and capabilities. Code/Protobuf/contracts and `AUTHORIZATION_MODEL.md` win; stale docs are updated in the documentation task.
 
-- `Notification.csproj`: .NET 10 executable project and references to shared building blocks and `Shipment.Contracts`.
-- `Program.cs`: dependency injection, authentication/current-user context, EF Core, MassTransit consumers, health checks, and API endpoints.
-- `appsettings.json` and `appsettings.Development.json`: non-secret defaults and local dependency settings; secrets come from environment/secret manager.
-- `Domain/Entities/Notification.cs`: durable user-facing notification aggregate/entity.
-- `Domain/Entities/NotificationDevice.cs`: tenant/user-owned FCM registration token record.
-- `Domain/Entities/NotificationDeliveryAttempt.cs`: per-provider/per-device delivery history.
-- `Domain/Entities/ProcessedNotificationEvent.cs`: inbox/idempotency record keyed by event ID and notification rule.
-- `Domain/Enums/NotificationChannel.cs`, `NotificationStatus.cs`, `NotificationPriority.cs`, `DevicePlatform.cs`, `DeliveryAttemptStatus.cs`.
-- `Application/Interfaces/IFcmPushProvider.cs`, `IRecipientResolver.cs`, `INotificationRule.cs`: provider and recipient boundaries.
-- `Application/DTOs/Notifications/NotificationDtos.cs` and `DeviceDtos.cs`: API request/response contracts without EF entities.
-- `Application/Commands/Devices/RegisterNotificationDeviceCommand.cs` and `RemoveNotificationDeviceCommand.cs`.
-- `Application/Commands/Notifications/MarkNotificationReadCommand.cs` and `MarkAllNotificationsReadCommand.cs`.
-- `Application/Queries/Notifications/ListNotificationsQuery.cs` and `GetUnreadNotificationCountQuery.cs`.
-- `Infrastructure/Persistences/NotificationDbContext.cs` and entity configurations/migrations.
-- `Infrastructure/Firebase/FirebaseOptions.cs`, `FirebaseAdminInitializer.cs`, `FirebasePushProvider.cs`, and `FakeFcmPushProvider.cs`.
-- `Infrastructure/Messaging/Consumers/ShipmentCreatedConsumer.cs`, `ShipmentStatusChangedConsumer.cs`, `ShipmentCancelledConsumer.cs`, `ShipmentDeliveredConsumer.cs`.
-- `Infrastructure/Messaging/NotificationEventProcessor.cs`: transaction, deduplication, notification creation, and dispatch orchestration.
-- `Infrastructure/BackgroundJobs/NotificationDeliveryWorker.cs`: retrying pending delivery attempts if dispatch is asynchronous.
-- `GrpcServices/NotificationGrpcService.cs` or the repository-approved service API surface for internal calls.
-
-Create tests under `tests/dotnet/Notification.Tests`:
-
-- Domain validation and state transition tests.
-- Device registration and tenant-isolation tests.
-- Consumer/idempotency tests using real `Shipment.Contracts` event types.
-- Fake FCM provider and delivery-attempt tests.
-- PostgreSQL/Testcontainers persistence and migration tests where the repository test conventions support them.
-
-## Code Audit: Done, Partial, Missing, and Required to Finish
-
-This matrix records the current repository state as checked on 2026-08-29. “Done” means reusable code already exists; it does not mean the FCM feature is complete.
-
-| Area | Current status | Evidence | Required to finish |
-|---|---|---|---|
-| `.NET Notification` project | Missing | `src/dotnet/Notification` is empty | Create `Notification.csproj`, `Program.cs`, configuration, service registration, health checks, and tests |
-| Notification database | Missing | No Notification DbContext/entities/migrations exist | Create a dedicated database, model, indexes, migration, and migration verification |
-| Current user context | Done as shared foundation | `src/dotnet/shared/Security/ICurrentUserService.cs` exposes `UserId`, `TenantId`, permissions, and roles | Register it in Notification and enforce it on every API; do not trust request tenant/user fields |
-| Shipment event contracts | Done as producer foundation | `src/dotnet/Contracts/Shipment.Contracts/Events/*.cs` contains versioned events with `EventId` and `TenantId` | Reuse contracts and add recipient metadata only if the chosen resolver requires a shared contract change |
-| Shipment outbox writes | Done for Shipment Workflow flows | `src/dotnet/ShipmentWorkflow/Domain/OutboxMessage.cs` and shipment command helpers persist event payloads | Verify the publisher/broker path and consume from Notification without database access |
-| RabbitMQ/MassTransit convention | Done as shared foundation | `src/dotnet/shared/Extensions/MessagingExtensions.cs` configures RabbitMQ, raw JSON, and bounded retry | Register Notification consumers, queue names, bindings, and consumer-specific idempotency |
-| FCM provider | Missing | No Firebase/FCM references under `src/dotnet/Notification` | Add Firebase Admin SDK behind `IFcmPushProvider`, production secret configuration, and fake provider |
-| FCM device registration | Missing | No device entity or endpoint exists | Add authenticated register/deactivate APIs, token upsert, multi-device support, and validation |
-| FCM token lifecycle | Missing | No token/device table or invalid-token handling exists | Track active/last-seen state, token replacement, logout deactivation, and invalid-token cleanup |
-| Recipient resolution | Incomplete at contract level | Shipment events have shipment/tenant identity but do not consistently carry recipient identity | Select and implement an explicit resolver, then test “no audience” as a non-broadcast failure |
-| Notification payload contract | Missing | No Notification DTO or FCM message model exists | Define stable notification/data fields, enum values, internal `actionUrl` policy, and frontend handoff |
-| Foreground popup | Missing in backend and frontend scope | No `.NET Notification` or frontend FCM handler exists in this scope | Frontend must implement `onMessage` and render the toast; backend only sends payload |
-| Background popup | Missing in frontend scope | No `firebase-messaging-sw.js` exists in this backend repository scope | Frontend must add service worker, permission flow, VAPID configuration, and click handling |
-| Notification history/read APIs | Missing in `.NET Notification` | No API or DTO exists | Add paged list, unread count, mark-read, and mark-all-read with tenant/user authorization |
-| Delivery attempts | Missing | No delivery-attempt entity/service exists | Persist per-device result, provider ID, error category, retry count, and terminal status |
-| Idempotency/inbox | Missing | No processed-event table exists | Add unique `(EventId, Rule, UserId)` or equivalent key and transactionally claim events |
-| Retry worker | Missing | No Notification hosted worker exists | Add bounded retry worker, concurrency control, backoff, invalid-token handling, and metrics |
-| BFF route to Notification | Missing/needs verification | Existing BFF shared code propagates identity headers, but no Notification gRPC client/route is present | Add authenticated BFF endpoints or gRPC client mapping for device and notification APIs; never expose Notification directly to the browser |
-| Frontend authentication integration | Foundation exists, notification integration missing | BFF has Cognito/current-user middleware and tenant resolution | Forward the authenticated session through the existing BFF path and register the FCM token only after login/permission grant |
-| Security controls | Partial foundation | Shared auth, tenant middleware, rate-limit/security middleware exist in BFF; Notification has no code | Apply authorization, input limits, rate limiting, secret hygiene, action URL allowlist, safe errors, and token redaction |
-| Observability | Shared building blocks exist, feature instrumentation missing | Shared trace/correlation patterns exist; no Notification metrics/logging exist | Add correlation/event/notification/attempt IDs, delivery metrics, retry backlog metrics, and health checks |
-| Automated verification | Missing for Notification | No `tests/dotnet/Notification.Tests` exists | Add unit, consumer, persistence, migration, security, idempotency, and fake-FCM integration tests |
-
-### Completion gate
-
-The feature is not complete until every row marked Missing or Incomplete has an implementation and test, and these runtime paths pass together:
+## End-to-End Acceptance Flow
 
 ```text
-FE login
-→ BFF authenticated context
-→ register FCM device
-→ Shipment Workflow mutation
-→ Shipment outbox
-→ RabbitMQ
-→ Notification consumer
-→ recipient resolution
-→ Notification DB
-→ FCM provider
-→ FE foreground/background popup
-→ notification history/read state
+FE login/session
+  -> YARP
+  -> Staff.Bff [Authorize + RequirePermission]
+  -> Notification gRPC with staff-bff service credential + identity metadata
+  -> register FCM token / subscribe shipment
+
+Shipment/GPS/OCR/Compliance mutation
+  -> service DB + transactional outbox
+  -> RabbitMQ
+  -> Notification consumer
+  -> audience resolution + idempotent Notification DB write
+  -> Firebase Admin SDK
+  -> browser foreground toast or service-worker popup
+  -> notification history/read state through BFF
 ```
 
-The following failure paths are also required before completion:
+---
 
-- [ ] No authenticated user/tenant: reject device registration and notification queries.
-- [ ] Missing event audience: do not broadcast; record a classified processing outcome.
-- [ ] Duplicate event: acknowledge safely without a duplicate notification.
-- [ ] FCM transient error: retry within the configured bound and preserve attempt history.
-- [ ] Invalid FCM token: deactivate only the invalid device.
-- [ ] Cross-tenant ID: return safe not-found/forbidden behavior and expose no data.
-- [ ] Firebase credential missing in production: fail health/startup validation clearly without logging the secret.
-- [ ] Frontend permission denied: keep in-app history functional and do not treat permission denial as a server error.
+## Task 1 — Phase 0: Reconcile Contracts, Ownership, and Security
 
-## Contract Decisions Before Coding
-
-The current Shipment event contracts contain `EventId`, `ContractVersion`, `ShipmentId`, `TenantId`, and shipment status data, but do not consistently identify notification recipients. Before implementing consumers, choose and document one concrete recipient path:
-
-1. **Preferred:** add a versioned recipient/audience field to the producing event when the producer already knows the authorized recipient, for example `RecipientUserIds` or an external `CustomerId`.
-2. **Alternative:** define `IRecipientResolver` backed by an explicit gRPC contract to the owning identity/customer service. It must not query a database directly.
-3. **Fallback for user-followed shipments:** add a Notification-owned subscription endpoint and resolve recipients from Notification's own `ShipmentSubscription` records.
-
-The first implementation must not silently broadcast a shipment event to every user in a tenant.
-
-## Implementation Checkpoint
-
-Status at the current implementation checkpoint: **Backend implementation complete; FE/BFF and external runtime validation remain**.
-
-Completed in `src/dotnet/Notification`:
-
-- [x] .NET 10 executable project referencing shared services and `Shipment.Contracts`.
-- [x] Tenant-scoped notification, device, shipment subscription, delivery-attempt, and processed-event entities.
-- [x] PostgreSQL DbContext and initial migration `20260829151759_InitialNotification`.
-- [x] JWT/current-user middleware and device registration/deactivation endpoints.
-- [x] Subscription endpoint used as the initial explicit recipient-resolution strategy.
-- [x] Firebase Admin SDK provider and deterministic fake provider.
-- [x] Shipment created/status-changed/cancelled/delivered consumers using MassTransit.
-- [x] Notification list, unread-count, mark-read, and mark-all-read endpoints.
-- [x] Delivery-attempt persistence, bounded retry worker, and invalid-token deactivation.
-- [x] Domain and processor/provider tests; latest result is 5 passed.
-
-Still required before the plan can be marked complete:
-
-- [ ] Add BFF routing/client integration so the browser reaches Notification through the authenticated gateway (outside the current Notification-only scope).
-- [ ] Add frontend Firebase setup, service worker, permission flow, token refresh handling, `onMessage`, and popup click navigation (outside the current Notification-only scope).
-- [ ] Add consumer tests for every supported event and explicit no-recipient behavior.
-- [ ] Add API tenant/user-isolation tests and migration/database integration tests.
-- [ ] Verify real local PostgreSQL/RabbitMQ startup and event delivery; Firebase production send remains a secret-configured smoke test.
-- [ ] Resolve package/security warnings before release, including the inherited `Microsoft.SemanticKernel.Core` critical advisory and the test SQLite dependency advisory.
-- [ ] Update the nine Notification phase work logs and `codex/plan.md` only after all completion criteria pass.
-
-## End-to-End Flows: FE → BFF → Services → FE
-
-This section is the runtime contract for the whole logistics path. The frontend talks to the API Gateway/BFF, never directly to PostgreSQL, RabbitMQ, Firebase Admin, or another service's private API. The BFF forwards the authenticated identity and tenant context; each owning service validates authorization again.
-
-### Service roles in the flow
-
-| Component | Responsibility in this plan | Communication with Notification |
-|---|---|---|
-| Frontend | Authenticated UI, FCM token registration, foreground toast, service-worker popup, notification list/read state | Calls BFF APIs and receives FCM messages |
-| API Gateway/BFF | TLS, Cognito/session validation, current-user and tenant context, API composition/routing | Proxies device and notification APIs; does not send FCM |
-| IAM/Tenant | User, tenant, role, permission and customer identity ownership | Supplies trusted identity through auth context or an explicit contract; no DB sharing |
-| Shipment Workflow | Shipment aggregate, lifecycle, cargo, locations, milestones and shipment outbox | Publishes versioned shipment events consumed by Notification |
-| Route Planning | Route assignment/planning and route-owned events | Notification may consume an explicit route event if a notification rule is defined |
-| GPS Tracking | Positions, geofences and monitoring alerts | Notification may consume explicit alert events; it does not read GPS data |
-| Document OCR | OCR jobs, extraction and confidence | Notification may consume job/result events; it does not read OCR data |
-| Compliance RAG | Compliance decision, evidence and violations | Notification may consume explicit compliance events; it does not read compliance data |
-| Notification | Notification history, device registrations, templates/rules, attempts, FCM dispatch | Consumes events and exposes notification/device APIs |
-| FCM | External push transport | Receives server-side messages and delivers them to the browser service worker/page |
-
-### Flow A — Authentication and application bootstrap
-
-```text
-FE → Cognito/IAM: sign in or refresh session
-IAM → FE/BFF: authenticated session/JWT
-FE → API Gateway/BFF: request with session
-BFF → downstream service: authenticated identity + trusted tenant context
-downstream service → BFF → FE: authorized response
-```
-
-Implementation requirements:
-
-- [ ] Use the existing Cognito/current-user middleware and shared `ICurrentUserService` conventions.
-- [ ] Reject requests without authenticated user or tenant context.
-- [ ] Do not accept `TenantId` as an authority from query, body, or header; if a header is propagated internally, validate it against the authenticated context.
-- [ ] Return generic authorization/not-found errors without stack traces or database details.
-
-### Flow B — FE registers an FCM device
-
-```text
-FE → Firebase Web SDK: request browser permission
-Firebase Web SDK → FE: FCM registration token
-FE → BFF: POST /api/v1/notification-devices { token, platform }
-BFF → Notification: authenticated register-device command
-Notification → Notification DB: upsert (TenantId, UserId, token)
-Notification → BFF → FE: deviceId and active status
-```
-
-The FCM token is tied to the authenticated user and tenant at the server. A token must be replaceable, deactivatable, and safe to register again after browser refresh or token rotation.
-
-### Flow C — Shipment creation/status change becomes a push notification
-
-```text
-FE → BFF → Shipment Workflow: create/update/submit shipment
-Shipment Workflow → Shipment DB: commit shipment mutation + outbox row atomically
-Shipment outbox worker → RabbitMQ: publish versioned Shipment event
-RabbitMQ → Notification consumer: deliver event
-Notification → Notification DB: validate + deduplicate + create notification/attempt rows
-Notification → FCM Admin SDK: send to active devices for authorized recipients
-FCM → browser page/service worker: deliver notification payload
-browser → FE: render foreground toast or background system popup
-```
-
-Shipment Workflow remains the only writer of shipment state. Notification must use event fields and an explicit recipient resolver/subscription; it must never query Shipment Workflow tables to discover recipients or shipment details.
-
-Initial rules to implement:
-
-| Source event | Notification rule | Required recipient/input |
-|---|---|---|
-| `ShipmentCreatedEvent` | Shipment created/received | Authorized recipient identity or Notification subscription |
-| `ShipmentStatusChangedEvent` | Status changed | Authorized recipient identity plus old/new status |
-| `ShipmentCancelledEvent` | Shipment cancelled | Authorized recipient identity |
-| `ShipmentDeliveredEvent` | Shipment delivered | Authorized recipient identity |
-
-For each event, use `EventId` + rule name + `UserId` as the deduplication key. If the event has no authorized recipient, record a classified processing failure/dead-letter outcome; never broadcast to all tenant users.
-
-### Flow D — Notification API history and read state
-
-```text
-FE → BFF: GET /api/v1/notifications?page=1&pageSize=20
-BFF → Notification: authenticated list query
-Notification → Notification DB: filter by current TenantId + current UserId
-Notification → BFF → FE: paged notification DTOs
-
-FE → BFF: PUT /api/v1/notifications/{id}/read
-BFF → Notification: authenticated mark-read command
-Notification → Notification DB: verify ownership and update ReadAt
-Notification → BFF → FE: updated read state
-```
-
-Unread count, list, mark-read, and mark-all-read must use the same identity rules as device registration. A notification ID from another tenant must return the repository-approved not-found/forbidden behavior without revealing whether it exists.
-
-### Flow E — FCM delivery and browser popup behavior
-
-```text
-Notification DB → Notification delivery worker: pending attempt
-delivery worker → IFcmPushProvider: send title/body/data
-IFcmPushProvider → Firebase Admin SDK → FCM: authenticated server send
-FCM → FE page: onMessage when tab is focused
-FCM → firebase-messaging-sw.js: background message when tab is hidden/closed
-FE/service worker → user: toast or system popup
-user clicks popup → FE: validate internal data.actionUrl and open shipment/notification view
-```
-
-The backend owns durable notification state and delivery attempts. The frontend owns rendering. A foreground browser popup is not automatic: the page must handle `onMessage` and render its own toast. Background display is handled by the service worker. The `actionUrl` must be an allowlisted internal route, not an arbitrary URL supplied by event data.
-
-### Flow F — Other services produce operational alerts
-
-These services are not Notification dependencies through databases. If they need user-facing push notifications, they publish a versioned event with an explicit audience:
-
-```text
-GPS Tracking / Route Planning / OCR / Compliance
-  → service-owned DB + transactional outbox
-  → RabbitMQ event
-  → Notification consumer
-  → recipient resolution + Notification DB
-  → FCM
-  → FE popup/history
-```
-
-Examples:
-
-- GPS publishes a geofence breach or signal-loss event; Notification formats an alert but does not calculate the breach.
-- Route Planning publishes route assigned or route delay risk; Notification formats the user-facing message but does not own route state.
-- OCR publishes extraction-needs-review; Notification alerts authorized staff but does not inspect OCR storage.
-- Compliance publishes a violation or missing-document result with evidence reference; Notification alerts authorized staff but does not make compliance decisions.
-
-Each future source event must define `EventId`, `ContractVersion`, `TenantId`, source entity external ID, event timestamp, event type, and an explicit audience or resolver key before a Notification consumer is added.
-
-### Flow G — Failure, retry, and replay
-
-```text
-RabbitMQ → Notification consumer: duplicate/transient event
-Notification → ProcessedNotificationEvent: check EventId/rule/recipient key
-duplicate → acknowledge without creating another notification
-new event → persist notification + delivery attempt
-FCM transient error → bounded retry with backoff
-FCM invalid-token error → deactivate device and record terminal failure
-broker/database failure → do not acknowledge until the transaction can be retried safely
-```
-
-The delivery state machine must make the following states observable: `Pending`, `Sent`, `Retrying`, `Failed`, `InvalidToken`, and `Read` where applicable. Correlation ID, event ID, notification ID, and attempt ID may be logged; FCM tokens and credentials may not.
-
-### Flow H — Local test path
-
-```text
-Fake FE token registration
-→ test Notification API
-→ publish real Shipment.Contracts event to in-memory/test RabbitMQ
-→ Notification consumer
-→ fake recipient resolver
-→ Notification DB
-→ FakeFcmPushProvider
-→ assert popup payload, delivery attempt, idempotency, tenant isolation
-```
-
-The test path must not call Firebase, Cognito production endpoints, or paid providers. It must cover the same boundaries and payload shapes as the runtime path.
-
-## Implementation Tasks
-
-### Task 1: Create the .NET service foundation
+**Goal:** Establish one implementable source of truth before changing interfaces.
 
 **Files:**
-- Create: `src/dotnet/Notification/Notification.csproj`
-- Create: `src/dotnet/Notification/Program.cs`
-- Create: `src/dotnet/Notification/appsettings.json`
-- Create: `src/dotnet/Notification/appsettings.Development.json`
-- Modify only if required: solution/project registration files
-- Test: `tests/dotnet/Notification.Tests/Notification.Tests.csproj`, `tests/dotnet/Notification.Tests/ServiceBuildTests.cs`
 
-**Steps:**
+- Read: `codex/requirement.md`
+- Read: `codex/specs/logistics-architecture.md`
+- Read: `codex/specs/notification.md`
+- Read: `docs/technical/iam/AUTHORIZATION_MODEL.md`
+- Read: `docs/documents/events/notification-events.md`
+- Read: `docs/bff-api/API-MATRIX.md`
+- Modify: this plan if an approved contract decision changes
 
-- [ ] Write a build smoke test that references the new project and asserts the service assembly can load.
-- [ ] Run `dotnet test tests/dotnet/Notification.Tests/Notification.Tests.csproj`; expect failure because the project does not exist yet.
-- [ ] Create the executable targeting `net10.0`, reference `Shared` and `Shipment.Contracts`, and register ASP.NET Core health checks.
-- [ ] Register shared current-user services and MassTransit using the repository's `AddSharedServices` and `AddSharedMassTransit` conventions.
-- [ ] Configure RabbitMQ and Notification-specific database settings without embedding credentials.
-- [ ] Run `dotnet build src/dotnet/Notification/Notification.csproj` and the foundation test; both must pass.
-- [ ] Commit only the foundation files with `feat(notification): scaffold dotnet notification service`.
+**Tasks:**
 
-### Task 2: Define the notification domain and persistence model
+- [x] Record the final public boundary as `FE -> YARP -> Staff.Bff -> Notification gRPC`.
+- [x] Record the final internal boundary as `producer outbox -> RabbitMQ -> Notification consumer`.
+- [x] Confirm the required permission names with `Shared.Constants.PermissionConstants`; add exactly `PermissionConstants.Notification.Access = "notifications:access"`, not a role check.
+- [x] Fix the BFF-to-Notification trust mechanism as an application-level shared credential; do not leave service authentication as an implementation option.
+- [x] Mark stale documentation claims (legacy Email/InApp gRPC model and missing/current event lists) for update after code is complete.
+- [x] Define the no-audience policy: acknowledge safely, persist a classified no-recipient outcome, and never broadcast to a whole tenant.
+
+**Audited decisions and implementation baseline (2026-08-30):**
+
+- Public owner/transport/auth gate: the browser uses `FE -> YARP -> Staff.Bff -> Notification gRPC`; `StaffControllerBase` supplies `[Authorize]`, and every Notification action additionally uses `[RequirePermission(PermissionConstants.Notification.Access)]`.
+- Internal owner/transport: all thirteen required producer contracts exist and are written through their producer transactional outboxes before MassTransit/RabbitMQ publication; Notification currently registers nine of the thirteen consumers.
+- gRPC trust boundary: `ClientMetadataInterceptor` continues to forward user/tenant/version/role. A new `NotificationServiceCredentialInterceptor` on the Staff.Bff client reads `Grpc:Notification:ServiceApiKey` and adds `x-service-id: staff-bff` and `x-service-api-key` only to the Notification client. A new `NotificationServiceAuthInterceptor` on Notification reads `ServiceAuth:AllowedServiceId` and `ServiceAuth:ApiKey`, validates both before `AuthInterceptor` runs using fixed-time comparison, and returns `Unauthenticated` without populating current-user state when validation fails. After service authentication, Notification owns missing/malformed identity rejection and tenant/user resource scope. Production additionally requires TLS and a private service network.
+- Audience rule: current contracts carry no explicit `UserId`. Resolve only shipment subscribers when a trusted `ShipmentId`/`ExternalShipmentId` exists. If the shipment ID is absent or no subscription resolves, atomically persist a duplicate-safe `NoRecipient` processing outcome, log only safe IDs/classification, return successfully so RabbitMQ may acknowledge, create no notification/delivery attempt, and never fall back to tenant-wide broadcast.
+- Test boundaries: Notification tests live at `tests/dotnet/Notification.Tests` and include domain, persistence, processor, delivery-outcome, and gRPC service-auth coverage; a dedicated Staff.Bff test project is still pending.
+- Frontend boundary: no frontend workspace exists inside `aurora-server`; the Next.js/Vitest frontend is the sibling repository `/home/kaito/project/aurora-client`, which currently has no Firebase dependency. Frontend work and commits happen there, separately.
+- Deferred stale-doc updates: `codex/specs/notification.md`, `docs/documents/events/notification-events.md`, `docs/technical/notification-spec.md`, `docs/technical/notification/{OVERVIEW,DETAILS,INTERVIEW_QA}.md`, and the Notification rows in `docs/bff-api/API-MATRIX.md` describe legacy Email/InApp/preferences, consolidated consumers, unsupported test counts, or READY gRPC routes that do not match this branch.
+
+**Exit criteria:** every later phase has an owner, transport, auth gate, audience rule, and test boundary.
+
+---
+
+## Task 2 — Phase 1: Notification Domain, Persistence, and Migration
+
+**Goal:** Persist devices, subscriptions, notifications, attempts, and idempotency records with tenant-safe constraints.
 
 **Files:**
-- Create: `src/dotnet/Notification/Domain/Entities/*.cs`
-- Create: `src/dotnet/Notification/Domain/Enums/*.cs`
-- Create: `src/dotnet/Notification/Infrastructure/Persistences/NotificationDbContext.cs`
-- Create: `src/dotnet/Notification/Infrastructure/Persistences/Configurations/*.cs`
+
+- Modify: `src/dotnet/Notification/Domain/Entities/Notification.cs`
+- Modify: `src/dotnet/Notification/Domain/Entities/NotificationDevice.cs`
+- Modify: `src/dotnet/Notification/Domain/Entities/NotificationSubscription.cs`
+- Modify: `src/dotnet/Notification/Domain/Entities/NotificationDeliveryAttempt.cs`
+- Modify: `src/dotnet/Notification/Domain/Entities/ProcessedNotificationEvent.cs`
+- Modify: `src/dotnet/Notification/Domain/Enums/NotificationEnums.cs`
+- Modify: `src/dotnet/Notification/Infrastructure/Persistences/NotificationDbContext.cs`
+- Verify: the eventual additive migration after delivery schema decisions are stable (owned by Task 5)
 - Test: `tests/dotnet/Notification.Tests/Domain/NotificationDomainTests.cs`
-- Test: `tests/dotnet/Notification.Tests/Persistence/NotificationDbContextTests.cs`
+- Test: `tests/dotnet/Notification.Tests/Persistence/NotificationPersistenceTests.cs`
 
-**Interfaces:**
+**Required model rules:**
 
-```csharp
-public sealed class Notification
-{
-    public Guid Id { get; init; }
-    public Guid TenantId { get; init; }
-    public Guid UserId { get; init; }
-    public string Type { get; init; } = string.Empty;
-    public NotificationChannel Channel { get; init; }
-    public NotificationPriority Priority { get; init; }
-    public NotificationStatus Status { get; private set; }
-    public Guid? ShipmentId { get; init; }
-    public string? ShipmentNumber { get; init; }
-    public string Title { get; init; } = string.Empty;
-    public string Body { get; init; } = string.Empty;
-    public string? ActionUrl { get; init; }
-    public DateTimeOffset CreatedAt { get; init; }
-    public DateTimeOffset? ReadAt { get; private set; }
-}
-```
+- `Notification`: `TenantId`, `UserId`, stable type, title/body, optional `ShipmentId`, safe internal `ActionUrl`, status, priority, timestamps.
+- `NotificationDevice`: active flag, platform, last-seen timestamp, and one active owner per FCM token. Registration by a different authenticated tenant/user must safely transfer/deactivate the previous ownership or reject it; a token must never remain active for two users. Token values are never returned in logs.
+- `NotificationSubscription`: unique `(TenantId, UserId, ShipmentId)`; user and tenant come from current identity.
+- `ProcessedNotificationEvent`: unique `(TenantId, EventId, Rule)` receipt with classified outcome (`AudienceResolved` or `NoRecipient`) and recipient count; event IDs come from trusted contracts only. Persist the receipt and all per-user notification projections atomically so redelivery cannot duplicate or lose a partial audience.
+- `NotificationDeliveryAttempt`: notification/device/provider result, bounded error, retry count, next-attempt time, and terminal state.
 
-```csharp
-public sealed class NotificationDevice
-{
-    public Guid Id { get; init; }
-    public Guid TenantId { get; init; }
-    public Guid UserId { get; init; }
-    public string FcmToken { get; private set; } = string.Empty;
-    public DevicePlatform Platform { get; private set; }
-    public bool IsActive { get; private set; }
-    public DateTimeOffset LastSeenAt { get; private set; }
-}
-```
+**Tasks:**
 
-**Steps:**
+- [x] Write and run coverage for cross-tenant queries, duplicate/same-owner device registration, cross-user token reuse, duplicate subscription, bounded title/body, invalid FCM token input, and both processed-event outcomes.
+- [ ] Capture a separate red-before-green run for every invariant; implementation was resumed after the available subagent quota was exhausted.
+- [x] Implement the domain/configuration changes needed by the invariant tests.
+- [x] Verify the EF model is migration-ready and generate the final migration after `NextAttemptAt` and delivery-attempt state stabilized; the migration was reviewed but not applied to the legacy live database.
+- [ ] Run the persistence tests against the intended local Notification database after its migration history is reconciled; the current database is a legacy target and was deliberately not modified.
+- [ ] Commit: `feat(notification): harden FCM persistence and audience constraints`.
 
-- [ ] Write failing tests for required fields, valid status transitions, token upsert behavior, and tenant ownership.
-- [ ] Add entities for notifications, devices, delivery attempts, and processed events; add optional preferences/subscriptions only if the selected recipient strategy requires them.
-- [ ] Configure composite indexes for `(TenantId, UserId, CreatedAt)`, `(TenantId, UserId, IsActive)`, and idempotency keys.
-- [ ] Configure all cross-service IDs as scalar external references with no foreign keys.
-- [ ] Add global tenant query filters only where they can safely use current-user context; event processing must also pass explicit tenant checks.
-- [ ] Run focused domain and persistence tests; expect all to pass.
-- [ ] Commit with `feat(notification): add tenant-scoped notification domain`.
+---
 
-### Task 3: Add authenticated device registration APIs
+## Task 3 — Phase 2: Authenticated Notification gRPC and BFF Surface
+
+**Goal:** Make every client operation follow the Aurora authorization pipeline.
 
 **Files:**
-- Create: `Application/Commands/Devices/RegisterNotificationDeviceCommand.cs`
-- Create: `Application/Commands/Devices/RemoveNotificationDeviceCommand.cs`
-- Create: `Application/DTOs/Notifications/DeviceDtos.cs`
-- Create: `GrpcServices/NotificationGrpcService.cs` or the approved HTTP adapter
-- Test: `tests/dotnet/Notification.Tests/Api/DeviceRegistrationTests.cs`
+
+- Modify: `protos/notification.proto`
+- Create/modify: `src/dotnet/Notification/GrpcServices/NotificationGrpcService.cs`
+- Modify: `src/dotnet/Notification/Program.cs`
+- Modify: `src/dotnet/Notification/Notification.csproj`
+- Modify: `src/dotnet/Notification/Infrastructure/Security/NotificationCurrentUserMiddleware.cs`
+- Create: `src/dotnet/Notification/Infrastructure/Security/NotificationServiceAuthOptions.cs`
+- Create: `src/dotnet/Notification/Infrastructure/Security/NotificationServiceAuthInterceptor.cs`
+- Modify: `src/dotnet/Notification/appsettings.json`
+- Create/modify: `src/dotnet/BFF/Staff.Bff/Controllers/NotificationsController.cs`
+- Modify: `src/dotnet/BFF/Staff.Bff/Program.cs`
+- Modify: `src/dotnet/BFF/Staff.Bff/appsettings.json`
+- Create: `src/dotnet/BFF/BuildingBlocks.BFF/Interceptors/NotificationServiceCredentialOptions.cs`
+- Create: `src/dotnet/BFF/BuildingBlocks.BFF/Interceptors/NotificationServiceCredentialInterceptor.cs`
+- Modify: `src/dotnet/BFF/BuildingBlocks.BFF/Extensions/GrpcClientExtensions.cs`
+- Modify: `src/dotnet/shared/Security/JwtClaims.cs` to add `GrpcMetadataKeys.ServiceApiKey = "x-service-api-key"`
+- Modify: `src/dotnet/shared/Constants/PermissionConstants.cs`
+- Test: `tests/dotnet/Notification.Tests/Grpc/NotificationGrpcServiceTests.cs`
+- Test: `tests/dotnet/Notification.Tests/Grpc/NotificationGrpcAuthenticationTests.cs`
+- Create: `src/dotnet/BFF/Staff.Bff/Tests/Staff.Bff.Tests.csproj`
+- Create: `src/dotnet/BFF/Staff.Bff/Tests/NotificationsControllerAuthorizationTests.cs`
+- Create: `src/dotnet/BFF/Staff.Bff/Tests/Interceptors/NotificationServiceCredentialInterceptorTests.cs`
 
 **Contract:**
 
-```text
-POST /api/v1/notification-devices
-Authorization: Bearer <token>
-Body: { token, platform, appVersion? }
-Result: { deviceId, platform, isActive }
+```protobuf
+rpc RegisterDevice(RegisterDeviceRequest) returns (DeviceResponse);
+rpc RemoveDevice(RemoveDeviceRequest) returns (Empty);
+rpc SubscribeShipment(SubscribeShipmentRequest) returns (Empty);
+rpc ListNotifications(ListNotificationsRequest) returns (ListNotificationsResponse);
+rpc GetUnreadCount(GetUnreadCountRequest) returns (UnreadCountResponse);
+rpc MarkNotificationRead(MarkNotificationReadRequest) returns (Empty);
+rpc MarkAllNotificationsRead(MarkAllNotificationsReadRequest) returns (CountResponse);
 ```
 
-```text
-DELETE /api/v1/notification-devices/{deviceId}
-Authorization: Bearer <token>
-```
+Every request excludes `TenantId` and `UserId`. The service obtains them from authenticated context. Every BFF action has `[Authorize]` plus `[RequirePermission(PermissionConstants.Notification.Access)]`, where `PermissionConstants.Notification.Access` is exactly `"notifications:access"`; no role grants authority.
 
-**Steps:**
+**Service authentication contract:**
 
-- [ ] Write tests proving `TenantId` and `UserId` come from the authenticated current-user service, not the request body.
-- [ ] Validate token length/non-empty, supported platform, request size, and authenticated user presence.
-- [ ] Upsert by token or `(TenantId, UserId, token)`; reactivate an existing token and update `LastSeenAt`.
-- [ ] Allow deletion/deactivation only for the current user or an explicitly authorized tenant administrator.
-- [ ] Return DTOs, never EF entities or raw FCM tokens.
-- [ ] Run API unit tests and `dotnet build`; expect all to pass.
-- [ ] Commit with `feat(notification): register authenticated push devices`.
+- Staff.Bff binds `Grpc:Notification:Url` and required secret `Grpc:Notification:ServiceApiKey`; the corresponding environment variable is `Grpc__Notification__ServiceApiKey`. `NotificationServiceCredentialInterceptor` adds `x-service-id: staff-bff` and `x-service-api-key: <configured value>` only to the Notification gRPC client, in addition to the existing identity metadata interceptor.
+- Notification binds `ServiceAuth:AllowedServiceId` to `staff-bff` and required secret `ServiceAuth:ApiKey`; the secret environment variable is `ServiceAuth__ApiKey`. Checked-in appsettings contain no key value. Both applications validate required service-auth configuration at startup.
+- `NotificationServiceAuthInterceptor` is registered first in `AddGrpc`, before `AuthInterceptor`. It rejects a missing/wrong key or wrong service ID with `StatusCode.Unauthenticated` before current-user population or handler execution. For both the service ID and API key, its comparison helper converts the supplied and configured values to fixed-size SHA-256 digests and uses `CryptographicOperations.FixedTimeEquals`; logs may contain only a safe failure category and never the key/header collection.
+- After service authentication succeeds, the existing identity interceptor populates current-user context. The Notification handler rejects missing/malformed user or tenant identity with `Unauthenticated` and enforces tenant/user resource scope. `DevelopmentIdentity` must remain disabled for this gRPC path.
+- Production config sets an `https://` Notification URL, enforces TLS at the workload/ingress boundary, and exposes Notification only on the private service network. The shared API key does not replace either control.
 
-### Task 4: Implement the FCM provider boundary
+Checked-in configuration shape:
 
-**Files:**
-- Create: `Application/Interfaces/IFcmPushProvider.cs`
-- Create: `Infrastructure/Firebase/FirebaseOptions.cs`
-- Create: `Infrastructure/Firebase/FirebaseAdminInitializer.cs`
-- Create: `Infrastructure/Firebase/FirebasePushProvider.cs`
-- Create: `Infrastructure/Firebase/FakeFcmPushProvider.cs`
-- Test: `tests/dotnet/Notification.Tests/Firebase/FirebasePushProviderTests.cs`
+Staff.Bff `appsettings.json`:
 
-**Interface:**
-
-```csharp
-public interface IFcmPushProvider
-{
-    Task<FcmSendResult> SendAsync(
-        NotificationDevice device,
-        FcmMessage message,
-        CancellationToken cancellationToken);
+```json
+"Grpc": {
+  "Notification": {
+    "Url": "http://localhost:6001",
+    "ServiceApiKey": ""
+  }
 }
 ```
 
-`FcmMessage` must contain title/body plus non-sensitive data fields such as `notificationId`, `type`, `shipmentId`, and `actionUrl`. It must not contain access tokens, private customer data, or unrestricted database payloads.
+Notification `appsettings.json`:
 
-**Steps:**
-
-- [ ] Write tests asserting the fake provider captures a message and can return success, transient failure, and invalid-token failure deterministically.
-- [ ] Initialize Firebase Admin only when configured; fail startup clearly in production if required credential configuration is absent.
-- [ ] Read credentials from environment/secret manager; support service-account JSON or application default credentials without storing a credential file in the repository.
-- [ ] Map Firebase response errors into `Success`, `TransientFailure`, and `InvalidToken` without leaking provider details to API callers.
-- [ ] Register the real provider in production and fake provider in tests.
-- [ ] Run provider tests without network access; expect all to pass.
-- [ ] Commit with `feat(notification): add firebase push provider abstraction`.
-
-### Task 5: Process Shipment events into notifications
-
-**Files:**
-- Create: `Infrastructure/Messaging/Consumers/ShipmentCreatedConsumer.cs`
-- Create: `Infrastructure/Messaging/Consumers/ShipmentStatusChangedConsumer.cs`
-- Create: `Infrastructure/Messaging/Consumers/ShipmentCancelledConsumer.cs`
-- Create: `Infrastructure/Messaging/Consumers/ShipmentDeliveredConsumer.cs`
-- Create: `Infrastructure/Messaging/NotificationEventProcessor.cs`
-- Modify only if contract decision requires it: `src/dotnet/Contracts/Shipment.Contracts/Events/*.cs`
-- Test: `tests/dotnet/Notification.Tests/Messaging/ShipmentNotificationConsumerTests.cs`
-
-**Steps:**
-
-- [ ] Write a failing test for each supported event and assert the expected notification type/title/body/action URL.
-- [ ] Write a duplicate-delivery test using the same `EventId`; assert exactly one user-visible notification is created.
-- [ ] Validate `ContractVersion`, `TenantId`, `EventId`, and required external IDs before processing.
-- [ ] Resolve recipients only through the selected explicit recipient strategy; reject or dead-letter events with no authorized audience rather than broadcasting.
-- [ ] In one database transaction, create the processed-event record and notification records using a unique idempotency key.
-- [ ] Register each MassTransit consumer with stable queue names and the existing raw JSON interoperability convention.
-- [ ] Run focused consumer tests with in-memory/fake bus and fake recipient resolver; expect all to pass.
-- [ ] Commit with `feat(notification): consume shipment events into notifications`.
-
-### Task 6: Add delivery attempts, retry, and invalid-token handling
-
-**Files:**
-- Create: `Infrastructure/BackgroundJobs/NotificationDeliveryWorker.cs`
-- Create: `Application/Services/NotificationDeliveryService.cs`
-- Create: `Infrastructure/Messaging/NotificationRetryPolicy.cs`
-- Test: `tests/dotnet/Notification.Tests/Delivery/NotificationDeliveryServiceTests.cs`
-- Test: `tests/dotnet/Notification.Tests/Delivery/NotificationRetryTests.cs`
-
-**Steps:**
-
-- [ ] Write tests for success, transient failure, permanent failure, invalid token, max-attempt exhaustion, and cancellation.
-- [ ] Persist one delivery attempt per device/provider call with status, attempt count, provider message ID, and sanitized error category.
-- [ ] Retry only transient failures with bounded exponential backoff; mark permanent failures terminal.
-- [ ] Deactivate FCM tokens when Firebase reports an unregistered/invalid token.
-- [ ] Ensure worker concurrency cannot send the same `(NotificationId, DeviceId)` delivery twice at the same attempt state.
-- [ ] Add structured logs containing correlation/event/notification IDs but never FCM tokens or credentials.
-- [ ] Run delivery tests and build; expect all to pass.
-- [ ] Commit with `feat(notification): add reliable fcm delivery retries`.
-
-### Task 7: Add notification history and read-state APIs
-
-**Files:**
-- Create: `Application/Queries/Notifications/ListNotificationsQuery.cs`
-- Create: `Application/Queries/Notifications/GetUnreadNotificationCountQuery.cs`
-- Create: `Application/Commands/Notifications/MarkNotificationReadCommand.cs`
-- Create: `Application/Commands/Notifications/MarkAllNotificationsReadCommand.cs`
-- Create: `GrpcServices/NotificationGrpcService.cs` or the approved HTTP adapter endpoints
-- Test: `tests/dotnet/Notification.Tests/Api/NotificationQueryTests.cs`
-
-**Contract:**
-
-```text
-GET /api/v1/notifications?page=1&pageSize=20
-GET /api/v1/notifications/unread-count
-PUT /api/v1/notifications/{id}/read
-PUT /api/v1/notifications/read-all
+```json
+"ServiceAuth": {
+  "AllowedServiceId": "staff-bff",
+  "ApiKey": ""
+}
 ```
 
-**Steps:**
+**Tasks:**
 
-- [ ] Write tests proving users cannot list, count, read, or mutate another tenant's notifications.
-- [ ] Add stable pagination ordered by `CreatedAt DESC, Id DESC`.
-- [ ] Restrict normal users to their own notifications; define a separate permission for tenant-wide staff views if needed.
-- [ ] Return stable DTOs with `notificationId`, `type`, `title`, `body`, `actionUrl`, `isRead`, and timestamps.
-- [ ] Map errors to consistent validation/not-found/forbidden responses without stack traces.
-- [ ] Run API tests and build; expect all to pass.
-- [ ] Commit with `feat(notification): expose notification history and read state`.
+- [x] Restore Staff.Bff dependencies and build it with the restored assets.
+- [ ] Add the dedicated BFF controller/interceptor test project covering 401/403, Notification-only headers, fail-closed missing key, and no secret logging.
+- [ ] Complete the full pipeline matrix for missing/wrong credentials, valid credential with/without identity, forged identity, malformed identity, and wrong-user NotFound behavior; current Notification auth coverage includes the missing/wrong/id and valid-credential handler cases.
+- [x] Bind and validate both service-auth option objects, register the Notification-only client interceptor after the existing identity metadata interceptor, and register `NotificationServiceAuthInterceptor` before `AuthInterceptor` on the Notification server.
+- [x] Add the Protobuf methods and generated server implementation.
+- [x] Map BFF REST routes to gRPC using the existing `ClientMetadataInterceptor` and `RequirePermissionAttribute` patterns.
+- [x] Remove Notification HTTP minimal routes as the browser-facing boundary; the BFF is the authenticated browser surface.
+- [x] Run focused Notification auth tests and build the BFF.
+- [ ] Commit: `feat(notification): expose authenticated notification contract`.
 
-### Task 8: Create and validate the Notification database migration
+---
 
-**Files:**
-- Create: `src/dotnet/Notification/Infrastructure/Persistences/Migrations/*`
-- Modify: `src/dotnet/Notification/appsettings.Development.json` only for a clearly named Notification database
-- Test: `tests/dotnet/Notification.Tests/Persistence/NotificationMigrationTests.cs`
+## Task 4 — Phase 3: Audience Resolution and All Owned-Service Consumers
 
-**Steps:**
-
-- [ ] Inspect the migration directory and confirm the target database name is Notification-specific, not `aurora_shipment_workflow`.
-- [ ] Generate one initial Notification migration from the final model; do not reuse or alter Shipment migrations.
-- [ ] Apply it only to the confirmed local Notification database.
-- [ ] Verify tables, indexes, unique idempotency constraints, and absence of cross-service foreign keys.
-- [ ] Run migration compatibility tests and `dotnet ef migrations list`; record command output in the Notification phase file.
-- [ ] Commit with `feat(notification): add notification database migration`.
-
-### Task 9: Complete integration verification and frontend handoff
+**Goal:** Ensure every supported producer event maps to an explicit, authorized recipient without database coupling.
 
 **Files:**
-- Modify: `codex/tasks/notification/phase-01-project-foundation.md` through `phase-09-testing.md` with actual command evidence
-- Modify: `codex/specs/notification.md` only for decisions made during implementation
-- Create: `docs/superpowers/plans/2026-08-29-notification-fcm-push.md` updates to checked steps
-- Frontend handoff artifact outside this backend scope: Firebase config, `firebase-messaging-sw.js`, permission/token registration, `onMessage`, and click navigation
-- Test: `tests/dotnet/Notification.Tests/NotificationServiceIntegrationTests.cs`
 
-**Steps:**
+- Modify/create: `src/dotnet/Notification/Application/Interfaces/IRecipientResolver.cs`
+- Modify: `src/dotnet/Notification/Infrastructure/Messaging/SubscriptionRecipientResolver.cs`
+- Modify: `src/dotnet/Notification/Infrastructure/Messaging/NotificationEventProcessor.cs`
+- Create: `src/dotnet/Notification/Infrastructure/Messaging/Consumers/ShipmentSubmittedConsumer.cs`
+- Create: `src/dotnet/Notification/Infrastructure/Messaging/Consumers/ShipmentPickedUpConsumer.cs`
+- Create: `src/dotnet/Notification/Infrastructure/Messaging/Consumers/ShipmentCompletedConsumer.cs`
+- Create: `src/dotnet/Notification/Infrastructure/Messaging/Consumers/DocumentAttachedConsumer.cs`
+- Modify: `src/dotnet/Notification/Infrastructure/Messaging/Consumers/*.cs`
+- Modify: `src/dotnet/Notification/Program.cs`
+- Test: `tests/dotnet/Notification.Tests/Messaging/NotificationEventProcessorTests.cs`
+- Test: `tests/dotnet/Notification.Tests/Messaging/OwnedServiceConsumerTests.cs`
 
-- [ ] Run `dotnet build src/dotnet/Notification/Notification.csproj`.
-- [ ] Run `dotnet test tests/dotnet/Notification.Tests/Notification.Tests.csproj`.
-- [ ] Run `git diff --check`.
-- [ ] Run an end-to-end local flow: register device → publish a Shipment event → consume once → create notification → fake-send FCM → persist delivery attempt → mark read.
-- [ ] Verify duplicate event replay does not create a duplicate notification.
-- [ ] Verify invalid FCM token deactivates only that device.
-- [ ] Verify tenant A cannot access tenant B's device or notification records.
-- [ ] Verify no Firebase credentials, raw tokens, or connection strings are present in tracked files or logs.
-- [ ] Update task work logs with exact commands and results; do not mark phases complete without passing criteria.
-- [ ] Inspect `git diff` and stage explicit paths only; do not push.
+**Supported events:**
 
-## Frontend FCM Contract
+- Shipment: created, submitted, status changed, cancelled, picked up, delivered, completed, document attached.
+- GPS: monitoring alert only; never position updates.
+- OCR: completed and failed.
+- Regulatory: evaluation completed and failed.
 
-The frontend team must implement the browser side separately:
+All thirteen producer contracts and outbox publication paths already exist. Notification currently lacks only the four Shipment consumers named in this phase. None of the thirteen contracts carries an explicit recipient `UserId`; shipment subscription resolution is therefore the only approved current audience source.
 
-```text
-1. Initialize Firebase client SDK.
-2. Register firebase-messaging-sw.js.
-3. Ask notification permission after a user action.
-4. Call getToken({ vapidKey, serviceWorkerRegistration }).
-5. POST the token to Notification Service using the authenticated session.
-6. Use onMessage for an in-app popup while the tab is focused.
-7. Use the service worker for background notification display.
-8. On click, navigate using data.actionUrl after validating it is an internal route.
+**Tasks:**
+
+- [ ] Add dedicated failing consumer contract tests for every event metadata field; current processor tests cover duplicate/no-recipient/multi-recipient delivery behavior.
+- [x] Cover duplicate event delivery and no-recipient behavior in processor tests.
+- [x] Implement the four missing consumers and register all thirteen planned consumers in MassTransit.
+- [x] Keep raw OCR `NormalizedJson`, credentials, and sensitive payloads out of notification content/logs; event text is bounded before persistence.
+- [x] Ensure the processor creates one notification per authorized user/device policy and uses a stable rule name per event type.
+- [x] Resolve the full audience first, then atomically persist the event receipt plus all per-user notification projections. For absent `ShipmentId` or zero subscriptions, persist `NoRecipient`, acknowledge safely, and never broadcast.
+- [x] Run the available focused processor tests with real contract-compatible data.
+- [ ] Commit: `feat(notification): consume complete owned-service event set`.
+
+---
+
+## Task 5 — Phase 4: FCM Provider, Token Lifecycle, and Delivery Retry
+
+**Goal:** Reliably send to active devices and make provider failures observable and recoverable.
+
+**Files:**
+
+- Modify: `src/dotnet/Notification/Infrastructure/Firebase/FirebaseOptions.cs`
+- Modify: `src/dotnet/Notification/Infrastructure/Firebase/FirebasePushProvider.cs`
+- Modify: `src/dotnet/Notification/Infrastructure/Firebase/FirebaseAdminInitializer.cs`
+- Modify: `src/dotnet/Notification/Infrastructure/Firebase/FakeFcmPushProvider.cs`
+- Modify: `src/dotnet/Notification/Infrastructure/BackgroundJobs/NotificationDeliveryWorker.cs`
+- Modify: `src/dotnet/Notification/Infrastructure/Messaging/NotificationEventProcessor.cs`
+- Create: `src/dotnet/Notification/Infrastructure/Persistences/Migrations/<timestamp>_NotificationFcmAudience.cs` after the final delivery schema is stable
+- Test: `tests/dotnet/Notification.Tests/FirebaseProviderTests.cs`
+- Test: `tests/dotnet/Notification.Tests/Delivery/NotificationDeliveryTests.cs`
+
+**FCM payload contract:**
+
+```json
+{
+  "notification": {
+    "title": "Shipment delivered",
+    "body": "Shipment SHP-001 was delivered."
+  },
+  "data": {
+    "notificationId": "uuid",
+    "type": "SHIPMENT_DELIVERED",
+    "shipmentId": "uuid",
+    "actionUrl": "/shipments/uuid"
+  }
+}
 ```
 
-The browser Firebase config and VAPID public key may be client-visible. The Firebase Admin service-account private key must remain server-side.
+`actionUrl` must be generated from an allowlisted internal route. Event data must not supply an arbitrary external URL.
 
-## Acceptance Criteria
+**Tasks:**
 
-- `.NET Notification` builds and starts with local PostgreSQL and RabbitMQ.
-- Notification owns its own database and has no cross-service database access or foreign keys.
-- Authenticated users can register/deactivate their own FCM devices.
-- Supported Shipment events create tenant-scoped notifications for an explicit authorized audience.
-- Foreground and background FCM payloads contain stable notification metadata and an internal action URL.
-- Duplicate Shipment events do not duplicate user-visible notifications.
-- Delivery attempts, bounded retries, permanent failures, and invalid tokens are persisted.
-- Notification history, unread count, and read-state APIs enforce tenant and user isolation.
-- Automated tests pass with a fake FCM provider and no paid Firebase credentials.
-- Migration and runtime smoke validation pass against the Notification database only.
+- [ ] Add separate worker/provider integration tests for permanent failure and bounded worker retries; processor tests cover sent, invalid-token, transient retry, deactivation, and no-resend-after-success.
+- [x] Implement fake-provider coverage before finalizing provider behavior.
+- [x] Map Firebase `Unregistered` to device deactivation, invalid payloads to permanent failure, transient provider responses to bounded retry, and persist every attempt.
+- [x] Ensure a provider failure leaves durable Notification/attempt state available for retry before RabbitMQ acknowledgement.
+- [x] Add structured event/notification/attempt delivery logs; tokens and credential content are excluded. Correlation ID remains supplied by the hosting/logging pipeline.
+- [ ] Commit: `feat(notification): complete FCM delivery lifecycle`.
 
-## Known Risks and Decisions
+---
 
-- Recipient resolution is the primary integration risk because current Shipment events do not consistently carry recipient identity. Resolve this before consumer implementation.
-- FCM delivery is not a durable source of truth; Notification DB remains the durable history and delivery-attempt record.
-- Browser notification permission can be denied and browsers can invalidate tokens; registration and deactivation must be repeatable.
-- “Popup while the app is open” is a frontend `onMessage` responsibility; the backend only sends the FCM payload.
-- The existing repository contains a separate Java notification implementation, but it is outside this plan and must not be used as the `.NET Notification` implementation target.
+## Task 6 — Phase 5: Firebase Secret and Local Runtime Configuration
+
+**Goal:** Make local Firebase testing possible without placing a secret in source control.
+
+**Files:**
+
+- Modify: `src/dotnet/Notification/appsettings.json`
+- Modify: `src/dotnet/Notification/appsettings.Development.json`
+- Modify: `.gitignore`
+- Create: `.github/workflows/secret-scan.yml`
+- Do not commit: Firebase Admin service-account JSON
+- Local ignored path: `secrets/firebase/aurora-notification-admin.json`
+
+**Safe configuration:**
+
+Keep checked-in config like this:
+
+```json
+"Firebase": {
+  "Enabled": false,
+  "ProjectId": "",
+  "ClientEmail": "",
+  "PrivateKey": "",
+  "CredentialsPath": ""
+}
+```
+
+For a local smoke test, place the key at the generic ignored path and provide it only at runtime:
+
+```bash
+export Firebase__Enabled=true
+export Firebase__CredentialsPath="$(pwd)/secrets/firebase/aurora-notification-admin.json"
+```
+
+Do not paste the JSON into `appsettings*.json`, source code, `codex`, or a commit. Do not use the Firebase Web SDK config as the Admin SDK credential. Production should mount the JSON from a secret manager and set only `Firebase__CredentialsPath` (or inject the three inline Admin fields through the deployment secret store).
+
+Use this same tracked-files scan locally and in `.github/workflows/secret-scan.yml`; no output is the passing result:
+
+```bash
+if git grep -nEI -- \
+  '"private_key"[[:space:]]*:[[:space:]]*"-----BEGIN PRIVATE KEY-----|"client_email"[[:space:]]*:[[:space:]]*"[^"]+@[^"]+\.iam\.gserviceaccount\.com"' \
+  -- .; then
+  echo "Tracked credential material detected."
+  exit 1
+fi
+```
+
+**Tasks:**
+
+- [x] Add `/secrets/firebase/*.json` to `.gitignore`; `git check-ignore -v secrets/firebase/aurora-notification-admin.json` names the rule.
+- [x] Run `git ls-files --error-unmatch secrets/firebase/aurora-notification-admin.json`; it fails non-zero because the credential is not tracked.
+- [x] Add `.github/workflows/secret-scan.yml` on pull requests and pushes and run the tracked-files scan with no matches.
+- [x] Add startup validation for enabled Firebase/service-auth, credential path presence, and no secret logging.
+- [x] Add `/ready` Firebase configuration readiness reporting without exposing credential content.
+- [x] Run disabled Firebase and missing-credentials tests; real FCM provider testing remains dependent on a valid runtime credential/token.
+- [ ] Commit only config validation and ignore-rule changes: `chore(notification): secure Firebase runtime configuration`.
+
+---
+
+## Task 7 — Phase 6: BFF and Frontend Popup Contract
+
+**Goal:** Connect authenticated browser behavior to the backend payload and make both foreground and background notifications visible.
+
+**Backend files:**
+
+- Modify/create: `src/dotnet/BFF/Staff.Bff/Controllers/NotificationsController.cs`
+- Modify: `docs/technical/frontend/API_CATALOG.md`
+- Modify: `docs/technical/frontend/FE_INTEGRATION_GUIDE.md`
+- Modify: `docs/documents/events/notification-events.md`
+
+**Frontend deliverables:**
+
+Frontend repository: `/home/kaito/project/aurora-client` (separate sibling repository; Next.js with Vitest, no Firebase dependency at audit time). Do not place frontend implementation or commits in `aurora-server`.
+
+- Add Firebase Web SDK initialization using public web config, not Admin JSON.
+- Request browser notification permission after authenticated app bootstrap.
+- Register/update token through the authenticated BFF endpoint.
+- Handle token refresh by upserting the device again; deactivate on logout where supported.
+- Handle foreground `onMessage` and render a toast/popup.
+- Add `firebase-messaging-sw.js` for background display and click handling.
+- Validate `data.actionUrl` against internal allowed routes before navigation.
+- Fetch notification history/unread count through BFF and mark read through BFF.
+
+**Tasks:**
+
+- [x] Define exact JSON request/response examples for device registration, subscription, list, unread count, and mark-read in the frontend API catalog and local runbook.
+- [x] Verify all BFF routes have `[Authorize]` and the correct direct permission; role labels in docs do not replace capability checks.
+- [ ] Add frontend tests for foreground message, background message, permission denied, token refresh, invalid action URL, and click navigation.
+- [ ] Add API contract tests that prove frontend routes never expose Notification directly.
+- [ ] Commit backend/docs separately from frontend if the frontend lives in another repository.
+
+---
+
+## Task 8 — Phase 7: Real Integration Verification
+
+**Goal:** Prove the complete path with local infrastructure and a real FCM smoke test.
+
+**Files/commands:**
+
+- Read: `docker-compose.dev.yml`
+- Verify: all service `appsettings.Development.json` RabbitMQ/DB settings
+- Verify: `src/dotnet/Notification/Program.cs`
+- Verify: all producer outbox processors and Notification consumer registrations
+
+**Automated verification:**
+
+- [x] `dotnet build src/dotnet/Notification/Notification.csproj --no-restore`
+- [x] `dotnet test tests/dotnet/Notification.Tests/Notification.Tests.csproj --no-restore`
+- [x] `dotnet restore src/dotnet/BFF/Staff.Bff/Staff.Bff.csproj` before the first BFF build in an environment with package access
+- [x] `dotnet build src/dotnet/BFF/Staff.Bff/Staff.Bff.csproj --no-restore`
+- [ ] `dotnet test src/dotnet/BFF/Staff.Bff/Tests/Staff.Bff.Tests.csproj --no-restore`
+- [ ] `dotnet test src/dotnet/ShipmentWorkflow/Tests/ShipmentWorkflow.Tests.csproj --no-restore`
+- [ ] `dotnet test src/dotnet/GpsTracking/Tests/GpsTracking.Tests.csproj --no-restore`
+- [ ] `dotnet test src/dotnet/DocumentOcr/Tests/DocumentOcr.Tests.csproj --no-restore`
+- [ ] `dotnet test src/dotnet/RegulatoryCompliance/Tests/RegulatoryCompliance.Tests.csproj --no-restore`
+- [x] Run `git diff --check` and inspect staged/uncommitted diffs; no commit was created because the user explicitly asked not to commit.
+
+**Runtime verification:**
+
+- [ ] Start PostgreSQL databases, Redis, RabbitMQ, Notification, and the producer services with matching local credentials.
+- [ ] Apply only the Notification migration to the confirmed Notification database.
+- [ ] Authenticate as a real/development test user through the approved auth mechanism; do not bypass auth in HTTP.
+- [ ] Register an actual browser FCM token through BFF and subscribe that user to a known shipment.
+- [ ] Trigger a Shipment status event and verify: producer DB/outbox row, RabbitMQ delivery, Notification DB row, FCM delivery attempt, and browser popup.
+- [ ] Repeat the same event and verify no duplicate notification.
+- [ ] Trigger OCR/GPS/Compliance events and verify each registered consumer and audience rule.
+- [ ] Revoke/invalid-token test: verify only the bad device is deactivated.
+- [ ] Record any unavailable infrastructure honestly; do not mark runtime proof complete from a build-only result.
+
+**Exit criteria:** authenticated BFF flow, all required consumers, durable notification history, duplicate safety, FCM delivery, and frontend popup are proven or the exact external blocker is recorded.
+
+**Current blocker record:** backend verification is green, but frontend implementation is in the sibling
+`/home/kaito/project/aurora-client` repository and was not modified from this server workspace. The
+running Notification PostgreSQL database is a legacy schema with incompatible migration history, and
+the sandbox denies Kestrel/RabbitMQ local network binding. Therefore real end-to-end browser popup
+delivery remains pending and is not marked complete.
+
+---
+
+## Task 9 — Documentation and Plan Completion
+
+- [ ] Update `codex/plan.md` only with commands and evidence from this branch.
+- [ ] Update `codex/specs/notification.md` to describe FCM devices, subscriptions, BFF/gRPC boundary, and the actual consumer list.
+- [ ] Update `docs/technical/notification-spec.md`, `docs/technical/notification/OVERVIEW.md`, and `DETAILS.md` to remove legacy claims that are not implemented.
+- [ ] Update `docs/technical/notification/INTERVIEW_QA.md` to remove legacy Email/InApp/preference and realtime-publication claims that are not implemented.
+- [ ] Update `docs/bff-api/API-MATRIX.md` only after the BFF controllers and permissions actually exist.
+- [ ] Add a service integration matrix row for every real producer event and consumer.
+- [ ] Run the final verification commands again after documentation changes.
+- [ ] Do not call the feature complete while any phase exit criterion, auth gate, recipient rule, migration check, or runtime proof is missing.
+
+## Recommended Execution Order
+
+```text
+Phase 0 contract/security reconciliation
+  → Phase 1 persistence
+  → Phase 2 authenticated gRPC + BFF
+  → Phase 3 audience + all consumers
+  → Phase 4 FCM delivery
+  → Phase 5 secret/runtime configuration
+  → Phase 6 frontend popup
+  → Phase 7 end-to-end proof
+```
+
+The next coding phase is Phase 1 only. Do not start frontend or real Firebase smoke testing before the authenticated BFF boundary and recipient policy are implemented.

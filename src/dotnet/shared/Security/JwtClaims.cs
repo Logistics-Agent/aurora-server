@@ -18,6 +18,7 @@ public static class JwtClaims
 public static class GrpcMetadataKeys
 {
     public const string ServiceId = "x-service-id";
+    public const string ServiceApiKey = "x-service-api-key";
     public const string UserId = "x-user-id";
     public const string TenantId = "x-tenant-id";
     public const string Role = "x-role";
@@ -26,4 +27,3 @@ public static class GrpcMetadataKeys
     public const string TraceId = "x-trace-id";
     public const string CorrelationId = "x-correlation-id";
 }
-
