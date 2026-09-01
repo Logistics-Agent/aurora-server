@@ -23,6 +23,7 @@
 - [`docs/technical/frontend/FE_INTEGRATION_GUIDE.md`](file:///D:/IT/CD/aurora-server/docs/technical/frontend/FE_INTEGRATION_GUIDE.md): Frontend architectural patterns, cookie authentication, gRPC error translation, and API clients.
 - [`docs/technical/frontend/FE_FLOW_COOKBOOK.md`](file:///D:/IT/CD/aurora-server/docs/technical/frontend/FE_FLOW_COOKBOOK.md): Step-by-step UI recipes for shipment booking, thread claiming, and OCR reviews.
 - [`docs/technical/frontend/ROLE_PERMISSION_API_MATRIX.md`](file:///D:/IT/CD/aurora-server/docs/technical/frontend/ROLE_PERMISSION_API_MATRIX.md): Capability permissions and role requirement matrix for all frontend routes.
+- [`docs/technical/frontend/NOTIFICATION-FE-INTEGRATION.md`](frontend/NOTIFICATION-FE-INTEGRATION.md): Detailed FE Notification/FCM integration, contracts, sequence flows, token lifecycle, auth, and local testing.
 
 ---
 

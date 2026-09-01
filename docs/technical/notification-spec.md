@@ -46,7 +46,7 @@ device inactive, transient errors retry bounded, invalid payload là permanent.
 
 ## Configuration
 
-Firebase Admin JSON chỉ đặt tại `secrets/firebase/aurora-notification-admin.json`
-(ignored), truyền qua `Firebase__CredentialsPath`. Service key truyền qua
-`ServiceAuth__ApiKey` và `Grpc__Notification__ServiceApiKey`; không commit hoặc
-log secret. `/health` và `/ready` chỉ trả trạng thái an toàn.
+Firebase Admin JSON được mount tại một path runtime và truyền qua
+`Firebase__CredentialsPath`. Service key truyền qua `ServiceAuth__ApiKey` và
+`Grpc__Notification__ServiceApiKey`; không commit hoặc log secret.
+`/health` và `/ready` chỉ trả trạng thái an toàn.

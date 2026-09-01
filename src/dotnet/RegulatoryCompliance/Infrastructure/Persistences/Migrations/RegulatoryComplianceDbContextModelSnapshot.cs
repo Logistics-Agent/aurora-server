@@ -20,6 +20,7 @@ namespace RegulatoryCompliance.Infrastructure.Persistences.Migrations
                 .HasAnnotation("ProductVersion", "10.0.9")
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
+            NpgsqlModelBuilderExtensions.HasPostgresExtension(modelBuilder, "vector");
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
             modelBuilder.Entity("RegulatoryCompliance.Domain.Entities.ComplianceCitation", b =>
@@ -325,6 +326,279 @@ namespace RegulatoryCompliance.Infrastructure.Persistences.Migrations
                     b.HasIndex("TenantId", "ReceivedAt");
 
                     b.ToTable("inbox_messages", (string)null);
+                });
+
+            modelBuilder.Entity("RegulatoryCompliance.Domain.Entities.KnowledgeChunk", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("CharacterCount")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("ContentSha256")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<DateTimeOffset?>("EmbeddedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("EmbeddedContentHash")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.PrimitiveCollection<float[]>("Embedding")
+                        .HasColumnType("real[]");
+
+                    b.Property<string>("EmbeddingError")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<string>("EmbeddingModel")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("EmbeddingModelVersion")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("EmbeddingStatus")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)");
+
+                    b.Property<int>("EndOffset")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("KnowledgeDocumentVersionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("NormalizedText")
+                        .IsRequired()
+                        .HasMaxLength(20000)
+                        .HasColumnType("character varying(20000)");
+
+                    b.Property<string>("PageLabel")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<Guid>("ScopeKey")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("SectionLabel")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<int>("Sequence")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("StartOffset")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid?>("TenantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("TokenCount")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("UpdatedBy")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("Visibility")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("KnowledgeDocumentVersionId", "Sequence")
+                        .IsUnique();
+
+                    b.HasIndex("ScopeKey", "ContentSha256");
+
+                    b.HasIndex("ScopeKey", "EmbeddingStatus", "CreatedAt");
+
+                    b.ToTable("knowledge_chunks", (string)null);
+                });
+
+            modelBuilder.Entity("RegulatoryCompliance.Domain.Entities.KnowledgeDocument", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Category")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("LanguageCode")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<Guid>("ScopeKey")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("SourceReference")
+                        .IsRequired()
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<Guid?>("TenantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("UpdatedBy")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("Visibility")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ScopeKey", "Category", "LanguageCode");
+
+                    b.ToTable("knowledge_documents", (string)null);
+                });
+
+            modelBuilder.Entity("RegulatoryCompliance.Domain.Entities.KnowledgeDocumentVersion", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("ChunkCount")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTimeOffset?>("CompletedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ContentReference")
+                        .IsRequired()
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<string>("ContentSha256")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("ErrorCode")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("ErrorMessage")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<DateTimeOffset?>("FailedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("FileName")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)");
+
+                    b.Property<string>("IngestionKey")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<string>("IngestionStatus")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)");
+
+                    b.Property<Guid>("KnowledgeDocumentId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("MimeType")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<DateTimeOffset?>("ProcessingStartedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("ScopeKey")
+                        .HasColumnType("uuid");
+
+                    b.Property<long>("SizeBytes")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTimeOffset?>("SupersededAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("SupersedesVersionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("TenantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("UpdatedBy")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("VersionLabel")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("Visibility")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("KnowledgeDocumentId", "VersionLabel")
+                        .IsUnique();
+
+                    b.HasIndex("ScopeKey", "IngestionKey")
+                        .IsUnique();
+
+                    b.ToTable("knowledge_document_versions", (string)null);
                 });
 
             modelBuilder.Entity("RegulatoryCompliance.Domain.Entities.OutboxMessage", b =>
@@ -810,6 +1084,24 @@ namespace RegulatoryCompliance.Infrastructure.Persistences.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("RegulatoryCompliance.Domain.Entities.KnowledgeChunk", b =>
+                {
+                    b.HasOne("RegulatoryCompliance.Domain.Entities.KnowledgeDocumentVersion", null)
+                        .WithMany("Chunks")
+                        .HasForeignKey("KnowledgeDocumentVersionId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("RegulatoryCompliance.Domain.Entities.KnowledgeDocumentVersion", b =>
+                {
+                    b.HasOne("RegulatoryCompliance.Domain.Entities.KnowledgeDocument", null)
+                        .WithMany("Versions")
+                        .HasForeignKey("KnowledgeDocumentId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("RegulatoryCompliance.Domain.Entities.RegulatoryChunk", b =>
                 {
                     b.HasOne("RegulatoryCompliance.Domain.Entities.RegulatoryDocumentVersion", null)
@@ -852,6 +1144,16 @@ namespace RegulatoryCompliance.Infrastructure.Persistences.Migrations
             modelBuilder.Entity("RegulatoryCompliance.Domain.Entities.ComplianceFinding", b =>
                 {
                     b.Navigation("Citations");
+                });
+
+            modelBuilder.Entity("RegulatoryCompliance.Domain.Entities.KnowledgeDocument", b =>
+                {
+                    b.Navigation("Versions");
+                });
+
+            modelBuilder.Entity("RegulatoryCompliance.Domain.Entities.KnowledgeDocumentVersion", b =>
+                {
+                    b.Navigation("Chunks");
                 });
 
             modelBuilder.Entity("RegulatoryCompliance.Domain.Entities.RegulatoryDocument", b =>
