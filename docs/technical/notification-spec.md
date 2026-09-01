@@ -1,95 +1,52 @@
-# Đặc tả Notification Service
+# Đặc tả Notification FCM Service
 
-Tài liệu mô tả `NotificationService` trong `protos/notification.proto` và event-driven delivery behavior.
+Notification nhận event từ RabbitMQ/MassTransit, lưu lịch sử in-app và gửi
+FCM tới các device active. Service có database riêng, không đọc database của
+Shipment, GPS, OCR hoặc Compliance.
 
-## 1. Tổng quan
+## Boundary và auth
 
-Notification tạo Email/InApp notification từ integration events, quản lý recipient preferences, delivery attempts, retries và read state. Service không sở hữu shipment/GPS/OCR/compliance data và không truy cập database của các producer.
+Luồng browser là `FE -> YARP -> Staff.Bff -> Notification gRPC`. Mọi route BFF
+cần JWT và permission trực tiếp `notifications:access`. BFF truyền user/tenant
+context cùng service credential riêng; Notification xác thực service trước
+shared `AuthInterceptor`, sau đó áp tenant/user scope cho mọi query.
 
-## 2. Dữ liệu sở hữu
+## Dữ liệu sở hữu
 
-* `NotificationMessage`: recipient, source event, channel, title/body, delivery/read status.
-* `NotificationPreference`: tenant/user/event/channel preference.
-* `NotificationDeliveryAttempt`: attempt number, status, provider ID và bounded error.
-* `ConsumedIntegrationEvent`: inbox receipt để event processing idempotent.
+`notifications`, `notification_devices`, `notification_subscriptions`,
+`notification_delivery_attempts`, và `processed_notification_events`.
+Receipt event unique theo `(TenantId, EventId, Rule)` và phân loại
+`AudienceResolved` hoặc `NoRecipient`.
 
-`ShipmentId` chỉ là optional external reference, không phải foreign key.
+## gRPC/BFF API
 
-## 3. gRPC API
-
-| RPC | Chức năng |
-| --- | --- |
-| `ListNotifications` | Paged tenant/user notification list, optional unread filter |
-| `MarkNotificationRead` | Mark một InApp notification thuộc current user là read |
-| `ListNotificationPreferences` | List preferences của current tenant/user |
-| `UpsertNotificationPreference` | Enable/disable event + channel và recipient address |
-
-Supported channels hiện tại: `Email`, `InApp`.
-
-## 4. Functional Requirements
-
-### FR-01: Event consumption
-
-* Consume 8 Shipment, 1 GPS alert, 2 OCR và 2 Compliance event contracts.
-* Validate trusted tenant/event metadata.
-* Lookup enabled preferences theo tenant + event type.
-* Tạo một notification cho mỗi enabled recipient/channel.
-* Ghi consumed receipt kể cả khi không có preference.
-* Không consume `GpsPositionUpdatedEvent`.
-* Không đưa OCR raw `NormalizedJson` vào notification content.
-
-Chi tiết: [Notification event consumption](documents/events/notification-events.md).
-
-### FR-02: Preferences
-
-* Preference unique theo tenant, recipient user, event type và channel.
-* Email preference yêu cầu recipient address hợp lệ khi enabled.
-* Client không được set TenantId/RecipientUserId thay current identity.
-* Invalid event/channel trả `InvalidArgument`.
-
-### FR-03: Delivery
-
-* InApp provider hoàn tất local delivery và hỗ trợ read state.
-* Email provider được abstract qua interface; SMTP là deployment adapter hiện tại.
-* Mỗi attempt được persist trước/sau provider result.
-* Transient failure schedule exponential/bounded retry; permanent failure không retry vô hạn.
-* Sent notification không được gửi lại bởi normal worker flow.
-
-### FR-04: Query và read state
-
-* List chỉ trả notification của current tenant/current user.
-* Pagination bounded và deterministic.
-* Chỉ InApp notification được mark read.
-* Cross-tenant hoặc wrong-recipient ID không lộ notification.
-
-## 5. Non-functional Requirements
-
-* At-least-once broker delivery, inbox dedupe và unique notification constraints.
-* Event projection + consumed receipt commit atomically.
-* Body tối đa 2.000 ký tự; title tối đa 200; provider error được bound.
-* Không log SMTP credentials, OCR JSON hoặc sensitive payload không cần thiết.
-* Provider integration phải replaceable và test được bằng fake.
-* Missing tenant/user context fail closed.
-* Real email phụ thuộc SMTP host/from/credentials từ secret configuration.
-
-Local development: gRPC `6001`, PostgreSQL `localhost:5434/aurora_notification`, RabbitMQ `5672`, Redis `6379`.
-
-## 6. Test Cases đại diện
-
-| ID | Scenario | Expected result |
+| BFF route | RPC | Chức năng |
 | --- | --- | --- |
-| NOT-TC-01 | Upsert InApp preference | Preference created/updated idempotently |
-| NOT-TC-02 | Invalid event type | `InvalidArgument` |
-| NOT-TC-03 | Event có enabled preference | Notification và inbox receipt được tạo |
-| NOT-TC-04 | Duplicate event | Không tạo duplicate notification/receipt |
-| NOT-TC-05 | Event tenant khác | Chỉ preference cùng tenant được áp dụng |
-| NOT-TC-06 | Event không có preference | Không notification nhưng receipt vẫn được lưu |
-| NOT-TC-07 | OCR completed | Content không chứa raw normalized JSON |
-| NOT-TC-08 | Provider transient failure | Attempt/error/next retry persisted |
-| NOT-TC-09 | Mark read sai user/channel | Reject hoặc NotFound không leakage |
-| NOT-TC-10 | RabbitMQ producer flows | GPS/OCR/Compliance/Shipment events tạo đúng notification |
+| `POST /api/v1/notifications/devices` | `RegisterDevice` | Register/refresh FCM token |
+| `DELETE /api/v1/notifications/devices/{id}` | `RemoveDevice` | Deactivate device của current user |
+| `POST /api/v1/notifications/subscriptions/shipments/{id}` | `SubscribeShipment` | Subscribe shipment |
+| `GET /api/v1/notifications` | `ListNotifications` | Lịch sử có pagination/unread filter |
+| `GET /api/v1/notifications/unread-count` | `GetUnreadCount` | Số unread |
+| `PATCH /api/v1/notifications/{id}/read` | `MarkNotificationRead` | Mark một notification read |
+| `PATCH /api/v1/notifications/read-all` | `MarkAllNotificationsRead` | Mark tất cả read |
 
-## 7. Trạng thái triển khai
+Request gRPC không có `TenantId`/`UserId`; service lấy từ authenticated context.
 
-Tenant-safe APIs, 13 event consumers, Email/InApp providers, inbox dedupe, delivery retry và PostgreSQL persistence đã implemented. Notification hiện không publish service-owned integration event.
+## Event và delivery
 
+Notification consume 13 event contracts: 8 Shipment lifecycle/document, GPS
+monitoring alert, 2 OCR, và 2 Regulatory. Recipient hiện tại chỉ là user có
+subscription cho trusted shipment ID. Event thiếu shipment ID hoặc không có
+subscriber sẽ ghi `NoRecipient`, không broadcast tenant.
+
+Processor ghi receipt và toàn bộ notification projection trong một transaction.
+FCM payload có title/body và data `notificationId`, `type`, `shipmentId`,
+`actionUrl`; action URL chỉ là internal allowlisted path. `Unregistered` làm
+device inactive, transient errors retry bounded, invalid payload là permanent.
+
+## Configuration
+
+Firebase Admin JSON chỉ đặt tại `secrets/firebase/aurora-notification-admin.json`
+(ignored), truyền qua `Firebase__CredentialsPath`. Service key truyền qua
+`ServiceAuth__ApiKey` và `Grpc__Notification__ServiceApiKey`; không commit hoặc
+log secret. `/health` và `/ready` chỉ trả trạng thái an toàn.

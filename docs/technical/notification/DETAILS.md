@@ -1,82 +1,41 @@
-# Multi-Channel Notification & Alerting Service — Deep Technical Details
+# Notification FCM Technical Details
 
-> **Service Layer**: Event Consumers, Channel Routing, Idempotency & Delivery Attempts  
-> **Source-of-Truth**: `src/dotnet/Notification`, `NotificationMessage.cs`, `ConsumedIntegrationEvent.cs`, `NotificationDbContext.cs`.
+## Event processing
 
----
+Each consumer maps trusted event metadata to a bounded notification envelope.
+The processor resolves the shipment subscriber audience first, then writes one
+processed-event receipt and all per-user notification rows in one transaction.
+The unique receipt key is `(TenantId, EventId, Rule)`. A duplicate returns
+without creating another row or sending another FCM attempt.
 
-## 1. Idempotent Integration Event Consumption
-
-To handle network partitions and message redelivery from RabbitMQ without sending duplicate SMS or emails:
-
-```csharp
-public async Task Consume(ConsumeContext<ShipmentStatusChangedEvent> context)
-{
-    var messageId = context.MessageId ?? Guid.NewGuid();
-
-    // 1. Idempotency Check
-    var alreadyProcessed = await _dbContext.ConsumedIntegrationEvents
-        .AnyAsync(e => e.EventId == messageId, context.CancellationToken);
-
-    if (alreadyProcessed)
-    {
-        _logger.LogInformation("Event {EventId} already consumed; skipping duplicate.", messageId);
-        return;
-    }
-
-    // 2. Evaluate User Notification Preferences
-    var preference = await _preferenceService.GetPreferenceAsync(context.Message.TenantId, context.Message.RecipientUserId);
-    if (!preference.IsChannelEnabled(NotificationChannel.Email))
-    {
-        return;
-    }
-
-    // 3. Render Template & Dispatch to MailService / WebSocket
-    var notification = new NotificationMessage
-    {
-        TenantId = context.Message.TenantId,
-        RecipientUserId = context.Message.RecipientUserId,
-        Category = NotificationCategory.ShipmentMilestones,
-        Channel = NotificationChannel.Email,
-        Title = $"Shipment {context.Message.TrackingNumber} Status Update",
-        Body = $"Your shipment has updated to {context.Message.NewStatus}."
-    };
-
-    _dbContext.NotificationMessages.Add(notification);
-    _dbContext.ConsumedIntegrationEvents.Add(new ConsumedIntegrationEvent {
-        EventId = messageId,
-        EventType = nameof(ShipmentStatusChangedEvent),
-        ConsumedAt = DateTimeOffset.UtcNow
-    });
-
-    await _dbContext.SaveChangesAsync(context.CancellationToken);
-}
+```text
+event -> validate/bound text -> resolve shipment subscribers
+      -> transaction(receipt + notification projections)
+      -> active devices -> FCM attempt/result
 ```
 
----
+The service does not include raw OCR JSON, credentials, arbitrary URLs, or
+sensitive provider payloads in the notification. `actionUrl` is generated as
+an internal route such as `/shipments/{id}` or `/notifications`.
 
-## 2. Multi-Channel Router & Resilience Strategy
+## Delivery state
 
-```mermaid
-flowchart TD
-    In[Integration Event] --> Idemp{Already Consumed?}
-    Idemp -->|Yes| Ack[Acknowledge & Discard]
-    Idemp -->|No| Prefs{Check User Preferences}
-    
-    Prefs -->|Channel Disabled| Suppress[Record Suppressed]
-    Prefs -->|Channel Enabled| Route[Channel Router]
-    
-    Route --> InApp[In-App Hub: WebSocket Push]
-    Route --> Email[Email: MailService SubmitOutbound]
-    Route --> SMS[SMS Gateway]
-    Route --> Webhook[Tenant Webhook Endpoint]
-    
-    InApp & Email & SMS & Webhook --> LogAttempt[Log NotificationDeliveryAttempt]
-```
+Every `(NotificationId, DeviceId)` pair has one durable delivery attempt. The
+attempt stores provider message ID, bounded error code, attempt count,
+`NextAttemptAt`, and terminal status. `Unregistered` FCM responses deactivate
+the device. Transient responses are retried with capped exponential backoff;
+invalid payloads and exhausted retries are terminal failures.
 
----
+## Tenant and service boundaries
 
-## 3. Delivery Retry & Failure Handling
+Notification never accesses another service database. Producer outboxes are the
+only event source. gRPC request messages intentionally contain no tenant or
+user fields; current-user context supplies both. BFF routes return `404` for a
+notification/device outside the current tenant/user scope.
 
-- **Exponential Backoff**: If an external SMS gateway or webhook returns `503` or timeouts, the message is scheduled for retry at $t = 2^n \times 10\text{s}$ (up to 3 attempts).
-- **Delivery Audit**: Every attempt persists `ResponseStatusCode`, `DurationMs`, and `ErrorMessage` in `NotificationDeliveryAttempt`.
+## Runtime
+
+Checked-in Firebase and service-key settings are empty/disabled. Deployment
+injects `ServiceAuth__ApiKey`, `Grpc__Notification__ServiceApiKey`, and the
+server-only Firebase credential path. `/health` and `/ready` expose safe
+configuration health without secret content.
