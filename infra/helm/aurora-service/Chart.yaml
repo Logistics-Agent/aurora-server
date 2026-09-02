@@ -1,0 +1,6 @@
+apiVersion: v2
+name: aurora-service
+description: Universal shared Helm chart for Aurora microservices and BFFs
+type: application
+version: 1.0.0
+appVersion: "1.0.0"

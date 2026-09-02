@@ -1,0 +1,72 @@
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: aurora-infra-addons
+  namespace: argocd
+spec:
+  generators:
+    - list:
+        elements:
+          - name: external-secrets
+            repoURL: https://charts.external-secrets.io
+            chart: external-secrets
+            targetRevision: 0.9.18
+            namespace: external-secrets
+            valuesPath: infra/external-secrets/values.yaml
+            server: https://kubernetes.default.svc
+          - name: rabbitmq
+            repoURL: https://charts.bitnami.com/bitnami
+            chart: rabbitmq
+            targetRevision: 14.4.1
+            namespace: aurora
+            valuesPath: infra/helm/rabbitmq/values.yaml
+            server: https://kubernetes.default.svc
+          - name: kube-prometheus-stack
+            repoURL: https://prometheus-community.github.io/helm-charts
+            chart: kube-prometheus-stack
+            targetRevision: 58.7.1
+            namespace: observability
+            valuesPath: infra/observability/kube-prometheus-stack/values.yaml
+            server: https://kubernetes.default.svc
+          - name: loki
+            repoURL: https://grafana.github.io/helm-charts
+            chart: loki
+            targetRevision: 5.43.3
+            namespace: observability
+            valuesPath: infra/observability/loki/values.yaml
+            server: https://kubernetes.default.svc
+          - name: alloy-core
+            repoURL: https://grafana.github.io/helm-charts
+            chart: alloy
+            targetRevision: 0.2.0
+            namespace: observability
+            valuesPath: infra/observability/alloy/values.yaml
+            server: https://kubernetes.default.svc
+          - name: alloy-ai
+            repoURL: https://grafana.github.io/helm-charts
+            chart: alloy
+            targetRevision: 0.2.0
+            namespace: observability
+            valuesPath: infra/observability/alloy/values.yaml
+            server: cluster-aks-ai
+  template:
+    metadata:
+      name: "addon-{{name}}"
+    spec:
+      project: default
+      source:
+        repoURL: "{{repoURL}}"
+        chart: "{{chart}}"
+        targetRevision: "{{targetRevision}}"
+        helm:
+          valueFiles:
+            - "https://raw.githubusercontent.com/Aurora-Log/aurora-server/main/{{valuesPath}}"
+      destination:
+        server: "{{server}}"
+        namespace: "{{namespace}}"
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true

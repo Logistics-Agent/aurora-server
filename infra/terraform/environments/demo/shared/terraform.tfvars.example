@@ -1,0 +1,13 @@
+subscription_id                 = "00000000-0000-0000-0000-000000000000"
+resource_group_name             = "rg-aurora-shared-demo"
+location                        = "southeastasia"
+vnet_name                       = "vnet-aurora-shared"
+vnet_cidr                       = "10.30.0.0/16"
+private_endpoints_subnet_cidr   = "10.30.1.0/24"
+application_storage_account_name = "stauroradatademo"
+key_vault_name                  = "kv-aurora-shared-demo"
+enable_managed_redis            = false
+redis_name                      = "redis-aurora-shared-demo"
+redis_sku_name                  = "Balanced_B0"
+availability_zones              = ["1"]
+environment                     = "demo"

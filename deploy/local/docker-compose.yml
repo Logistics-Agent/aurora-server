@@ -586,8 +586,8 @@ services:
     ports:
       - "5000:5000"
     volumes:
-      - osrm_data:/data
-    command: ["osrm-routed", "--algorithm", "mld", "/data/map.osrm"]
+      - ./data/osrm:/data:ro
+    command: ["osrm-routed", "--algorithm", "mld", "/data/central-america-260901.osrm"]
     networks:
       - aurora-local
 

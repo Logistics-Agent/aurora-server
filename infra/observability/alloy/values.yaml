@@ -1,0 +1,40 @@
+# =============================================================================
+# Upstream Grafana Alloy Values (Pinned Chart v0.2.0)
+# =============================================================================
+
+alloy:
+  configMap:
+    content: |
+      logging {
+        level  = "info"
+        format = "logfmt"
+      }
+
+      // Discover and scrape Kubernetes pods with Prometheus annotations
+      discovery.kubernetes "pods" {
+        role = "pod"
+      }
+
+      prometheus.scrape "pods" {
+        targets    = discovery.kubernetes.pods.targets
+        forward_to = [prometheus.remote_write.core.receiver]
+      }
+
+      // Remote write metrics to Core Prometheus Internal LoadBalancer
+      prometheus.remote_write "core" {
+        endpoint {
+          url = "http://10.10.2.60:9090/api/v1/write"
+        }
+      }
+
+      // Collect container logs and forward to Core Loki
+      loki.source.kubernetes "pod_logs" {
+        targets    = discovery.kubernetes.pods.targets
+        forward_to = [loki.write.core.receiver]
+      }
+
+      loki.write "core" {
+        endpoint {
+          url = "http://10.10.2.61:3100/loki/api/v1/push"
+        }
+      }

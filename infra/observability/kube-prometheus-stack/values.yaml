@@ -1,0 +1,40 @@
+# =============================================================================
+# Upstream kube-prometheus-stack Values (Pinned Chart v58.7.1)
+# =============================================================================
+
+prometheus:
+  prometheusSpec:
+    enableFeatures:
+      - remote-write-receiver
+    retention: 7d
+    serviceMonitorSelectorNilUsesHelmValues: false
+    podMonitorSelectorNilUsesHelmValues: false
+    ruleSelectorNilUsesHelmValues: false
+    resources:
+      requests:
+        cpu: 200m
+        memory: 512Mi
+      limits:
+        cpu: 1000m
+        memory: 1Gi
+  service:
+    type: LoadBalancer
+    annotations:
+      service.beta.kubernetes.io/azure-load-balancer-internal: "true"
+      service.beta.kubernetes.io/azure-load-balancer-internal-subnet: "snet-aks-core"
+    port: 9090
+    loadBalancerIP: 10.10.2.60
+
+grafana:
+  enabled: true
+  adminPassword: "admin"
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+
+alertmanager:
+  enabled: false
