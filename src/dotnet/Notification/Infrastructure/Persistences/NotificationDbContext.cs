@@ -1,96 +1,71 @@
 using Microsoft.EntityFrameworkCore;
 using Notification.Domain.Entities;
-using Shared.Interceptors;
-using Shared.Security;
+using NotificationEntity = Notification.Domain.Entities.Notification;
 
 namespace Notification.Infrastructure.Persistences;
 
-public sealed class NotificationDbContext(
-    DbContextOptions<NotificationDbContext> options,
-    ICurrentUserService currentUser,
-    AuditSaveChangesInterceptor auditInterceptor) : DbContext(options)
+public sealed class NotificationDbContext(DbContextOptions<NotificationDbContext> options) : DbContext(options)
 {
-    private readonly ICurrentUserService _currentUser = currentUser;
-    private readonly AuditSaveChangesInterceptor _auditInterceptor = auditInterceptor;
-
-    public DbSet<NotificationMessage> Notifications => Set<NotificationMessage>();
-    public DbSet<NotificationPreference> NotificationPreferences => Set<NotificationPreference>();
+    public DbSet<NotificationEntity> Notifications => Set<NotificationEntity>();
+    public DbSet<NotificationDevice> Devices => Set<NotificationDevice>();
+    public DbSet<NotificationSubscription> Subscriptions => Set<NotificationSubscription>();
     public DbSet<NotificationDeliveryAttempt> DeliveryAttempts => Set<NotificationDeliveryAttempt>();
-    public DbSet<ConsumedIntegrationEvent> ConsumedIntegrationEvents => Set<ConsumedIntegrationEvent>();
+    public DbSet<ProcessedNotificationEvent> ProcessedEvents => Set<ProcessedNotificationEvent>();
 
-    protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder) =>
-        optionsBuilder.AddInterceptors(_auditInterceptor);
+    public IQueryable<NotificationEntity> NotificationsFor(Guid tenantId, Guid userId) =>
+        Notifications.Where(x => x.TenantId == tenantId && x.UserId == userId);
+
+    public IQueryable<NotificationDevice> DevicesFor(Guid tenantId, Guid userId) =>
+        Devices.Where(x => x.TenantId == tenantId && x.UserId == userId);
+
+    public IQueryable<NotificationSubscription> SubscriptionsFor(Guid tenantId, Guid userId) =>
+        Subscriptions.Where(x => x.TenantId == tenantId && x.UserId == userId);
+
+    public IQueryable<NotificationSubscription> SubscriptionsForShipment(Guid tenantId, Guid shipmentId) =>
+        Subscriptions.Where(x => x.TenantId == tenantId && x.ShipmentId == shipmentId);
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
-        ConfigureNotification(modelBuilder);
-        ConfigurePreference(modelBuilder);
-        ConfigureAttempt(modelBuilder);
-        ConfigureConsumedEvent(modelBuilder);
-    }
-
-    private void ConfigureNotification(ModelBuilder modelBuilder)
-    {
-        modelBuilder.Entity<NotificationMessage>(entity =>
+        modelBuilder.Entity<NotificationEntity>(entity =>
         {
             entity.ToTable("notifications");
-            entity.HasKey(item => item.Id);
-            entity.HasQueryFilter(item => item.TenantId == _currentUser.TenantId);
-            entity.HasIndex(item => new { item.TenantId, item.RecipientUserId, item.CreatedAt });
-            entity.HasIndex(item => new { item.TenantId, item.RecipientUserId, item.ReadAt });
-            entity.HasIndex(item => new { item.TenantId, item.RecipientUserId, item.SourceEventId, item.Channel }).IsUnique();
-            entity.HasIndex(item => new { item.Status, item.NextAttemptAt });
-            entity.Property(item => item.EventType).HasConversion<string>().HasMaxLength(80).IsRequired();
-            entity.Property(item => item.Channel).HasConversion<string>().HasMaxLength(20).IsRequired();
-            entity.Property(item => item.Status).HasConversion<string>().HasMaxLength(30).IsRequired();
-            entity.Property(item => item.Title).HasMaxLength(200).IsRequired();
-            entity.Property(item => item.Body).HasMaxLength(2000).IsRequired();
-            entity.Property(item => item.RecipientAddress).HasMaxLength(320);
-            entity.HasMany(item => item.DeliveryAttempts)
-                .WithOne()
-                .HasForeignKey(attempt => attempt.NotificationId)
-                .OnDelete(DeleteBehavior.Cascade);
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.Type).HasMaxLength(64).IsRequired();
+            entity.Property(x => x.Title).HasMaxLength(200).IsRequired();
+            entity.Property(x => x.Body).HasMaxLength(2000).IsRequired();
+            entity.Property(x => x.ActionUrl).HasMaxLength(512);
+            entity.HasIndex(x => new { x.TenantId, x.UserId, x.CreatedAt, x.Id });
         });
-    }
-
-    private void ConfigurePreference(ModelBuilder modelBuilder)
-    {
-        modelBuilder.Entity<NotificationPreference>(entity =>
+        modelBuilder.Entity<NotificationDevice>(entity =>
         {
-            entity.ToTable("notification_preferences");
-            entity.HasKey(item => item.Id);
-            entity.HasQueryFilter(item => item.TenantId == _currentUser.TenantId);
-            entity.HasIndex(item => new { item.TenantId, item.RecipientUserId, item.EventType, item.Channel }).IsUnique();
-            entity.Property(item => item.EventType).HasConversion<string>().HasMaxLength(80).IsRequired();
-            entity.Property(item => item.Channel).HasConversion<string>().HasMaxLength(20).IsRequired();
-            entity.Property(item => item.RecipientAddress).HasMaxLength(320);
+            entity.ToTable("notification_devices");
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.FcmToken).HasMaxLength(4096).IsRequired();
+            entity.HasIndex(x => x.FcmToken).IsUnique().HasFilter("\"IsActive\" = true");
+            entity.HasIndex(x => new { x.TenantId, x.UserId, x.IsActive });
         });
-    }
-
-    private void ConfigureAttempt(ModelBuilder modelBuilder)
-    {
+        modelBuilder.Entity<NotificationSubscription>(entity =>
+        {
+            entity.ToTable("notification_subscriptions");
+            entity.HasKey(x => x.Id);
+            entity.HasIndex(x => new { x.TenantId, x.UserId, x.ShipmentId }).IsUnique();
+            entity.HasIndex(x => new { x.TenantId, x.ShipmentId });
+        });
         modelBuilder.Entity<NotificationDeliveryAttempt>(entity =>
         {
             entity.ToTable("notification_delivery_attempts");
-            entity.HasKey(item => item.Id);
-            entity.HasQueryFilter(item => item.TenantId == _currentUser.TenantId);
-            entity.HasIndex(item => new { item.NotificationId, item.AttemptNumber }).IsUnique();
-            entity.Property(item => item.Status).HasConversion<string>().HasMaxLength(30).IsRequired();
-            entity.Property(item => item.ProviderMessageId).HasMaxLength(255);
-            entity.Property(item => item.Error).HasMaxLength(1000);
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.ErrorCode).HasMaxLength(128);
+            entity.Property(x => x.NextAttemptAt);
+            entity.HasIndex(x => new { x.NotificationId, x.DeviceId }).IsUnique();
+            entity.HasIndex(x => new { x.Status, x.NextAttemptAt });
         });
-    }
-
-    private void ConfigureConsumedEvent(ModelBuilder modelBuilder)
-    {
-        modelBuilder.Entity<ConsumedIntegrationEvent>(entity =>
+        modelBuilder.Entity<ProcessedNotificationEvent>(entity =>
         {
-            entity.ToTable("consumed_integration_events");
-            entity.HasKey(item => item.Id);
-            entity.HasQueryFilter(item => item.TenantId == _currentUser.TenantId);
-            entity.HasIndex(item => new { item.SourceEventType, item.SourceEventId }).IsUnique();
-            entity.HasIndex(item => new { item.TenantId, item.ReceivedAt });
-            entity.Property(item => item.SourceEventType).HasMaxLength(256).IsRequired();
+            entity.ToTable("processed_notification_events");
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.Rule).HasMaxLength(100).IsRequired();
+            entity.HasIndex(x => new { x.TenantId, x.EventId, x.Rule }).IsUnique();
         });
     }
 }

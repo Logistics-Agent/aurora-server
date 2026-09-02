@@ -897,6 +897,34 @@
 
 ---
 
+## Notification FCM popup APIs
+
+All routes below are Staff BFF routes. They require an authenticated session and
+the direct capability permission `notifications:access`; the frontend never calls
+Notification gRPC or Firebase Admin directly.
+
+| Method | Route | Purpose |
+| --- | --- | --- |
+| `POST` | `/api/v1/notifications/devices` | Register or refresh the current user's FCM token |
+| `DELETE` | `/api/v1/notifications/devices/{id}` | Deactivate one current-user device |
+| `POST` | `/api/v1/notifications/subscriptions/shipments/{shipmentId}` | Subscribe the current user to shipment events |
+| `GET` | `/api/v1/notifications` | List current-user notification history (`page`, `pageSize`, `unreadOnly`) |
+| `GET` | `/api/v1/notifications/unread-count` | Read current-user unread count |
+| `PATCH` | `/api/v1/notifications/{id}/read` | Mark one current-user notification read |
+| `PATCH` | `/api/v1/notifications/read-all` | Mark all current-user notifications read |
+
+Device registration request:
+
+```json
+{ "token": "<FCM registration token>", "platform": "Web", "appVersion": "1.0.0" }
+```
+
+Notification list responses contain `id`, `eventType`, `title`, `body`,
+`shipmentId`, `shipmentNumber`, `actionUrl`, `isRead`, `createdAt`, and `readAt`.
+The FCM data payload uses `notificationId`, `type`, `shipmentId`, and internal
+`actionUrl`; validate that action path against frontend internal routes before
+navigating after a popup click.
+
 ## 10. Gaps: Backend Capabilities Missing in BFF
 
 The following backend gRPC RPCs or administrative queries do not yet have dedicated REST controllers in the BFF layer:

@@ -198,7 +198,32 @@ export function initializeRealtimeConnection(tenantId: string, userId: string): 
 
 ---
 
-## 4. Standard Error Handling & ProblemDetails
+## 4. FCM foreground/background popup
+
+After authenticated bootstrap and permission `notifications:access`, initialize
+Firebase Web Messaging with the public Firebase Web config (never the Admin SDK
+JSON). Request browser notification permission, obtain the registration token,
+and call `POST /api/v1/notifications/devices` through the BFF. Call the same
+endpoint on token refresh; deactivate the device on logout where supported.
+
+Handle foreground `onMessage` with an in-app toast/popup. Register a
+`firebase-messaging-sw.js` service worker for background notifications and click
+handling. Before navigation, allow only internal paths such as `/shipments/{id}`
+and `/notifications`; reject external URLs. History and unread state come from
+the BFF notification routes documented in `API_CATALOG.md`.
+
+FCM data contract:
+
+```json
+{
+  "notificationId": "uuid",
+  "type": "SHIPMENT_DELIVERED",
+  "shipmentId": "uuid",
+  "actionUrl": "/shipments/uuid"
+}
+```
+
+## 5. Standard Error Handling & ProblemDetails
 
 All BFFs return RFC 7807 **ProblemDetails** JSON payloads for HTTP error codes (4xx / 5xx):
 
@@ -223,7 +248,7 @@ All BFFs return RFC 7807 **ProblemDetails** JSON payloads for HTTP error codes (
 
 ---
 
-## 5. Pagination & Query Standards
+## 6. Pagination & Query Standards
 
 All collection endpoints follow a consistent query and response envelope standard:
 
@@ -246,7 +271,7 @@ All collection endpoints follow a consistent query and response envelope standar
 
 ---
 
-## 6. Idempotency & Upload Guidelines
+## 7. Idempotency & Upload Guidelines
 
 For file uploads and critical financial/regulatory commands, provide an `IdempotencyKey` UUID:
 - Pass in header: `X-Idempotency-Key: <UUIDv4>` or in the request payload `idempotencyKey: "<UUIDv4>"`.

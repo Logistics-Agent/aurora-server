@@ -20,8 +20,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.lang.reflect.Method;
 import java.util.Map;
-import java.util.stream.Collectors;
 
 /**
  * RcaOrchestratorService: Implements the DevOps RCA Target Pipeline:
@@ -97,9 +97,7 @@ public class RcaOrchestratorService {
         boolean ragAugmented = ragResult.success();
         String ragFailureReason = ragResult.failureReason();
 
-        String knowledgeContext = ragResult.snippets().stream()
-                .map(k -> String.format("- [%s]: %s", k.getTitle(), k.getContent()))
-                .collect(Collectors.joining("\n"));
+        String knowledgeContext = formatKnowledgeContext(ragResult);
 
         // 4. Build Governed Prompt
         String prompt = buildRcaPrompt(incident, redactedContext, knowledgeContext);
@@ -199,6 +197,31 @@ public class RcaOrchestratorService {
                 knowledgeContext.isBlank() ? "No prior matching runbooks found." : knowledgeContext
         );
     }
+
+        private String formatKnowledgeContext(DevOpsRagClient.RetrievalResult ragResult) {
+                try {
+                        Method snippetsMethod = ragResult.getClass().getMethod("snippets");
+                        Object snippets = snippetsMethod.invoke(ragResult);
+                        if (!(snippets instanceof Iterable<?> entries)) {
+                                return "";
+                        }
+
+                        StringBuilder context = new StringBuilder();
+                        for (Object entry : entries) {
+                                Method titleMethod = entry.getClass().getMethod("getTitle");
+                                Method contentMethod = entry.getClass().getMethod("getContent");
+                                if (context.length() > 0) {
+                                        context.append('\n');
+                                }
+                                context.append(String.format("- [%s]: %s",
+                                                titleMethod.invoke(entry), contentMethod.invoke(entry)));
+                        }
+                        return context.toString();
+                } catch (ReflectiveOperationException e) {
+                        log.warn("Unable to format RAG knowledge snippets", e);
+                        return "";
+                }
+        }
 
     private String escapeJson(String input) {
         if (input == null) return "";

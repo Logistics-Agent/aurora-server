@@ -2,94 +2,84 @@
 
 ## Purpose
 
-Notification Service exists to send email and in-application notifications, consume approved owned-service events, track delivery attempts, and retry failures.
+Notification owns authenticated in-app notification history, FCM device tokens,
+shipment subscriptions, event idempotency receipts, and push delivery attempts.
+It consumes approved integration events and never reads another service database.
 
-## Boundaries
+## Boundaries and authorization
 
-This is an independent service with its own database and deployment boundary. It communicates through gRPC APIs and integration events. It must not read or write another service database.
+The browser boundary is `FE -> YARP -> Staff.Bff -> Notification gRPC`.
+Every BFF notification action requires an authenticated session and the direct
+capability `notifications:access`; roles do not replace that permission.
+Staff BFF sends user/tenant context plus a Notification-only service credential.
+Notification validates the service credential before the shared gRPC auth
+interceptor and then scopes every query to the authenticated tenant and user.
 
-## Owned Data
+## Owned data
 
-Owns notification records, recipient preferences, delivery attempts, inbox receipts, and provider message IDs. A reusable template catalog is outside the completed MVP scope.
+- `notifications`: title, body, type, priority, read state, optional shipment
+  reference, and an allowlisted internal action path.
+- `notification_devices`: active FCM token, platform, and last-seen timestamp.
+- `notification_subscriptions`: `(TenantId, UserId, ShipmentId)` subscriptions.
+- `notification_delivery_attempts`: provider result, bounded error, attempt count,
+  next-attempt time, and terminal state.
+- `processed_notification_events`: unique `(TenantId, EventId, Rule)` receipt with
+  `AudienceResolved` or `NoRecipient` outcome and recipient count.
 
-## Data Not Owned
+The service does not own shipment, GPS, OCR, regulatory, billing, or identity data.
+It does not own Firebase Web configuration or expose Admin credentials to clients.
 
-Does not own shipment data, GPS data, OCR jobs, compliance evaluations, or billing transactions.
+## Public contract
 
-## Dependencies
+Staff BFF exposes authenticated REST routes for device registration/removal,
+shipment subscription, notification listing, unread count, mark-read, and
+mark-all-read. The downstream gRPC request messages contain no client-controlled
+`TenantId` or `UserId`; those values come from current-user context.
 
-Depends on shared authentication/tenant context, service-specific PostgreSQL storage, RabbitMQ/MassTransit for events, and explicit contracts from producing services.
+## Event consumers and audience
 
-## Contracts
+Notification consumes thirteen events: Shipment created, submitted, status
+changed, cancelled, picked up, delivered, completed, and document attached;
+GPS monitoring alert; OCR completed and failed; Regulatory evaluation completed
+and failed. Producer services publish through their own transactional outboxes.
 
-Contracts must contain cross-service messages only. They must not include EF entities, DbContexts, repositories, handlers, workers, or runtime configuration.
+Current contracts do not carry an explicit recipient user. Therefore Notification
+resolves only users subscribed to the trusted shipment ID. An absent shipment ID
+or empty audience creates a durable `NoRecipient` receipt, creates no notification,
+and never broadcasts to a tenant.
 
-## APIs
+## Idempotency and delivery
 
-Expose service-owned APIs only. APIs must accept external IDs for cross-service references and must enforce tenant context.
+The full audience is resolved before the receipt and all per-user projections are
+written in one transaction. A duplicate event returns after the unique receipt is
+observed. Delivery attempts are durable; invalid FCM tokens are deactivated,
+transient provider failures use bounded exponential backoff, and permanent
+payload failures are terminal. Tokens and credentials are never logged.
 
-## Event Consumers
+The FCM payload contains notification title/body plus data fields
+`notificationId`, `type`, `shipmentId`, and internal `actionUrl`. Raw OCR JSON,
+credentials, and sensitive provider payloads are excluded from notification text.
 
-Consumers must be idempotent, retry-aware, and safe for duplicate delivery.
+## Configuration and migration
 
-## Event Publishers
+Checked-in configuration keeps Firebase disabled and service API-key values empty.
+Runtime injects `Firebase__CredentialsPath` pointing to an ignored server-only
+Admin JSON and injects the same service key through
+`ServiceAuth__ApiKey` and `Grpc__Notification__ServiceApiKey`.
+`/health` and `/ready` report safe configuration status without secret content.
 
-Publish service-owned events through transactional outbox when persistence and publication must be reliable.
+The current additive migration is
+`20260830023639_NotificationFcmAudience`. It must only be applied after verifying
+the target database migration history. The currently running local database has
+legacy migration `20260719124939_InitialNotification` and is not a safe target
+for this migration without a reviewed baseline/data migration.
 
-## Domain Model
+## Verification status (2026-08-30)
 
-Domain models must express service-owned responsibilities only and keep providers behind interfaces.
-
-## Persistence
-
-Use a dedicated database. No cross-service foreign keys. Store external references as IDs.
-
-## Tenant Behavior
-
-All tenant-owned data is scoped by tenant from the authenticated current-user context or trusted event metadata. Client-provided tenant IDs are not trusted.
-
-## Idempotency
-
-Commands and event consumers that can be retried must use request IDs, event IDs, or deterministic natural keys where applicable.
-
-## Retry Behavior
-
-Transient provider and broker failures must be retried with bounded attempts and recorded errors.
-
-## Security
-
-Do not commit credentials. Validate untrusted input. Do not expose stack traces. Protect tenant isolation.
-
-## Validation
-
-Validate required fields, enum values, external reference IDs, provider payloads, and state changes.
-
-## Runtime Configuration
-
-Runtime configuration includes database connection, RabbitMQ, Redis when needed, provider settings, logging, and health checks.
-
-## Migration Requirements
-
-Create migrations only for this service database. Confirm target database before applying updates.
-
-## Test Requirements
-
-Use unit tests for domain rules and integration tests for persistence, events, idempotency, and tenant isolation. Automated tests must not require paid external credentials; use deterministic fakes.
-
-## Definition of Done
-
-The service builds, starts, migrates its database, passes tests, enforces tenant isolation, handles retries/idempotency, and communicates only through approved contracts/events.
-
-## Implementation Status
-
-Completed and expanded locally through 2026-07-28. The service has tenant-safe gRPC APIs, inbox and notification dedupe, email and in-app provider abstractions, persisted delivery attempts, bounded retry, and an applied PostgreSQL migration. It consumes approved Shipment lifecycle/document events, GPS monitoring alerts, Document OCR completion/failure events, and Regulatory Compliance completion/failure events. High-volume GPS position updates and raw OCR extracted JSON are intentionally excluded.
-
-The service passes 41 tests, including PostgreSQL projection and real RabbitMQ consumer delivery from GPS, OCR, and Compliance contracts. Runtime smoke validation passed with PostgreSQL, RabbitMQ, and Redis healthy. Real SMTP delivery requires deployment-provided host, sender, and credentials; no secrets are committed.
-
-## Assumptions
-
-Provider integrations are abstracted and can be replaced with fakes in tests.
-
-## Explicitly Excluded Responsibilities
-
-Responsibilities owned by other services remain excluded even when this service stores external IDs.
+Notification builds successfully with zero warnings/errors. The Notification
+test project passes 41 tests covering domain bounds, tenant-safe queries,
+multi-recipient atomicity, duplicate/no-recipient behavior, FCM outcomes,
+retry scheduling, and gRPC service authentication. Staff BFF restores and builds
+successfully; dependency advisory warnings remain. Real popup delivery remains
+blocked until the legacy database is reconciled, the services can bind/connect in
+the runtime environment, and a browser FCM registration token is available.

@@ -1,4 +1,5 @@
 using Grpc.Net.ClientFactory;
+using BuildingBlocks.BFF.Interceptors;
 using Shared.Interceptors;
 
 namespace BuildingBlocks.BFF.Extensions;
@@ -18,6 +19,11 @@ public static class GrpcClientExtensions
         IConfiguration config)
     {
         services.AddScoped<ClientMetadataInterceptor>();
+        services.AddOptions<NotificationServiceCredentialOptions>()
+            .Bind(config.GetSection(NotificationServiceCredentialOptions.SectionName))
+            .Validate(options => !string.IsNullOrWhiteSpace(options.ServiceApiKey), "Grpc:Notification:ServiceApiKey is required.")
+            .ValidateOnStart();
+        services.AddTransient<NotificationServiceCredentialInterceptor>();
 
         var iamUrl = config["Grpc:IamTenant:Url"]
             ?? throw new InvalidOperationException("Grpc:IamTenant:Url is required");
@@ -90,10 +96,11 @@ public static class GrpcClientExtensions
             .AddInterceptor<ClientMetadataInterceptor>(InterceptorScope.Client)
             .AddStandardResilienceHandler(ConfigureBusinessResilience);
 
-        var notificationUrl = config["Grpc:Notification:Url"] ?? "http://localhost:5008";
+        var notificationUrl = config["Grpc:Notification:Url"] ?? "http://localhost:6001";
         services.AddGrpcClient<Notification.Grpc.NotificationService.NotificationServiceClient>(
                 o => o.Address = new Uri(notificationUrl))
             .AddInterceptor<ClientMetadataInterceptor>(InterceptorScope.Client)
+            .AddInterceptor<NotificationServiceCredentialInterceptor>(InterceptorScope.Client)
             .AddStandardResilienceHandler(ConfigureBusinessResilience);
 
         var billingUrl = config["Grpc:BillingService:Url"] ?? "http://localhost:5009";
