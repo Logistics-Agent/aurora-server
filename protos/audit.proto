@@ -24,6 +24,8 @@ message GetSystemAuditLogsRequest {
   string eventType = 2;
   int32 page = 3;
   int32 limit = 4;
+  string tenantId = 5;
+  string userId = 6;
 }
 
 message GetAdminAuditLogsRequest {

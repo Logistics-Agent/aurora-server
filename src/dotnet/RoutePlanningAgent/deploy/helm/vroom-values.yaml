@@ -1,0 +1,25 @@
+nameOverride: "vroom"
+fullnameOverride: "vroom"
+
+image:
+  repository: vroomvrp/vroom-express
+  tag: "v1.14.0"
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  port: 3000
+  targetPort: 3000
+
+env:
+  VROOM_ROUTER: "osrm"
+  VROOM_ROUTER_HOST: "osrm"
+  VROOM_ROUTER_PORT: "5000"
+
+resources:
+  requests:
+    cpu: 250m
+    memory: 256Mi
+  limits:
+    cpu: 1000m
+    memory: 1Gi

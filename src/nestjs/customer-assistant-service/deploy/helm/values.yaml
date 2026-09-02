@@ -1,0 +1,55 @@
+nameOverride: "customer-assistant-service"
+fullnameOverride: "customer-assistant-service"
+
+image:
+  repository: acrauroracoredemo.azurecr.io/aurora/customer-assistant-service
+  tag: "latest"
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  port: 5007
+  targetPort: 5007
+
+additionalPorts:
+  - name: http-metrics
+    port: 8080
+    targetPort: 8080
+    protocol: TCP
+
+env:
+  NODE_ENV: "production"
+  PORT: "8080"
+  GRPC_PORT: "5007"
+  REDIS_HOST: "redis-aurora-shared-demo.southeastasia.redis.azure.net"
+  REDIS_PORT: "10000"
+  REDIS_TLS: "true"
+
+externalSecret:
+  enabled: true
+  secretStoreRef:
+    name: azure-keyvault-store
+    kind: ClusterSecretStore
+  data:
+    - secretKey: DATABASE_URL
+      remoteRef:
+        key: customer-assistant-db-url
+    - secretKey: REDIS_PASSWORD
+      remoteRef:
+        key: redis-password
+    - secretKey: OPENAI_API_KEY
+      remoteRef:
+        key: openai-api-key
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 256Mi
+
+serviceMonitor:
+  enabled: true
+  path: /metrics
+  port: http-metrics

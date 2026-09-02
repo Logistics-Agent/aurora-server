@@ -1,0 +1,52 @@
+nameOverride: "billing-service"
+fullnameOverride: "billing-service"
+
+image:
+  repository: acrauroracoredemo.azurecr.io/aurora/billing-service
+  tag: "latest"
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  port: 5004
+  targetPort: 5004
+
+additionalPorts:
+  - name: http-metrics
+    port: 8080
+    targetPort: 8080
+    protocol: TCP
+
+env:
+  NODE_ENV: "production"
+  PORT: "8080"
+  GRPC_PORT: "5004"
+  REDIS_HOST: "redis-aurora-shared-demo.southeastasia.redis.azure.net"
+  REDIS_PORT: "10000"
+  REDIS_TLS: "true"
+
+externalSecret:
+  enabled: true
+  secretStoreRef:
+    name: azure-keyvault-store
+    kind: ClusterSecretStore
+  data:
+    - secretKey: DATABASE_URL
+      remoteRef:
+        key: billing-service-db-url
+    - secretKey: REDIS_PASSWORD
+      remoteRef:
+        key: redis-password
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 256Mi
+
+serviceMonitor:
+  enabled: true
+  path: /metrics
+  port: http-metrics

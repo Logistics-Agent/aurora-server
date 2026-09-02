@@ -1,0 +1,66 @@
+nameOverride: "osrm"
+fullnameOverride: "osrm"
+
+image:
+  repository: osrm/osrm-backend
+  tag: "v5.27.1"
+  pullPolicy: IfNotPresent
+
+serviceAccount:
+  create: true
+  name: sa-osrm-downloader
+  annotations:
+    azure.workload.identity/client-id: "" # Injected by Terraform output osrm_reader_client_id
+
+podLabels:
+  azure.workload.identity/use: "true"
+
+service:
+  type: ClusterIP
+  port: 5000
+  targetPort: 5000
+
+initContainers:
+  - name: download-osrm-data
+    image: mcr.microsoft.com/azure-cli:2.61.0
+    command:
+      - /bin/sh
+      - -c
+      - |
+        echo "Logging in via Workload Identity..."
+        az login --federated-token "$(cat $AZURE_FEDERATED_TOKEN_FILE)" \
+                 --authority "https://login.microsoftonline.com/$AZURE_TENANT_ID" \
+                 --client-id "$AZURE_CLIENT_ID"
+        echo "Downloading OSRM map dataset from Azure Blob Storage..."
+        az storage blob download-batch \
+          --account-name "stauroradatademo" \
+          --source "osrm" \
+          --destination "/data" \
+          --auth-mode login
+        echo "OSRM dataset download complete."
+    volumeMounts:
+      - name: osrm-data
+        mountPath: /data
+
+command:
+  - osrm-routed
+  - --algorithm
+  - mld
+  - /data/map.osrm
+
+volumeMounts:
+  - name: osrm-data
+    mountPath: /data
+    readOnly: true
+
+volumes:
+  - name: osrm-data
+    emptyDir: {}
+
+resources:
+  requests:
+    cpu: 500m
+    memory: 1Gi
+  limits:
+    cpu: 2000m
+    memory: 4Gi

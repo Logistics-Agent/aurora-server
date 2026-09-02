@@ -1,0 +1,37 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "IamTenantUserPoolProvisioning",
+      "Effect": "Allow",
+      "Action": [
+        "cognito-idp:CreateUserPool",
+        "cognito-idp:CreateUserPoolClient"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "IamTenantUserPoolInspection",
+      "Effect": "Allow",
+      "Action": [
+        "cognito-idp:DescribeUserPool",
+        "cognito-idp:DescribeUserPoolClient"
+      ],
+      "Resource": "arn:aws:cognito-idp:ap-southeast-1:*:userpool/*"
+    },
+    {
+      "Sid": "IamTenantUserAdministration",
+      "Effect": "Allow",
+      "Action": [
+        "cognito-idp:AdminCreateUser",
+        "cognito-idp:AdminGetUser",
+        "cognito-idp:AdminUpdateUserAttributes",
+        "cognito-idp:AdminSetUserPassword",
+        "cognito-idp:AdminDeleteUser",
+        "cognito-idp:AdminDisableUser",
+        "cognito-idp:AdminEnableUser"
+      ],
+      "Resource": "arn:aws:cognito-idp:ap-southeast-1:*:userpool/*"
+    }
+  ]
+}

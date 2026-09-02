@@ -1,0 +1,49 @@
+nameOverride: "notification"
+fullnameOverride: "notification"
+
+image:
+  repository: acrauroracoredemo.azurecr.io/aurora/notification
+  tag: "latest"
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  port: 5000
+  targetPort: 5000
+
+env:
+  ASPNETCORE_ENVIRONMENT: "Production"
+  RabbitMQ__Host: "rabbitmq.aurora.svc.cluster.local"
+  RabbitMQ__Port: "5672"
+  RabbitMQ__Username: "aurora_admin"
+  Smtp__Host: "stalwart-ingress.aurora.svc.cluster.local"
+  Smtp__Port: "25"
+
+externalSecret:
+  enabled: true
+  secretStoreRef:
+    name: azure-keyvault-store
+    kind: ClusterSecretStore
+  data:
+    - secretKey: ConnectionStrings__DefaultConnection
+      remoteRef:
+        key: notification-db-connection
+    - secretKey: RabbitMQ__Password
+      remoteRef:
+        key: rabbitmq-password
+    - secretKey: Smtp__Password
+      remoteRef:
+        key: smtp-password
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 256Mi
+
+serviceMonitor:
+  enabled: true
+  path: /metrics
+  port: http

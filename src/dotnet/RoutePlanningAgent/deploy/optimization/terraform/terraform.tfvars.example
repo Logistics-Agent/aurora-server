@@ -1,0 +1,9 @@
+# =============================================================================
+# Aurora Route Optimization — Terraform Variables Example
+# =============================================================================
+environment           = "dev"
+location              = "southeastasia"
+create_resource_group = false
+resource_group_name   = "rg-aurora-dev"
+storage_account_name  = "stauroraosrmdev"
+container_name        = "osrm-data"

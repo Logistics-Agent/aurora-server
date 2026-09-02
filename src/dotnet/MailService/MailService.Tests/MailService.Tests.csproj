@@ -20,12 +20,12 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\..\src\dotnet\MailService\MailService.csproj" />
-    <ProjectReference Include="..\..\..\src\dotnet\IamTenant\IamTenant.csproj" />
-    <ProjectReference Include="..\..\..\src\dotnet\BFF\BuildingBlocks.BFF\BuildingBlocks.BFF.csproj" />
-    <ProjectReference Include="..\..\..\src\dotnet\BFF\Staff.Bff\Staff.Bff.csproj" />
-    <ProjectReference Include="..\..\..\src\dotnet\BFF\Admin.Bff\Admin.Bff.csproj" />
-    <ProjectReference Include="..\..\..\src\dotnet\BFF\System.Bff\System.Bff.csproj" />
+    <ProjectReference Include="..\MailService.csproj" />
+    <ProjectReference Include="..\..\IamTenant\IamTenant.csproj" />
+    <ProjectReference Include="..\..\BFF\BuildingBlocks.BFF\BuildingBlocks.BFF.csproj" />
+    <ProjectReference Include="..\..\BFF\Staff.Bff\Staff.Bff.csproj" />
+    <ProjectReference Include="..\..\BFF\Admin.Bff\Admin.Bff.csproj" />
+    <ProjectReference Include="..\..\BFF\System.Bff\System.Bff.csproj" />
   </ItemGroup>
 
 </Project>

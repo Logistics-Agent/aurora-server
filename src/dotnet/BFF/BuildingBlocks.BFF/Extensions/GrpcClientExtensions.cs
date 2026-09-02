@@ -114,6 +114,12 @@ public static class GrpcClientExtensions
             .AddInterceptor<ClientMetadataInterceptor>(InterceptorScope.Client)
             .AddStandardResilienceHandler(ConfigureBusinessResilience);
 
+        var auditUrl = config["Grpc:AuditService:Url"] ?? config["GrpcServices:AuditService"] ?? "http://localhost:9086";
+        services.AddGrpcClient<Audit.Grpc.AuditLogService.AuditLogServiceClient>(
+                o => o.Address = new Uri(auditUrl))
+            .AddInterceptor<ClientMetadataInterceptor>(InterceptorScope.Client)
+            .AddStandardResilienceHandler(ConfigureBusinessResilience);
+
         return services;
     }
 

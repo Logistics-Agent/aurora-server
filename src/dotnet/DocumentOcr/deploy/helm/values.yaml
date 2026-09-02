@@ -1,0 +1,46 @@
+nameOverride: "document-ocr"
+fullnameOverride: "document-ocr"
+
+image:
+  repository: acrauroracoredemo.azurecr.io/aurora/document-ocr
+  tag: "latest"
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  port: 5000
+  targetPort: 5000
+
+env:
+  ASPNETCORE_ENVIRONMENT: "Production"
+  RabbitMQ__Host: "10.10.2.50" # Core Internal LoadBalancer over VNet Peering
+  RabbitMQ__Port: "5672"
+  RabbitMQ__Username: "aurora_admin"
+  AzureStorage__AccountName: "stauroradatademo"
+  AzureStorage__ContainerName: "ocr-docs"
+
+externalSecret:
+  enabled: true
+  secretStoreRef:
+    name: azure-keyvault-store
+    kind: ClusterSecretStore
+  data:
+    - secretKey: ConnectionStrings__DefaultConnection
+      remoteRef:
+        key: document-ocr-db-connection
+    - secretKey: RabbitMQ__Password
+      remoteRef:
+        key: rabbitmq-password
+
+resources:
+  requests:
+    cpu: 200m
+    memory: 256Mi
+  limits:
+    cpu: 1000m
+    memory: 512Mi
+
+serviceMonitor:
+  enabled: true
+  path: /metrics
+  port: http

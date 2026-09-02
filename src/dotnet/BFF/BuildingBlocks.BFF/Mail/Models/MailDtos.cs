@@ -168,7 +168,8 @@ public record ThreadSummaryResponse(
 
 public record ThreadListResponse(
     IReadOnlyList<ThreadSummaryResponse> Threads,
-    string? NextPageToken);
+    string? NextPageToken,
+    bool HasMore = false);
 
 // ─── Outbound Mail Submission DTOs ──────────────────────────────────────────
 

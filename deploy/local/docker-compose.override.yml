@@ -1,0 +1,14 @@
+# =============================================================================
+# Local Docker Compose Developer Overrides (Copy to docker-compose.override.yml)
+# =============================================================================
+version: "3.9"
+
+services:
+  # Example: mount local source code for live hot-reload
+  staff-bff:
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+
+  iam-tenant:
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development

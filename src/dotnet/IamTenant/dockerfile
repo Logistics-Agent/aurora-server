@@ -10,7 +10,7 @@ RUN dotnet restore src/dotnet/IamTenant/IamTenant.csproj
 COPY . .
 
 WORKDIR /src/src/dotnet/IamTenant
-RUN dotnet publish IamTenant.csproj -c Release -o /app/publish /p:UseAppHost=false
+RUN dotnet publish IamTenant.csproj -c Release -o /app/publish /p:UseAppHost=false --no-restore
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
 WORKDIR /app

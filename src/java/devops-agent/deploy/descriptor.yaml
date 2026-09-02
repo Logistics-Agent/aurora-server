@@ -1,0 +1,10 @@
+logicalService: devops-agent
+implementation: java
+deployTarget: ai
+enabled: true
+status: ready
+
+deployment:
+  chart: aurora-service
+  values: values.yaml
+  namespace: aurora-ai

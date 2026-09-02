@@ -1,0 +1,48 @@
+nameOverride: "iam-tenant"
+fullnameOverride: "iam-tenant"
+
+image:
+  repository: acrauroracoredemo.azurecr.io/aurora/iam-tenant
+  tag: "latest"
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  port: 5000
+  targetPort: 5000
+
+env:
+  ASPNETCORE_ENVIRONMENT: "Production"
+  AWS_REGION: "ap-southeast-1"
+
+externalSecret:
+  enabled: true
+  secretStoreRef:
+    name: azure-keyvault-store
+    kind: ClusterSecretStore
+  data:
+    - secretKey: ConnectionStrings__DefaultConnection
+      remoteRef:
+        key: iam-tenant-db-connection
+    - secretKey: AWS_COGNITO_USER_POOL_ID
+      remoteRef:
+        key: aws-cognito-user-pool-id
+    - secretKey: AWS_COGNITO_CLIENT_ID
+      remoteRef:
+        key: aws-cognito-client-id
+    - secretKey: AWS_COGNITO_CLIENT_SECRET
+      remoteRef:
+        key: aws-cognito-client-secret
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 256Mi
+
+serviceMonitor:
+  enabled: true
+  path: /metrics
+  port: http

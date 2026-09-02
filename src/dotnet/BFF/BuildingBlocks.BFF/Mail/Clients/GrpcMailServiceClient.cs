@@ -321,7 +321,7 @@ public class GrpcMailServiceClient : IMailServiceClient
             histories);
     }
 
-    public async Task<BffModels.ThreadListResponse> ListThreadsAsync(string? mailboxId, int pageSize, string? nextPageToken, string? scope = null, string? status = null, CancellationToken cancellationToken = default)
+    public async Task<BffModels.ThreadListResponse> ListThreadsAsync(string? mailboxId, int pageSize, string? nextPageToken, string? scope = null, string? status = null, string? search = null, CancellationToken cancellationToken = default)
     {
         var protoReq = new GrpcModels.ListThreadsRequest
         {
@@ -329,7 +329,8 @@ public class GrpcMailServiceClient : IMailServiceClient
             PageSize = pageSize,
             NextPageToken = nextPageToken ?? string.Empty,
             Scope = scope ?? string.Empty,
-            Status = status ?? string.Empty
+            Status = status ?? string.Empty,
+            Search = search ?? string.Empty
         };
 
         var response = await _securityClient.ListThreadsAsync(protoReq, cancellationToken: cancellationToken);
@@ -349,7 +350,7 @@ public class GrpcMailServiceClient : IMailServiceClient
             t.Status,
             t.Priority)).ToList();
 
-        return new BffModels.ThreadListResponse(summaries, response.NextPageToken);
+        return new BffModels.ThreadListResponse(summaries, response.NextPageToken, response.HasMore);
     }
 
     public async Task<BffModels.ClaimThreadResponse> ClaimThreadAsync(string threadId, CancellationToken cancellationToken = default)

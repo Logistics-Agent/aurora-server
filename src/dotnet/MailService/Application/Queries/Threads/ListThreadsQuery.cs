@@ -7,20 +7,27 @@ using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Shared.Constants;
 using Shared.Security;
+using MailService.Application.Common;
 using MailService.Infrastructure.Persistence;
 using MailService.Domain.Entities;
 using MailService.Domain.Enums;
 
 namespace MailService.Application.Queries.Threads;
 
+public record ListThreadsQueryResult(
+    List<EmailThread> Threads,
+    string? NextPageToken,
+    bool HasMore);
+
 public record ListThreadsQuery(
     Guid? MailboxId,
     int PageSize,
     string? PageToken,
     string? Scope = null,
-    string? Status = null) : IRequest<List<EmailThread>>;
+    string? Status = null,
+    string? Search = null) : IRequest<ListThreadsQueryResult>;
 
-public class ListThreadsQueryHandler : IRequestHandler<ListThreadsQuery, List<EmailThread>>
+public class ListThreadsQueryHandler : IRequestHandler<ListThreadsQuery, ListThreadsQueryResult>
 {
     private readonly MailServiceDbContext _dbContext;
     private readonly ICurrentUserService _currentUserService;
@@ -31,7 +38,7 @@ public class ListThreadsQueryHandler : IRequestHandler<ListThreadsQuery, List<Em
         _currentUserService = currentUserService;
     }
 
-    public async Task<List<EmailThread>> Handle(ListThreadsQuery request, CancellationToken cancellationToken)
+    public async Task<ListThreadsQueryResult> Handle(ListThreadsQuery request, CancellationToken cancellationToken)
     {
         Guid tenantId = _currentUserService.TenantId
             ?? throw new UnauthorizedAccessException("Tenant context is required to list email threads.");
@@ -91,12 +98,55 @@ public class ListThreadsQueryHandler : IRequestHandler<ListThreadsQuery, List<Em
             query = query.Where(t => t.Status == threadStatus);
         }
 
+        // Simple keyword search (Subject, Snippet)
+        if (!string.IsNullOrWhiteSpace(request.Search))
+        {
+            var term = $"%{request.Search.Trim()}%";
+
+            if (_dbContext.Database.ProviderName == "Microsoft.EntityFrameworkCore.InMemory")
+            {
+                string rawTerm = request.Search.Trim().ToLower();
+                query = query.Where(t =>
+                    (t.Subject != null && t.Subject.ToLower().Contains(rawTerm)) ||
+                    (t.Snippet != null && t.Snippet.ToLower().Contains(rawTerm)));
+            }
+            else
+            {
+                query = query.Where(t =>
+                    EF.Functions.ILike(t.Subject, term) ||
+                    EF.Functions.ILike(t.Snippet ?? string.Empty, term));
+            }
+        }
+
+        // Keyset Cursor Pagination
+        if (!string.IsNullOrWhiteSpace(request.PageToken) && CursorHelper.TryDecode(request.PageToken, out var cursorDate, out var cursorId))
+        {
+            query = query.Where(t => t.LastMessageAt < cursorDate || (t.LastMessageAt == cursorDate && t.Id != cursorId));
+        }
+
+        // Stable ordering: LastMessageAt desc, Id desc
+        query = query.OrderByDescending(t => t.LastMessageAt).ThenByDescending(t => t.Id);
+
         int boundedPageSize = Math.Clamp(request.PageSize > 0 ? request.PageSize : 20, 1, 100);
 
-        return await query
-            .OrderByDescending(t => t.LastMessageAt)
-            .Take(boundedPageSize)
+        // Fetch pageSize + 1 items to determine hasMore and generate nextPageToken
+        var items = await query
+            .Take(boundedPageSize + 1)
             .ToListAsync(cancellationToken);
+
+        bool hasMore = items.Count > boundedPageSize;
+        if (hasMore)
+        {
+            items = items.Take(boundedPageSize).ToList();
+        }
+
+        string? nextPageToken = null;
+        if (hasMore && items.Count > 0)
+        {
+            var lastItem = items[^1];
+            nextPageToken = CursorHelper.Encode(lastItem.LastMessageAt, lastItem.Id);
+        }
+
+        return new ListThreadsQueryResult(items, nextPageToken, hasMore);
     }
 }
-

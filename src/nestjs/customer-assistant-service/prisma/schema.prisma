@@ -1,0 +1,48 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+model Conversation {
+  id                  String                @id @default(uuid())
+  tenantId            String                @map("tenant_id")
+  userId              String                @map("user_id")
+  actorType           String                @map("actor_type")
+  preferredLanguage   String?               @map("preferred_language")
+  status              String                @default("ACTIVE")
+  summary             String?
+  summaryUpToSequence Int                   @default(0) @map("summary_up_to_sequence")
+  version             Int                   @default(1)
+  createdAt           DateTime              @default(now()) @map("created_at")
+  updatedAt           DateTime              @updatedAt @map("updated_at")
+  lastActivityAt      DateTime              @default(now()) @map("last_activity_at")
+  messages            ConversationMessage[]
+
+  @@index([tenantId, userId])
+  @@map("conversations")
+}
+
+model ConversationMessage {
+  id                   String       @id @default(uuid())
+  conversationId       String       @map("conversation_id")
+  sequenceNumber       Int          @map("sequence_number")
+  role                 String
+  content              String
+  intent               String?
+  sourcesJson          Json?        @map("sources_json")
+  conflictsJson        Json?        @map("conflicts_json")
+  insufficientEvidence Boolean      @default(false) @map("insufficient_evidence")
+  retrievalTraceId     String?      @map("retrieval_trace_id")
+  aiDecisionId         String?      @map("ai_decision_id")
+  metadata             Json?
+  createdAt            DateTime     @default(now()) @map("created_at")
+  conversation         Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId, sequenceNumber])
+  @@map("conversation_messages")
+}

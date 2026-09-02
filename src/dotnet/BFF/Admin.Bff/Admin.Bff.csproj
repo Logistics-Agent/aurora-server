@@ -1,9 +1,10 @@
-<Project Sdk="Microsoft.NET.Sdk.Web">
+﻿<Project Sdk="Microsoft.NET.Sdk.Web">
 
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+    <UserSecretsId>7180b10d-21e3-46a4-8a7f-8a7c7b75ea72</UserSecretsId>
   </PropertyGroup>
 
   <!-- gRPC client stubs + packages đến từ BuildingBlocks.BFF (nơi duy nhất include Protobuf) -->

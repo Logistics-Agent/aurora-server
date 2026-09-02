@@ -576,8 +576,8 @@ public class BffMailIntegrationTests
             new(Guid.NewGuid().ToString(), Guid.NewGuid().ToString(), "Thread 1", new List<string> { "a@a.com" }, DateTimeOffset.UtcNow, 2, 1, false, "Snippet 1")
         };
 
-        _mockMailClient.Setup(c => c.ListThreadsAsync(null, 20, null, null, null, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new ThreadListResponse(summaries, null));
+        _mockMailClient.Setup(c => c.ListThreadsAsync(null, 20, null, null, null, null, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ThreadListResponse(summaries, null, false));
 
         var actionResult = await controller.ListThreads();
 

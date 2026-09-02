@@ -1,0 +1,10 @@
+logicalService: realtime-hub-service
+implementation: nestjs
+deployTarget: core
+enabled: true
+status: ready
+
+deployment:
+  chart: aurora-service
+  values: values.yaml
+  namespace: aurora

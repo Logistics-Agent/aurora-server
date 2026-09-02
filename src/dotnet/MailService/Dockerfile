@@ -13,7 +13,7 @@ COPY src/dotnet/shared/ src/dotnet/shared/
 COPY src/dotnet/MailService/ src/dotnet/MailService/
 
 WORKDIR /src/src/dotnet/MailService
-RUN dotnet publish MailService.csproj -c Release -o /app/publish /p:UseAppHost=false
+RUN dotnet publish MailService.csproj -c Release -o /app/publish /p:UseAppHost=false --no-restore
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
 WORKDIR /app
@@ -40,6 +40,6 @@ USER app
 
 # Liveness healthcheck (probes runtime process health without external DB restart cascade)
 HEALTHCHECK --interval=15s --timeout=5s --start-period=20s --retries=3 \
-  CMD curl --fail --silent http://localhost:9090/health/live || exit 1
+    CMD curl --fail --silent http://localhost:9090/health/live || exit 1
 
 ENTRYPOINT ["dotnet", "MailService.dll"]

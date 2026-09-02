@@ -1,0 +1,10 @@
+logicalService: audit-service
+implementation: java
+deployTarget: core
+enabled: true
+status: ready
+
+deployment:
+  chart: aurora-service
+  values: values.yaml
+  namespace: aurora

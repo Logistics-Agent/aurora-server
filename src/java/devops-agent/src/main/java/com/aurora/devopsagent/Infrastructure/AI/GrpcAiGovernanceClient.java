@@ -1,10 +1,18 @@
 package com.aurora.devopsagent.Infrastructure.AI;
 
+import java.time.Duration;
+import java.util.concurrent.TimeUnit;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.stereotype.Service;
+
 import com.aurora.aigovernance.grpc.generated.AiExecutionServiceGrpc;
 import com.aurora.aigovernance.grpc.generated.AiGenerateRequest;
 import com.aurora.aigovernance.grpc.generated.AiGenerateResponse;
 import com.aurora.shared.constants.GrpcMetadataKeys;
 import com.aurora.shared.security.CurrentUserContext;
+
 import io.github.resilience4j.circuitbreaker.CircuitBreaker;
 import io.github.resilience4j.circuitbreaker.CircuitBreakerConfig;
 import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
@@ -21,12 +29,6 @@ import io.grpc.MethodDescriptor;
 import io.grpc.Status;
 import io.grpc.StatusRuntimeException;
 import net.devh.boot.grpc.client.inject.GrpcClient;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.stereotype.Service;
-
-import java.time.Duration;
-import java.util.concurrent.TimeUnit;
 
 /**
  * GrpcAiGovernanceClient: Centralized gRPC client for Governed LLM Generation.
@@ -185,11 +187,8 @@ public class GrpcAiGovernanceClient implements AiGovernanceClient {
                         if (userContext.getPermissionVersion() != null) {
                             headers.put(GrpcMetadataKeys.PERMISSION_VERSION, userContext.getPermissionVersion().toString());
                         }
-                        if (userContext.getRole() != null && !userContext.getRole().isEmpty()) {
-                            headers.put(GrpcMetadataKeys.ROLE, userContext.getRole());
-                        }
                     }
-
+                    ;
                     super.start(responseListener, headers);
                 }
             };

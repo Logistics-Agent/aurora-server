@@ -1,0 +1,10 @@
+logicalService: notification
+implementation: java
+deployTarget: core
+enabled: false # Skipped by ArgoCD ApplicationSet in V1
+status: experimental
+
+deployment:
+  chart: aurora-service
+  values: values.yaml
+  namespace: aurora

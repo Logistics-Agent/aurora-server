@@ -76,11 +76,11 @@ public class CognitoAuthService(
         };
 
         var userPoolRes = await cognito.CreateUserPoolAsync(userPoolReq, ct);
-        var userUserPoolId = userPoolRes.UserPool.Id;
+        var StaffUserPoolId = userPoolRes.UserPool.Id;
 
         var userClientReq = new CreateUserPoolClientRequest
         {
-            UserPoolId = userUserPoolId,
+            UserPoolId = StaffUserPoolId,
             ClientName = $"{sanitizedCode}_User_AppClient",
             GenerateSecret = false,
             ExplicitAuthFlows = new List<string>
@@ -98,8 +98,8 @@ public class CognitoAuthService(
         {
             AdminUserPoolId = adminUserPoolId,
             AdminUserPoolClientId = adminClientId,
-            UserUserPoolId = userUserPoolId,
-            UserUserPoolClientId = userClientId
+            StaffUserPoolId = StaffUserPoolId,
+            StaffUserPoolClientId = userClientId
         };
     }
 

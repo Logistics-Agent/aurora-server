@@ -942,7 +942,7 @@ public class MailServiceTests
             seedDb.Database.EnsureCreated();
             var tenant = IamTenant.Domain.Tenant.Create("Logistics Corp", "logistics.vn", null, Guid.NewGuid());
             tenant.Id = tenantId;
-            tenant.UserUserPoolId = "pool-123";
+            tenant.StaffUserPoolId = "pool-123";
             seedDb.Tenants.Add(tenant);
             await seedDb.SaveChangesAsync();
         }

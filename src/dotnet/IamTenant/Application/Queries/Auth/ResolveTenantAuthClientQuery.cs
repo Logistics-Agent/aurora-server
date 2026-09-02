@@ -31,12 +31,12 @@ public class ResolveTenantAuthClientQueryHandler(IamTenantDbContext context) : I
         var clientId = baseRole switch
         {
             Shared.Enums.BaseRole.TenantAdmin => tenant.AdminUserPoolClientId,
-            _ => tenant.UserUserPoolClientId
+            _ => tenant.StaffUserPoolClientId
         };
 
         if (string.IsNullOrWhiteSpace(clientId))
         {
-            clientId = tenant.AdminUserPoolClientId ?? tenant.UserUserPoolClientId;
+            clientId = tenant.AdminUserPoolClientId ?? tenant.StaffUserPoolClientId;
         }
 
         return !string.IsNullOrWhiteSpace(clientId)

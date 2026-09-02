@@ -8,7 +8,9 @@ Migrations*
 .env
 target/
 
-
+deploy/local/*.osm.pbf
+deploy/local/*.osrm
+deploy/local/*.osrm.*
 # EF migration bundles
 **/efbundle
 **/efbundle.exe

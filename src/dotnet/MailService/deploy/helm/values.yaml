@@ -1,0 +1,53 @@
+nameOverride: "mail-service"
+fullnameOverride: "mail-service"
+
+image:
+  repository: acrauroracoredemo.azurecr.io/aurora/mail-service
+  tag: "latest"
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  port: 5003
+  targetPort: 5003
+
+env:
+  ASPNETCORE_ENVIRONMENT: "Production"
+  Redis__Host: "redis-aurora-shared-demo.southeastasia.redis.azure.net:10000"
+  Redis__Ssl: "true"
+  Redis__AbortConnect: "false"
+  Stalwart__AdminUrl: "http://stalwart:8080"
+  ClamAV__Host: "clamav"
+  ClamAV__Port: "3310"
+  SpamAssassin__Host: "spamassassin"
+  SpamAssassin__Port: "783"
+  IamTenant__GrpcUrl: "http://iam-tenant:5000"
+
+externalSecret:
+  enabled: true
+  secretStoreRef:
+    name: azure-keyvault-store
+    kind: ClusterSecretStore
+  data:
+    - secretKey: ConnectionStrings__DefaultConnection
+      remoteRef:
+        key: mail-service-db-connection
+    - secretKey: Redis__Password
+      remoteRef:
+        key: redis-password
+    - secretKey: Stalwart__AdminApiKey
+      remoteRef:
+        key: stalwart-admin-api-key
+
+resources:
+  requests:
+    cpu: 200m
+    memory: 256Mi
+  limits:
+    cpu: 1000m
+    memory: 512Mi
+
+serviceMonitor:
+  enabled: true
+  path: /metrics
+  port: http
