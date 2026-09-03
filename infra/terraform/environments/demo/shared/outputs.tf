@@ -73,20 +73,39 @@ output "private_dns_zone_ids" {
   value       = module.network.private_dns_zone_ids
 }
 
-# AWS Outputs (Conditional)
+# AWS Cognito Outputs (Conditional)
 output "aws_cognito_user_pool_id" {
   description = "AWS Cognito User Pool ID"
   value       = length(module.aws_cognito) > 0 ? module.aws_cognito[0].user_pool_id : null
 }
 
-output "aws_cognito_client_id" {
-  description = "AWS Cognito App Client ID"
-  value       = length(module.aws_cognito) > 0 ? module.aws_cognito[0].client_id : null
+output "aws_cognito_client_ids" {
+  description = "Map of AWS Cognito App Client IDs (system, admin, staff)"
+  value       = length(module.aws_cognito) > 0 ? module.aws_cognito[0].client_ids : null
+  sensitive   = true
 }
 
-output "aws_cognito_client_secret" {
-  description = "AWS Cognito App Client Secret"
-  value       = length(module.aws_cognito) > 0 ? module.aws_cognito[0].client_secret : null
+output "aws_cognito_client_secrets" {
+  description = "Map of AWS Cognito App Client Secrets (system, admin, staff)"
+  value       = length(module.aws_cognito) > 0 ? module.aws_cognito[0].client_secrets : null
+  sensitive   = true
+}
+
+output "aws_cognito_system_client_id" {
+  description = "AWS Cognito Client ID for System.Bff"
+  value       = length(module.aws_cognito) > 0 ? module.aws_cognito[0].system_client_id : null
+  sensitive   = true
+}
+
+output "aws_cognito_admin_client_id" {
+  description = "AWS Cognito Client ID for Admin.Bff"
+  value       = length(module.aws_cognito) > 0 ? module.aws_cognito[0].admin_client_id : null
+  sensitive   = true
+}
+
+output "aws_cognito_staff_client_id" {
+  description = "AWS Cognito Client ID for Staff.Bff"
+  value       = length(module.aws_cognito) > 0 ? module.aws_cognito[0].staff_client_id : null
   sensitive   = true
 }
 

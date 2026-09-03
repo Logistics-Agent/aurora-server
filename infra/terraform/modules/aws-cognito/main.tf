@@ -1,5 +1,5 @@
 # =============================================================================
-# AWS Cognito User Pool, App Client, Domain & IAM for IamTenant Service
+# AWS Cognito User Pool, App Clients (System, Admin, Staff) & IAM for IamTenant
 # =============================================================================
 
 # 1. Root / System Cognito User Pool
@@ -32,27 +32,36 @@ resource "aws_cognito_user_pool" "system" {
   tags = var.tags
 }
 
-# 2. System App Client (Used by BFF and IamTenant)
-resource "aws_cognito_user_pool_client" "system_client" {
-  name         = var.client_name
+# 2. User Groups (SystemAdmin, TenantAdmin, Staff)
+resource "aws_cognito_user_group" "groups" {
+  for_each     = toset(["SystemAdmin", "TenantAdmin", "Staff"])
+  user_pool_id = aws_cognito_user_pool.system.id
+  name         = each.key
+  description  = "Aurora ${each.key} role group"
+}
+
+# 3. App Clients (System.Bff, Admin.Bff, Staff.Bff)
+resource "aws_cognito_user_pool_client" "clients" {
+  for_each     = var.clients
+  name         = lookup(each.value, "client_name", "${var.user_pool_name}-${each.key}-client")
   user_pool_id = aws_cognito_user_pool.system.id
 
-  generate_secret = var.generate_client_secret
+  generate_secret = lookup(each.value, "generate_secret", true)
 
-  explicit_auth_flows = [
+  explicit_auth_flows = lookup(each.value, "explicit_auth_flows", [
     "ALLOW_ADMIN_USER_PASSWORD_AUTH",
     "ALLOW_CUSTOM_AUTH",
     "ALLOW_USER_PASSWORD_AUTH",
     "ALLOW_USER_SRP_AUTH",
     "ALLOW_REFRESH_TOKEN_AUTH"
-  ]
+  ])
 
   prevent_user_existence_errors = "ENABLED"
   enable_token_revocation       = true
 
-  access_token_validity  = 60
-  id_token_validity      = 60
-  refresh_token_validity = 30
+  access_token_validity  = lookup(each.value, "access_token_validity", 60)
+  id_token_validity      = lookup(each.value, "id_token_validity", 60)
+  refresh_token_validity = lookup(each.value, "refresh_token_validity", 30)
 
   token_validity_units {
     access_token  = "minutes"
@@ -61,15 +70,14 @@ resource "aws_cognito_user_pool_client" "system_client" {
   }
 }
 
-# 3. Cognito Domain (Optional prefix for Hosted UI / OAuth2)
+# 4. Cognito Domain (Optional prefix for Hosted UI / OAuth2)
 resource "aws_cognito_user_pool_domain" "main" {
   count        = var.domain_prefix != null && var.domain_prefix != "" ? 1 : 0
   domain       = var.domain_prefix
   user_pool_id = aws_cognito_user_pool.system.id
 }
 
-# 4. IAM Least-Privilege Policy for IamTenant Service
-# Grants permissions to create & manage tenant User Pools and Admin operations
+# 5. IAM Least-Privilege Policy for IamTenant Service
 resource "aws_iam_policy" "iam_tenant_policy" {
   name        = "${var.iam_user_name}-cognito-policy"
   description = "Least privilege policy for IamTenant microservice to manage multi-tenant Cognito pools"
@@ -115,20 +123,19 @@ resource "aws_iam_policy" "iam_tenant_policy" {
   tags = var.tags
 }
 
-# 5. IAM User for IamTenant Service
+# 6. IAM User for IamTenant Service
 resource "aws_iam_user" "iam_tenant_user" {
   name = var.iam_user_name
   tags = var.tags
 }
 
-# 6. Attach Policy to IAM User
+# 7. Attach Policy to IAM User
 resource "aws_iam_user_policy_attachment" "iam_tenant_attachment" {
   user       = aws_iam_user.iam_tenant_user.name
   policy_arn = aws_iam_policy.iam_tenant_policy.arn
 }
 
-# 7. IAM Access Key for IamTenant Pod / Workload authentication
+# 8. IAM Access Key for IamTenant Pod / Workload authentication
 resource "aws_iam_access_key" "iam_tenant_key" {
   user = aws_iam_user.iam_tenant_user.name
 }
-

@@ -1,5 +1,19 @@
 package com.aurora.aigovernance.gateway.infrastructure.provider.gemini;
 
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.time.Duration;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.stereotype.Component;
+
 import com.aurora.aigovernance.gateway.application.port.AiProviderClient;
 import com.aurora.aigovernance.gateway.domain.entity.ProviderSlot;
 import com.aurora.aigovernance.gateway.domain.valueobject.AiEmbeddingRequest;
@@ -10,19 +24,6 @@ import com.aurora.aigovernance.gateway.domain.valueobject.MultimodalPart;
 import com.aurora.aigovernance.gateway.infrastructure.credential.CredentialPort;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.stereotype.Component;
-
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
-import java.time.Duration;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
 
 /**
  * Production Gemini provider client with real Google Generative Language HTTP integration.

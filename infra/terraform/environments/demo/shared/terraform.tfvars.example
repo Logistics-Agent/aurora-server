@@ -26,20 +26,40 @@ key_vault_name                   = "kv-aurora-shared-demo"
 # 5. Azure Managed Redis (AMR) - Set to true when needed
 enable_managed_redis = false
 redis_name           = "redis-aurora-shared-demo"
-redis_sku_name       = "Balanced_B0"
+redis_sku_name       = "Enterprise_E10-2"
 
-# 6. External Services — AWS Cognito & IAM for IamTenant (Optional)
+# 6. External Services — AWS Cognito (1 User Pool + 3 App Clients: System, Admin, Staff)
 enable_aws_cognito         = false
 aws_region                 = "ap-southeast-1"
 # aws_access_key           = "<AWS_ACCESS_KEY_ID>"     # Or set AWS_ACCESS_KEY_ID env var
 # aws_secret_key           = "<AWS_SECRET_ACCESS_KEY>" # Or set AWS_SECRET_ACCESS_KEY env var
-aws_cognito_user_pool_name = "aurora-system-demo"
-aws_cognito_client_name    = "aurora-system-client"
+aws_cognito_user_pool_name = "aurora-platform-demo"
 aws_iam_user_name          = "aurora-iam-tenant-demo"
+
+aws_cognito_clients = {
+  "system" = {
+    client_name            = "aurora-system-client"
+    generate_secret        = true
+    access_token_validity  = 60
+    refresh_token_validity = 30
+  }
+  "admin" = {
+    client_name            = "aurora-admin-client"
+    generate_secret        = true
+    access_token_validity  = 60
+    refresh_token_validity = 30
+  }
+  "staff" = {
+    client_name            = "aurora-staff-client"
+    generate_secret        = true
+    access_token_validity  = 60
+    refresh_token_validity = 30
+  }
+}
 
 # 7. External Services — Cloudflare R2 for Mail Service (Optional)
 enable_cloudflare_r2  = false
 cloudflare_account_id = "" # "<CLOUDFLARE_ACCOUNT_ID>"
 # cloudflare_api_token= "<CLOUDFLARE_API_TOKEN>" # Or set CLOUDFLARE_API_TOKEN env var
-r2_bucket_name        = "aurora-mail-demo"
+r2_bucket_name        = "aurora-mail-platform"
 r2_location_hint      = "apac"

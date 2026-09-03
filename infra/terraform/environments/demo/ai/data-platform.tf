@@ -4,7 +4,7 @@
 
 # Grant Storage Blob Data Reader to OSRM Downloader Workload Identity
 resource "azurerm_role_assignment" "osrm_blob_reader" {
-  count = var.shared_osrm_container_resource_manager_id != null ? 1 : 0
+  count = var.shared_osrm_container_resource_manager_id != null && var.shared_osrm_container_resource_manager_id != "" ? 1 : 0
 
   scope                = var.shared_osrm_container_resource_manager_id
   role_definition_name = "Storage Blob Data Reader"

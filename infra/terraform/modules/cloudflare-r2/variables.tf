@@ -6,7 +6,7 @@ variable "account_id" {
 variable "bucket_name" {
   description = "Name of the R2 bucket"
   type        = string
-  default     = "aurora-mail-demo"
+  default     = "aurora-mail-platform"
 }
 
 variable "location_hint" {

@@ -1,19 +1,33 @@
 variable "user_pool_name" {
   description = "Name of the system / master Cognito User Pool"
   type        = string
-  default     = "aurora-system"
+  default     = "aurora-platform-demo"
 }
 
-variable "client_name" {
-  description = "Name of the master App Client"
-  type        = string
-  default     = "aurora-system-client"
-}
-
-variable "generate_client_secret" {
-  description = "Whether to generate a client secret for the App Client"
-  type        = bool
-  default     = true
+variable "clients" {
+  description = "Map of Cognito App Clients to create (e.g. system, admin, staff)"
+  type = map(object({
+    client_name            = string
+    generate_secret        = optional(bool, true)
+    access_token_validity  = optional(number, 60)
+    id_token_validity      = optional(number, 60)
+    refresh_token_validity = optional(number, 30)
+    explicit_auth_flows    = optional(list(string))
+  }))
+  default = {
+    "system" = {
+      client_name     = "aurora-system-client"
+      generate_secret = true
+    }
+    "admin" = {
+      client_name     = "aurora-admin-client"
+      generate_secret = true
+    }
+    "staff" = {
+      client_name     = "aurora-staff-client"
+      generate_secret = true
+    }
+  }
 }
 
 variable "domain_prefix" {
@@ -25,7 +39,7 @@ variable "domain_prefix" {
 variable "iam_user_name" {
   description = "IAM user name for IamTenant service"
   type        = string
-  default     = "aurora-iam-tenant"
+  default     = "aurora-iam-tenant-demo"
 }
 
 variable "aws_region" {
@@ -39,4 +53,3 @@ variable "tags" {
   type        = map(string)
   default     = {}
 }
-

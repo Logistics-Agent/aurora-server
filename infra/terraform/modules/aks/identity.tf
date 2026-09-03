@@ -18,9 +18,9 @@ resource "azurerm_role_assignment" "aks_network_contributor" {
   principal_id         = azurerm_user_assigned_identity.aks_control_plane.principal_id
 }
 
-# Optional AcrPull attachment
+# AcrPull attachment (controlled by attach_acr boolean flag)
 resource "azurerm_role_assignment" "aks_acrpull" {
-  count = var.acr_id != null ? 1 : 0
+  count = var.attach_acr ? 1 : 0
 
   scope                = var.acr_id
   role_definition_name = "AcrPull"

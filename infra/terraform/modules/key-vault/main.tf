@@ -16,7 +16,7 @@ resource "azurerm_key_vault" "kv" {
   purge_protection_enabled   = false
 
   network_acls {
-    default_action = var.subnet_id != null ? "Deny" : "Allow"
+    default_action = var.enable_private_endpoint ? "Deny" : "Allow"
     bypass         = "AzureServices"
   }
 
@@ -41,7 +41,7 @@ resource "azurerm_role_assignment" "workload_secrets_users" {
 
 # Private Endpoint for Key Vault
 resource "azurerm_private_endpoint" "kv_pe" {
-  count = var.subnet_id != null ? 1 : 0
+  count = var.enable_private_endpoint ? 1 : 0
 
   name                = "pe-kv-${var.name}"
   location            = var.location

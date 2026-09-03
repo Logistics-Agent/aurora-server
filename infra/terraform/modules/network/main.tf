@@ -32,6 +32,58 @@ resource "azurerm_network_security_group" "nsg" {
   tags = var.tags
 }
 
+# Required NSG rules for Application Gateway v2 subnet (GatewayManager ports 65200-65535 & HTTP/S)
+resource "azurerm_network_security_rule" "appgw_gateway_manager" {
+  count                       = contains(keys(var.subnets), "snet-appgw") ? 1 : 0
+  name                        = "AllowGatewayManager"
+  priority                    = 100
+  direction                   = "Inbound"
+  access                      = "Allow"
+  protocol                    = "Tcp"
+  source_port_range           = "*"
+  destination_port_range      = "65200-65535"
+  source_address_prefix       = "GatewayManager"
+  destination_address_prefix  = "*"
+  resource_group_name         = var.resource_group_name
+  network_security_group_name = azurerm_network_security_group.nsg["snet-appgw"].name
+
+  depends_on = [azurerm_network_security_group.nsg]
+}
+
+resource "azurerm_network_security_rule" "appgw_http" {
+  count                       = contains(keys(var.subnets), "snet-appgw") ? 1 : 0
+  name                        = "AllowHTTPInbound"
+  priority                    = 110
+  direction                   = "Inbound"
+  access                      = "Allow"
+  protocol                    = "Tcp"
+  source_port_range           = "*"
+  destination_port_range      = "80"
+  source_address_prefix       = "*"
+  destination_address_prefix  = "*"
+  resource_group_name         = var.resource_group_name
+  network_security_group_name = azurerm_network_security_group.nsg["snet-appgw"].name
+
+  depends_on = [azurerm_network_security_group.nsg]
+}
+
+resource "azurerm_network_security_rule" "appgw_https" {
+  count                       = contains(keys(var.subnets), "snet-appgw") ? 1 : 0
+  name                        = "AllowHTTPSInbound"
+  priority                    = 120
+  direction                   = "Inbound"
+  access                      = "Allow"
+  protocol                    = "Tcp"
+  source_port_range           = "*"
+  destination_port_range      = "443"
+  source_address_prefix       = "*"
+  destination_address_prefix  = "*"
+  resource_group_name         = var.resource_group_name
+  network_security_group_name = azurerm_network_security_group.nsg["snet-appgw"].name
+
+  depends_on = [azurerm_network_security_group.nsg]
+}
+
 resource "azurerm_subnet_network_security_group_association" "nsg_assoc" {
   for_each = var.subnets
 

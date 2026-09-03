@@ -29,3 +29,4 @@ module "aks" {
 
   tags = local.tags
 }
+

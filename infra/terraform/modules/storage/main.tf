@@ -26,7 +26,7 @@ resource "azurerm_storage_account" "storage" {
 
 # Private Endpoint for Blob Storage
 resource "azurerm_private_endpoint" "blob_pe" {
-  count = var.subnet_id != null ? 1 : 0
+  count = var.enable_private_endpoint ? 1 : 0
 
   name                = "pe-blob-${var.name}"
   location            = var.location

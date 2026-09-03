@@ -19,8 +19,14 @@ variable "replication_type" {
   default     = "LRS"
 }
 
+variable "enable_private_endpoint" {
+  description = "Whether to create Private Endpoint for Storage Account"
+  type        = bool
+  default     = true
+}
+
 variable "subnet_id" {
-  description = "Optional subnet ID for Private Endpoint attachment"
+  description = "Subnet ID for Private Endpoint attachment"
   type        = string
   default     = null
 }

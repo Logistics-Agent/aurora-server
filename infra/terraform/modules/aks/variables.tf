@@ -47,6 +47,12 @@ variable "availability_zones" {
   default     = ["1"]
 }
 
+variable "attach_acr" {
+  description = "Whether to attach AcrPull role assignment for acr_id"
+  type        = bool
+  default     = false
+}
+
 variable "acr_id" {
   description = "Optional ACR ID for AcrPull attachment"
   type        = string

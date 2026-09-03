@@ -89,9 +89,9 @@ variable "redis_name" {
 }
 
 variable "redis_sku_name" {
-  description = "Azure Managed Redis Enterprise SKU"
+  description = "Azure Managed Redis Enterprise SKU (e.g. Enterprise_E10-2, Enterprise_E20-2, Enterprise_E5)"
   type        = string
-  default     = "Balanced_B0"
+  default     = "Enterprise_E10-2"
 }
 
 # 4. External Services — AWS Cognito & IAM
@@ -124,13 +124,33 @@ variable "aws_secret_key" {
 variable "aws_cognito_user_pool_name" {
   description = "Name of the system / master Cognito User Pool"
   type        = string
-  default     = "aurora-system-demo"
+  default     = "aurora-platform-demo"
 }
 
-variable "aws_cognito_client_name" {
-  description = "Name of the master App Client"
-  type        = string
-  default     = "aurora-system-client"
+variable "aws_cognito_clients" {
+  description = "Map of Cognito App Clients (system, admin, staff)"
+  type = map(object({
+    client_name            = string
+    generate_secret        = optional(bool, true)
+    access_token_validity  = optional(number, 60)
+    id_token_validity      = optional(number, 60)
+    refresh_token_validity = optional(number, 30)
+    explicit_auth_flows    = optional(list(string))
+  }))
+  default = {
+    "system" = {
+      client_name     = "aurora-system-client"
+      generate_secret = true
+    }
+    "admin" = {
+      client_name     = "aurora-admin-client"
+      generate_secret = true
+    }
+    "staff" = {
+      client_name     = "aurora-staff-client"
+      generate_secret = true
+    }
+  }
 }
 
 variable "aws_cognito_domain_prefix" {
@@ -168,7 +188,7 @@ variable "cloudflare_api_token" {
 variable "r2_bucket_name" {
   description = "Cloudflare R2 Bucket name for Mail Service"
   type        = string
-  default     = "aurora-mail-demo"
+  default     = "aurora-mail-platform"
 }
 
 variable "r2_location_hint" {

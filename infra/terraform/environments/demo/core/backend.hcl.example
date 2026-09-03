@@ -3,5 +3,5 @@ storage_account_name = "stauroratfstatedemo"
 container_name       = "tfstate"
 key                  = "aurora/demo/core.tfstate"
 
-subscription_id = "<SHARED_SUBSCRIPTION_ID>"
+subscription_id = "4d0eb9b4-eb1c-4196-af2e-49a9967e6222"
 use_azuread_auth = true

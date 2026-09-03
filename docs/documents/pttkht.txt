@@ -16,6 +16,10 @@ Agent:
 	AI Assistant
 Cloudflare -> ALB -> Yarp -> BFF
 
+c0655: Hung - core
+e6222: Tan  - shared
+199e5: Duoc - ai
+
 Service: 
 @Thanh Tân: API Gateway & BFF [CORE] - ...						
 Identity & Tenant Service [CORE] - on going					

@@ -5,17 +5,11 @@ using MailService.Domain.Entities;
 
 namespace MailService.Infrastructure.Persistence;
 
-public class MailServiceDbContext : DbContext
+public class MailServiceDbContext(
+    DbContextOptions<MailServiceDbContext> options,
+    ICurrentUserService currentUser) : DbContext(options)
 {
-    private readonly Guid? _tenantId;
-
-    public MailServiceDbContext(
-        DbContextOptions<MailServiceDbContext> options,
-        ICurrentUserService currentUser)
-        : base(options)
-    {
-        _tenantId = currentUser.TenantId;
-    }
+    private readonly Guid? _tenantId = currentUser.TenantId;
 
     public DbSet<Domain.Entities.Domain> Domains => Set<Domain.Entities.Domain>();
     public DbSet<Mailbox> Mailboxes => Set<Mailbox>();

@@ -27,7 +27,7 @@ resource "azurerm_redis_enterprise_database" "redis_db" {
 
 # Private Endpoint for Azure Managed Redis
 resource "azurerm_private_endpoint" "redis_pe" {
-  count = var.enable_managed_redis && var.subnet_id != null ? 1 : 0
+  count = var.enable_managed_redis && var.enable_private_endpoint ? 1 : 0
 
   name                = "pe-redis-${var.name}"
   location            = var.location

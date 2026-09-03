@@ -78,5 +78,10 @@ resource "azurerm_application_gateway" "appgw" {
     priority                   = 100
   }
 
+  ssl_policy {
+    policy_type = "Predefined"
+    policy_name = "AppGwSslPolicy20220101"
+  }
+
   tags = var.tags
 }

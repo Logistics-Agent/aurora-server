@@ -13,14 +13,33 @@ output "user_pool_endpoint" {
   value       = aws_cognito_user_pool.system.endpoint
 }
 
-output "client_id" {
-  description = "System App Client ID"
-  value       = aws_cognito_user_pool_client.system_client.id
+output "client_ids" {
+  description = "Map of App Client IDs (system, admin, staff)"
+  value       = { for k, v in aws_cognito_user_pool_client.clients : k => v.id }
+  sensitive   = true
 }
 
-output "client_secret" {
-  description = "System App Client Secret"
-  value       = aws_cognito_user_pool_client.system_client.client_secret
+output "client_secrets" {
+  description = "Map of App Client Secrets (system, admin, staff)"
+  value       = { for k, v in aws_cognito_user_pool_client.clients : k => v.client_secret }
+  sensitive   = true
+}
+
+output "system_client_id" {
+  description = "System App Client ID for System.Bff"
+  value       = lookup(aws_cognito_user_pool_client.clients, "system", null) != null ? aws_cognito_user_pool_client.clients["system"].id : null
+  sensitive   = true
+}
+
+output "admin_client_id" {
+  description = "Admin App Client ID for Admin.Bff"
+  value       = lookup(aws_cognito_user_pool_client.clients, "admin", null) != null ? aws_cognito_user_pool_client.clients["admin"].id : null
+  sensitive   = true
+}
+
+output "staff_client_id" {
+  description = "Staff App Client ID for Staff.Bff"
+  value       = lookup(aws_cognito_user_pool_client.clients, "staff", null) != null ? aws_cognito_user_pool_client.clients["staff"].id : null
   sensitive   = true
 }
 
@@ -49,4 +68,3 @@ output "iam_secret_access_key" {
   value       = aws_iam_access_key.iam_tenant_key.secret
   sensitive   = true
 }
-

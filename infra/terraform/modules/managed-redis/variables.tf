@@ -4,6 +4,12 @@ variable "enable_managed_redis" {
   default     = false
 }
 
+variable "enable_private_endpoint" {
+  description = "Whether to create Private Endpoint for Managed Redis"
+  type        = bool
+  default     = true
+}
+
 variable "name" {
   description = "Azure Managed Redis cluster name"
   type        = string
@@ -20,9 +26,9 @@ variable "location" {
 }
 
 variable "sku_name" {
-  description = "Enterprise SKU name (e.g. Balanced_B0, Balanced_B1, MemoryOptimized_M10)"
+  description = "Enterprise SKU name (e.g. Enterprise_E10-2, Enterprise_E20-2, Enterprise_E5)"
   type        = string
-  default     = "Balanced_B0"
+  default     = "Enterprise_E10-2"
 }
 
 variable "availability_zones" {
@@ -32,7 +38,7 @@ variable "availability_zones" {
 }
 
 variable "subnet_id" {
-  description = "Optional subnet ID for Private Endpoint attachment"
+  description = "Subnet ID for Private Endpoint attachment"
   type        = string
   default     = null
 }
