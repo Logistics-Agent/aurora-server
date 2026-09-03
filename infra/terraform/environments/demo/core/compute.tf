@@ -3,7 +3,7 @@
 # =============================================================================
 
 module "acr" {
-  source              = "../../modules/acr"
+  source              = "../../../modules/acr"
   name                = var.acr_name
   resource_group_name = module.resource_group.name
   location            = module.resource_group.location
@@ -13,7 +13,7 @@ module "acr" {
 }
 
 module "aks" {
-  source              = "../../modules/aks"
+  source              = "../../../modules/aks"
   cluster_name        = var.cluster_name
   resource_group_name = module.resource_group.name
   location            = module.resource_group.location

@@ -4,7 +4,7 @@
 
 # Storage Account B: Application Data (OSRM Maps & OCR Blobs)
 module "storage" {
-  source              = "../../modules/storage"
+  source              = "../../../modules/storage"
   name                = var.application_storage_account_name
   resource_group_name = module.resource_group.name
   location            = module.resource_group.location
@@ -27,7 +27,7 @@ module "storage" {
 
 # Azure Managed Redis (AMR)
 module "managed_redis" {
-  source               = "../../modules/managed-redis"
+  source               = "../../../modules/managed-redis"
   enable_managed_redis = var.enable_managed_redis
   name                 = var.redis_name
   resource_group_name  = module.resource_group.name

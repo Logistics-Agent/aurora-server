@@ -20,6 +20,12 @@ target/
 /docs/technical/DOCKER-LOCAL-ENVIRONMENT.md
 aurora-notification-admin.json
 
+backend.hcl
+.terraform.lock.hcl
+.terraform/
+terraform.tfstate
+terraform.tfstate.backup
+terraform.tfvars
 # Firebase service-account credentials
 /*-firebase-adminsdk-*.json
 /*firebase-service-account*.json

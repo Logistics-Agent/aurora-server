@@ -3,7 +3,7 @@
 # =============================================================================
 
 module "application_gateway" {
-  source              = "../../modules/application-gateway"
+  source              = "../../../modules/application-gateway"
   name                = var.appgw_name
   resource_group_name = module.resource_group.name
   location            = module.resource_group.location

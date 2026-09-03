@@ -25,7 +25,7 @@ externalSecret:
   data:
     - secretKey: ConnectionStrings__DefaultConnection
       remoteRef:
-        key: regulatory-compliance-db-connection
+        key: aurora-regulatory-compliance-db-connection
     - secretKey: RabbitMQ__Password
       remoteRef:
         key: rabbitmq-password

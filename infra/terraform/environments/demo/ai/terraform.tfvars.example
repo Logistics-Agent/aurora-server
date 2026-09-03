@@ -1,17 +1,29 @@
-subscription_id                            = "00000000-0000-0000-0000-000000000000"
-resource_group_name                        = "rg-aurora-ai-demo"
-location                                   = "southeastasia"
-vnet_name                                  = "vnet-aurora-ai"
-vnet_cidr                                  = "10.20.0.0/16"
-aks_subnet_cidr                            = "10.20.0.0/20"
-availability_zones                         = ["1"]
-cluster_name                               = "aks-ai-demo"
-dns_prefix                                 = "aurora-ai"
-node_count                                 = 2
-node_vm_size                               = "Standard_D4s_v5"
-core_acr_id                                = "/subscriptions/zzz/resourceGroups/rg-aurora-core-demo/providers/Microsoft.ContainerRegistry/registries/acrauroracoredemo"
-shared_vnet_id                             = "/subscriptions/xxx/resourceGroups/rg-aurora-shared-demo/providers/Microsoft.Network/virtualNetworks/vnet-aurora-shared"
-core_vnet_id                               = "/subscriptions/zzz/resourceGroups/rg-aurora-core-demo/providers/Microsoft.Network/virtualNetworks/vnet-aurora-core"
-shared_osrm_container_resource_manager_id  = "/subscriptions/xxx/resourceGroups/rg-aurora-shared-demo/providers/Microsoft.Storage/storageAccounts/stauroradatademo/blobServices/default/containers/osrm"
-shared_key_vault_id                        = "/subscriptions/xxx/resourceGroups/rg-aurora-shared-demo/providers/Microsoft.KeyVault/vaults/kv-aurora-shared-demo"
-environment                                = "demo"
+# =============================================================================
+# Subscription 2: AI / COMPUTE Environment Variables
+# =============================================================================
+
+# 1. Subscription & Resource Group
+subscription_id     = "<AI_SUBSCRIPTION_ID>"
+resource_group_name = "rg-aurora-ai-demo"
+location            = "southeastasia"
+environment         = "demo"
+
+# 2. Networking
+vnet_name          = "vnet-aurora-ai"
+vnet_cidr          = "10.20.0.0/16"
+aks_subnet_cidr    = "10.20.0.0/20"
+availability_zones = ["1"]
+
+# 3. Compute
+cluster_name       = "aks-ai-demo"
+dns_prefix         = "aurora-ai"
+node_count         = 2
+node_vm_size       = "Standard_D4s_v5"
+kubernetes_version = "1.30.3"
+
+# 4. Cross-Subscription References (Obtain from Core and Shared outputs)
+core_acr_id                                = "/subscriptions/<CORE_SUBSCRIPTION_ID>/resourceGroups/rg-aurora-core-demo/providers/Microsoft.ContainerRegistry/registries/acrauroracoredemo"
+shared_vnet_id                             = "/subscriptions/<SHARED_SUBSCRIPTION_ID>/resourceGroups/rg-aurora-shared-demo/providers/Microsoft.Network/virtualNetworks/vnet-aurora-shared"
+core_vnet_id                               = "/subscriptions/<CORE_SUBSCRIPTION_ID>/resourceGroups/rg-aurora-core-demo/providers/Microsoft.Network/virtualNetworks/vnet-aurora-core"
+shared_osrm_container_resource_manager_id = "/subscriptions/<SHARED_SUBSCRIPTION_ID>/resourceGroups/rg-aurora-shared-demo/providers/Microsoft.Storage/storageAccounts/stauroradatademo/blobServices/default/containers/osrm"
+shared_key_vault_id                        = "/subscriptions/<SHARED_SUBSCRIPTION_ID>/resourceGroups/rg-aurora-shared-demo/providers/Microsoft.KeyVault/vaults/kv-aurora-shared-demo"

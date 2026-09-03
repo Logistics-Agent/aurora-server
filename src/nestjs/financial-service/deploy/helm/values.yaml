@@ -33,7 +33,7 @@ externalSecret:
   data:
     - secretKey: DATABASE_URL
       remoteRef:
-        key: financial-service-db-url
+        key: DATABASE-URL-financial
     - secretKey: REDIS_PASSWORD
       remoteRef:
         key: redis-password

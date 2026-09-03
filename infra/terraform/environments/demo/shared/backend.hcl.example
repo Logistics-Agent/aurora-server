@@ -2,3 +2,6 @@ resource_group_name  = "rg-aurora-tfstate-demo"
 storage_account_name = "stauroratfstatedemo"
 container_name       = "tfstate"
 key                  = "aurora/demo/shared.tfstate"
+
+subscription_id = "<SHARED_SUBSCRIPTION_ID>"
+use_azuread_auth = true

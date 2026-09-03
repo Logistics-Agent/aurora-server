@@ -18,22 +18,49 @@ env:
   RabbitMQ__Username: "aurora_admin"
   Smtp__Host: "stalwart-ingress.aurora.svc.cluster.local"
   Smtp__Port: "25"
+  ServiceAuth__AllowedServiceId: "staff-bff"
+  Firebase__Enabled: "true"
+  Firebase__CredentialsPath: "/app/secrets/firebase/aurora-notification-admin.json"
 
 externalSecret:
   enabled: true
   secretStoreRef:
     name: azure-keyvault-store
     kind: ClusterSecretStore
+  target:
+    name: notification-kv-secret
   data:
+    - secretKey: ConnectionStrings__NotificationDatabase
+      remoteRef:
+        key: aurora-notification-db-connection
     - secretKey: ConnectionStrings__DefaultConnection
       remoteRef:
-        key: notification-db-connection
+        key: aurora-notification-db-connection
     - secretKey: RabbitMQ__Password
       remoteRef:
         key: rabbitmq-password
     - secretKey: Smtp__Password
       remoteRef:
         key: smtp-password
+    - secretKey: ServiceAuth__ApiKey
+      remoteRef:
+        key: notification-service-api-key
+    - secretKey: aurora-notification-admin.json
+      remoteRef:
+        key: notification-firebase-admin-json
+
+volumes:
+  - name: firebase-credentials
+    secret:
+      secretName: notification-kv-secret
+      items:
+        - key: aurora-notification-admin.json
+          path: aurora-notification-admin.json
+
+volumeMounts:
+  - name: firebase-credentials
+    mountPath: /app/secrets/firebase
+    readOnly: true
 
 resources:
   requests:

@@ -13,14 +13,14 @@ resource "azurerm_kubernetes_cluster" "aks" {
   workload_identity_enabled = true
 
   default_node_pool {
-    name           = "system"
-    node_count     = var.node_count
-    vm_size        = var.node_vm_size
-    vnet_subnet_id = var.subnet_id
-    zones          = var.availability_zones
+    name            = "system"
+    node_count      = var.node_count
+    vm_size         = var.node_vm_size
+    vnet_subnet_id  = var.subnet_id
+    zones           = var.availability_zones
     os_disk_size_gb = 64
-    type           = "VirtualMachineScaleSets"
-    tags = var.tags
+    type            = "VirtualMachineScaleSets"
+    tags            = var.tags
   }
 
   identity {

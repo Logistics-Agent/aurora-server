@@ -27,7 +27,7 @@ externalSecret:
   data:
     - secretKey: ConnectionStrings__DefaultConnection
       remoteRef:
-        key: document-ocr-db-connection
+        key: aurora-document-ocr-db-connection
     - secretKey: RabbitMQ__Password
       remoteRef:
         key: rabbitmq-password

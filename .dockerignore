@@ -4,8 +4,13 @@
 **/.vscode
 **/bin
 **/obj
-**/out
-**/publish
-**/*.user
-**/*.suo
-**/node_modules
+**/TestResults
+**/terraform.tfstate*
+**/.env*
+!**/.env.example
+
+# Credentials & Secrets (Never package secrets into container images)
+**/*firebase*.json
+**/*admin*.json
+**/aurora-notification-admin.json
+**/secrets/**

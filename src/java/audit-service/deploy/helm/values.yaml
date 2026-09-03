@@ -26,7 +26,7 @@ externalSecret:
   data:
     - secretKey: SPRING_DATASOURCE_URL
       remoteRef:
-        key: audit-service-db-url
+        key: aurora-audit-db-connection
     - secretKey: SPRING_DATASOURCE_USERNAME
       remoteRef:
         key: audit-service-db-user

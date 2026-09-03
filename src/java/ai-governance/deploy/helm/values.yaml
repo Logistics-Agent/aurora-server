@@ -26,7 +26,7 @@ externalSecret:
   data:
     - secretKey: SPRING_DATASOURCE_URL
       remoteRef:
-        key: ai-governance-db-url
+        key: AI-Governance-DB
     - secretKey: SPRING_DATASOURCE_USERNAME
       remoteRef:
         key: ai-governance-db-user

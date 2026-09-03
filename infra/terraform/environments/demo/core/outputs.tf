@@ -8,6 +8,11 @@ output "core_vnet_id" {
   value       = module.network.vnet_id
 }
 
+output "core_vnet_name" {
+  description = "Core VNet name"
+  value       = module.network.vnet_name
+}
+
 output "aks_subnet_id" {
   description = "AKS Core Subnet ID"
   value       = module.network.subnet_ids["snet-aks-core"]
@@ -31,6 +36,16 @@ output "aks_cluster_id" {
 output "aks_oidc_issuer_url" {
   description = "OIDC Issuer URL for Core Workload Identity"
   value       = module.aks.oidc_issuer_url
+}
+
+output "acr_id" {
+  description = "Core ACR ID (Needed for AI subscription AcrPull)"
+  value       = module.acr.id
+}
+
+output "acr_name" {
+  description = "Core ACR name"
+  value       = module.acr.name
 }
 
 output "acr_login_server" {

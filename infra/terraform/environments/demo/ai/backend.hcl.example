@@ -1,4 +1,11 @@
 resource_group_name  = "rg-aurora-tfstate-demo"
 storage_account_name = "stauroratfstatedemo"
 container_name       = "tfstate"
-key                  = "aurora/demo/ai.tfstate"
+
+# State này thuộc AI environment
+key = "aurora/demo/ai.tfstate"
+
+# Nhưng Storage Account chứa state nằm ở SHARED subscription
+subscription_id = "<SHARED_SUBSCRIPTION_ID>"
+
+use_azuread_auth = true

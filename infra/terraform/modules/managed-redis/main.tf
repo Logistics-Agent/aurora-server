@@ -17,12 +17,12 @@ resource "azurerm_redis_enterprise_cluster" "redis" {
 resource "azurerm_redis_enterprise_database" "redis_db" {
   count = var.enable_managed_redis ? 1 : 0
 
-  name                = "default"
-  cluster_id          = azurerm_redis_enterprise_cluster.redis[0].id
-  client_protocol     = "Encrypted"
-  clustering_policy   = "EnterpriseCluster"
-  eviction_policy     = "VolatileLRU"
-  port                = 10000
+  name              = "default"
+  cluster_id        = azurerm_redis_enterprise_cluster.redis[0].id
+  client_protocol   = "Encrypted"
+  clustering_policy = "EnterpriseCluster"
+  eviction_policy   = "VolatileLRU"
+  port              = 10000
 }
 
 # Private Endpoint for Azure Managed Redis
