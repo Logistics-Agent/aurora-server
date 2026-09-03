@@ -962,12 +962,12 @@ spring:
       enabled: true
   datasource:
     hikari:
-      maximum-pool-size: 50        # tune theo tải thực tế, KHÔNG để default=10
+      maximum-pool-size: 50 # tune theo tải thực tế, KHÔNG để default=10
       minimum-idle: 10
-      connection-timeout: 3000     # ms — fail nhanh để giữ đúng nguyên tắc fail-closed
-      max-lifetime: 1800000        # 30 phút
+      connection-timeout: 3000 # ms — fail nhanh để giữ đúng nguyên tắc fail-closed
+      max-lifetime: 1800000 # 30 phút
       validation-timeout: 2000
-      leak-detection-threshold: 30000  # cảnh báo nếu connection giữ >30s (bất thường)
+      leak-detection-threshold: 30000 # cảnh báo nếu connection giữ >30s (bất thường)
 ```
 
 Lý do `connection-timeout` thấp (3s thay vì default 30s): `ExecutePolicy` phải fail-closed nhanh khi Postgres nghẽn/down, không được để request treo lâu chờ connection — timeout ngắn giúp exception được throw sớm, rơi vào nhánh `INTERNAL_ERROR` đúng như thiết kế thay vì làm agent gọi bị block.
@@ -976,7 +976,7 @@ Lý do `connection-timeout` thấp (3s thay vì default 30s): `ExecutePolicy` ph
 
 ## Flyway Migration Plan
 
-### V1__create_ai_governance_schema.sql
+### V1\_\_create_ai_governance_schema.sql
 
 ```sql
 -- ── plans ─────────────────────────────────────────────────────────────────
@@ -1045,7 +1045,7 @@ CREATE INDEX idx_processed_events_at ON processed_events (processed_at);
 -- Index hỗ trợ cleanup job: DELETE FROM processed_events WHERE processed_at < now() - interval '30 days'
 ```
 
-### V2__seed_plans_and_capabilities.sql
+### V2\_\_seed_plans_and_capabilities.sql
 
 ```sql
 -- ── Plans ─────────────────────────────────────────────────────────────────
@@ -1122,7 +1122,7 @@ INSERT INTO plan_quotas (plan_id, quota_type, period, limit_value) VALUES
     <maven.compiler.source>21</maven.compiler.source>
     <maven.compiler.target>21</maven.compiler.target>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-    <grpc.version>1.64.0</grpc.version>
+    <grpc.version>1.63.0</grpc.version>
     <protobuf-plugin.version>0.6.1</protobuf-plugin.version>
     <os-plugin.version>1.7.1</os-plugin.version>
     <jqwik.version>1.8.4</jqwik.version>
@@ -1349,59 +1349,59 @@ INSERT INTO plan_quotas (plan_id, quota_type, period, limit_value) VALUES
 
 ## Correctness Properties
 
-*A property is a characteristic or behavior that should hold true across all valid executions of a system — essentially, a formal statement about what the system should do. Properties serve as the bridge between human-readable specifications and machine-verifiable correctness guarantees.*
+_A property is a characteristic or behavior that should hold true across all valid executions of a system — essentially, a formal statement about what the system should do. Properties serve as the bridge between human-readable specifications and machine-verifiable correctness guarantees._
 
 ### Property 1: Định dạng Redis key luôn hợp lệ
 
-*Với bất kỳ* cặp `(tenantId, quotaType, periodKey)` hợp lệ, phương thức `QuotaKey.toRedisKey()` phải trả về String khớp với pattern `^quota:[0-9a-f-]{36}:[A-Z_]+:[0-9]{4}-[0-9]{2}(-[0-9]{2})?$`.
+_Với bất kỳ_ cặp `(tenantId, quotaType, periodKey)` hợp lệ, phương thức `QuotaKey.toRedisKey()` phải trả về String khớp với pattern `^quota:[0-9a-f-]{36}:[A-Z_]+:[0-9]{4}-[0-9]{2}(-[0-9]{2})?$`.
 
 **Validates: Requirements 4.1**
 
 ### Property 2: TTL luôn nằm trong khoảng hợp lệ cho kỳ DAY
 
-*Với bất kỳ* `Instant t` nằm trong khoảng hợp lệ của năm 2025, `PeriodKeyCalculator.calculateTtlSeconds(t, DAY)` phải trả về giá trị trong khoảng `(300, 86700]` — nghĩa là luôn dương (có buffer), không bao giờ vượt quá 86400 giây (24h) + 300 giây buffer.
+_Với bất kỳ_ `Instant t` nằm trong khoảng hợp lệ của năm 2025, `PeriodKeyCalculator.calculateTtlSeconds(t, DAY)` phải trả về giá trị trong khoảng `(300, 86700]` — nghĩa là luôn dương (có buffer), không bao giờ vượt quá 86400 giây (24h) + 300 giây buffer.
 
 **Validates: Requirements 4.2, 9.8**
 
 ### Property 3: TTL luôn nằm trong khoảng hợp lệ cho kỳ MONTH
 
-*Với bất kỳ* `Instant t` nằm trong khoảng hợp lệ, `PeriodKeyCalculator.calculateTtlSeconds(t, MONTH)` phải trả về giá trị trong khoảng `(300, 2678700]` — không bao giờ vượt quá 31 ngày + 300 giây buffer.
+_Với bất kỳ_ `Instant t` nằm trong khoảng hợp lệ, `PeriodKeyCalculator.calculateTtlSeconds(t, MONTH)` phải trả về giá trị trong khoảng `(300, 2678700]` — không bao giờ vượt quá 31 ngày + 300 giây buffer.
 
 **Validates: Requirements 4.2, 9.8**
 
 ### Property 4: PeriodKey DAY đúng format và monotonic
 
-*Với bất kỳ* hai `Instant t1 < t2` nằm trong cùng ngày UTC, `dayKey(t1)` == `dayKey(t2)`; với hai Instant ở hai ngày khác nhau, `dayKey(t1)` != `dayKey(t2)` và `dayKey(t1) < dayKey(t2)` (lexicographic ordering = chronological ordering vì format `yyyy-MM-dd`).
+_Với bất kỳ_ hai `Instant t1 < t2` nằm trong cùng ngày UTC, `dayKey(t1)` == `dayKey(t2)`; với hai Instant ở hai ngày khác nhau, `dayKey(t1)` != `dayKey(t2)` và `dayKey(t1) < dayKey(t2)` (lexicographic ordering = chronological ordering vì format `yyyy-MM-dd`).
 
 **Validates: Requirements 4.1, 9.8**
 
 ### Property 5: BufferThreshold deny logic đúng
 
-*Với bất kỳ* `limitValue > 0` và `counter >= 0`, policy check phải trả về `QUOTA_EXCEEDED` khi và chỉ khi `counter >= limitValue × 0.95`. Phép so sánh phải là `>=` (không phải `>`), và threshold luôn được làm tròn xuống (floor) để đảm bảo không bao giờ cho phép vượt quá limit.
+_Với bất kỳ_ `limitValue > 0` và `counter >= 0`, policy check phải trả về `QUOTA_EXCEEDED` khi và chỉ khi `counter >= limitValue × 0.95`. Phép so sánh phải là `>=` (không phải `>`), và threshold luôn được làm tròn xuống (floor) để đảm bảo không bao giờ cho phép vượt quá limit.
 
 **Validates: Requirements 4.4, 6.5**
 
 ### Property 6: RequireApproval chính xác theo AutomationLevel
 
-*Với bất kỳ* `AutomationLevel level`, `AutomationPolicyEvaluator.requiresApproval(level, anyCapabilityCode)` phải trả về `true` khi và chỉ khi `level == MANUAL || level == RULES_ONLY`, và trả về `false` khi `level == RULES_AI || level == FULL_AUTOMATION`.
+_Với bất kỳ_ `AutomationLevel level`, `AutomationPolicyEvaluator.requiresApproval(level, anyCapabilityCode)` phải trả về `true` khi và chỉ khi `level == MANUAL || level == RULES_ONLY`, và trả về `false` khi `level == RULES_AI || level == FULL_AUTOMATION`.
 
 **Validates: Requirements 6.6**
 
 ### Property 7: ExecutePolicy dừng tại bước fail đầu tiên (fail-first semantics)
 
-*Với bất kỳ* trạng thái tenant có nhiều điều kiện fail đồng thời (ví dụ: `status=SUSPENDED` VÀ `cloudAiEnabled=false`), `ExecutePolicy` phải trả về `reason` tương ứng với bước kiểm tra đầu tiên trong chuỗi 5 bước — không bao giờ trả về reason của bước sau khi bước trước đã fail.
+_Với bất kỳ_ trạng thái tenant có nhiều điều kiện fail đồng thời (ví dụ: `status=SUSPENDED` VÀ `cloudAiEnabled=false`), `ExecutePolicy` phải trả về `reason` tương ứng với bước kiểm tra đầu tiên trong chuỗi 5 bước — không bao giờ trả về reason của bước sau khi bước trước đã fail.
 
 **Validates: Requirements 6.1**
 
 ### Property 8: UsageRecord upsert preserves additive invariant
 
-*Với bất kỳ* `UsageRecord` ban đầu có `currentValue = V` và `AiUsageEvent` có `tokensUsed = T`, sau khi consumer xử lý thành công, `UsageRecord.currentValue` phải bằng `V + T` (không bao giờ là `V`, `T`, hay giá trị khác).
+_Với bất kỳ_ `UsageRecord` ban đầu có `currentValue = V` và `AiUsageEvent` có `tokensUsed = T`, sau khi consumer xử lý thành công, `UsageRecord.currentValue` phải bằng `V + T` (không bao giờ là `V`, `T`, hay giá trị khác).
 
 **Validates: Requirements 8.1**
 
 ### Property 9: AiUsageEvent idempotency — gửi N lần = gửi 1 lần
 
-*Với bất kỳ* `AiUsageEventMessage` có `requestId = R` và `tokensUsed = T`, publish event này N lần (N >= 1) với cùng `requestId` phải cho kết quả `UsageRecord.currentValue` tăng đúng một lần bằng `T` — không phụ thuộc vào N.
+_Với bất kỳ_ `AiUsageEventMessage` có `requestId = R` và `tokensUsed = T`, publish event này N lần (N >= 1) với cùng `requestId` phải cho kết quả `UsageRecord.currentValue` tăng đúng một lần bằng `T` — không phụ thuộc vào N.
 
 **Validates: Requirements 8.2, 9.6**
 
@@ -1467,22 +1467,22 @@ public class PolicyGrpcService extends AiGovernanceServiceGrpc.AiGovernanceServi
 
 ### Error Handling Matrix
 
-| Tình huống | Handler | Kết quả |
-|---|---|---|
-| Tenant không tồn tại trong DB | PolicyDecisionService | `allowed=false, PLAN_NOT_FOUND` |
-| Tenant.status = SUSPENDED/CANCELLED | PolicyDecisionService | `allowed=false, PLAN_NOT_FOUND` |
-| Capability không có trong plan | PolicyDecisionService | `allowed=false, CAPABILITY_DISABLED` |
-| tenant.cloud_ai_enabled = false | PolicyDecisionService | `allowed=false, CLOUD_AI_DISABLED` |
-| Redis GET counter >= limit × 0.95 | PolicyDecisionService | `allowed=false, QUOTA_EXCEEDED` |
-| Redis không khả dụng | QuotaRedisAdapter | throw → catch → `INTERNAL_ERROR` |
-| Postgres không khả dụng (cache miss) | TenantCacheService | throw → catch → `INTERNAL_ERROR` |
-| Exception bất kỳ | PolicyGrpcService (outer catch) | `allowed=false, INTERNAL_ERROR` |
-| request.tenantId != metadata.tenantId | PolicyGrpcService | gRPC `PERMISSION_DENIED` |
-| AiUsageEvent Postgres fail ≤ 3 lần | AiUsageEventConsumer | NACK + requeue |
-| AiUsageEvent Postgres fail > 3 lần | AiUsageEventConsumer | NACK + DLQ |
-| AiUsageEvent Redis sync fail | QuotaSyncService | LOG WARN + ACK (no rollback) |
-| AiUsageEvent unknown tenantId | AiUsageEventConsumer | LOG WARN + NACK (không vào DLQ) |
-| PublishDecision fail sau 3 retries | AiPolicyDecisionPublisher | LOG WARN (best-effort) |
+| Tình huống                            | Handler                         | Kết quả                              |
+| ------------------------------------- | ------------------------------- | ------------------------------------ |
+| Tenant không tồn tại trong DB         | PolicyDecisionService           | `allowed=false, PLAN_NOT_FOUND`      |
+| Tenant.status = SUSPENDED/CANCELLED   | PolicyDecisionService           | `allowed=false, PLAN_NOT_FOUND`      |
+| Capability không có trong plan        | PolicyDecisionService           | `allowed=false, CAPABILITY_DISABLED` |
+| tenant.cloud_ai_enabled = false       | PolicyDecisionService           | `allowed=false, CLOUD_AI_DISABLED`   |
+| Redis GET counter >= limit × 0.95     | PolicyDecisionService           | `allowed=false, QUOTA_EXCEEDED`      |
+| Redis không khả dụng                  | QuotaRedisAdapter               | throw → catch → `INTERNAL_ERROR`     |
+| Postgres không khả dụng (cache miss)  | TenantCacheService              | throw → catch → `INTERNAL_ERROR`     |
+| Exception bất kỳ                      | PolicyGrpcService (outer catch) | `allowed=false, INTERNAL_ERROR`      |
+| request.tenantId != metadata.tenantId | PolicyGrpcService               | gRPC `PERMISSION_DENIED`             |
+| AiUsageEvent Postgres fail ≤ 3 lần    | AiUsageEventConsumer            | NACK + requeue                       |
+| AiUsageEvent Postgres fail > 3 lần    | AiUsageEventConsumer            | NACK + DLQ                           |
+| AiUsageEvent Redis sync fail          | QuotaSyncService                | LOG WARN + ACK (no rollback)         |
+| AiUsageEvent unknown tenantId         | AiUsageEventConsumer            | LOG WARN + NACK (không vào DLQ)      |
+| PublishDecision fail sau 3 retries    | AiPolicyDecisionPublisher       | LOG WARN (best-effort)               |
 
 ### GrpcTenantInterceptor
 
@@ -1571,6 +1571,7 @@ public class GrpcServerLifecycle implements SmartLifecycle {
 ```
 
 `application.yml` cần thêm:
+
 ```yaml
 grpc:
   server:
@@ -1750,13 +1751,13 @@ spring:
       enabled: true
   jpa:
     hibernate:
-      ddl-auto: validate      # Flyway manages schema
+      ddl-auto: validate # Flyway manages schema
   flyway:
     enabled: true
   cache:
     type: caffeine
     caffeine:
-      spec: maximumSize=100,expireAfterWrite=5s  # short TTL for tests
+      spec: maximumSize=100,expireAfterWrite=5s # short TTL for tests
 ```
 
 ### Coverage Configuration
@@ -1834,11 +1835,11 @@ V5__add_audit_outbox.sql               ← TODO(v2): outbox table cho PolicyAudi
 
 ### TODO Comments tại Code Level
 
-| Location | TODO |
-|---|---|
-| `QuotaRedisAdapter` | `// TODO(v2): Resilience4j circuit breaker — fallback sang Postgres khi Redis down` |
-| `TenantCacheService` | `// TODO(v2): Cache invalidation event via RabbitMQ khi tenant plan thay đổi` |
-| `PolicyGrpcService` | `// TODO(v2): Admin endpoints: UpdateTenantCloudAi, AssignTenantPlan với SYSTEM_ADMIN role` |
-| `AiUsageEventConsumer` | `// TODO(v2): Spring AMQP MessageRecoverer với scheduled DLQ replay job` |
-| `PlanCapabilityJpaRepository` | `// TODO(v2): Forward-compatible: unknown capability_code → treat as CAPABILITY_DISABLED` |
-| `PolicyDecisionService` | `// TODO(v2): Tách quota_type riêng theo từng capability thay vì dùng chung 1 pool "TOKENS_USED" — cần bảng capability_quota_mapping` |
+| Location                      | TODO                                                                                                                                  |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `QuotaRedisAdapter`           | `// TODO(v2): Resilience4j circuit breaker — fallback sang Postgres khi Redis down`                                                   |
+| `TenantCacheService`          | `// TODO(v2): Cache invalidation event via RabbitMQ khi tenant plan thay đổi`                                                         |
+| `PolicyGrpcService`           | `// TODO(v2): Admin endpoints: UpdateTenantCloudAi, AssignTenantPlan với SYSTEM_ADMIN role`                                           |
+| `AiUsageEventConsumer`        | `// TODO(v2): Spring AMQP MessageRecoverer với scheduled DLQ replay job`                                                              |
+| `PlanCapabilityJpaRepository` | `// TODO(v2): Forward-compatible: unknown capability_code → treat as CAPABILITY_DISABLED`                                             |
+| `PolicyDecisionService`       | `// TODO(v2): Tách quota_type riêng theo từng capability thay vì dùng chung 1 pool "TOKENS_USED" — cần bảng capability_quota_mapping` |

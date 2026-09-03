@@ -18,6 +18,7 @@ target/
 !**/artifacts/.gitkeep
 # Local Codex planning and execution documents
 /docs/technical/DOCKER-LOCAL-ENVIRONMENT.md
+aurora-notification-admin.json
 
 # Firebase service-account credentials
 /*-firebase-adminsdk-*.json

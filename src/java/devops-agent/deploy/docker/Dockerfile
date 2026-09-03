@@ -1,4 +1,4 @@
-# syntax=docker/dockerfile:1
+# syntax=docker/dockerfile:1.7
 
 FROM maven:3.9.6-eclipse-temurin-21 AS build
 
@@ -12,23 +12,27 @@ COPY src/java/shared/pom.xml \
 COPY src/java/shared/src/ \
     /workspace/src/java/shared/src/
 
+RUN --mount=type=cache,target=/root/.m2 \
+    mvn -f /workspace/src/java/shared/pom.xml \
+    install -DskipTests -B
 
-RUN mvn -f /workspace/src/java/shared/pom.xml \
-    clean install -DskipTests -B
-
+RUN test -f \
+    /root/.m2/repository/com/aurora/aurora-java-shared/1.0.0-SNAPSHOT/aurora-java-shared-1.0.0-SNAPSHOT.jar
 
 COPY src/java/devops-agent/pom.xml \
     /workspace/src/java/devops-agent/pom.xml
 
-# Optional optimization
-RUN mvn -f /workspace/src/java/devops-agent/pom.xml \
-    dependency:go-offline -B
+RUN --mount=type=cache,target=/root/.m2 \
+    mvn -f /workspace/src/java/devops-agent/pom.xml \
+    dependency:go-offline -DskipTests -B
 
 COPY src/java/devops-agent/src/ \
     /workspace/src/java/devops-agent/src/
 
-RUN mvn -f /workspace/src/java/devops-agent/pom.xml \
-    clean package -DskipTests -B
+RUN --mount=type=cache,target=/root/.m2 \
+    mvn -f /workspace/src/java/devops-agent/pom.xml \
+    package -DskipTests -B
+
 
 FROM eclipse-temurin:21-jre-alpine AS runtime
 
@@ -38,7 +42,7 @@ RUN addgroup -S appgroup \
     && adduser -S appuser -G appgroup
 
 COPY --from=build \
-    /workspace/src/java/devops-agent/target/*.jar \
+    /workspace/src/java/ai-governance/target/*.jar \
     /app/app.jar
 
 USER appuser

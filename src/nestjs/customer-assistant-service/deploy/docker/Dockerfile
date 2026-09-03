@@ -1,6 +1,9 @@
 # Build stage
-FROM node:20-alpine AS build
+FROM node:20-bookworm-slim AS build
 WORKDIR /app
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends openssl ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
 
 COPY src/nestjs/customer-assistant-service/package*.json ./
 COPY src/nestjs/customer-assistant-service/prisma ./prisma/
@@ -12,8 +15,11 @@ RUN npx prisma generate
 RUN npm run build
 
 # Runtime stage
-FROM node:20-alpine AS runtime
+FROM node:20-bookworm-slim AS runtime
 WORKDIR /app
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends openssl ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
 ENV NODE_ENV=production
 
 COPY src/nestjs/customer-assistant-service/package*.json ./
@@ -26,4 +32,4 @@ COPY --from=build /protos /protos
 
 USER node
 EXPOSE 5007 8080
-CMD ["node", "dist/main"]
+CMD ["npm", "run", "start:prod"]
