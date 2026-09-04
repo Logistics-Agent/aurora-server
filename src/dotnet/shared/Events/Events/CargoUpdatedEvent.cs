@@ -12,4 +12,3 @@ public sealed record CargoUpdatedEvent
     public string Action { get; init; } = string.Empty;
     public DateTimeOffset UpdatedAt { get; init; }
 }
-                
