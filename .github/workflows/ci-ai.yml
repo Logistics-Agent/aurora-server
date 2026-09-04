@@ -16,6 +16,7 @@ on:
   push:
     branches:
       - main
+      - stagging-prod
     paths:
       - 'src/dotnet/DocumentOcr/**'
       - 'src/dotnet/RegulatoryCompliance/**'
@@ -49,13 +50,13 @@ jobs:
       service-name: document-ocr
       service-path: src/dotnet/DocumentOcr
       dockerfile-path: src/dotnet/DocumentOcr/deploy/docker/Dockerfile
-      is-deploy: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+      is-deploy: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/stagging-prod') }}
     secrets: inherit
 
   deploy-document-ocr:
     name: CD
     needs: [changes, ci-document-ocr]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.changes.outputs.document-ocr == 'true'
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/stagging-prod') && needs.changes.outputs.document-ocr == 'true'
     uses: ./.github/workflows/_deploy-service.yml
     with:
       service-name: document-ocr
@@ -74,13 +75,13 @@ jobs:
       service-name: regulatory-compliance
       service-path: src/dotnet/RegulatoryCompliance
       dockerfile-path: src/dotnet/RegulatoryCompliance/deploy/docker/Dockerfile
-      is-deploy: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+      is-deploy: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/stagging-prod') }}
     secrets: inherit
 
   deploy-regulatory-compliance:
     name: CD
     needs: [changes, ci-regulatory-compliance]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.changes.outputs.regulatory-compliance == 'true'
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/stagging-prod') && needs.changes.outputs.regulatory-compliance == 'true'
     uses: ./.github/workflows/_deploy-service.yml
     with:
       service-name: regulatory-compliance
@@ -100,13 +101,13 @@ jobs:
       service-path: src/java/ai-governance
       dockerfile-path: src/java/ai-governance/deploy/docker/Dockerfile
       java-version: '21'
-      is-deploy: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+      is-deploy: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/stagging-prod') }}
     secrets: inherit
 
   deploy-ai-governance:
     name: CD
     needs: [changes, ci-ai-governance]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.changes.outputs.ai-governance == 'true'
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/stagging-prod') && needs.changes.outputs.ai-governance == 'true'
     uses: ./.github/workflows/_deploy-service.yml
     with:
       service-name: ai-governance
@@ -126,13 +127,13 @@ jobs:
       service-path: src/java/devops-agent
       dockerfile-path: src/java/devops-agent/deploy/docker/Dockerfile
       java-version: '21'
-      is-deploy: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+      is-deploy: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/stagging-prod') }}
     secrets: inherit
 
   deploy-devops-agent:
     name: CD
     needs: [changes, ci-devops-agent]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.changes.outputs.devops-agent == 'true'
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/stagging-prod') && needs.changes.outputs.devops-agent == 'true'
     uses: ./.github/workflows/_deploy-service.yml
     with:
       service-name: devops-agent
@@ -151,13 +152,13 @@ jobs:
       service-name: customer-assistant-service
       service-path: src/nestjs/customer-assistant-service
       dockerfile-path: src/nestjs/customer-assistant-service/deploy/docker/Dockerfile
-      is-deploy: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+      is-deploy: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/stagging-prod') }}
     secrets: inherit
 
   deploy-customer-assistant-service:
     name: CD
     needs: [changes, ci-customer-assistant-service]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.changes.outputs.customer-assistant-service == 'true'
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/stagging-prod') && needs.changes.outputs.customer-assistant-service == 'true'
     uses: ./.github/workflows/_deploy-service.yml
     with:
       service-name: customer-assistant-service
@@ -176,13 +177,13 @@ jobs:
       service-name: negotiation-agent-service
       service-path: src/nestjs/negotiation-agent-service
       dockerfile-path: src/nestjs/negotiation-agent-service/deploy/docker/Dockerfile
-      is-deploy: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+      is-deploy: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/stagging-prod') }}
     secrets: inherit
 
   deploy-negotiation-agent-service:
     name: CD
     needs: [changes, ci-negotiation-agent-service]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.changes.outputs.negotiation-agent-service == 'true'
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/stagging-prod') && needs.changes.outputs.negotiation-agent-service == 'true'
     uses: ./.github/workflows/_deploy-service.yml
     with:
       service-name: negotiation-agent-service
@@ -190,4 +191,3 @@ jobs:
       namespace: aurora-ai
       image-tag: ${{ github.sha }}
     secrets: inherit
-
