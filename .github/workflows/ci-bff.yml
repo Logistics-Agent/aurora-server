@@ -1,0 +1,129 @@
+name: CI/CD — BFF Services
+
+on:
+  pull_request:
+    paths:
+      - 'src/dotnet/BFF/**'
+      - 'src/dotnet/shared/**'
+      - 'protos/**'
+      - '.github/service-dependencies.json'
+  push:
+    branches:
+      - main
+    paths:
+      - 'src/dotnet/BFF/**'
+      - 'src/dotnet/shared/**'
+      - 'protos/**'
+      - '.github/service-dependencies.json'
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  changes:
+    name: Detect Changes
+    uses: ./.github/workflows/_detect-changes.yml
+    with:
+      group: bff
+
+  # ─── API Gateway ─────────────────────────────────────────
+  ci-api-gateway:
+    name: CI
+    needs: changes
+    if: needs.changes.outputs.api-gateway == 'true'
+    uses: ./.github/workflows/_ci-dotnet.yml
+    with:
+      service-name: api-gateway
+      service-path: src/dotnet/BFF/API.Gateway
+      dockerfile-path: src/dotnet/BFF/API.Gateway/deploy/docker/Dockerfile
+      is-deploy: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    secrets: inherit
+
+  deploy-api-gateway:
+    name: CD
+    needs: [changes, ci-api-gateway]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.changes.outputs.api-gateway == 'true'
+    uses: ./.github/workflows/_deploy-service.yml
+    with:
+      service-name: api-gateway
+      deploy-target: core
+      namespace: aurora
+      image-tag: ${{ github.sha }}
+    secrets: inherit
+
+  # ─── Staff BFF ───────────────────────────────────────────
+  ci-staff-bff:
+    name: CI
+    needs: changes
+    if: needs.changes.outputs.staff-bff == 'true'
+    uses: ./.github/workflows/_ci-dotnet.yml
+    with:
+      service-name: staff-bff
+      service-path: src/dotnet/BFF/Staff.Bff
+      dockerfile-path: src/dotnet/BFF/Staff.Bff/deploy/docker/Dockerfile
+      is-deploy: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    secrets: inherit
+
+  deploy-staff-bff:
+    name: CD
+    needs: [changes, ci-staff-bff]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.changes.outputs.staff-bff == 'true'
+    uses: ./.github/workflows/_deploy-service.yml
+    with:
+      service-name: staff-bff
+      deploy-target: core
+      namespace: aurora
+      image-tag: ${{ github.sha }}
+    secrets: inherit
+
+  # ─── Admin BFF ───────────────────────────────────────────
+  ci-admin-bff:
+    name: CI
+    needs: changes
+    if: needs.changes.outputs.admin-bff == 'true'
+    uses: ./.github/workflows/_ci-dotnet.yml
+    with:
+      service-name: admin-bff
+      service-path: src/dotnet/BFF/Admin.Bff
+      dockerfile-path: src/dotnet/BFF/Admin.Bff/deploy/docker/Dockerfile
+      is-deploy: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    secrets: inherit
+
+  deploy-admin-bff:
+    name: CD
+    needs: [changes, ci-admin-bff]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.changes.outputs.admin-bff == 'true'
+    uses: ./.github/workflows/_deploy-service.yml
+    with:
+      service-name: admin-bff
+      deploy-target: core
+      namespace: aurora
+      image-tag: ${{ github.sha }}
+    secrets: inherit
+
+  # ─── System BFF ──────────────────────────────────────────
+  ci-system-bff:
+    name: CI
+    needs: changes
+    if: needs.changes.outputs.system-bff == 'true'
+    uses: ./.github/workflows/_ci-dotnet.yml
+    with:
+      service-name: system-bff
+      service-path: src/dotnet/BFF/System.Bff
+      dockerfile-path: src/dotnet/BFF/System.Bff/deploy/docker/Dockerfile
+      is-deploy: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    secrets: inherit
+
+  deploy-system-bff:
+    name: CD
+    needs: [changes, ci-system-bff]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.changes.outputs.system-bff == 'true'
+    uses: ./.github/workflows/_deploy-service.yml
+    with:
+      service-name: system-bff
+      deploy-target: core
+      namespace: aurora
+      image-tag: ${{ github.sha }}
+    secrets: inherit
+

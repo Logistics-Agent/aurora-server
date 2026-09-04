@@ -1,0 +1,181 @@
+name: Detect Changed Services
+
+on:
+  workflow_call:
+    inputs:
+      group:
+        description: 'Service group to filter (bff | logistics | platform | ai)'
+        required: true
+        type: string
+    outputs:
+      # BFF group
+      api-gateway:
+        value: ${{ jobs.detect.outputs.api-gateway }}
+      staff-bff:
+        value: ${{ jobs.detect.outputs.staff-bff }}
+      admin-bff:
+        value: ${{ jobs.detect.outputs.admin-bff }}
+      system-bff:
+        value: ${{ jobs.detect.outputs.system-bff }}
+      # Logistics group
+      shipment-workflow:
+        value: ${{ jobs.detect.outputs.shipment-workflow }}
+      gps-tracking:
+        value: ${{ jobs.detect.outputs.gps-tracking }}
+      route-planning-agent:
+        value: ${{ jobs.detect.outputs.route-planning-agent }}
+      # Platform group
+      iam-tenant:
+        value: ${{ jobs.detect.outputs.iam-tenant }}
+      mail-service:
+        value: ${{ jobs.detect.outputs.mail-service }}
+      notification:
+        value: ${{ jobs.detect.outputs.notification }}
+      audit-service:
+        value: ${{ jobs.detect.outputs.audit-service }}
+      billing-service:
+        value: ${{ jobs.detect.outputs.billing-service }}
+      financial-service:
+        value: ${{ jobs.detect.outputs.financial-service }}
+      realtime-hub-service:
+        value: ${{ jobs.detect.outputs.realtime-hub-service }}
+      # AI group
+      document-ocr:
+        value: ${{ jobs.detect.outputs.document-ocr }}
+      regulatory-compliance:
+        value: ${{ jobs.detect.outputs.regulatory-compliance }}
+      ai-governance:
+        value: ${{ jobs.detect.outputs.ai-governance }}
+      devops-agent:
+        value: ${{ jobs.detect.outputs.devops-agent }}
+      customer-assistant-service:
+        value: ${{ jobs.detect.outputs.customer-assistant-service }}
+      negotiation-agent-service:
+        value: ${{ jobs.detect.outputs.negotiation-agent-service }}
+
+jobs:
+  detect:
+    name: Change Detection (${{ inputs.group }})
+    runs-on: ubuntu-latest
+    outputs:
+      api-gateway: ${{ steps.detector.outputs.api-gateway }}
+      staff-bff: ${{ steps.detector.outputs.staff-bff }}
+      admin-bff: ${{ steps.detector.outputs.admin-bff }}
+      system-bff: ${{ steps.detector.outputs.system-bff }}
+      shipment-workflow: ${{ steps.detector.outputs.shipment-workflow }}
+      gps-tracking: ${{ steps.detector.outputs.gps-tracking }}
+      route-planning-agent: ${{ steps.detector.outputs.route-planning-agent }}
+      iam-tenant: ${{ steps.detector.outputs.iam-tenant }}
+      mail-service: ${{ steps.detector.outputs.mail-service }}
+      notification: ${{ steps.detector.outputs.notification }}
+      audit-service: ${{ steps.detector.outputs.audit-service }}
+      billing-service: ${{ steps.detector.outputs.billing-service }}
+      financial-service: ${{ steps.detector.outputs.financial-service }}
+      realtime-hub-service: ${{ steps.detector.outputs.realtime-hub-service }}
+      document-ocr: ${{ steps.detector.outputs.document-ocr }}
+      regulatory-compliance: ${{ steps.detector.outputs.regulatory-compliance }}
+      ai-governance: ${{ steps.detector.outputs.ai-governance }}
+      devops-agent: ${{ steps.detector.outputs.devops-agent }}
+      customer-assistant-service: ${{ steps.detector.outputs.customer-assistant-service }}
+      negotiation-agent-service: ${{ steps.detector.outputs.negotiation-agent-service }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run Change Detector Script
+        id: detector
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const { execSync } = require('child_process');
+
+            // 1. Read & Validate service-dependencies.json
+            const rawConfig = fs.readFileSync('.github/service-dependencies.json', 'utf8');
+            let config;
+            try {
+              config = JSON.parse(rawConfig);
+            } catch (err) {
+              core.setFailed('Invalid JSON in .github/service-dependencies.json: ' + err.message);
+              return;
+            }
+
+            if (!config.services || typeof config.services !== 'object') {
+              core.setFailed('.github/service-dependencies.json must contain a "services" object.');
+              return;
+            }
+
+            // 2. Determine diff range
+            let baseSha = '';
+            let headSha = '';
+
+            if (context.eventName === 'pull_request') {
+              baseSha = context.payload.pull_request.base.sha;
+              headSha = context.payload.pull_request.head.sha;
+            } else if (context.eventName === 'push') {
+              baseSha = context.payload.before;
+              headSha = context.sha;
+              // Handle initial branch push or force push
+              if (!baseSha || baseSha === '0000000000000000000000000000000000000000') {
+                baseSha = 'HEAD~1';
+              }
+            } else {
+              baseSha = 'HEAD~1';
+              headSha = 'HEAD';
+            }
+
+            core.info(`Computing git diff: ${baseSha}..${headSha}`);
+
+            let diffOutput = '';
+            try {
+              diffOutput = execSync(`git diff --name-only ${baseSha} ${headSha}`, { encoding: 'utf8' }).trim();
+            } catch (err) {
+              core.warning(`git diff failed with ${baseSha}..${headSha}, falling back to HEAD~1..HEAD: ${err.message}`);
+              diffOutput = execSync('git diff --name-only HEAD~1 HEAD', { encoding: 'utf8' }).trim();
+            }
+
+            const changedFiles = diffOutput ? diffOutput.split('\n').map(f => f.trim()).filter(Boolean) : [];
+            core.info(`Changed files (${changedFiles.length}):\n` + changedFiles.join('\n'));
+
+            // 3. Check if dependency config itself changed
+            const dependencyConfigChanged = changedFiles.includes('.github/service-dependencies.json');
+            if (dependencyConfigChanged) {
+              core.info('.github/service-dependencies.json changed -> validating configuration schema');
+              for (const [sName, sMeta] of Object.entries(config.services)) {
+                if (!sMeta.group || !sMeta.stack || !sMeta.deploy_target || !sMeta.namespace || !sMeta.paths) {
+                  core.setFailed(`Service ${sName} is missing required metadata fields in service-dependencies.json`);
+                  return;
+                }
+              }
+            }
+
+            // 4. Evaluate each service in the requested group
+            const requestedGroup = '${{ inputs.group }}';
+            const allServices = config.services;
+
+            for (const [svcName, svcMeta] of Object.entries(allServices)) {
+              if (svcMeta.group !== requestedGroup) {
+                core.setOutput(svcName, 'false');
+                continue;
+              }
+
+              let isChanged = false;
+              for (const triggerPath of svcMeta.paths) {
+                const normalizedPath = triggerPath.replace(/\/+$/, '');
+                for (const file of changedFiles) {
+                  if (file === normalizedPath || file.startsWith(normalizedPath + '/')) {
+                    isChanged = true;
+                    core.info(`[MATCH] ${svcName} triggered by changed file: ${file} (matched: ${triggerPath})`);
+                    break;
+                  }
+                }
+                if (isChanged) break;
+              }
+
+              const resultStr = isChanged ? 'true' : 'false';
+              core.setOutput(svcName, resultStr);
+              core.info(`Service result: ${svcName} = ${resultStr}`);
+            }
+

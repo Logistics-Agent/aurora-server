@@ -1,0 +1,108 @@
+name: Reusable NestJS CI
+
+on:
+  workflow_call:
+    inputs:
+      service-name:
+        description: 'Logical service name'
+        required: true
+        type: string
+      service-path:
+        description: 'Path to service root'
+        required: true
+        type: string
+      dockerfile-path:
+        description: 'Path to Dockerfile'
+        required: true
+        type: string
+      is-deploy:
+        description: 'Whether to push image to ACR'
+        required: true
+        type: boolean
+    secrets:
+      AZURE_CLIENT_ID:
+        required: false
+      AZURE_TENANT_ID:
+        required: false
+      AZURE_SUBSCRIPTION_CORE:
+        required: false
+
+jobs:
+  build-and-test:
+    name: Build & Test (NestJS - ${{ inputs.service-name }})
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js 20.x
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20.x'
+          cache: 'npm'
+          cache-dependency-path: '${{ inputs.service-path }}/package-lock.json'
+
+      - name: Install dependencies
+        working-directory: ${{ inputs.service-path }}
+        run: npm ci
+
+      - name: Generate Prisma Client (if applicable)
+        working-directory: ${{ inputs.service-path }}
+        run: |
+          if [ -d "prisma" ]; then
+            echo "Generating Prisma Client..."
+            npx prisma generate
+          fi
+
+      - name: Lint (if script exists)
+        working-directory: ${{ inputs.service-path }}
+        run: |
+          if npm run | grep -q " lint$"; then
+            echo "Running linter..."
+            npm run lint
+          else
+            echo "No lint script found, skipping."
+          fi
+
+      - name: Build TypeScript Project
+        working-directory: ${{ inputs.service-path }}
+        run: npm run build
+
+      - name: Execute Tests (if test script exists)
+        working-directory: ${{ inputs.service-path }}
+        run: |
+          if npm run | grep -q " test$"; then
+            echo "Executing test suite..."
+            npm run test
+          else
+            echo "::warning::No test script found in ${{ inputs.service-path }}/package.json. Skipping tests."
+          fi
+
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Azure Login (Main Deploy Only)
+        if: ${{ inputs.is-deploy }}
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_CORE }}
+
+      - name: Login to Azure Container Registry (Main Deploy Only)
+        if: ${{ inputs.is-deploy }}
+        run: |
+          az acr login --name "${{ vars.ACR_NAME || 'acrauroracoredemo' }}"
+
+      - name: Build & Push Docker Image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ inputs.dockerfile-path }}
+          push: ${{ inputs.is-deploy }}
+          tags: ${{ vars.ACR_LOGIN_SERVER || 'acrauroracoredemo.azurecr.io' }}/aurora/${{ inputs.service-name }}:${{ github.sha }}
+          cache-from: type=gha,scope=${{ inputs.service-name }}
+          cache-to: type=gha,mode=max,scope=${{ inputs.service-name }}
+

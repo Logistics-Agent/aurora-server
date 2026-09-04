@@ -1,0 +1,217 @@
+name: CI/CD — Platform Services
+
+on:
+  pull_request:
+    paths:
+      - 'src/dotnet/IamTenant/**'
+      - 'src/dotnet/MailService/**'
+      - 'src/dotnet/Notification/**'
+      - 'src/dotnet/shared/**'
+      - 'src/java/audit-service/**'
+      - 'src/nestjs/billing-service/**'
+      - 'src/nestjs/financial-service/**'
+      - 'src/nestjs/realtime-hub-service/**'
+      - 'protos/**'
+      - '.github/service-dependencies.json'
+  push:
+    branches:
+      - main
+    paths:
+      - 'src/dotnet/IamTenant/**'
+      - 'src/dotnet/MailService/**'
+      - 'src/dotnet/Notification/**'
+      - 'src/dotnet/shared/**'
+      - 'src/java/audit-service/**'
+      - 'src/nestjs/billing-service/**'
+      - 'src/nestjs/financial-service/**'
+      - 'src/nestjs/realtime-hub-service/**'
+      - 'protos/**'
+      - '.github/service-dependencies.json'
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  changes:
+    name: Detect Changes
+    uses: ./.github/workflows/_detect-changes.yml
+    with:
+      group: platform
+
+  # ─── IAM Tenant (.NET) ───────────────────────────────────
+  ci-iam-tenant:
+    name: CI
+    needs: changes
+    if: needs.changes.outputs.iam-tenant == 'true'
+    uses: ./.github/workflows/_ci-dotnet.yml
+    with:
+      service-name: iam-tenant
+      service-path: src/dotnet/IamTenant
+      dockerfile-path: src/dotnet/IamTenant/deploy/docker/Dockerfile
+      is-deploy: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    secrets: inherit
+
+  deploy-iam-tenant:
+    name: CD
+    needs: [changes, ci-iam-tenant]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.changes.outputs.iam-tenant == 'true'
+    uses: ./.github/workflows/_deploy-service.yml
+    with:
+      service-name: iam-tenant
+      deploy-target: core
+      namespace: aurora
+      image-tag: ${{ github.sha }}
+    secrets: inherit
+
+  # ─── Mail Service (.NET) ─────────────────────────────────
+  ci-mail-service:
+    name: CI
+    needs: changes
+    if: needs.changes.outputs.mail-service == 'true'
+    uses: ./.github/workflows/_ci-dotnet.yml
+    with:
+      service-name: mail-service
+      service-path: src/dotnet/MailService
+      dockerfile-path: src/dotnet/MailService/deploy/docker/Dockerfile
+      is-deploy: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    secrets: inherit
+
+  deploy-mail-service:
+    name: CD
+    needs: [changes, ci-mail-service]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.changes.outputs.mail-service == 'true'
+    uses: ./.github/workflows/_deploy-service.yml
+    with:
+      service-name: mail-service
+      deploy-target: core
+      namespace: aurora
+      image-tag: ${{ github.sha }}
+    secrets: inherit
+
+  # ─── Notification (.NET) ─────────────────────────────────
+  ci-notification:
+    name: CI
+    needs: changes
+    if: needs.changes.outputs.notification == 'true'
+    uses: ./.github/workflows/_ci-dotnet.yml
+    with:
+      service-name: notification
+      service-path: src/dotnet/Notification
+      dockerfile-path: src/dotnet/Notification/deploy/docker/Dockerfile
+      is-deploy: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    secrets: inherit
+
+  deploy-notification:
+    name: CD
+    needs: [changes, ci-notification]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.changes.outputs.notification == 'true'
+    uses: ./.github/workflows/_deploy-service.yml
+    with:
+      service-name: notification
+      deploy-target: core
+      namespace: aurora
+      image-tag: ${{ github.sha }}
+    secrets: inherit
+
+  # ─── Audit Service (Java 17) ─────────────────────────────
+  ci-audit-service:
+    name: CI
+    needs: changes
+    if: needs.changes.outputs.audit-service == 'true'
+    uses: ./.github/workflows/_ci-java.yml
+    with:
+      service-name: audit-service
+      service-path: src/java/audit-service
+      dockerfile-path: src/java/audit-service/deploy/docker/Dockerfile
+      java-version: '17'
+      is-deploy: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    secrets: inherit
+
+  deploy-audit-service:
+    name: CD
+    needs: [changes, ci-audit-service]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.changes.outputs.audit-service == 'true'
+    uses: ./.github/workflows/_deploy-service.yml
+    with:
+      service-name: audit-service
+      deploy-target: core
+      namespace: aurora
+      image-tag: ${{ github.sha }}
+    secrets: inherit
+
+  # ─── Billing Service (NestJS) ────────────────────────────
+  ci-billing-service:
+    name: CI
+    needs: changes
+    if: needs.changes.outputs.billing-service == 'true'
+    uses: ./.github/workflows/_ci-nestjs.yml
+    with:
+      service-name: billing-service
+      service-path: src/nestjs/billing-service
+      dockerfile-path: src/nestjs/billing-service/deploy/docker/Dockerfile
+      is-deploy: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    secrets: inherit
+
+  deploy-billing-service:
+    name: CD
+    needs: [changes, ci-billing-service]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.changes.outputs.billing-service == 'true'
+    uses: ./.github/workflows/_deploy-service.yml
+    with:
+      service-name: billing-service
+      deploy-target: core
+      namespace: aurora
+      image-tag: ${{ github.sha }}
+    secrets: inherit
+
+  # ─── Financial Service (NestJS) ──────────────────────────
+  ci-financial-service:
+    name: CI
+    needs: changes
+    if: needs.changes.outputs.financial-service == 'true'
+    uses: ./.github/workflows/_ci-nestjs.yml
+    with:
+      service-name: financial-service
+      service-path: src/nestjs/financial-service
+      dockerfile-path: src/nestjs/financial-service/deploy/docker/Dockerfile
+      is-deploy: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    secrets: inherit
+
+  deploy-financial-service:
+    name: CD
+    needs: [changes, ci-financial-service]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.changes.outputs.financial-service == 'true'
+    uses: ./.github/workflows/_deploy-service.yml
+    with:
+      service-name: financial-service
+      deploy-target: core
+      namespace: aurora
+      image-tag: ${{ github.sha }}
+    secrets: inherit
+
+  # ─── Realtime Hub Service (NestJS) ───────────────────────
+  ci-realtime-hub-service:
+    name: CI
+    needs: changes
+    if: needs.changes.outputs.realtime-hub-service == 'true'
+    uses: ./.github/workflows/_ci-nestjs.yml
+    with:
+      service-name: realtime-hub-service
+      service-path: src/nestjs/realtime-hub-service
+      dockerfile-path: src/nestjs/realtime-hub-service/deploy/docker/Dockerfile
+      is-deploy: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    secrets: inherit
+
+  deploy-realtime-hub-service:
+    name: CD
+    needs: [changes, ci-realtime-hub-service]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.changes.outputs.realtime-hub-service == 'true'
+    uses: ./.github/workflows/_deploy-service.yml
+    with:
+      service-name: realtime-hub-service
+      deploy-target: core
+      namespace: aurora
+      image-tag: ${{ github.sha }}
+    secrets: inherit
+
