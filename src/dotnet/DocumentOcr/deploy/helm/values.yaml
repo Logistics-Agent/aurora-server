@@ -18,6 +18,9 @@ env:
   RabbitMQ__Username: "aurora_admin"
   AzureStorage__AccountName: "stauroradatademo"
   AzureStorage__ContainerName: "ocr-docs"
+  Redis__Host: "redis-aurora-shared-demo.southeastasia.redis.azure.net:10000"
+  Redis__Ssl: "true"
+  Redis__AbortConnect: "false"
 
 externalSecret:
   enabled: true
@@ -31,6 +34,9 @@ externalSecret:
     - secretKey: RabbitMQ__Password
       remoteRef:
         key: rabbitmq-password
+    - secretKey: Redis__Password
+      remoteRef:
+        key: redis-password
 
 resources:
   requests:

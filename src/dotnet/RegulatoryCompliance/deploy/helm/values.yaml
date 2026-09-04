@@ -16,6 +16,9 @@ env:
   RabbitMQ__Host: "10.10.2.50" # Core Internal LoadBalancer over VNet Peering
   RabbitMQ__Port: "5672"
   RabbitMQ__Username: "aurora_admin"
+  Redis__Host: "redis-aurora-shared-demo.southeastasia.redis.azure.net:10000"
+  Redis__Ssl: "true"
+  Redis__AbortConnect: "false"
 
 externalSecret:
   enabled: true
@@ -29,6 +32,9 @@ externalSecret:
     - secretKey: RabbitMQ__Password
       remoteRef:
         key: rabbitmq-password
+    - secretKey: Redis__Password
+      remoteRef:
+        key: redis-password
 
 resources:
   requests:
