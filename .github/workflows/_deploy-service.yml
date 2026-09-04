@@ -47,12 +47,12 @@ jobs:
         run: |
           if [ "${{ inputs.deploy-target }}" = "ai" ]; then
             echo "sub_id=${{ secrets.AZURE_SUBSCRIPTION_AI }}" >> $GITHUB_OUTPUT
-            echo "cluster_name=${{ vars.AKS_AI_CLUSTER || 'aks-ai-demo' }}" >> $GITHUB_OUTPUT
-            echo "rg_name=${{ vars.AKS_AI_RG || 'rg-aurora-ai-demo' }}" >> $GITHUB_OUTPUT
+            echo "cluster_name=${{ secrets.AKS_AI_CLUSTER || vars.AKS_AI_CLUSTER || 'aks-ai-demo' }}" >> $GITHUB_OUTPUT
+            echo "rg_name=${{ secrets.AKS_AI_RG || vars.AKS_AI_RG || 'rg-aurora-ai-demo' }}" >> $GITHUB_OUTPUT
           else
             echo "sub_id=${{ secrets.AZURE_SUBSCRIPTION_CORE }}" >> $GITHUB_OUTPUT
-            echo "cluster_name=${{ vars.AKS_CORE_CLUSTER || 'aks-core-demo' }}" >> $GITHUB_OUTPUT
-            echo "rg_name=${{ vars.AKS_CORE_RG || 'rg-aurora-core-demo' }}" >> $GITHUB_OUTPUT
+            echo "cluster_name=${{ secrets.AKS_CORE_CLUSTER || vars.AKS_CORE_CLUSTER || 'aks-core-demo' }}" >> $GITHUB_OUTPUT
+            echo "rg_name=${{ secrets.AKS_CORE_RG || vars.AKS_CORE_RG || 'rg-aurora-core-demo' }}" >> $GITHUB_OUTPUT
           fi
 
       - name: Azure Login via OIDC
@@ -73,7 +73,7 @@ jobs:
         run: |
           DEPLOYMENT_NAME="${{ inputs.deployment-name || inputs.service-name }}"
           CONTAINER_NAME="${{ inputs.container-name || inputs.service-name }}"
-          IMAGE_URI="${{ vars.ACR_LOGIN_SERVER || 'acrauroracoredemo.azurecr.io' }}/aurora/${{ inputs.service-name }}:${{ inputs.image-tag }}"
+          IMAGE_URI="${{ secrets.ACR_LOGIN_SERVER || vars.ACR_LOGIN_SERVER || 'acrauroracoredemo.azurecr.io' }}/aurora/${{ inputs.service-name }}:${{ inputs.image-tag }}"
 
           echo "Target Namespace:  ${{ inputs.namespace }}"
           echo "Target Deployment: $DEPLOYMENT_NAME"

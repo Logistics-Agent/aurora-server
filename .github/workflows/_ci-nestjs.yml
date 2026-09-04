@@ -94,7 +94,7 @@ jobs:
       - name: Login to Azure Container Registry (Main Deploy Only)
         if: ${{ inputs.is-deploy }}
         run: |
-          az acr login --name "${{ vars.ACR_NAME || 'acrauroracoredemo' }}"
+          az acr login --name "${{ secrets.ACR_NAME || vars.ACR_NAME || 'acrauroracoredemo' }}"
 
       - name: Build & Push Docker Image
         uses: docker/build-push-action@v6
@@ -102,7 +102,7 @@ jobs:
           context: .
           file: ${{ inputs.dockerfile-path }}
           push: ${{ inputs.is-deploy }}
-          tags: ${{ vars.ACR_LOGIN_SERVER || 'acrauroracoredemo.azurecr.io' }}/aurora/${{ inputs.service-name }}:${{ github.sha }}
+          tags: ${{ secrets.ACR_LOGIN_SERVER || vars.ACR_LOGIN_SERVER || 'acrauroracoredemo.azurecr.io' }}/aurora/${{ inputs.service-name }}:${{ github.sha }}
           cache-from: type=gha,scope=${{ inputs.service-name }}
           cache-to: type=gha,mode=max,scope=${{ inputs.service-name }}
 

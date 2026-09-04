@@ -66,7 +66,7 @@ public class CreateDraftMessageCommandHandler : IRequestHandler<CreateDraftMessa
                 return new CreateDraftResult(existingDraft, IsExisting: true);
             }
         }
-                    
+
         // 3. Thread Resolution & Validation
         EmailThread? thread = null;
         if (request.ThreadId.HasValue)
@@ -187,3 +187,5 @@ public class CreateDraftMessageCommandHandler : IRequestHandler<CreateDraftMessa
         return Convert.ToHexString(bytes).ToLowerInvariant();
     }
 }
+
+
