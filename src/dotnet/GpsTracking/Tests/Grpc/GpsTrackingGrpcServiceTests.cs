@@ -31,7 +31,7 @@ public sealed class GpsTrackingGrpcServiceTests
     public async Task IngestMapsDomainValidationToInvalidArgument()
     {
         var currentUser = new CurrentUserService();
-        currentUser.Populate(Guid.CreateVersion7(), Guid.CreateVersion7(), null, null, [], []);
+        currentUser.Populate(Guid.CreateVersion7(), Guid.CreateVersion7(), null, null, null, []);
         var service = new GpsTrackingGrpcService(
             new StubIngestionService(_ => throw new ArgumentOutOfRangeException("latitude")),
             new StubLocationQueryService(),

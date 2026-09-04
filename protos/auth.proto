@@ -13,7 +13,7 @@ service AuthService {
 
   rpc Login(LoginRequest)
       returns (LoginResponse);
-
+    
   rpc CompleteInvitation(CompleteInvitationRequest)
       returns (LoginResponse);
 

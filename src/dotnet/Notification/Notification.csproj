@@ -5,6 +5,13 @@
     <ImplicitUsings>enable</ImplicitUsings>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Remove="Notification.Tests\**" />
+    <Content Remove="Notification.Tests\**" />
+    <EmbeddedResource Remove="Notification.Tests\**" />
+    <None Remove="Notification.Tests\**" />
+  </ItemGroup>
+
+  <ItemGroup>
     <Protobuf Include="../../../protos/notification.proto" GrpcServices="Server" />
     <Protobuf Include="../../../protos/common.proto" GrpcServices="None" />
   </ItemGroup>

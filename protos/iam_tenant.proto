@@ -14,7 +14,7 @@ service IamService {
   rpc ListTenants(ListTenantsRequest)                                returns (ListTenantsResponse);
   rpc DeleteTenant(DeleteTenantRequest)                              returns (EmptyResponse);
 
-  // User Lifecycle
+// User Lifecycle   
   rpc InviteUser(InviteUserRequest)                                  returns (UserResponse);
   rpc GetUser(GetUserRequest)                                        returns (UserResponse);
   rpc GetManyUsers(GetManyUsersRequest)                              returns (GetManyUsersResponse);

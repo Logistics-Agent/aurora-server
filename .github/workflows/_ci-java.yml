@@ -31,6 +31,10 @@ on:
         required: false
       AZURE_SUBSCRIPTION_CORE:
         required: false
+      ACR_NAME:
+        required: false
+      ACR_LOGIN_SERVER:
+        required: false
 
 jobs:
   build-and-test:
@@ -61,7 +65,11 @@ jobs:
         run: |
           if [ -f "src/java/shared/pom.xml" ]; then
             echo "Installing aurora-java-shared..."
+          if grep -q "aurora-java-shared" "${{ inputs.service-path }}/pom.xml" 2>/dev/null; then
+            echo "Service depends on aurora-java-shared. Installing shared library..."
             mvn -B clean install -f src/java/shared/pom.xml -DskipTests
+          else
+            echo "Service does not depend on aurora-java-shared. Skipping shared build."
           fi
 
       - name: Compile & Execute Tests
@@ -71,6 +79,19 @@ jobs:
 
       - name: Setup Docker Buildx
         uses: docker/setup-buildx-action@v3
+
+      - name: Resolve ACR Environment
+        run: |
+          ACR_REGISTRY_NAME="${{ secrets.ACR_NAME }}"
+          [ -z "$ACR_REGISTRY_NAME" ] && ACR_REGISTRY_NAME="${{ vars.ACR_NAME }}"
+          [ -z "$ACR_REGISTRY_NAME" ] && ACR_REGISTRY_NAME="acrauroracoredemo"
+
+          ACR_SERVER="${{ secrets.ACR_LOGIN_SERVER }}"
+          [ -z "$ACR_SERVER" ] && ACR_SERVER="${{ vars.ACR_LOGIN_SERVER }}"
+          [ -z "$ACR_SERVER" ] && ACR_SERVER="acrauroracoredemo.azurecr.io"
+
+          echo "RESOLVED_ACR_NAME=$ACR_REGISTRY_NAME" >> $GITHUB_ENV
+          echo "RESOLVED_ACR_SERVER=$ACR_SERVER" >> $GITHUB_ENV
 
       - name: Azure Login (Main Deploy Only)
         if: ${{ inputs.is-deploy }}
@@ -83,7 +104,7 @@ jobs:
       - name: Login to Azure Container Registry (Main Deploy Only)
         if: ${{ inputs.is-deploy }}
         run: |
-          az acr login --name "${{ vars.ACR_NAME || 'acrauroracoredemo' }}"
+          az acr login --name "$RESOLVED_ACR_NAME"
 
       - name: Build & Push Docker Image
         uses: docker/build-push-action@v6
@@ -91,7 +112,6 @@ jobs:
           context: .
           file: ${{ inputs.dockerfile-path }}
           push: ${{ inputs.is-deploy }}
-          tags: ${{ vars.ACR_LOGIN_SERVER || 'acrauroracoredemo.azurecr.io' }}/aurora/${{ inputs.service-name }}:${{ github.sha }}
+          tags: ${{ env.RESOLVED_ACR_SERVER }}/aurora/${{ inputs.service-name }}:${{ github.sha }}
           cache-from: type=gha,scope=${{ inputs.service-name }}
           cache-to: type=gha,mode=max,scope=${{ inputs.service-name }}
-

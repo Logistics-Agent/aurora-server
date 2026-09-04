@@ -7,6 +7,10 @@ on:
         description: 'Logical service name'
         required: true
         type: string
+      service-path:
+        description: 'Optional path to service root (for initial helm install)'
+        required: false
+        type: string
       deploy-target:
         description: 'Deploy target cluster (core | ai)'
         required: true
@@ -36,24 +40,56 @@ on:
         required: true
       AZURE_SUBSCRIPTION_AI:
         required: true
+      ACR_LOGIN_SERVER:
+        required: false
+      AKS_CORE_CLUSTER:
+        required: false
+      AKS_CORE_RG:
+        required: false
+      AKS_AI_CLUSTER:
+        required: false
+      AKS_AI_RG:
+        required: false
 
 jobs:
   deploy:
     name: Rollout (${{ inputs.service-name }} -> AKS ${{ inputs.deploy-target }})
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
       - name: Resolve Azure Environment Variables
         id: env
         run: |
           if [ "${{ inputs.deploy-target }}" = "ai" ]; then
-            echo "sub_id=${{ secrets.AZURE_SUBSCRIPTION_AI }}" >> $GITHUB_OUTPUT
-            echo "cluster_name=${{ vars.AKS_AI_CLUSTER || 'aks-ai-demo' }}" >> $GITHUB_OUTPUT
-            echo "rg_name=${{ vars.AKS_AI_RG || 'rg-aurora-ai-demo' }}" >> $GITHUB_OUTPUT
+            SUB_ID="${{ secrets.AZURE_SUBSCRIPTION_AI }}"
+            CLUSTER="${{ secrets.AKS_AI_CLUSTER }}"
+            [ -z "$CLUSTER" ] && CLUSTER="${{ vars.AKS_AI_CLUSTER }}"
+            [ -z "$CLUSTER" ] && CLUSTER="aks-ai-demo"
+
+            RG="${{ secrets.AKS_AI_RG }}"
+            [ -z "$RG" ] && RG="${{ vars.AKS_AI_RG }}"
+            [ -z "$RG" ] && RG="rg-aurora-ai-demo"
           else
-            echo "sub_id=${{ secrets.AZURE_SUBSCRIPTION_CORE }}" >> $GITHUB_OUTPUT
-            echo "cluster_name=${{ vars.AKS_CORE_CLUSTER || 'aks-core-demo' }}" >> $GITHUB_OUTPUT
-            echo "rg_name=${{ vars.AKS_CORE_RG || 'rg-aurora-core-demo' }}" >> $GITHUB_OUTPUT
+            SUB_ID="${{ secrets.AZURE_SUBSCRIPTION_CORE }}"
+            CLUSTER="${{ secrets.AKS_CORE_CLUSTER }}"
+            [ -z "$CLUSTER" ] && CLUSTER="${{ vars.AKS_CORE_CLUSTER }}"
+            [ -z "$CLUSTER" ] && CLUSTER="aks-core-demo"
+
+            RG="${{ secrets.AKS_CORE_RG }}"
+            [ -z "$RG" ] && RG="${{ vars.AKS_CORE_RG }}"
+            [ -z "$RG" ] && RG="rg-aurora-core-demo"
           fi
+
+          ACR_SERVER="${{ secrets.ACR_LOGIN_SERVER }}"
+          [ -z "$ACR_SERVER" ] && ACR_SERVER="${{ vars.ACR_LOGIN_SERVER }}"
+          [ -z "$ACR_SERVER" ] && ACR_SERVER="acrauroracoredemo.azurecr.io"
+
+          echo "sub_id=$SUB_ID" >> $GITHUB_OUTPUT
+          echo "cluster_name=$CLUSTER" >> $GITHUB_OUTPUT
+          echo "rg_name=$RG" >> $GITHUB_OUTPUT
+          echo "acr_server=$ACR_SERVER" >> $GITHUB_OUTPUT
 
       - name: Azure Login via OIDC
         uses: azure/login@v2
@@ -69,21 +105,46 @@ jobs:
             --name "${{ steps.env.outputs.cluster_name }}" \
             --overwrite-existing
 
-      - name: Update Deployment Image on Kubernetes
+      - name: Deploy or Update Deployment on Kubernetes
         run: |
           DEPLOYMENT_NAME="${{ inputs.deployment-name || inputs.service-name }}"
           CONTAINER_NAME="${{ inputs.container-name || inputs.service-name }}"
-          IMAGE_URI="${{ vars.ACR_LOGIN_SERVER || 'acrauroracoredemo.azurecr.io' }}/aurora/${{ inputs.service-name }}:${{ inputs.image-tag }}"
+          IMAGE_URI="${{ steps.env.outputs.acr_server }}/aurora/${{ inputs.service-name }}:${{ inputs.image-tag }}"
 
           echo "Target Namespace:  ${{ inputs.namespace }}"
           echo "Target Deployment: $DEPLOYMENT_NAME"
           echo "Target Container:  $CONTAINER_NAME"
           echo "New Image URI:     $IMAGE_URI"
 
-          kubectl set image "deployment/$DEPLOYMENT_NAME" "$CONTAINER_NAME=$IMAGE_URI" -n "${{ inputs.namespace }}"
+          if kubectl get deployment "$DEPLOYMENT_NAME" -n "${{ inputs.namespace }}" >/dev/null 2>&1; then
+            echo "Deployment $DEPLOYMENT_NAME exists. Updating image via kubectl set image..."
+            kubectl set image "deployment/$DEPLOYMENT_NAME" "$CONTAINER_NAME=$IMAGE_URI" -n "${{ inputs.namespace }}" || \
+            kubectl set image "deployment/$DEPLOYMENT_NAME" "aurora-service=$IMAGE_URI" -n "${{ inputs.namespace }}"
+          else
+            echo "Deployment $DEPLOYMENT_NAME not found on cluster. Installing via Helm chart..."
+            VALUES_FILE="${{ inputs.service-path }}/deploy/helm/values.yaml"
+            if [ -f "$VALUES_FILE" ]; then
+              echo "Validating Helm template schema..."
+              helm template "$DEPLOYMENT_NAME" infra/helm/aurora-service \
+                --namespace "${{ inputs.namespace }}" \
+                -f "$VALUES_FILE" \
+                --set image.tag="${{ inputs.image-tag }}" \
+                --set image.repository="${{ steps.env.outputs.acr_server }}/aurora/${{ inputs.service-name }}" | kubectl apply --dry-run=client -f -
+
+              echo "Installing/Upgrading via Helm chart..."
+              helm upgrade --install "$DEPLOYMENT_NAME" infra/helm/aurora-service \
+                --namespace "${{ inputs.namespace }}" \
+                --create-namespace \
+                -f "$VALUES_FILE" \
+                --set image.tag="${{ inputs.image-tag }}" \
+                --set image.repository="${{ steps.env.outputs.acr_server }}/aurora/${{ inputs.service-name }}"
+            else
+              echo "No Helm values found at $VALUES_FILE, falling back to simple kubectl create..."
+              kubectl create deployment "$DEPLOYMENT_NAME" --image="$IMAGE_URI" -n "${{ inputs.namespace }}"
+            fi
+          fi
 
       - name: Await Rollout Completion
         run: |
           DEPLOYMENT_NAME="${{ inputs.deployment-name || inputs.service-name }}"
           kubectl rollout status "deployment/$DEPLOYMENT_NAME" -n "${{ inputs.namespace }}" --timeout=300s
-

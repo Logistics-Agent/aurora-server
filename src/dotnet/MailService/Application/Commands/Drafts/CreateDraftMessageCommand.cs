@@ -72,9 +72,9 @@ public class CreateDraftMessageCommandHandler : IRequestHandler<CreateDraftMessa
         if (request.ThreadId.HasValue)
         {
             thread = await _dbContext.EmailThreads
-                .FirstOrDefaultAsync(t => t.Id == request.ThreadId.Value, cancellationToken) 
+                .FirstOrDefaultAsync(t => t.Id == request.ThreadId.Value, cancellationToken)
                     ?? throw new KeyNotFoundException($"Thread '{request.ThreadId.Value}' not found for tenant '{tenantId}'.");
-            
+
             if (thread.MailboxId != request.MailboxId)
             {
                 throw new InvalidOperationException($"Thread '{request.ThreadId.Value}' does not belong to mailbox '{request.MailboxId}'.");
@@ -187,3 +187,5 @@ public class CreateDraftMessageCommandHandler : IRequestHandler<CreateDraftMessa
         return Convert.ToHexString(bytes).ToLowerInvariant();
     }
 }
+
+

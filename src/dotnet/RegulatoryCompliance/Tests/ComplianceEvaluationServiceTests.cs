@@ -228,7 +228,7 @@ public sealed class ComplianceEvaluationServiceTests
     private static CurrentUserService CurrentUser(Guid tenantId)
     {
         var currentUser = new CurrentUserService();
-        currentUser.Populate(Guid.CreateVersion7(), tenantId, null, null, [], []);
+        currentUser.Populate(Guid.CreateVersion7(), tenantId, null, null, null, []);
         return currentUser;
     }
 

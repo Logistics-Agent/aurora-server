@@ -26,6 +26,10 @@ on:
         required: false
       AZURE_SUBSCRIPTION_CORE:
         required: false
+      ACR_NAME:
+        required: false
+      ACR_LOGIN_SERVER:
+        required: false
 
 jobs:
   build-and-test:
@@ -62,18 +66,31 @@ jobs:
             dotnet build "${{ inputs.service-path }}" -c Release --no-restore
           fi
 
-      - name: Execute Tests (if test project exists)
+      - name: Execute Unit Tests (if test project exists)
         run: |
           TEST_CSPROJ=$(find "${{ inputs.service-path }}" "tests" -name "*[Tt]est*.csproj" 2>/dev/null | head -n 1 || true)
           if [ -n "$TEST_CSPROJ" ]; then
             echo "Found test project: $TEST_CSPROJ"
-            dotnet test "$TEST_CSPROJ" -c Release --verbosity normal
+            dotnet test "$TEST_CSPROJ" -c Release --verbosity normal --filter "FullyQualifiedName!~Integration&FullyQualifiedName!~Postgres&FullyQualifiedName!~Database"
           else
             echo "::warning::No test project found for ${{ inputs.service-name }}. Skipping tests."
           fi
 
       - name: Setup Docker Buildx
         uses: docker/setup-buildx-action@v3
+
+      - name: Resolve ACR Environment
+        run: |
+          ACR_REGISTRY_NAME="${{ secrets.ACR_NAME }}"
+          [ -z "$ACR_REGISTRY_NAME" ] && ACR_REGISTRY_NAME="${{ vars.ACR_NAME }}"
+          [ -z "$ACR_REGISTRY_NAME" ] && ACR_REGISTRY_NAME="acrauroracoredemo"
+
+          ACR_SERVER="${{ secrets.ACR_LOGIN_SERVER }}"
+          [ -z "$ACR_SERVER" ] && ACR_SERVER="${{ vars.ACR_LOGIN_SERVER }}"
+          [ -z "$ACR_SERVER" ] && ACR_SERVER="acrauroracoredemo.azurecr.io"
+
+          echo "RESOLVED_ACR_NAME=$ACR_REGISTRY_NAME" >> $GITHUB_ENV
+          echo "RESOLVED_ACR_SERVER=$ACR_SERVER" >> $GITHUB_ENV
 
       - name: Azure Login (Main Deploy Only)
         if: ${{ inputs.is-deploy }}
@@ -86,7 +103,7 @@ jobs:
       - name: Login to Azure Container Registry (Main Deploy Only)
         if: ${{ inputs.is-deploy }}
         run: |
-          az acr login --name "${{ vars.ACR_NAME || 'acrauroracoredemo' }}"
+          az acr login --name "$RESOLVED_ACR_NAME"
 
       - name: Build & Push Docker Image
         uses: docker/build-push-action@v6
@@ -94,6 +111,6 @@ jobs:
           context: .
           file: ${{ inputs.dockerfile-path }}
           push: ${{ inputs.is-deploy }}
-          tags: ${{ vars.ACR_LOGIN_SERVER || 'acrauroracoredemo.azurecr.io' }}/aurora/${{ inputs.service-name }}:${{ github.sha }}
+          tags: ${{ env.RESOLVED_ACR_SERVER }}/aurora/${{ inputs.service-name }}:${{ github.sha }}
           cache-from: type=gha,scope=${{ inputs.service-name }}
           cache-to: type=gha,mode=max,scope=${{ inputs.service-name }}

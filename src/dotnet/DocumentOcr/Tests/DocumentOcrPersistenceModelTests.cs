@@ -53,7 +53,7 @@ public sealed class DocumentOcrPersistenceModelTests
         var databaseName = $"document-ocr-model-{Guid.CreateVersion7()}";
         var tenantId = Guid.CreateVersion7();
         var tenant = new CurrentUserService();
-        tenant.Populate(Guid.CreateVersion7(), tenantId, null, null, [], []);
+        tenant.Populate(Guid.CreateVersion7(), tenantId, null, null, null, []);
 
         await using (var writeContext = CreateContext(tenant, databaseName))
         {

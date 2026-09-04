@@ -1,79 +1,48 @@
-# Aurora Platform - Blocked APIs (BLOCKED_BY_BACKEND_CONTRACT)
+# Aurora Platform — Blocked & Target Backend Gap Inventory
 
 > **Document ID:** `DOC-BFF-BLOCKED`  
-> **Status:** Canonical Gap Inventory  
-> **Scope:** Business capabilities currently blocked from BFF implementation due to missing Protobuf contracts (`G2`), implementation gaps (`G3`), or service stub mismatches (`G4`).  
-> **Anti-Hallucination Rule:** These endpoints MUST NOT be created or stubbed in BFF until backend engineering completes the required gRPC contracts and implementations.
+> **Status:** Canonical Gap & Target Architecture Inventory  
+> **Scope:** Capabilities currently blocked from frontend integration or requiring backend contract refactoring.  
+> **Rule:** Distinguish `BACKEND_REQUIRED`, `TARGET_CHANGE_REQUIRED`, and `CURRENT_LEGACY`.
 
 ---
 
-## 1. Blocked API Summary Table
+## 1. Backend Gap & Target Architecture Table
 
-| Desired Endpoint | Roles | Business Function | Service | Current Capability | Missing Layer | Priority |
-| :--- | :--- | :--- | :--- | :--- | :--- | :---: |
-| `PUT /api/v1/system/tenants/{id}` | `[SYSTEM]` | Update Tenant Company Profile | `IamTenant` | `UpdateTenantCommand.cs` | Proto + gRPC implementation | **P1** |
-| `POST /api/v1/invoices/{id}/payments` | `[STAFF, MANAGER]` | Record Customer Payment | `billing-service` | `billing.service.ts` | Proto declaration | **P1** |
-| `POST /api/v1/invoices/{id}/cancel` | `[MANAGER, ADMIN]` | Cancel Unpaid Invoice | `billing-service` | `billing.service.ts` | Proto declaration | **P1** |
-| `POST /api/v1/invoices/{id}/debit-notes`| `[MANAGER, ADMIN]` | Issue Debit Adjustment Note | `billing-service` | `billing.service.ts` | Proto declaration | **P1** |
-| `POST /api/v1/invoices/{id}/credit-notes`| `[MANAGER, ADMIN]`| Issue Credit Refund Note | `billing-service` | `billing.service.ts` | Proto declaration | **P1** |
-| `GET /api/v1/financial/exchange-rate` | `[STAFF, MANAGER, ADMIN]` | Query Currency Conversion Rate | `financial-service`| `financial.service.ts`| Proto declaration | **P2** |
-| `POST /api/v1/negotiation/offer` | `[STAFF, MANAGER]` | Submit AI Freight Negotiation Bid| `negotiation-agent`| `negotiation.service.ts`| Proto declaration + file | **P1** |
-| `GET /api/v1/negotiation/session/{id}` | `[STAFF, MANAGER, ADMIN]` | Get Negotiation Dialogue Log | `negotiation-agent`| `negotiation.service.ts`| Proto declaration + file | **P1** |
-
----
-
-## 2. Granular Blocked Capability Specifications
-
-### 1. `PUT /api/v1/system/tenants/{id}`
-- **Desired Endpoint:** `PUT /api/v1/system/tenants/{id}`
-- **Roles:** `[SYSTEM_ADMIN]`
-- **Business Function:** Updates customer tenant profile, business name, tax code, and subscription plan tier.
-- **Current Service:** `IamTenant`
-- **Current Capability:** Fully implemented MediatR command and handler `UpdateTenantCommand.cs` & `UpdateTenantHandler`.
-- **Missing:**
-  - `[x] Proto contract` in `protos/iam_tenant.proto`
-  - `[x] gRPC override` in `IamGrpcService.cs`
-- **Files Requiring Backend Changes:**
-  - [protos/iam_tenant.proto](file:///D:/IT/CD/aurora-server/protos/iam_tenant.proto)
-  - [src/dotnet/IamTenant/GrpcServices/IamGrpcService.cs](file:///D:/IT/CD/aurora-server/src/dotnet/IamTenant/GrpcServices/IamGrpcService.cs)
+| Desired Endpoint / Capability | Persona / Role | Required Backend Change | Status | Priority |
+|---|---|---|:---:|:---:|
+| `GET /api/v1/admin/mail/domains` | `TENANT_ADMIN` | Add `ListDomains` RPC to `mail_platform.proto` and `MailService` to allow Tenant Admin to view assigned domains. | `BACKEND_REQUIRED` | **P0** |
+| `POST /api/v1/system/mail/domains/assign` | `SYSTEM_ADMIN` | Add domain assignment RPC to `mail_platform.proto` and `System.Bff` for platform domain allocation. | `BACKEND_REQUIRED` | **P0** |
+| `TenantMailConfig.DefaultMailboxId` | System / Admin | Add `DefaultMailboxId` or `Mailbox.IsDefault` to identify tenant's primary operational email intake. | `BACKEND_REQUIRED` | **P0** |
+| `Alias 1:1 Canonical Target` | `TENANT_ADMIN` | Restrict `Alias.Targets` from multi-target fan-out (`List<string>`) to single canonical `MailboxId`. | `TARGET_CHANGE_REQUIRED` | **P1** |
+| `POST /api/v1/admin/mail/domains` | `TENANT_ADMIN` | Deprecate arbitrary tenant domain creation in favor of System Admin provisioning & assignment. | `CURRENT_LEGACY` | **P1** |
+| `PUT /api/v1/system/tenants/{id}` | `SYSTEM_ADMIN` | Add `UpdateTenant` RPC to `protos/iam_tenant.proto` and `IamGrpcService.cs`. | `BACKEND_REQUIRED` | **P1** |
+| `POST /api/v1/invoices/{id}/payments` | `STAFF`, `MANAGER` | Add `RecordPayment` RPC in `protos/billing.proto`. | `BACKEND_REQUIRED` | **P1** |
+| `POST /api/v1/invoices/{id}/cancel` | `MANAGER`, `ADMIN` | Add `CancelInvoice` RPC in `protos/billing.proto`. | `BACKEND_REQUIRED` | **P1** |
+| `POST /api/v1/invoices/{id}/debit-notes` | `MANAGER`, `ADMIN` | Add `IssueDebitNote` RPC in `protos/billing.proto`. | `BACKEND_REQUIRED` | **P2** |
+| `POST /api/v1/invoices/{id}/credit-notes`| `MANAGER`, `ADMIN` | Add `IssueCreditNote` RPC in `protos/billing.proto`. | `BACKEND_REQUIRED` | **P2** |
+| `GET /api/v1/financial/exchange-rate` | `STAFF`, `MANAGER` | Add `GetExchangeRate` RPC in `protos/financial.proto`. | `BACKEND_REQUIRED` | **P2** |
 
 ---
 
-### 2. `POST /api/v1/invoices/{id}/payments`
-- **Desired Endpoint:** `POST /api/v1/invoices/{id}/payments`
-- **Roles:** `[STAFF, MANAGER]`
-- **Business Function:** Records customer payment against open invoice and updates status to `PAID` or `PARTIAL`.
-- **Current Service:** `billing-service` (NestJS)
-- **Current Capability:** Implemented in `billing.service.ts` (`recordPayment`).
-- **Missing:**
-  - `[x] Proto contract` in `protos/billing.proto`
-- **Files Requiring Backend Changes:**
-  - [protos/billing.proto](file:///D:/IT/CD/aurora-server/protos/billing.proto)
-  - [src/nestjs/billing-service/src/interface/controllers/billing.controller.ts](file:///D:/IT/CD/aurora-server/src/nestjs/billing-service/src/interface/controllers/billing.controller.ts)
+## 2. Mail Architecture Gaps Detail
 
----
+### 1. Mail Domain Assignment & Listing
+- **Current State:** `Admin.Bff` allows `TENANT_ADMIN` to invoke `POST /api/v1/admin/mail/domains` with any FQDN.
+- **Target Policy:** `SYSTEM_ADMIN` provisions domains on Stalwart and assigns them to tenants via `System.Bff`. `TENANT_ADMIN` in `Admin.Bff` only reads assigned domains (`GET /api/v1/admin/mail/domains`) and configures mailboxes/aliases within them.
+- **Required Action:**
+  - Add `ListDomainsRequest` / `ListDomainsResponse` to `mail_platform.proto`.
+  - Implement `ListDomains` in `MailService` and expose `GET /api/v1/admin/mail/domains` in `Admin.Bff`.
+  - Deprecate `POST /api/v1/admin/mail/domains` in `Admin.Bff`.
 
-### 3. `POST /api/v1/invoices/{id}/debit-notes` & `POST /api/v1/invoices/{id}/credit-notes`
-- **Desired Endpoint:** `POST /api/v1/invoices/{id}/debit-notes`, `POST /api/v1/invoices/{id}/credit-notes`
-- **Roles:** `[MANAGER, ADMIN]`
-- **Business Function:** Issues post-invoicing financial adjustments and disputes.
-- **Current Service:** `billing-service` (NestJS)
-- **Current Capability:** Implemented in `billing.service.ts` (`issueDebitNote`, `issueCreditNote`).
-- **Missing:**
-  - `[x] Proto contract` in `protos/billing.proto`
-- **Files Requiring Backend Changes:**
-  - [protos/billing.proto](file:///D:/IT/CD/aurora-server/protos/billing.proto)
+### 2. Default Operational Shared Mailbox
+- **Current State:** `Mailbox` entity contains no default flag. `TenantMailConfig` does not exist in backend.
+- **Target Policy:** Each tenant must possess exactly one Default Operational Shared Mailbox (e.g. `operations@acmelogistics.com`) as primary customer intake.
+- **Required Action:**
+  - Recommended aggregate: Add `DefaultMailboxId` (Guid?) on `TenantMailConfig` or `IsDefault` boolean on `Mailbox`.
 
----
-
-### 4. `POST /api/v1/negotiation/offer` & `GET /api/v1/negotiation/session/{id}`
-- **Desired Endpoint:** `POST /api/v1/negotiation/offer`, `GET /api/v1/negotiation/session/{id}`
-- **Roles:** `[STAFF, MANAGER]`
-- **Business Function:** Frontline rate negotiation desk with automated AI pricing counter-offers and speech generation.
-- **Current Service:** `negotiation-agent-service` (NestJS)
-- **Current Capability:** Implemented in `negotiation.service.ts` (`submitOffer`, `getSessionHistory`).
-- **Missing:**
-  - `[x] Proto file & contract` in `protos/negotiation.proto`
-- **Files Requiring Backend Changes:**
-  - `protos/negotiation.proto` (New file)
-  - [src/nestjs/negotiation-agent-service/src/interface/controllers/negotiation.controller.ts](file:///D:/IT/CD/aurora-server/src/nestjs/negotiation-agent-service/src/interface/controllers/negotiation.controller.ts)
+### 3. Single-Target Alias Semantics
+- **Current State:** `Alias` entity has `List<string> Targets` and proto has `repeated string target_addresses`.
+- **Target Policy:** 1 Alias routes to exactly 1 canonical Shared Mailbox to avoid message fan-out and duplicate thread processing.
+- **Required Action:**
+  - Update `CreateAliasRequestValidator` and database schema to enforce 1:1 alias-to-mailbox mapping.

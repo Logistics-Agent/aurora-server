@@ -154,7 +154,7 @@ public sealed class RegulatoryIngestionTests
     private static CurrentUserService CurrentUser(Guid? tenantId, params string[] permissions)
     {
         var currentUser = new CurrentUserService();
-        currentUser.Populate(Guid.CreateVersion7(), tenantId, null, null, [], [.. permissions]);
+        currentUser.Populate(Guid.CreateVersion7(), tenantId, null, null, null, [.. permissions]);
         return currentUser;
     }
 

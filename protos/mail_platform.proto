@@ -11,7 +11,7 @@ syntax = "proto3";
 // 4. Do not alter enum numeric values.
 // 5. Breaking RPC changes require a new RPC method or package version (e.g. mail.v2).
 // ==============================================================================
-
+  
 package mail;
 option csharp_namespace = "MailService.GrpcServices";
 
