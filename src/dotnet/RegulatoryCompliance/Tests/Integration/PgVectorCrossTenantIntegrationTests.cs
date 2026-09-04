@@ -25,6 +25,7 @@ public sealed class PgVectorCrossTenantIntegrationTests
 
         var currentUserA = new CurrentUserService();
         currentUserA.Populate(Guid.NewGuid(), tenantA, null, null, [], []);
+        currentUserA.Populate(Guid.NewGuid(), tenantA, null, null, null, []);
 
         var auditInterceptor = new AuditSaveChangesInterceptor(currentUserA);
         await using var dbContext = new RegulatoryComplianceDbContext(options, currentUserA, auditInterceptor);
@@ -96,6 +97,7 @@ public sealed class PgVectorCrossTenantIntegrationTests
 
         var currentUserA = new CurrentUserService();
         currentUserA.Populate(Guid.NewGuid(), tenantA, null, null, [], []);
+        currentUserA.Populate(Guid.NewGuid(), tenantA, null, null, null, []);
 
         var auditInterceptor = new AuditSaveChangesInterceptor(currentUserA);
         await using var dbContext = new RegulatoryComplianceDbContext(options, currentUserA, auditInterceptor);

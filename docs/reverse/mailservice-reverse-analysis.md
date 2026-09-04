@@ -3,7 +3,7 @@
 > **Document ID:** `AURORA-REV-MAILSERVICE-2026-08-26`  
 > **Repository:** `SynchroCustoms / aurora-server`  
 > **Target Scope:** Reverse Engineering of `MailService`, BFF Gateways (`Staff.Bff`, `Admin.Bff`, `System.Bff`, `BuildingBlocks.BFF`), Messaging, Stalwart Mail Server Integration, and Target Mail UI Architecture (`ADMIN` & `STAFF`).  
-> **Status:** Code Complete Audit & Target API Contract Design  
+> **Status:** HISTORICAL REVERSE AUDIT (SUPERSEDED by `docs/bff-api/` and `docs/technical/frontend/`)  
 
 ---
 

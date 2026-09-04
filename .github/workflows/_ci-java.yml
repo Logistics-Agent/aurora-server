@@ -65,7 +65,11 @@ jobs:
         run: |
           if [ -f "src/java/shared/pom.xml" ]; then
             echo "Installing aurora-java-shared..."
+          if grep -q "aurora-java-shared" "${{ inputs.service-path }}/pom.xml" 2>/dev/null; then
+            echo "Service depends on aurora-java-shared. Installing shared library..."
             mvn -B clean install -f src/java/shared/pom.xml -DskipTests
+          else
+            echo "Service does not depend on aurora-java-shared. Skipping shared build."
           fi
 
       - name: Compile & Execute Tests

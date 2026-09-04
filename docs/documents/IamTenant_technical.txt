@@ -31,11 +31,5 @@ Việc thiết kế qua Interface mở đường cho tương lai chuyển đổi
 Mọi Event gửi ra ngoài (ví dụ `TenantAdminCreatedEvent`) đều được nén lại vào JSON và lưu vào bảng `OutboxMessages` **cùng trong 1 DbContext Transaction** với logic chính. 
 Một Background Service (hoặc MassTransit) sẽ đọc và Publish sau. Điều này đảm bảo tính nhất quán dữ liệu (Data Consistency) 100% giữa Database và Message Broker dù hệ thống bị crash.
 
-public enum StaffType
-{
-    Normal,           // = 0, mặc định
-    Operations,       // = 1 ← RoutePlanning, GpsTracking
-    Documentation,    // = 2 ← Ocr, Compliance
-    CustomerService,  // = 3 ← CustomerAssistant, Negotiation
-    Finance           // = 4 ← FinancialTax, BillingSettlement
-}
+// [SUPERSEDED / OBSOLETE] - StaffType enum has been completely removed from codebase and database in favor of Direct Capability Permissions (CBAC).
+// public enum StaffType { Normal = 0, Operations = 1, Documentation = 2, CustomerService = 3, Finance = 4 }

@@ -1,64 +1,67 @@
-# Aurora Platform - BFF API Architecture & Catalog
+# Aurora Platform — BFF API Architecture & Catalog
 
 > **Document ID:** `DOC-BFF-00`  
-> **Status:** Canonical BFF Architecture & API Catalog Baseline  
-> **Scope:** Architecture blueprint and master index for the Aurora Backend-for-Frontend (BFF) layer across `Staff.Bff`, `Admin.Bff`, and `System.Bff`.  
-> **Architecture Reference:** `codex/requirement.md`, `docs/api-analysis/06-bff-api-input.md`
+> **Status:** Canonical BFF Architecture & Master Index (Synchronized with .NET 10 BFF Source)  
+> **Scope:** Architecture blueprint and master catalog across `Admin.Bff`, `Staff.Bff`, and `System.Bff`.  
+> **Source Precedence:** Source Code & Protos > docs/technical/frontend > docs/bff-api > Figma UI Specs.
 
 ---
 
 ## 1. Architecture Principles
 
-The Aurora BFF layer acts as the single external gateway for web portals and mobile applications, mediating between external HTTP REST/WebSocket clients and internal gRPC microservices.
+The Aurora Backend-for-Frontend (BFF) layer serves as the single entry point for web clients and mobile applications, mediating between external HTTP REST requests and internal gRPC microservices.
 
 ```text
-Client (Web / Mobile)
-    -> Cloudflare / Gateway (Rate Limiting, SSL Termination)
-    -> BFF (Authentication, Role Authorization, Request Validation, DTO Mapping)
-    -> Inter-service gRPC with ClientMetadataInterceptor (x-user-id, x-tenant-id, x-role-ids)
-    -> Internal Microservices (.NET, Java, NestJS)
+Browser / Web Client
+    ↓ (HTTPS + HttpOnly Session Cookies)
+Cloudflare / YARP Gateway (SSL Termination, Rate Limiting)
+    ↓
+Aurora BFF Layer (Admin.Bff | Staff.Bff | System.Bff)
+    ├── Authenticates Session (AWS Cognito OIDC JWT)
+    ├── Enforces Direct Capability Permissions ([RequirePermission])
+    ├── Validates & Maps DTOs
+    └── Injects ClientMetadataInterceptor (x-user-id, x-tenant-id, x-trace-id)
+    ↓ (Internal gRPC + Private Service Network)
+Internal Microservices (.NET 10, Java 21, NestJS)
 ```
 
-### 1.1. Core Responsibilities
+### 1.1. Core Security & Persona Model
 
-1. **Authentication & Identity Propagation**:
-   - Validates incoming AWS Cognito JWT Bearer tokens.
-   - Strips client-supplied `x-*` headers to eliminate header injection attacks.
-   - Injects trusted identity metadata (`x-user-id`, `x-tenant-id`, `x-role-ids`, `x-permission-version`, `x-trace-id`) via `ClientMetadataInterceptor`.
-2. **Tenant Isolation**:
-   - `TenantId` is **NEVER** accepted from client query strings or payload bodies for tenant-scoped operations.
-   - Normal users fail closed (401/403) if tenant identity context is missing.
-3. **Resilience & Fault Tolerance**:
-   - Integrates Polly resilience pipelines with standard retry, circuit breaker, and timeout policies.
-4. **Protobuf & DTO Translation**:
-   - Maps strongly typed JSON payloads to Protobuf requests and Protobuf responses back to JSON DTOs.
-   - Translates gRPC status codes (`NotFound` -> 404, `InvalidArgument` -> 400, `PermissionDenied` -> 403, `AlreadyExists` -> 409) into standardized RFC 7807 problem details.
+1. **Role != Authority**:
+   - **Base Role** (`TENANT_ADMIN`, `MANAGER`, `STAFF`, `SYSTEM_ADMIN`) defines the application shell and default layout persona.
+   - **Direct Capability Permission** (e.g. `mail:thread:claim`, `route_planning:approve`) grants actual runtime authority.
+   - **Resource Scope** (e.g. `TenantId`, `ShipmentId`, `MailboxId`) restricts the operational boundary.
+   - Legacy `StaffType` (Operations, Documentation, CS, Finance) is **100% removed**.
+2. **Strict Multi-Tenant Isolation**:
+   - `TenantId` is derived exclusively from the authenticated JWT session context (`ICurrentUserService.TenantId`).
+   - Client requests cannot supply or override `TenantId`.
+3. **Session Cookies & Token Protection**:
+   - Tokens (`access_token`, `refresh_token`) are stored in secure `HttpOnly` cookies. They are never exposed in JSON response bodies.
+4. **Protobuf & DTO Mapping**:
+   - Strongly typed JSON DTOs are mapped to Protobuf requests, translating gRPC status codes into standardized RFC 7807 problem details.
 
 ---
 
-## 2. Platform Role Separation & Catalog Index
-
-The BFF API catalog is strictly partitioned to eliminate duplicate endpoint implementations and enforce least-privilege security boundaries:
+## 2. Platform Persona Shells & Catalog Index
 
 ```text
 docs/bff-api/
 ├── README.md           # This document - Architecture & Master Index
-├── staff-api.md        # STAFF_ONLY exclusive operational APIs
-├── manager-api.md      # MANAGER_ONLY exclusive supervisory & approval APIs
-├── admin-api.md        # ADMIN_ONLY exclusive tenant administration APIs
-├── system-api.md       # SYSTEM_ONLY exclusive platform provisioning & SRE APIs
-├── shared-api.md       # SHARED APIs accessible across >= 2 platform roles
-├── blocked-api.md      # BLOCKED APIs requiring backend contract/implementation work
-└── API-MATRIX.md       # Comprehensive Post-Implementation Traceability Matrix
+├── admin-api.md        # Tenant Admin Console APIs (Admin.Bff)
+├── staff-api.md        # Operations Workspace APIs (Staff.Bff - Staff execution)
+├── manager-api.md      # Operations Workspace Supervisory Gates (Staff.Bff - Manager capabilities)
+├── shared-api.md       # Shared APIs (Auth, Notifications, Search, Dashboard)
+├── system-api.md       # System Admin Platform & SRE APIs (System.Bff)
+├── blocked-api.md      # Gap analysis & target APIs requiring backend implementation
+└── API-MATRIX.md       # Comprehensive End-to-End Traceability Matrix
 ```
 
-### 2.1. Role Taxonomy
+### 2.1. Persona Shell Mapping
 
-| Role | Target BFF Gateway | Scope & Responsibility | Catalog Reference |
-| :--- | :--- | :--- | :--- |
-| **`STAFF`** | `Staff.Bff` | Daily operational execution within tenant (Shipments, Cargo, Routes, OCR, Mail). | [staff-api.md](file:///D:/IT/CD/aurora-server/docs/bff-api/staff-api.md) |
-| **`MANAGER`** | `Staff.Bff` | Supervisory gates, dual-control approvals, exception resolutions, financial adjustments. | [manager-api.md](file:///D:/IT/CD/aurora-server/docs/bff-api/manager-api.md) |
-| **`ADMIN`** | `Admin.Bff` | Intra-tenant organization governance, staff provisioning, AI & rule configuration. | [admin-api.md](file:///D:/IT/CD/aurora-server/docs/bff-api/admin-api.md) |
-| **`SYSTEM`** | `System.Bff` / Internal | Cross-tenant provisioning, platform administration, SRE automation, dead-letter recovery. | [system-api.md](file:///D:/IT/CD/aurora-server/docs/bff-api/system-api.md) |
-| **`SHARED`** | `Staff/Admin/System` | Multi-role access (Shipment viewing, tracking, notifications, auth). | [shared-api.md](file:///D:/IT/CD/aurora-server/docs/bff-api/shared-api.md) |
-| **`BLOCKED`** | N/A | Missing backend protobuf contracts or server implementations. | [blocked-api.md](file:///D:/IT/CD/aurora-server/docs/bff-api/blocked-api.md) |
+| Persona | Application Shell | Gateway | Primary Responsibility | Reference |
+|---|---|---|---|---|
+| **`TENANT_ADMIN`** | **Aurora Admin Console** | `Admin.Bff` | People & Access, Operations Configuration, Mail Administration, Tenant Audit. | [admin-api.md](file:///d:/IT/CD/aurora-server/docs/bff-api/admin-api.md) |
+| **`STAFF`** | **Aurora Operations Workspace** | `Staff.Bff` | Daily execution: Shipments, Routes, OCR Documents, Compliance, Mail Triage & Sending, Tracking. | [staff-api.md](file:///d:/IT/CD/aurora-server/docs/bff-api/staff-api.md) |
+| **`MANAGER`** | **Aurora Operations Workspace** | `Staff.Bff` | Operations supervision, Route risk approvals, Mail reassignment/unassignment, Supervisory queue (`ALL`). | [manager-api.md](file:///d:/IT/CD/aurora-server/docs/bff-api/manager-api.md) |
+| **`SYSTEM_ADMIN`** | **System Admin Control Plane** | `System.Bff` | Cross-tenant provisioning, Platform law ingestion, System dead-letter recovery. | [system-api.md](file:///d:/IT/CD/aurora-server/docs/bff-api/system-api.md) |
+| **`MULTI-ROLE`** | **Shared Surface** | `Staff.Bff` / `Admin.Bff` | Authentication session, Notification center, Unified search, Summary dashboard. | [shared-api.md](file:///d:/IT/CD/aurora-server/docs/bff-api/shared-api.md) |

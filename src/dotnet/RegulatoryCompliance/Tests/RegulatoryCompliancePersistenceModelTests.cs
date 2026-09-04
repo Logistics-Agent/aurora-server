@@ -138,6 +138,7 @@ public sealed class RegulatoryCompliancePersistenceModelTests
     {
         var currentUser = new CurrentUserService();
         currentUser.Populate(Guid.CreateVersion7(), tenantId, null, null, [], []);
+        currentUser.Populate(Guid.CreateVersion7(), tenantId, null, null, null, []);
         return currentUser;
     }
 

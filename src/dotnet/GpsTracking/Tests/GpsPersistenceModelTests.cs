@@ -51,6 +51,7 @@ public sealed class GpsPersistenceModelTests
         var tenant = new CurrentUserService();
         var tenantId = Guid.CreateVersion7();
         tenant.Populate(Guid.CreateVersion7(), tenantId, null, null, [], []);
+        tenant.Populate(Guid.CreateVersion7(), tenantId, null, null, null, []);
 
         await using (var writeContext = CreateContext(tenant, databaseName))
         {

@@ -1,80 +1,45 @@
-# Aurora Platform - System Exclusive API Catalog (SYSTEM_ONLY)
+# Aurora Platform — System Admin Control Plane API Catalog
 
 > **Document ID:** `DOC-BFF-SYS`  
-> **Status:** Canonical Specification Complete  
-> **Scope:** HTTP REST APIs exclusively accessible by the `SYSTEM` role (`System.Bff`).  
-> **Base Controller:** `[Authorize(Roles = "SYSTEM_ADMIN")]` via [SystemControllerBase.cs](file:///D:/IT/CD/aurora-server/src/dotnet/BFF/System.Bff/Controllers/SystemControllerBase.cs).
+> **Status:** Canonical Specification (Synchronized with `System.Bff` C# Source)  
+> **Scope:** HTTP REST APIs consumed exclusively by the **Aurora System Control Plane** (`System.Bff`).  
+> **Base Controller:** `[Authorize(Roles = "SYSTEM_ADMIN")]` via [SystemControllerBase.cs](file:///d:/IT/CD/aurora-server/src/dotnet/BFF/System.Bff/Controllers/SystemControllerBase.cs).  
+> **Source Precedence:** Source Code & Protos > docs/technical/frontend > docs/bff-api > Figma UI Specs.
 
 ---
 
-## 1. System Exclusive API Table
+## 1. System Control Plane APIs Table
 
-| Method | Endpoint | Function | Service | RPC | Main Source File |
-| :--- | :--- | :--- | :--- | :--- | :--- |
-| `POST` | `/api/v1/system/tenants` | Onboard New Customer Tenant | `IamTenant` | `IamService.CreateTenant` | `System.Bff/Controllers/TenantsController.cs` |
-| `GET` | `/api/v1/system/tenants` | List All System Tenants (Paged) | `IamTenant` | `IamService.ListTenants` | `System.Bff/Controllers/TenantsController.cs` |
-| `GET` | `/api/v1/system/tenants/{id}` | Get System Tenant Details | `IamTenant` | `IamService.GetTenant` | `System.Bff/Controllers/TenantsController.cs` |
-| `PATCH`| `/api/v1/system/tenants/{id}/status`| Suspend / Activate Tenant | `IamTenant` | `IamService.UpdateTenantStatus` | `System.Bff/Controllers/TenantsController.cs` |
-| `DELETE`| `/api/v1/system/tenants/{id}` | Purge / Offboard Tenant | `IamTenant` | `IamService.DeleteTenant` | `System.Bff/Controllers/TenantsController.cs` |
-| `POST` | `/api/v1/system/compliance/sources` | Ingest Global Trade Law | `RegulatoryCompliance`| `RegulatoryComplianceService.IngestRegulatorySource` | `System.Bff/Controllers/SystemIngestionController.cs` |
-| `POST` | `/api/v1/system/compliance/knowledge` | Ingest Global Platform Knowledge | `RegulatoryCompliance`| `RegulatoryComplianceService.IngestKnowledgeDocument` | `System.Bff/Controllers/SystemIngestionController.cs` |
-| `POST` | `/api/v1/system/mail/dead-letters/{id}/requeue` | Reprocess Failed Outbox Email | `MailService` | `MailManagement.RequeueDeadLetter` | `System.Bff/Controllers/MailSystemController.cs` |
-
----
-
-## 2. Granular API Specifications (Samples)
-
-### `POST /api/v1/system/tenants`
-- **Function:** Provisions a brand new enterprise customer tenant, sets up Cognito App Client, allocates default roles, and initializes data partition.
-- **Role:** `SYSTEM_ONLY`
-- **Tenant Scope:** System Multi-tenant Administrator Scope
-- **Backend Service:** `IamTenant`
-- **RPC:** `IamService.CreateTenant`
-- **Request:**
-  ```json
-  {
-    "name": "Pacific Logistics Corp",
-    "tenantCode": "PACIFIC_LOG",
-    "planType": 2,
-    "adminEmail": "admin@pacificlog.com",
-    "adminFullName": "Chief Administrator"
-  }
-  ```
-- **Response:**
-  ```json
-  {
-    "id": "a0000000-0000-0000-0000-000000000002",
-    "name": "Pacific Logistics Corp",
-    "tenantCode": "PACIFIC_LOG",
-    "planType": "ENTERPRISE",
-    "status": "ACTIVE",
-    "createdAt": "2026-08-24T12:00:00.000Z"
-  }
-  ```
-- **Source Flow:**
-  ```text
-  System.Bff (POST /api/v1/system/tenants)
-      -> GrpcClient (IamService.CreateTenantAsync)
-      -> RPC (CreateTenant)
-      -> Command (CreateTenantCommand)
-      -> Handler (CreateTenantCommandHandler)
-      -> AWS Cognito (CreateUserPoolClient) & IamTenantDbContext (Insert Tenant & Initial Admin)
-  ```
-- **Status:** `READY` (G0)
+| Module | Method | Path | Purpose | Required Permission / Role | Backend RPC | Status |
+|---|---|---|---|---|---|:---:|
+| **Tenant** | `POST` | `/api/v1/system/tenants` | Onboard new enterprise tenant | `SYSTEM_ADMIN` role | `IamService.CreateTenant` | `CURRENT` |
+| **Tenant** | `GET` | `/api/v1/system/tenants` | List all platform tenants | `SYSTEM_ADMIN` role | `IamService.GetManyTenants` | `CURRENT` |
+| **Tenant** | `GET` | `/api/v1/system/tenants/{id}` | Get tenant details & subscription | `SYSTEM_ADMIN` role | `IamService.GetTenant` | `CURRENT` |
+| **Tenant** | `PUT` | `/api/v1/system/tenants/{id}/status` | Activate/suspend tenant organization | `SYSTEM_ADMIN` role | `IamService.UpdateTenantStatus` | `CURRENT` |
+| **Tenant** | `POST` | `/api/v1/system/tenants/{id}/admin` | Provision first Tenant Administrator | `SYSTEM_ADMIN` role | `IamService.CreateTenantAdmin` | `CURRENT` |
+| **Mail Infra** | `POST` | `/api/v1/system/mail/dead-letter/{id}/requeue` | Requeue failed pipeline email | `mail:system:manage` | `MailManagement.RequeueDeadLetter` | `CURRENT` |
+| **Mail Infra** | `GET` | `/api/v1/system/mail/audit` | Platform-wide mail audit trail | `SYSTEM_ADMIN` role | `MailManagement.GetAuditRecords` | `CURRENT` |
+| **Mail Infra** | `POST` | `/api/v1/system/mail/domains/assign` | Assign pre-configured domain to tenant | `mail:system:domain:assign` | `MailManagement.AssignDomain` | `TARGET (BACKEND_REQUIRED)` |
+| **Mail Infra** | `GET` | `/api/v1/system/mail/domains` | List all domains across all tenants | `SYSTEM_ADMIN` role | `MailManagement.ListAllDomains` | `TARGET (BACKEND_REQUIRED)` |
+| **Ingestion** | `POST` | `/api/v1/system/ingestion/regulatory-sources` | Ingest national/global legal statutes (`PLATFORM` scope) | `compliance:platform:ingest` | `RegulatoryComplianceService.IngestRegulatorySource` | `CURRENT` |
+| **Ingestion** | `POST` | `/api/v1/system/ingestion/knowledge-documents` | Ingest global knowledge bases (`PLATFORM` scope) | `compliance:platform:ingest` | `RegulatoryComplianceService.IngestKnowledgeDocument` | `CURRENT` |
+| **Audit** | `GET` | `/api/v1/system/audit-logs` | Platform-wide security audit logs | `SYSTEM_ADMIN` role | `AuditLogService.GetAdminAuditLogs` | `CURRENT` |
 
 ---
 
-### `POST /api/v1/system/mail/dead-letters/{id}/requeue`
-- **Function:** Requeues an email dispatch job that previously failed delivery and landed in the dead-letter queue.
-- **Role:** `SYSTEM_ONLY`
-- **Tenant Scope:** Platform SRE Scope
-- **Backend Service:** `MailService`
-- **RPC:** `MailManagement.RequeueDeadLetter`
-- **Response:**
-  ```json
-  {
-    "success": true,
-    "message": "Dead letter message successfully requeued for dispatch"
-  }
-  ```
-- **Status:** `READY` (G0)
+## 2. Mail Domain Ownership Target Architecture
+
+```text
+SYSTEM_ADMIN
+    ↓
+Stalwart Admin UI / System API
+    ↓
+1. Provision/Configure Mail Domain & DKIM in Stalwart
+2. Assign Domain to Aurora Tenant (POST /api/v1/system/mail/domains/assign)
+    ↓
+TENANT_ADMIN (Aurora Admin Console)
+    ↓
+1. View Assigned Domains (GET /api/v1/admin/mail/domains)
+2. Provision Shared Mailboxes & Forwarding Aliases under assigned domain
+3. MUST NOT provision arbitrary unassigned domains
+```

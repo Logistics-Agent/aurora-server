@@ -16,6 +16,7 @@ service NotificationService {
 }
 
 message Registe rDeviceRequest {
+message RegisterDeviceRequest {
   string token = 1;
   string platform = 2;
   string app_version = 3;
