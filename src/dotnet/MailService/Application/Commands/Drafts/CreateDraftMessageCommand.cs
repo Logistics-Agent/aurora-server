@@ -187,5 +187,3 @@ public class CreateDraftMessageCommandHandler : IRequestHandler<CreateDraftMessa
         return Convert.ToHexString(bytes).ToLowerInvariant();
     }
 }
-
-

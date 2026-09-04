@@ -36,6 +36,16 @@ on:
         required: true
       AZURE_SUBSCRIPTION_AI:
         required: true
+      ACR_LOGIN_SERVER:
+        required: false
+      AKS_CORE_CLUSTER:
+        required: false
+      AKS_CORE_RG:
+        required: false
+      AKS_AI_CLUSTER:
+        required: false
+      AKS_AI_RG:
+        required: false
 
 jobs:
   deploy:
@@ -46,14 +56,33 @@ jobs:
         id: env
         run: |
           if [ "${{ inputs.deploy-target }}" = "ai" ]; then
-            echo "sub_id=${{ secrets.AZURE_SUBSCRIPTION_AI }}" >> $GITHUB_OUTPUT
-            echo "cluster_name=${{ secrets.AKS_AI_CLUSTER || vars.AKS_AI_CLUSTER || 'aks-ai-demo' }}" >> $GITHUB_OUTPUT
-            echo "rg_name=${{ secrets.AKS_AI_RG || vars.AKS_AI_RG || 'rg-aurora-ai-demo' }}" >> $GITHUB_OUTPUT
+            SUB_ID="${{ secrets.AZURE_SUBSCRIPTION_AI }}"
+            CLUSTER="${{ secrets.AKS_AI_CLUSTER }}"
+            [ -z "$CLUSTER" ] && CLUSTER="${{ vars.AKS_AI_CLUSTER }}"
+            [ -z "$CLUSTER" ] && CLUSTER="aks-ai-demo"
+
+            RG="${{ secrets.AKS_AI_RG }}"
+            [ -z "$RG" ] && RG="${{ vars.AKS_AI_RG }}"
+            [ -z "$RG" ] && RG="rg-aurora-ai-demo"
           else
-            echo "sub_id=${{ secrets.AZURE_SUBSCRIPTION_CORE }}" >> $GITHUB_OUTPUT
-            echo "cluster_name=${{ secrets.AKS_CORE_CLUSTER || vars.AKS_CORE_CLUSTER || 'aks-core-demo' }}" >> $GITHUB_OUTPUT
-            echo "rg_name=${{ secrets.AKS_CORE_RG || vars.AKS_CORE_RG || 'rg-aurora-core-demo' }}" >> $GITHUB_OUTPUT
+            SUB_ID="${{ secrets.AZURE_SUBSCRIPTION_CORE }}"
+            CLUSTER="${{ secrets.AKS_CORE_CLUSTER }}"
+            [ -z "$CLUSTER" ] && CLUSTER="${{ vars.AKS_CORE_CLUSTER }}"
+            [ -z "$CLUSTER" ] && CLUSTER="aks-core-demo"
+
+            RG="${{ secrets.AKS_CORE_RG }}"
+            [ -z "$RG" ] && RG="${{ vars.AKS_CORE_RG }}"
+            [ -z "$RG" ] && RG="rg-aurora-core-demo"
           fi
+
+          ACR_SERVER="${{ secrets.ACR_LOGIN_SERVER }}"
+          [ -z "$ACR_SERVER" ] && ACR_SERVER="${{ vars.ACR_LOGIN_SERVER }}"
+          [ -z "$ACR_SERVER" ] && ACR_SERVER="acrauroracoredemo.azurecr.io"
+
+          echo "sub_id=$SUB_ID" >> $GITHUB_OUTPUT
+          echo "cluster_name=$CLUSTER" >> $GITHUB_OUTPUT
+          echo "rg_name=$RG" >> $GITHUB_OUTPUT
+          echo "acr_server=$ACR_SERVER" >> $GITHUB_OUTPUT
 
       - name: Azure Login via OIDC
         uses: azure/login@v2
@@ -73,7 +102,7 @@ jobs:
         run: |
           DEPLOYMENT_NAME="${{ inputs.deployment-name || inputs.service-name }}"
           CONTAINER_NAME="${{ inputs.container-name || inputs.service-name }}"
-          IMAGE_URI="${{ secrets.ACR_LOGIN_SERVER || vars.ACR_LOGIN_SERVER || 'acrauroracoredemo.azurecr.io' }}/aurora/${{ inputs.service-name }}:${{ inputs.image-tag }}"
+          IMAGE_URI="${{ steps.env.outputs.acr_server }}/aurora/${{ inputs.service-name }}:${{ inputs.image-tag }}"
 
           echo "Target Namespace:  ${{ inputs.namespace }}"
           echo "Target Deployment: $DEPLOYMENT_NAME"
@@ -86,4 +115,3 @@ jobs:
         run: |
           DEPLOYMENT_NAME="${{ inputs.deployment-name || inputs.service-name }}"
           kubectl rollout status "deployment/$DEPLOYMENT_NAME" -n "${{ inputs.namespace }}" --timeout=300s
-
