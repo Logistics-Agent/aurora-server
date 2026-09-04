@@ -4,6 +4,7 @@ import com.aurora.aigovernance.governance.application.service.GovernancePolicySe
 import com.aurora.aigovernance.governance.domain.valueobject.GovernanceDecision;
 import com.aurora.aigovernance.shared.domain.AiOperation;
 import com.aurora.aigovernance.shared.domain.TokenBudget;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -13,6 +14,7 @@ import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+@Tag("integration")
 @SpringBootTest
 @ActiveProfiles("test")
 public class ExecutePolicyIntegrationTest {
