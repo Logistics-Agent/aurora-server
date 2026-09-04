@@ -42,7 +42,7 @@ RUN addgroup -S appgroup \
     && adduser -S appuser -G appgroup
 
 COPY --from=build \
-    /workspace/src/java/ai-governance/target/*.jar \
+    /workspace/src/java/devops-agent/target/*.jar \
     /app/app.jar
 
 USER appuser

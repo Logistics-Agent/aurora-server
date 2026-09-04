@@ -115,11 +115,6 @@ jobs:
           echo "Target Deployment: $DEPLOYMENT_NAME"
           echo "Target Container:  $CONTAINER_NAME"
           echo "New Image URI:     $IMAGE_URI"
-
-          if kubectl get deployment "$DEPLOYMENT_NAME" -n "${{ inputs.namespace }}" >/dev/null 2>&1; then
-            echo "Deployment $DEPLOYMENT_NAME exists. Updating image via kubectl set image..."
-            kubectl set image "deployment/$DEPLOYMENT_NAME" "$CONTAINER_NAME=$IMAGE_URI" -n "${{ inputs.namespace }}" || \
-            kubectl set image "deployment/$DEPLOYMENT_NAME" "aurora-service=$IMAGE_URI" -n "${{ inputs.namespace }}"
           VALUES_FILE="${{ inputs.service-path }}/deploy/helm/values.yaml"
           if [ -f "$VALUES_FILE" ]; then
             echo "Validating Helm template schema..."
@@ -137,31 +132,12 @@ jobs:
               --set image.tag="${{ inputs.image-tag }}" \
               --set image.repository="${{ steps.env.outputs.acr_server }}/aurora/${{ inputs.service-name }}"
           else
-            echo "Deployment $DEPLOYMENT_NAME not found on cluster. Installing via Helm chart..."
-            VALUES_FILE="${{ inputs.service-path }}/deploy/helm/values.yaml"
-            if [ -f "$VALUES_FILE" ]; then
-              echo "Validating Helm template schema..."
-              helm template "$DEPLOYMENT_NAME" infra/helm/aurora-service \
-                --namespace "${{ inputs.namespace }}" \
-                -f "$VALUES_FILE" \
-                --set image.tag="${{ inputs.image-tag }}" \
-                --set image.repository="${{ steps.env.outputs.acr_server }}/aurora/${{ inputs.service-name }}" | kubectl apply --dry-run=client -f -
-                --set image.repository="${{ steps.env.outputs.acr_server }}/aurora/${{ inputs.service-name }}" | kubectl apply --dry-run=server -f -
-
-              echo "Installing/Upgrading via Helm chart..."
-              helm upgrade --install "$DEPLOYMENT_NAME" infra/helm/aurora-service \
-                --namespace "${{ inputs.namespace }}" \
-                --create-namespace \
-                -f "$VALUES_FILE" \
-                --set image.tag="${{ inputs.image-tag }}" \
-                --set image.repository="${{ steps.env.outputs.acr_server }}/aurora/${{ inputs.service-name }}"
             echo "No Helm values found at $VALUES_FILE, checking existing deployment..."
             if kubectl get deployment "$DEPLOYMENT_NAME" -n "${{ inputs.namespace }}" >/dev/null 2>&1; then
               echo "Deployment $DEPLOYMENT_NAME exists. Updating image via kubectl set image..."
               kubectl set image "deployment/$DEPLOYMENT_NAME" "$CONTAINER_NAME=$IMAGE_URI" -n "${{ inputs.namespace }}" || \
               kubectl set image "deployment/$DEPLOYMENT_NAME" "aurora-service=$IMAGE_URI" -n "${{ inputs.namespace }}"
             else
-              echo "No Helm values found at $VALUES_FILE, falling back to simple kubectl create..."
               echo "Deployment $DEPLOYMENT_NAME not found, creating deployment..."
               kubectl create deployment "$DEPLOYMENT_NAME" --image="$IMAGE_URI" -n "${{ inputs.namespace }}"
             fi

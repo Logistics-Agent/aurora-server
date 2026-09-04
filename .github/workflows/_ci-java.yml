@@ -74,6 +74,7 @@ jobs:
         run: |
           echo "Building and testing ${{ inputs.service-name }}..."
           mvn -B clean verify -f "${{ inputs.service-path }}/pom.xml"
+          mvn -B clean test -f "${{ inputs.service-path }}/pom.xml" -Dtest="!*IntegrationTest*"
 
       - name: Setup Docker Buildx
         uses: docker/setup-buildx-action@v3
