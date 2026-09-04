@@ -46,12 +46,14 @@ jobs:
       service-name: api-gateway
       service-path: src/dotnet/BFF/API.Gateway
       dockerfile-path: src/dotnet/BFF/API.Gateway/deploy/docker/Dockerfile
+      is-deploy: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/stagging-prod') }}
       is-deploy: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/stagging-prod') }}
     secrets: inherit
 
   deploy-api-gateway:
     name: CD
     needs: [changes, ci-api-gateway]
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/stagging-prod') && needs.changes.outputs.api-gateway == 'true'
     if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/stagging-prod') && needs.changes.outputs.api-gateway == 'true'
     uses: ./.github/workflows/_deploy-service.yml
     with:
@@ -72,12 +74,14 @@ jobs:
       service-name: staff-bff
       service-path: src/dotnet/BFF/Staff.Bff
       dockerfile-path: src/dotnet/BFF/Staff.Bff/deploy/docker/Dockerfile
+      is-deploy: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/stagging-prod') }}
       is-deploy: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/stagging-prod') }}
     secrets: inherit
 
   deploy-staff-bff:
     name: CD
     needs: [changes, ci-staff-bff]
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/stagging-prod') && needs.changes.outputs.staff-bff == 'true'
     if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/stagging-prod') && needs.changes.outputs.staff-bff == 'true'
     uses: ./.github/workflows/_deploy-service.yml
     with:
@@ -98,12 +102,14 @@ jobs:
       service-name: admin-bff
       service-path: src/dotnet/BFF/Admin.Bff
       dockerfile-path: src/dotnet/BFF/Admin.Bff/deploy/docker/Dockerfile
+      is-deploy: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/stagging-prod') }}
       is-deploy: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/stagging-prod') }}
     secrets: inherit
 
   deploy-admin-bff:
     name: CD
     needs: [changes, ci-admin-bff]
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/stagging-prod') && needs.changes.outputs.admin-bff == 'true'
     if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/stagging-prod') && needs.changes.outputs.admin-bff == 'true'
     uses: ./.github/workflows/_deploy-service.yml
     with:
@@ -124,12 +130,14 @@ jobs:
       service-name: system-bff
       service-path: src/dotnet/BFF/System.Bff
       dockerfile-path: src/dotnet/BFF/System.Bff/deploy/docker/Dockerfile
+      is-deploy: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/stagging-prod') }}
       is-deploy: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/stagging-prod') }}
     secrets: inherit
 
   deploy-system-bff:
     name: CD
     needs: [changes, ci-system-bff]
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/stagging-prod') && needs.changes.outputs.system-bff == 'true'
     if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/stagging-prod') && needs.changes.outputs.system-bff == 'true'
     uses: ./.github/workflows/_deploy-service.yml
     with:

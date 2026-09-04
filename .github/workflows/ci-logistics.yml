@@ -50,12 +50,14 @@ jobs:
       service-name: shipment-workflow
       service-path: src/dotnet/ShipmentWorkflow
       dockerfile-path: src/dotnet/ShipmentWorkflow/deploy/docker/Dockerfile
+      is-deploy: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/stagging-prod') }}
       is-deploy: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/stagging-prod') }}
     secrets: inherit
 
   deploy-shipment-workflow:
     name: CD
     needs: [changes, ci-shipment-workflow]
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/stagging-prod') && needs.changes.outputs.shipment-workflow == 'true'
     if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/stagging-prod') && needs.changes.outputs.shipment-workflow == 'true'
     uses: ./.github/workflows/_deploy-service.yml
     with:
@@ -76,12 +78,14 @@ jobs:
       service-name: gps-tracking
       service-path: src/dotnet/GpsTracking
       dockerfile-path: src/dotnet/GpsTracking/deploy/docker/Dockerfile
+      is-deploy: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/stagging-prod') }}
       is-deploy: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/stagging-prod') }}
     secrets: inherit
 
   deploy-gps-tracking:
     name: CD
     needs: [changes, ci-gps-tracking]
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/stagging-prod') && needs.changes.outputs.gps-tracking == 'true'
     if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/stagging-prod') && needs.changes.outputs.gps-tracking == 'true'
     uses: ./.github/workflows/_deploy-service.yml
     with:
@@ -102,12 +106,14 @@ jobs:
       service-name: route-planning-agent
       service-path: src/dotnet/RoutePlanningAgent
       dockerfile-path: src/dotnet/RoutePlanningAgent/deploy/docker/Dockerfile
+      is-deploy: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/stagging-prod') }}
       is-deploy: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/stagging-prod') }}
     secrets: inherit
 
   deploy-route-planning-agent:
     name: CD
     needs: [changes, ci-route-planning-agent]
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/stagging-prod') && needs.changes.outputs.route-planning-agent == 'true'
     if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/stagging-prod') && needs.changes.outputs.route-planning-agent == 'true'
     uses: ./.github/workflows/_deploy-service.yml
     with:
