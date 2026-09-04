@@ -24,7 +24,6 @@ public sealed class PgVectorCrossTenantIntegrationTests
         var now = DateTimeOffset.UtcNow;
 
         var currentUserA = new CurrentUserService();
-        currentUserA.Populate(Guid.NewGuid(), tenantA, null, null, [], []);
         currentUserA.Populate(Guid.NewGuid(), tenantA, null, null, null, []);
 
         var auditInterceptor = new AuditSaveChangesInterceptor(currentUserA);
@@ -96,7 +95,6 @@ public sealed class PgVectorCrossTenantIntegrationTests
         var now = DateTimeOffset.UtcNow;
 
         var currentUserA = new CurrentUserService();
-        currentUserA.Populate(Guid.NewGuid(), tenantA, null, null, [], []);
         currentUserA.Populate(Guid.NewGuid(), tenantA, null, null, null, []);
 
         var auditInterceptor = new AuditSaveChangesInterceptor(currentUserA);

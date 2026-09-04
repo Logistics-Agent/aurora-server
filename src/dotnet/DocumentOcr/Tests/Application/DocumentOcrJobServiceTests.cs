@@ -208,7 +208,7 @@ public sealed class DocumentOcrJobServiceTests
     private static CurrentUserService CreateCurrentUser(Guid tenantId)
     {
         var currentUser = new CurrentUserService();
-        currentUser.Populate(Guid.CreateVersion7(), tenantId, null, null, [], []);
+        currentUser.Populate(Guid.CreateVersion7(), tenantId, null, null, null, []);
         return currentUser;
     }
 

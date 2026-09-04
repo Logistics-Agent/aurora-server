@@ -15,7 +15,6 @@ service NotificationService {
   rpc MarkAllNotificationsRead(MarkAllNotificationsReadRequest) returns (CountResponse);
 }
 
-message Registe rDeviceRequest {
 message RegisterDeviceRequest {
   string token = 1;
   string platform = 2;

@@ -300,34 +300,33 @@ public sealed class RegulatoryCompliancePostgresIntegrationTests(
     private static ComplianceEvaluationCompletedEvent CompletedEvent(
         Guid tenantId,
         Guid evaluationId) => new()
-    {
-        TenantId = tenantId,
-        EvaluationId = evaluationId,
-        ExternalShipmentId = Guid.CreateVersion7(),
-        RiskLevel = ComplianceRiskLevel.Low.ToString(),
-        EvidenceSufficiency = Domain.Enums.EvidenceSufficiency.Sufficient.ToString(),
-        ComplianceConfidence = 0.9m,
-        Summary = "Evaluation completed.",
-        OccurredAt = Now
-    };
+        {
+            TenantId = tenantId,
+            EvaluationId = evaluationId,
+            ExternalShipmentId = Guid.CreateVersion7(),
+            RiskLevel = ComplianceRiskLevel.Low.ToString(),
+            EvidenceSufficiency = Domain.Enums.EvidenceSufficiency.Sufficient.ToString(),
+            ComplianceConfidence = 0.9m,
+            Summary = "Evaluation completed.",
+            OccurredAt = Now
+        };
 
     private static ComplianceEvaluationFailedEvent FailedEvent(
         Guid tenantId,
         Guid evaluationId) => new()
-    {
-        TenantId = tenantId,
-        EvaluationId = evaluationId,
-        ExternalShipmentId = Guid.CreateVersion7(),
-        ErrorCode = "EVALUATION_FAILED",
-        ErrorMessage = "Evaluation failed.",
-        Summary = "Evaluation requires review.",
-        OccurredAt = Now
-    };
+        {
+            TenantId = tenantId,
+            EvaluationId = evaluationId,
+            ExternalShipmentId = Guid.CreateVersion7(),
+            ErrorCode = "EVALUATION_FAILED",
+            ErrorMessage = "Evaluation failed.",
+            Summary = "Evaluation requires review.",
+            OccurredAt = Now
+        };
 
     private static CurrentUserService CurrentUser(Guid tenantId, params string[] permissions)
     {
         var currentUser = new CurrentUserService();
-        currentUser.Populate(Guid.CreateVersion7(), tenantId, null, null, [], [.. permissions]);
         currentUser.Populate(Guid.CreateVersion7(), tenantId, null, null, null, [.. permissions]);
         return currentUser;
     }
