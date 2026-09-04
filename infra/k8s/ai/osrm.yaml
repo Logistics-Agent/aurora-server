@@ -1,0 +1,96 @@
+# =============================================================================
+# OSRM Routing Engine — Kubernetes Manifest for AI Cluster
+# =============================================================================
+
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: sa-osrm-downloader
+  namespace: aurora-ai
+  annotations:
+    azure.workload.identity/client-id: "547620e7-95bd-4cb5-a325-d2f6415a4f4f" # Annotated via kubectl or CI/CD
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: osrm
+  namespace: aurora-ai
+  labels:
+    app: osrm
+    component: routing-engine
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: osrm
+  template:
+    metadata:
+      labels:
+        app: osrm
+        azure.workload.identity/use: "true"
+    spec:
+      serviceAccountName: sa-osrm-downloader
+      imagePullSecrets:
+        - name: acr-secret
+      initContainers:
+        - name: download-osrm-data
+          image: mcr.microsoft.com/azure-cli:2.61.0
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -e
+              echo "Logging in via Azure Workload Identity..."
+              az login --service-principal -u "$AZURE_CLIENT_ID" -t "$AZURE_TENANT_ID" --federated-token "$(cat $AZURE_FEDERATED_TOKEN_FILE)"
+              echo "Downloading OSRM dataset from Azure Blob Storage..."
+              az storage blob download-batch --account-name "stauroradatademo" --source "osrm" --destination "/data" --auth-mode login --overwrite
+              echo "Danh sach cac file da tai ve thanh cong trong /data:"
+              ls -la /data
+              echo "OSRM dataset download complete."
+          volumeMounts:
+            - name: osrm-data
+              mountPath: /data
+      containers:
+        - name: osrm
+          image: acrauroracoredemo.azurecr.io/osrm-backend:v5.27.1
+          imagePullPolicy: IfNotPresent
+          command:
+            - osrm-routed
+            - --algorithm
+            - mld
+            - /data/central-america-260901.osrm
+          ports:
+            - name: http
+              containerPort: 5000
+              protocol: TCP
+          resources:
+            requests:
+              cpu: 500m
+              memory: 1Gi
+            limits:
+              cpu: 2000m
+              memory: 4Gi
+          volumeMounts:
+            - name: osrm-data
+              mountPath: /data
+              readOnly: true
+      volumes:
+        - name: osrm-data
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: osrm
+  namespace: aurora-ai
+  labels:
+    app: osrm
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 5000
+      targetPort: 5000
+      protocol: TCP
+  selector:
+    app: osrm

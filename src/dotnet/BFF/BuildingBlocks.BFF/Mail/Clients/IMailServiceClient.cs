@@ -28,7 +28,7 @@ public interface IMailServiceClient
 
     // Threads (Gmail-Like Threading & Operational Assignment)
     Task<ThreadResponse> GetThreadAsync(string threadId, CancellationToken cancellationToken = default);
-    Task<ThreadListResponse> ListThreadsAsync(string? mailboxId, int pageSize, string? nextPageToken, string? scope = null, string? status = null, CancellationToken cancellationToken = default);
+    Task<ThreadListResponse> ListThreadsAsync(string? mailboxId, int pageSize, string? nextPageToken, string? scope = null, string? status = null, string? search = null, CancellationToken cancellationToken = default);
     Task<ClaimThreadResponse> ClaimThreadAsync(string threadId, CancellationToken cancellationToken = default);
     Task<ReassignThreadResponse> ReassignThreadAsync(string threadId, ReassignThreadRequest request, CancellationToken cancellationToken = default);
     Task<UnassignThreadResponse> UnassignThreadAsync(string threadId, UnassignThreadRequest request, CancellationToken cancellationToken = default);

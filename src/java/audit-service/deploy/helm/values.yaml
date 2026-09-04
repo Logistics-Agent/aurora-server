@@ -1,0 +1,65 @@
+nameOverride: "audit-service"
+fullnameOverride: "audit-service"
+
+image:
+  repository: acrauroracoredemo.azurecr.io/aurora/audit-service
+  tag: "latest"
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  port: 8080
+  targetPort: 8080
+
+env:
+  SPRING_PROFILES_ACTIVE: "prod"
+  SERVER_PORT: "8080"
+  SPRING_RABBITMQ_HOST: "rabbitmq.aurora.svc.cluster.local"
+  SPRING_RABBITMQ_PORT: "5672"
+  SPRING_RABBITMQ_USERNAME: "aurora_admin"
+
+externalSecret:
+  enabled: true
+  secretStoreRef:
+    name: azure-keyvault-store
+    kind: ClusterSecretStore
+  data:
+    - secretKey: SPRING_DATASOURCE_URL
+      remoteRef:
+        key: aurora-audit-db-connection
+    - secretKey: SPRING_DATASOURCE_USERNAME
+      remoteRef:
+        key: audit-service-db-user
+    - secretKey: SPRING_DATASOURCE_PASSWORD
+      remoteRef:
+        key: audit-service-db-password
+    - secretKey: SPRING_RABBITMQ_PASSWORD
+      remoteRef:
+        key: rabbitmq-password
+
+resources:
+  requests:
+    cpu: 150m
+    memory: 256Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+
+serviceMonitor:
+  enabled: true
+  path: /actuator/prometheus
+  port: http
+
+livenessProbe:
+  httpGet:
+    path: /actuator/health/liveness
+    port: http
+  initialDelaySeconds: 30
+  periodSeconds: 10
+
+readinessProbe:
+  httpGet:
+    path: /actuator/health/readiness
+    port: http
+  initialDelaySeconds: 20
+  periodSeconds: 5

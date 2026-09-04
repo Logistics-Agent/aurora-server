@@ -1,0 +1,44 @@
+nameOverride: "shipment-workflow"
+fullnameOverride: "shipment-workflow"
+
+image:
+  repository: acrauroracoredemo.azurecr.io/aurora/shipment-workflow
+  tag: "latest"
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  port: 5000
+  targetPort: 5000
+
+env:
+  ASPNETCORE_ENVIRONMENT: "Production"
+  RabbitMQ__Host: "rabbitmq.aurora.svc.cluster.local"
+  RabbitMQ__Port: "5672"
+  RabbitMQ__Username: "aurora_admin"
+
+externalSecret:
+  enabled: true
+  secretStoreRef:
+    name: azure-keyvault-store
+    kind: ClusterSecretStore
+  data:
+    - secretKey: ConnectionStrings__DefaultConnection
+      remoteRef:
+        key: aurora-shipment-db-connection
+    - secretKey: RabbitMQ__Password
+      remoteRef:
+        key: rabbitmq-password
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 256Mi
+
+serviceMonitor:
+  enabled: true
+  path: /metrics
+  port: http

@@ -1,64 +1,82 @@
 using Notification.Domain.Enums;
-using Shared.Entity;
 
 namespace Notification.Domain.Entities;
 
-public sealed class NotificationDeliveryAttempt : TenantAuditableEntity
+public sealed class NotificationDeliveryAttempt
 {
     private NotificationDeliveryAttempt() { }
-
+    public Guid Id { get; private set; } = Guid.CreateVersion7();
     public Guid NotificationId { get; private set; }
-    public int AttemptNumber { get; private set; }
+    public Guid DeviceId { get; private set; }
     public DeliveryAttemptStatus Status { get; private set; }
-    public DateTimeOffset StartedAt { get; private set; }
-    public DateTimeOffset? CompletedAt { get; private set; }
+    public int AttemptCount { get; private set; }
     public string? ProviderMessageId { get; private set; }
-    public string? Error { get; private set; }
+    public string? ErrorCode { get; private set; }
+    public DateTimeOffset AttemptedAt { get; private set; }
+    public DateTimeOffset? NextAttemptAt { get; private set; }
+    public bool IsTerminal => Status is DeliveryAttemptStatus.Sent
+        or DeliveryAttemptStatus.Failed
+        or DeliveryAttemptStatus.InvalidToken;
 
-    public static NotificationDeliveryAttempt Create(
-        Guid tenantId, Guid notificationId, int attemptNumber, DateTimeOffset startedAt)
+    public static NotificationDeliveryAttempt Create(Guid notificationId, Guid deviceId)
     {
-        DomainValidation.RequiredId(tenantId, nameof(tenantId));
-        DomainValidation.RequiredId(notificationId, nameof(notificationId));
-        if (attemptNumber <= 0)
-            throw new ArgumentOutOfRangeException(nameof(attemptNumber));
-        if (startedAt == default)
-            throw new ArgumentException("StartedAt is required.", nameof(startedAt));
+        if (notificationId == Guid.Empty || deviceId == Guid.Empty)
+            throw new ArgumentException("Notification and device are required.");
 
-        return new NotificationDeliveryAttempt
+        return new()
         {
-            TenantId = tenantId,
             NotificationId = notificationId,
-            AttemptNumber = attemptNumber,
-            Status = DeliveryAttemptStatus.InProgress,
-            StartedAt = startedAt,
-            CreatedAt = startedAt
+            DeviceId = deviceId,
+            Status = DeliveryAttemptStatus.Pending,
+            AttemptedAt = DateTimeOffset.UtcNow
         };
     }
 
-    internal void Succeed(string providerMessageId, DateTimeOffset completedAt)
+    public void Sent(string? providerMessageId)
     {
-        if (Status != DeliveryAttemptStatus.InProgress)
-            throw new InvalidOperationException("Attempt is already completed.");
-        if (completedAt < StartedAt)
-            throw new ArgumentException("CompletedAt cannot precede StartedAt.", nameof(completedAt));
-
-        ProviderMessageId = DomainValidation.RequiredText(providerMessageId, nameof(providerMessageId), 255);
-        Status = DeliveryAttemptStatus.Succeeded;
-        CompletedAt = completedAt;
-        UpdatedAt = completedAt;
+        EnsureMutable();
+        Status = DeliveryAttemptStatus.Sent;
+        ProviderMessageId = providerMessageId;
+        ErrorCode = null;
+        NextAttemptAt = null;
+        AttemptCount++;
+        AttemptedAt = DateTimeOffset.UtcNow;
     }
 
-    internal void Fail(string error, bool transient, DateTimeOffset completedAt)
-    {
-        if (Status != DeliveryAttemptStatus.InProgress)
-            throw new InvalidOperationException("Attempt is already completed.");
-        if (completedAt < StartedAt)
-            throw new ArgumentException("CompletedAt cannot precede StartedAt.", nameof(completedAt));
+    public void Retry(string errorCode) => Retry(errorCode, DateTimeOffset.UtcNow);
 
-        Error = DomainValidation.RequiredText(error, nameof(error), 1000);
-        Status = transient ? DeliveryAttemptStatus.TransientFailure : DeliveryAttemptStatus.PermanentFailure;
-        CompletedAt = completedAt;
-        UpdatedAt = completedAt;
+    public void Retry(string errorCode, DateTimeOffset nextAttemptAt)
+    {
+        EnsureMutable();
+        Status = DeliveryAttemptStatus.Retrying;
+        ErrorCode = NormalizeError(errorCode);
+        NextAttemptAt = nextAttemptAt;
+        AttemptCount++;
+        AttemptedAt = DateTimeOffset.UtcNow;
+    }
+
+    public bool CanRetry(DateTimeOffset now) =>
+        Status == DeliveryAttemptStatus.Retrying &&
+        NextAttemptAt.HasValue && NextAttemptAt.Value <= now;
+
+    public void Failed(string errorCode, bool invalidToken)
+    {
+        EnsureMutable();
+        Status = invalidToken ? DeliveryAttemptStatus.InvalidToken : DeliveryAttemptStatus.Failed;
+        ErrorCode = NormalizeError(errorCode);
+        NextAttemptAt = null;
+        AttemptCount++;
+        AttemptedAt = DateTimeOffset.UtcNow;
+    }
+
+    private void EnsureMutable()
+    {
+        if (IsTerminal) throw new InvalidOperationException("A terminal delivery attempt cannot change state.");
+    }
+
+    private static string NormalizeError(string errorCode)
+    {
+        if (string.IsNullOrWhiteSpace(errorCode)) return "provider_failure";
+        return errorCode.Length <= 128 ? errorCode : errorCode[..128];
     }
 }

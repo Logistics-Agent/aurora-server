@@ -106,8 +106,8 @@ public class CreateStaffHandler(
         };
 
         // Create user in AWS Cognito User Pool
-        var targetUserPoolId = (isAdmin ? tenant.AdminUserPoolId : tenant.UserUserPoolId)
-            ?? tenant.UserUserPoolId
+        var targetUserPoolId = (isAdmin ? tenant.AdminUserPoolId : tenant.StaffUserPoolId)
+            ?? tenant.StaffUserPoolId
             ?? tenant.AdminUserPoolId;
 
         var tempPassword = "TempP@ssw0rd!" + Guid.NewGuid().ToString("N")[..8];

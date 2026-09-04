@@ -52,8 +52,8 @@ public class IamAuthorizationTests
         tenant.Id = tenantId;
         tenant.AdminUserPoolId = "admin-pool-1";
         tenant.AdminUserPoolClientId = "admin-client-1";
-        tenant.UserUserPoolId = "user-pool-1";
-        tenant.UserUserPoolClientId = "user-client-1";
+        tenant.StaffUserPoolId = "user-pool-1";
+        tenant.StaffUserPoolClientId = "user-client-1";
         context.Tenants.Add(tenant);
         context.SaveChanges();
         return (tenantId, tenant);

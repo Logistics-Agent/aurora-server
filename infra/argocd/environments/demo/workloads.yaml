@@ -1,0 +1,183 @@
+# =============================================================================
+# Aurora Demo Environment Workload Registry & Selectors
+# =============================================================================
+environment: demo
+
+workloads:
+  # ── Subscription 1: CORE Workloads ─────────────────────────────────────────
+  api-gateway:
+    logicalService: api-gateway
+    implementation: dotnet
+    deployTarget: core
+    enabled: true
+    status: ready
+    port: 8080
+
+  staff-bff:
+    logicalService: staff-bff
+    implementation: dotnet
+    deployTarget: core
+    enabled: true
+    status: ready
+    port: 8080
+
+  admin-bff:
+    logicalService: admin-bff
+    implementation: dotnet
+    deployTarget: core
+    enabled: true
+    status: ready
+    port: 8080
+
+  system-bff:
+    logicalService: system-bff
+    implementation: dotnet
+    deployTarget: core
+    enabled: true
+    status: ready
+    port: 8080
+
+  iam-tenant:
+    logicalService: iam-tenant
+    implementation: dotnet
+    deployTarget: core
+    enabled: true
+    status: ready
+    port: 5000
+
+  shipment-workflow:
+    logicalService: shipment-workflow
+    implementation: dotnet
+    deployTarget: core
+    enabled: true
+    status: ready
+    port: 5000
+
+  gps-tracking:
+    logicalService: gps-tracking
+    implementation: dotnet
+    deployTarget: core
+    enabled: true
+    status: ready
+    port: 5000
+
+  billing-service:
+    logicalService: billing-service
+    implementation: nestjs
+    deployTarget: core
+    enabled: true
+    status: ready
+    port: 5004
+
+  financial-service:
+    logicalService: financial-service
+    implementation: nestjs
+    deployTarget: core
+    enabled: true
+    status: ready
+    port: 5003
+
+  realtime-hub-service:
+    logicalService: realtime-hub-service
+    implementation: nestjs
+    deployTarget: core
+    enabled: true
+    status: ready
+    port: 5008
+
+  notification:
+    logicalService: notification
+    implementation: dotnet # .NET is the ACTIVE default V1 runtime
+    deployTarget: core
+    enabled: true
+    status: ready
+    port: 5000
+
+  audit-service:
+    logicalService: audit-service
+    implementation: java
+    deployTarget: core
+    enabled: true
+    status: ready
+    port: 8080
+
+  mail-service:
+    logicalService: mail-service
+    implementation: dotnet
+    deployTarget: core
+    enabled: true
+    status: ready
+    port: 5003
+
+  # ── Subscription 2: AI Workloads ───────────────────────────────────────────
+  ai-governance:
+    logicalService: ai-governance
+    implementation: java
+    deployTarget: ai
+    enabled: true
+    status: ready
+    port: 8080
+
+  devops-agent:
+    logicalService: devops-agent
+    implementation: java
+    deployTarget: ai
+    enabled: true
+    status: ready
+    port: 8080
+
+  customer-assistant-service:
+    logicalService: customer-assistant-service
+    implementation: nestjs
+    deployTarget: ai
+    enabled: true
+    status: ready
+    port: 5007
+
+  negotiation-agent-service:
+    logicalService: negotiation-agent-service
+    implementation: nestjs
+    deployTarget: ai
+    enabled: true
+    status: ready
+    port: 5006
+
+  document-ocr:
+    logicalService: document-ocr
+    implementation: dotnet
+    deployTarget: ai
+    enabled: true
+    status: ready
+    port: 5000
+
+  regulatory-compliance:
+    logicalService: regulatory-compliance
+    implementation: dotnet
+    deployTarget: ai
+    enabled: true
+    status: ready
+    port: 5000
+
+  route-planning-agent:
+    logicalService: route-planning-agent
+    implementation: dotnet
+    deployTarget: ai
+    enabled: true
+    status: ready
+    port: 5000
+
+  osrm:
+    logicalService: osrm
+    implementation: cpp
+    deployTarget: ai
+    enabled: true
+    status: ready
+    port: 5000
+
+  vroom:
+    logicalService: vroom
+    implementation: cpp
+    deployTarget: ai
+    enabled: true
+    status: ready
+    port: 3000

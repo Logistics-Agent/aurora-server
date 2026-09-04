@@ -1,0 +1,15 @@
+.git
+.github
+.idea
+.vscode
+**/.env
+**/.env.*
+!**/.env.example
+!**/.env.local.example
+**/bin/
+**/obj/
+**/node_modules/
+**/dist/
+**/target/
+**/*.tfstate*
+**/*.tfvars

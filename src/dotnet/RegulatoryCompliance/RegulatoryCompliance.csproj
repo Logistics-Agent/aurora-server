@@ -28,7 +28,5 @@
 
   <ItemGroup>
     <ProjectReference Include="../shared/shared.csproj" />
-    <ProjectReference Include="../Contracts/RegulatoryCompliance.Contracts/RegulatoryCompliance.Contracts.csproj" />
-    <ProjectReference Include="../Contracts/DocumentOcr.Contracts/DocumentOcr.Contracts.csproj" />
   </ItemGroup>
 </Project>

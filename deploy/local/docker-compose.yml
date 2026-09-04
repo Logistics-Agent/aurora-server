@@ -1,0 +1,619 @@
+version: "3.9"
+
+# =============================================================================
+# Aurora Local Development & Integration Docker Compose Stack
+# =============================================================================
+# Usage:
+#   Full Stack (.NET Notification default):
+#     docker compose --profile full up -d
+#   Core Services Only:
+#     docker compose --profile infra --profile core --profile notification-dotnet up -d
+#   Experimental Java Notification:
+#     docker compose --profile infra --profile core --profile notification-java up -d
+# =============================================================================
+
+networks:
+  aurora-local:
+    name: aurora-local
+    driver: bridge
+
+volumes:
+  postgres_data:
+  redis_data:
+  rabbitmq_data:
+  stalwart_data:
+  osrm_data:
+
+services:
+  # ── Infrastructure Layer ───────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: aurora-postgres
+    profiles: ["infra", "core", "ai", "mail", "routing", "full"]
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-aurora_admin}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-aurora_secure_password_2026!}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./postgres/init:/docker-entrypoint-initdb.d
+    networks:
+      - aurora-local
+
+  redis:
+    image: redis:7.2-alpine
+    container_name: aurora-redis
+    profiles: ["infra", "core", "ai", "mail", "routing", "full"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - aurora-local
+
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    container_name: aurora-rabbitmq
+    profiles: ["infra", "core", "ai", "mail", "routing", "full"]
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-aurora_admin}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-aurora_secure_password_2026!}
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    networks:
+      - aurora-local
+
+  mailhog:
+    image: mailhog/mailhog:latest
+    container_name: aurora-mailhog
+    profiles: ["infra", "full"]
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+    networks:
+      - aurora-local
+
+  # ── Core Services & BFFs ───────────────────────────────────────────────────
+  api-gateway:
+    build:
+      context: ../../
+      dockerfile: src/dotnet/BFF/API.Gateway/deploy/docker/Dockerfile
+    container_name: aurora-api-gateway
+    profiles: ["core", "full"]
+    ports:
+      - "8080:8080"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ASPNETCORE_URLS: http://+:8080
+      ReverseProxy__Clusters__staff-cluster__Destinations__staff-bff__Address: http://staff-bff:8080
+      ReverseProxy__Clusters__admin-cluster__Destinations__admin-bff__Address: http://admin-bff:8080
+      ReverseProxy__Clusters__system-cluster__Destinations__system-bff__Address: http://system-bff:8080
+    depends_on:
+      - staff-bff
+      - admin-bff
+      - system-bff
+    networks:
+      - aurora-local
+
+  staff-bff:
+    build:
+      context: ../../
+      dockerfile: src/dotnet/BFF/Staff.Bff/deploy/docker/Dockerfile
+    container_name: aurora-staff-bff
+    profiles: ["core", "full"]
+    ports:
+      - "7101:8080"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      Redis__Host: redis:6379
+      Jwt__SecretKey: ${BFF_JWT_SECRET:-insecure-dev-secret-key-at-least-32-bytes-long!}
+      Grpc__Notification__Url: http://notification-dotnet:5000
+      Grpc__Notification__ServiceApiKey: ${NOTIFICATION_SERVICE_API_KEY:-123456}
+      GrpcServices__IamTenant: http://iam-tenant:5000
+      GrpcServices__ShipmentWorkflow: http://shipment-workflow:5000
+      GrpcServices__Notification: http://notification:5000
+      GrpcServices__MailService: http://mail-service:5003
+    depends_on:
+      - postgres
+      - redis
+      - iam-tenant
+    networks:
+      - aurora-local
+
+  admin-bff:
+    build:
+      context: ../../
+      dockerfile: src/dotnet/BFF/Admin.Bff/deploy/docker/Dockerfile
+    container_name: aurora-admin-bff
+    profiles: ["core", "full"]
+    ports:
+      - "7102:8080"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      Redis__Host: redis:6379
+      Jwt__SecretKey: ${BFF_JWT_SECRET:-insecure-dev-secret-key-at-least-32-bytes-long!}
+      Grpc__Notification__Url: http://notification-dotnet:5000
+      Grpc__Notification__ServiceApiKey: ${NOTIFICATION_SERVICE_API_KEY:-123456}
+      GrpcServices__IamTenant: http://iam-tenant:5000
+      GrpcServices__AuditService: http://audit-service:9086
+    depends_on:
+      - postgres
+      - redis
+      - iam-tenant
+    networks:
+      - aurora-local
+
+  system-bff:
+    build:
+      context: ../../
+      dockerfile: src/dotnet/BFF/System.Bff/deploy/docker/Dockerfile
+    container_name: aurora-system-bff
+    profiles: ["core", "full"]
+    ports:
+      - "7103:8080"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      Redis__Host: redis:6379
+      Jwt__SecretKey: ${BFF_JWT_SECRET:-insecure-dev-secret-key-at-least-32-bytes-long!}
+      Grpc__Notification__Url: http://notification-dotnet:5000
+      Grpc__Notification__ServiceApiKey: ${NOTIFICATION_SERVICE_API_KEY:-123456}
+      GrpcServices__IamTenant: http://iam-tenant:5000
+      GrpcServices__AuditService: http://audit-service:9086
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - aurora-local
+
+  iam-tenant:
+    build:
+      context: ../../
+      dockerfile: src/dotnet/IamTenant/deploy/docker/Dockerfile
+    container_name: aurora-iam-tenant
+    profiles: ["core", "full"]
+    ports:
+      - "5001:5000"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ConnectionStrings__DefaultConnection: Host=postgres;Port=5432;Database=iam_tenant_db;Username=${POSTGRES_USER:-aurora_admin};Password=${POSTGRES_PASSWORD:-aurora_secure_password_2026!};
+      Redis__Host: redis:6379
+      AWS_REGION: ap-southeast-1
+      AWS_COGNITO_USER_POOL_ID: ${AWS_COGNITO_USER_POOL_ID:-local_pool}
+      AWS_COGNITO_CLIENT_ID: ${AWS_COGNITO_CLIENT_ID:-local_client}
+      AWS_COGNITO_CLIENT_SECRET: ${AWS_COGNITO_CLIENT_SECRET:-local_secret}
+    depends_on:
+      - postgres
+    networks:
+      - aurora-local
+
+  shipment-workflow:
+    build:
+      context: ../../
+      dockerfile: src/dotnet/ShipmentWorkflow/deploy/docker/Dockerfile
+    container_name: aurora-shipment-workflow
+    profiles: ["core", "full"]
+    ports:
+      - "5002:5000"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ConnectionStrings__DefaultConnection: Host=postgres;Port=5432;Database=shipment_workflow_db;Username=${POSTGRES_USER:-aurora_admin};Password=${POSTGRES_PASSWORD:-aurora_secure_password_2026!};
+      Redis__Host: redis:6379
+      RabbitMQ__Host: rabbitmq
+      RabbitMQ__Port: 5672
+      RabbitMQ__Username: ${RABBITMQ_USER:-aurora_admin}
+      RabbitMQ__Password: ${RABBITMQ_PASSWORD:-aurora_secure_password_2026!}
+    depends_on:
+      - postgres
+      - rabbitmq
+    networks:
+      - aurora-local
+
+  gps-tracking:
+    build:
+      context: ../../
+      dockerfile: src/dotnet/GpsTracking/deploy/docker/Dockerfile
+    container_name: aurora-gps-tracking
+    profiles: ["core", "full"]
+    ports:
+      - "5004:5000"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ConnectionStrings__DefaultConnection: Host=postgres;Port=5432;Database=gps_tracking_db;Username=${POSTGRES_USER:-aurora_admin};Password=${POSTGRES_PASSWORD:-aurora_secure_password_2026!};
+      Redis__Host: redis:6379
+      RabbitMQ__Host: rabbitmq
+      RabbitMQ__Port: 5672
+      RabbitMQ__Username: ${RABBITMQ_USER:-aurora_admin}
+      RabbitMQ__Password: ${RABBITMQ_PASSWORD:-aurora_secure_password_2026!}
+    depends_on:
+      - postgres
+      - rabbitmq
+    networks:
+      - aurora-local
+
+  billing-service:
+    build:
+      context: ../../
+      dockerfile: src/nestjs/billing-service/deploy/docker/Dockerfile
+    container_name: aurora-billing-service
+    profiles: ["core", "full"]
+    ports:
+      - "5014:5004"
+    environment:
+      NODE_ENV: development
+      PORT: 8080
+      GRPC_PORT: 5004
+      DATABASE_URL: postgresql://${POSTGRES_USER:-aurora_admin}:${POSTGRES_PASSWORD:-aurora_secure_password_2026!}@postgres:5432/billing_db?schema=public
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - aurora-local
+
+  financial-service:
+    build:
+      context: ../../
+      dockerfile: src/nestjs/financial-service/deploy/docker/Dockerfile
+    container_name: aurora-financial-service
+    profiles: ["core", "full"]
+    ports:
+      - "5013:5003"
+    environment:
+      NODE_ENV: development
+      PORT: 8080
+      GRPC_PORT: 5003
+      DATABASE_URL: postgresql://${POSTGRES_USER:-aurora_admin}:${POSTGRES_PASSWORD:-aurora_secure_password_2026!}@postgres:5432/financial_db?schema=public
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - aurora-local
+
+  realtime-hub-service:
+    build:
+      context: ../../
+      dockerfile: src/nestjs/realtime-hub-service/deploy/docker/Dockerfile
+    container_name: aurora-realtime-hub-service
+    profiles: ["core", "full"]
+    ports:
+      - "5018:5008"
+      - "8088:8080"
+    environment:
+      NODE_ENV: development
+      PORT: 8080
+      GRPC_PORT: 5008
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+    depends_on:
+      - redis
+    networks:
+      - aurora-local
+
+  audit-service:
+    build:
+      context: ../../
+      dockerfile: src/java/audit-service/deploy/docker/Dockerfile
+    container_name: aurora-audit-service
+    profiles: ["core", "full"]
+    ports:
+      - "8089:8080"
+      - "9086:9086"
+    environment:
+      SPRING_PROFILES_ACTIVE: dev
+      SERVER_PORT: 8080
+      GRPC_SERVER_PORT: 9086
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/audit_service_db
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-aurora_admin}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-aurora_secure_password_2026!}
+      SPRING_RABBITMQ_HOST: rabbitmq
+      SPRING_RABBITMQ_PORT: 5672
+      SPRING_RABBITMQ_USERNAME: ${RABBITMQ_USER:-aurora_admin}
+      SPRING_RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-aurora_secure_password_2026!}
+    depends_on:
+      - postgres
+      - rabbitmq
+    networks:
+      - aurora-local
+
+  # ── Notification Runtime Switching ─────────────────────────────────────────
+  notification-dotnet:
+    build:
+      context: ../../
+      dockerfile: src/dotnet/Notification/deploy/docker/Dockerfile
+    container_name: aurora-notification-dotnet
+    profiles: ["notification-dotnet", "full"]
+    ports:
+      - "5007:5000"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ConnectionStrings__DefaultConnection: Host=postgres;Port=5432;Database=notification_db;Username=${POSTGRES_USER:-aurora_admin};Password=${POSTGRES_PASSWORD:-aurora_secure_password_2026!};
+      Redis__Host: redis:6379
+      Grpc__Notification__Url: http://notification-dotnet:5000
+      Grpc__Notification__ServiceApiKey: ${NOTIFICATION_SERVICE_API_KEY:-123456}
+      RabbitMQ__Host: rabbitmq
+      RabbitMQ__Port: 5672
+      RabbitMQ__Username: ${RABBITMQ_USER:-aurora_admin}
+      RabbitMQ__Password: ${RABBITMQ_PASSWORD:-aurora_secure_password_2026!}
+      Smtp__Host: mailhog
+      Smtp__Port: 1025
+    depends_on:
+      - postgres
+      - rabbitmq
+      - mailhog
+    networks:
+      aurora-local:
+        aliases:
+          - notification
+
+  notification-java:
+    build:
+      context: ../../
+      dockerfile: src/java/notification-service/deploy/docker/Dockerfile
+    container_name: aurora-notification-java
+    profiles: ["notification-java"]
+    ports:
+      - "8087:8080"
+    environment:
+      SPRING_PROFILES_ACTIVE: dev
+      SERVER_PORT: 8080
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/notification_db
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-aurora_admin}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-aurora_secure_password_2026!}
+      SPRING_RABBITMQ_HOST: rabbitmq
+      SPRING_RABBITMQ_PORT: 5672
+      SPRING_RABBITMQ_USERNAME: ${RABBITMQ_USER:-aurora_admin}
+      SPRING_RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-aurora_secure_password_2026!}
+      SPRING_REDIS_HOST: redis
+      SPRING_REDIS_PORT: 6379
+    depends_on:
+      - postgres
+      - rabbitmq
+      - redis
+    networks:
+      aurora-local:
+        aliases:
+          - notification
+
+  # ── Mail Platform ──────────────────────────────────────────────────────────
+  mail-service:
+    build:
+      context: ../../
+      dockerfile: src/dotnet/MailService/deploy/docker/Dockerfile
+    container_name: aurora-mail-service
+    profiles: ["mail", "full"]
+    ports:
+      - "5008:5003"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ConnectionStrings__DefaultConnection: Host=postgres;Port=5432;Database=mail_service_db;Username=${POSTGRES_USER:-aurora_admin};Password=${POSTGRES_PASSWORD:-aurora_secure_password_2026!};
+      Redis__Host: redis:6379
+      Stalwart__AdminUrl: http://stalwart:8080
+      Stalwart__AdminApiKey: ${STALWART_ADMIN_API_KEY:-local_stalwart_dev_key}
+      ClamAV__Host: clamav
+      ClamAV__Port: 3310
+      SpamAssassin__Host: spamassassin
+      SpamAssassin__Port: 783
+      IamTenant__GrpcUrl: http://iam-tenant:5000
+    depends_on:
+      - postgres
+      - redis
+      - stalwart
+    networks:
+      - aurora-local
+
+  stalwart:
+    image: stalwartlabs/stalwart:v0.16.19
+    container_name: aurora-stalwart
+    profiles: ["mail", "full"]
+    ports:
+      - "1026:25"
+      - "8085:8080"
+    volumes:
+      - stalwart_data:/opt/stalwart-mail
+    networks:
+      - aurora-local
+
+  clamav:
+    image: clamav/clamav:latest
+    container_name: aurora-clamav
+    profiles: ["mail", "full"]
+    networks:
+      - aurora-local
+
+  spamassassin:
+    image: instantlinux/spamassassin:latest
+    container_name: aurora-spamassassin
+    profiles: ["mail", "full"]
+    networks:
+      - aurora-local
+
+  # ── AI Microservices ───────────────────────────────────────────────────────
+  ai-governance:
+    build:
+      context: ../../
+      dockerfile: src/java/ai-governance/deploy/docker/Dockerfile
+    container_name: aurora-ai-governance
+    profiles: ["ai", "full"]
+    ports:
+      - "8081:8080"
+    environment:
+      SPRING_PROFILES_ACTIVE: dev
+      SERVER_PORT: 8080
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/ai_governance_db
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-aurora_admin}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-aurora_secure_password_2026!}
+      SPRING_REDIS_HOST: redis
+      SPRING_REDIS_PORT: 6379
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-mock-dev-key}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-mock-dev-key}
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - aurora-local
+
+  devops-agent:
+    build:
+      context: ../../
+      dockerfile: src/java/devops-agent/deploy/docker/Dockerfile
+    container_name: aurora-devops-agent
+    profiles: ["ai", "full"]
+    ports:
+      - "8082:8080"
+    environment:
+      SPRING_PROFILES_ACTIVE: dev
+      SERVER_PORT: 8080
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/devops_agent_db
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-aurora_admin}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-aurora_secure_password_2026!}
+      SPRING_REDIS_HOST: redis
+      SPRING_REDIS_PORT: 6379
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-mock-dev-token}
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - aurora-local
+
+  customer-assistant-service:
+    build:
+      context: ../../
+      dockerfile: src/nestjs/customer-assistant-service/deploy/docker/Dockerfile
+    container_name: aurora-customer-assistant-service
+    profiles: ["ai", "full"]
+    ports:
+      - "5017:5007"
+    environment:
+      NODE_ENV: development
+      PORT: 8080
+      GRPC_PORT: 5007
+      DATABASE_URL: postgresql://${POSTGRES_USER:-aurora_admin}:${POSTGRES_PASSWORD:-aurora_secure_password_2026!}@postgres:5432/customer_assistant_db?schema=public
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-mock-dev-key}
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - aurora-local
+
+  negotiation-agent-service:
+    build:
+      context: ../../
+      dockerfile: src/nestjs/negotiation-agent-service/deploy/docker/Dockerfile
+    container_name: aurora-negotiation-agent-service
+    profiles: ["ai", "full"]
+    ports:
+      - "5016:5006"
+    environment:
+      NODE_ENV: development
+      PORT: 8080
+      GRPC_PORT: 5006
+      DATABASE_URL: postgresql://${POSTGRES_USER:-aurora_admin}:${POSTGRES_PASSWORD:-aurora_secure_password_2026!}@postgres:5432/negotiation_agent_db?schema=public
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-mock-dev-key}
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - aurora-local
+
+  document-ocr:
+    build:
+      context: ../../
+      dockerfile: src/dotnet/DocumentOcr/deploy/docker/Dockerfile
+    container_name: aurora-document-ocr
+    profiles: ["ai", "full"]
+    ports:
+      - "5005:5000"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ConnectionStrings__DefaultConnection: Host=postgres;Port=5432;Database=document_ocr_db;Username=${POSTGRES_USER:-aurora_admin};Password=${POSTGRES_PASSWORD:-aurora_secure_password_2026!};
+      Redis__Host: redis:6379
+      RabbitMQ__Host: rabbitmq
+      RabbitMQ__Port: 5672
+      RabbitMQ__Username: ${RABBITMQ_USER:-aurora_admin}
+      RabbitMQ__Password: ${RABBITMQ_PASSWORD:-aurora_secure_password_2026!}
+    depends_on:
+      - postgres
+      - rabbitmq
+    networks:
+      - aurora-local
+
+  regulatory-compliance:
+    build:
+      context: ../../
+      dockerfile: src/dotnet/RegulatoryCompliance/deploy/docker/Dockerfile
+    container_name: aurora-regulatory-compliance
+    profiles: ["ai", "full"]
+    ports:
+      - "5006:5000"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ConnectionStrings__DefaultConnection: Host=postgres;Port=5432;Database=regulatory_compliance_db;Username=${POSTGRES_USER:-aurora_admin};Password=${POSTGRES_PASSWORD:-aurora_secure_password_2026!};
+      Redis__Host: redis:6379
+      RabbitMQ__Host: rabbitmq
+      RabbitMQ__Port: 5672
+      RabbitMQ__Username: ${RABBITMQ_USER:-aurora_admin}
+      RabbitMQ__Password: ${RABBITMQ_PASSWORD:-aurora_secure_password_2026!}
+    depends_on:
+      - postgres
+      - rabbitmq
+    networks:
+      - aurora-local
+
+  # ── Routing Optimization ───────────────────────────────────────────────────
+  route-planning-agent:
+    build:
+      context: ../../
+      dockerfile: src/dotnet/RoutePlanningAgent/deploy/docker/Dockerfile
+    container_name: aurora-route-planning-agent
+    profiles: ["routing", "full"]
+    ports:
+      - "5003:5000"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ConnectionStrings__DefaultConnection: Host=postgres;Port=5432;Database=route_planning_db;Username=${POSTGRES_USER:-aurora_admin};Password=${POSTGRES_PASSWORD:-aurora_secure_password_2026!};
+      Redis__Host: redis:6379
+      Osrm__BaseUrl: http://osrm:5000
+      Vroom__BaseUrl: http://vroom:3000
+    depends_on:
+      - postgres
+      - redis
+      - osrm
+      - vroom
+    networks:
+      - aurora-local
+
+  osrm:
+    image: ghcr.io/project-osrm/osrm-backend:v5.27.1
+    container_name: aurora-osrm
+    profiles: ["routing", "full"]
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./data/osrm:/data:ro
+    command: ["osrm-routed", "--algorithm", "mld", "/data/central-america-260901.osrm"]
+    networks:
+      - aurora-local
+
+  vroom:
+    image: ghcr.io/vroom-project/vroom-docker:v1.15.0
+    container_name: aurora-vroom
+    profiles: ["routing", "full"]
+    ports:
+      - "3000:3000"
+    environment:
+      VROOM_ROUTER: osrm
+    depends_on:
+      - osrm
+    networks:
+      - aurora-local

@@ -7,7 +7,46 @@ VROOM dùng **OSRM** (thuật toán **MLD — Multi-Level Dijkstra**) tính ma t
 RoutePlanningAgent ──HTTP──► VROOM (:3000) ──HTTP──► OSRM (:5010, MLD)
 ```
 
-## 1. Build map data (chạy LOCAL, một lần / mỗi lần cập nhật map)
+---
+
+## 1. Storage Architecture: Azure Blob Storage
+
+Dataset bản đồ OSRM được lưu trữ và phân phối thông qua **Azure Blob Storage**:
+
+```
+Azure Storage Account (stauroradatademo)
+└── Container: osrm
+    ├── map.osrm
+    ├── map.osrm.cells
+    ├── map.osrm.cell_metrics
+    ├── map.osrm.datasource_names
+    ├── map.osrm.ebg
+    ├── map.osrm.edges
+    ├── map.osrm.enw
+    ├── map.osrm.fileIndex
+    ├── map.osrm.geometry
+    ├── map.osrm.guidance
+    ├── map.osrm.icd
+    ├── map.osrm.maneuver_overrides
+    ├── map.osrm.mldgr
+    ├── map.osrm.names
+    ├── map.osrm.nbg_nodes
+    ├── map.osrm.nodes
+    ├── map.osrm.partition
+    ├── map.osrm.properties
+    ├── map.osrm.ramIndex
+    ├── map.osrm.restrictions
+    ├── map.osrm.timestamp
+    ├── map.osrm.tld
+    ├── map.osrm.tls
+    ├── map.osrm.turn_duration_penalties
+    ├── map.osrm.turn_penalties
+    └── map.osrm.turn_weight_penalties
+```
+
+---
+
+## 2. Build map data (chạy LOCAL, một lần / mỗi lần cập nhật map)
 
 Tải OSM extract (ví dụ Việt Nam) từ Geofabrik rồi build bằng pipeline **MLD**
 (⚠ KHÔNG dùng `osrm-contract` — đó là pipeline CH):
@@ -25,28 +64,56 @@ docker run -t -v ${PWD}:/data ghcr.io/project-osrm/osrm-backend osrm-customize /
 Get-ChildItem vietnam-latest.osrm* | Rename-Item -NewName { $_.Name -replace "^vietnam-latest", "map" }
 ```
 
-## 2. Upload lên Azure Blob
+---
+
+## 3. Upload lên Azure Blob Storage
 
 ```powershell
-az storage container create --name osrm-data --connection-string $env:AZURE_STORAGE_CONNECTION_STRING
-az storage blob upload-batch --source . --pattern "map.osrm*" --destination osrm-data --connection-string $env:AZURE_STORAGE_CONNECTION_STRING
+# 1. Tạo container (nếu chưa tạo qua Terraform)
+az storage container create --name osrm-data --account-name <storage-account-name> --auth-mode login
+
+# 2. Upload toàn bộ bộ tệp map.osrm* lên container
+az storage blob upload-batch --source . --pattern "map.osrm*" --destination osrm-data --account-name <storage-account-name> --auth-mode login
 ```
 
-## 3. Chạy stack (máy dev / server)
+---
+
+## 4. Chạy stack (Dev / Server / Kubernetes)
+
+### Cách A: Dùng Azure Managed Identity / Azure CLI Login (Khuyên dùng trên AKS / VM)
 
 ```powershell
-$env:AZURE_STORAGE_CONNECTION_STRING = "<connection-string>"
-.\download-data.ps1          # kéo map.osrm* về ./data
+$env:AZURE_STORAGE_ACCOUNT_NAME = "stauroraosrmdev"
+$env:AZURE_STORAGE_CONTAINER = "osrm-data"
+
+.\download-data.ps1          # Tải map.osrm* về ./data (tự động bỏ qua nếu đã có cache)
 docker compose up -d         # OSRM :5010 + VROOM :3000
 ```
 
-Smoke test:
+Trên Linux / CI/CD:
+```bash
+export AZURE_STORAGE_ACCOUNT_NAME="stauroraosrmdev"
+export AZURE_STORAGE_CONTAINER="osrm-data"
+
+./download-data.sh
+docker compose up -d
+```
+
+### Cách B: Dùng Connection String (Local Dev Fallback)
 
 ```powershell
-# OSRM
+$env:AZURE_STORAGE_CONNECTION_STRING = "<connection-string>"
+.\download-data.ps1
+docker compose up -d
+```
+
+### Smoke Test:
+
+```powershell
+# OSRM (Port 5010)
 curl "http://localhost:5010/route/v1/driving/106.700,10.776;106.660,10.762"
 
-# VROOM (1 xe + 1 job)
+# VROOM (Port 3000)
 curl -X POST http://localhost:3000/ -H "Content-Type: application/json" -d '{
   "vehicles": [{ "id": 1, "profile": "car", "start": [106.700, 10.776] }],
   "jobs": [{ "id": 1, "location": [106.660, 10.762], "service": 300 }],
@@ -54,7 +121,9 @@ curl -X POST http://localhost:3000/ -H "Content-Type: application/json" -d '{
 }'
 ```
 
-## 4. Cấu hình RoutePlanningAgent
+---
+
+## 5. Cấu hình RoutePlanningAgent
 
 `appsettings.Development.json`:
 
@@ -65,9 +134,3 @@ curl -X POST http://localhost:3000/ -H "Content-Type: application/json" -d '{
   "TimeoutSeconds": 30
 }
 ```
-
-Ghi chú:
-- Mô hình hiện tại: **1 vehicle / route**, stop đầu tiên (Sequence nhỏ nhất) là điểm xuất phát,
-  các stop còn lại được VROOM tự tối ưu thứ tự. Multi-vehicle là follow-up.
-- VROOM trả `distance` (mét) chỉ khi bật `options.g = true` (đã bật trong config + client).
-- Điểm dừng nằm ngoài vùng map → VROOM trả `unassigned` → API trả lỗi InvalidArgument kèm tên stop.

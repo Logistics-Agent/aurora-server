@@ -1,0 +1,99 @@
+variable "cluster_name" {
+  description = "AKS Cluster name"
+  type        = string
+}
+
+variable "resource_group_name" {
+  description = "Resource group name"
+  type        = string
+}
+
+variable "location" {
+  description = "Azure region"
+  type        = string
+}
+
+variable "dns_prefix" {
+  description = "DNS prefix for the cluster"
+  type        = string
+}
+
+variable "kubernetes_version" {
+  description = "Kubernetes version"
+  type        = string
+  default     = null
+}
+
+variable "subnet_id" {
+  description = "Subnet ID for the AKS default node pool"
+  type        = string
+}
+
+variable "node_count" {
+  description = "Node count for system node pool (ignored if auto_scaling is enabled)"
+  type        = number
+  default     = 1
+}
+
+variable "enable_auto_scaling" {
+  description = "Whether to enable cluster autoscaling on the default node pool"
+  type        = bool
+  default     = false
+}
+
+variable "min_count" {
+  description = "Minimum node count for cluster autoscaler"
+  type        = number
+  default     = 1
+}
+
+variable "max_count" {
+  description = "Maximum node count for cluster autoscaler"
+  type        = number
+  default     = 2
+}
+
+variable "node_vm_size" {
+  description = "VM size for nodes"
+  type        = string
+  default     = "Standard_B2s"
+}
+
+variable "availability_zones" {
+  description = "Availability zones list (single zone in demo)"
+  type        = list(string)
+  default     = ["1"]
+}
+
+variable "attach_acr" {
+  description = "Whether to attach AcrPull role assignment for acr_id"
+  type        = bool
+  default     = false
+}
+
+variable "acr_id" {
+  description = "Optional ACR ID for AcrPull attachment"
+  type        = string
+  default     = null
+}
+
+variable "environment" {
+  description = "Environment name (demo, prod)"
+  type        = string
+  default     = "demo"
+}
+
+variable "workload_identities" {
+  description = "Map of workload identity keys to namespace and service_account"
+  type = map(object({
+    namespace       = string
+    service_account = string
+  }))
+  default = {}
+}
+
+variable "tags" {
+  description = "Resource tags"
+  type        = map(string)
+  default     = {}
+}

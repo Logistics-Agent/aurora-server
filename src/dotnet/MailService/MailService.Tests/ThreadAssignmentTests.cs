@@ -455,14 +455,14 @@ public class ThreadAssignmentTests
         var handler = new ListThreadsQueryHandler(db, mockStaffA.Object);
 
         // Scope = UNASSIGNED
-        var unassignedList = await handler.Handle(new ListThreadsQuery(null, 20, null, "UNASSIGNED"), CancellationToken.None);
-        Assert.Single(unassignedList);
-        Assert.Equal("Unassigned Pool 1", unassignedList[0].Subject);
+        var unassignedResult = await handler.Handle(new ListThreadsQuery(null, 20, null, "UNASSIGNED"), CancellationToken.None);
+        Assert.Single(unassignedResult.Threads);
+        Assert.Equal("Unassigned Pool 1", unassignedResult.Threads[0].Subject);
 
         // Scope = MY_WORK
-        var myWorkList = await handler.Handle(new ListThreadsQuery(null, 20, null, "MY_WORK"), CancellationToken.None);
-        Assert.Single(myWorkList);
-        Assert.Equal("My Work 1", myWorkList[0].Subject);
+        var myWorkResult = await handler.Handle(new ListThreadsQuery(null, 20, null, "MY_WORK"), CancellationToken.None);
+        Assert.Single(myWorkResult.Threads);
+        Assert.Equal("My Work 1", myWorkResult.Threads[0].Subject);
     }
 
     [Fact]
@@ -666,5 +666,140 @@ public class ThreadAssignmentTests
         var savedMessage = await db.ProcessedMessages.FirstOrDefaultAsync(m => m.ThreadId == thread.Id);
         Assert.NotNull(savedMessage);
         Assert.Equal(authenticatedStaffId, savedMessage.SentByUserId);
+    }
+
+    [Fact]
+    public async Task Test16_KeysetPagination_PageToken_HasMore_StableOrdering()
+    {
+        var tenantId = Guid.NewGuid();
+        var staffId = Guid.NewGuid();
+        var mailboxId = Guid.NewGuid();
+        using var db = CreateInMemoryDbContext(tenantId, staffId);
+
+        var baseTime = DateTimeOffset.UtcNow;
+        // Insert 5 threads with distinct timestamps and predictable subjects
+        var threads = new List<EmailThread>();
+        for (int i = 1; i <= 5; i++)
+        {
+            threads.Add(new EmailThread
+            {
+                Id = Guid.NewGuid(),
+                TenantId = tenantId,
+                MailboxId = mailboxId,
+                Subject = $"Thread {i}",
+                Participants = ["client@example.com"],
+                LastMessageAt = baseTime.AddMinutes(i * 10), // Thread 5 is newest, Thread 1 is oldest
+                PrimaryAssigneeUserId = staffId,
+                Status = ThreadStatus.InProgress
+            });
+        }
+        db.EmailThreads.AddRange(threads);
+        await db.SaveChangesAsync();
+
+        var mockUser = new Mock<ICurrentUserService>();
+        mockUser.Setup(u => u.TenantId).Returns(tenantId);
+        mockUser.Setup(u => u.UserId).Returns(staffId);
+        mockUser.Setup(u => u.Permissions).Returns(["mail:read"]);
+
+        var handler = new ListThreadsQueryHandler(db, mockUser.Object);
+
+        // Page 1: PageSize = 2 -> Should return Thread 5 and Thread 4, HasMore = true
+        var page1 = await handler.Handle(new ListThreadsQuery(mailboxId, 2, null, "MY_WORK"), CancellationToken.None);
+        Assert.Equal(2, page1.Threads.Count);
+        Assert.True(page1.HasMore);
+        Assert.NotNull(page1.NextPageToken);
+        Assert.Equal("Thread 5", page1.Threads[0].Subject);
+        Assert.Equal("Thread 4", page1.Threads[1].Subject);
+
+        // Page 2: Request with page1.NextPageToken -> Should return Thread 3 and Thread 2, HasMore = true
+        var page2 = await handler.Handle(new ListThreadsQuery(mailboxId, 2, page1.NextPageToken, "MY_WORK"), CancellationToken.None);
+        Assert.Equal(2, page2.Threads.Count);
+        Assert.True(page2.HasMore);
+        Assert.NotNull(page2.NextPageToken);
+        Assert.Equal("Thread 3", page2.Threads[0].Subject);
+        Assert.Equal("Thread 2", page2.Threads[1].Subject);
+
+        // Page 3: Request with page2.NextPageToken -> Should return Thread 1, HasMore = false, NextPageToken = null
+        var page3 = await handler.Handle(new ListThreadsQuery(mailboxId, 2, page2.NextPageToken, "MY_WORK"), CancellationToken.None);
+        Assert.Single(page3.Threads);
+        Assert.False(page3.HasMore);
+        Assert.Null(page3.NextPageToken);
+        Assert.Equal("Thread 1", page3.Threads[0].Subject);
+    }
+
+    [Fact]
+    public async Task Test17_KeywordSearch_FilterBySubject_Snippet_Participants()
+    {
+        var tenantId = Guid.NewGuid();
+        var staffId = Guid.NewGuid();
+        var mailboxId = Guid.NewGuid();
+        using var db = CreateInMemoryDbContext(tenantId, staffId);
+
+        db.EmailThreads.AddRange(
+            new EmailThread
+            {
+                Id = Guid.NewGuid(),
+                TenantId = tenantId,
+                MailboxId = mailboxId,
+                Subject = "Urgent Quotation Request for Freight",
+                Snippet = "Please provide cost estimate",
+                Participants = ["buyer@customer.vn"],
+                LastMessageAt = DateTimeOffset.UtcNow.AddMinutes(1),
+                PrimaryAssigneeUserId = staffId,
+                Status = ThreadStatus.InProgress
+            },
+            new EmailThread
+            {
+                Id = Guid.NewGuid(),
+                TenantId = tenantId,
+                MailboxId = mailboxId,
+                Subject = "Customs Clearance Status",
+                Snippet = "Document OCR is completed",
+                Participants = ["customs@authority.gov.vn"],
+                LastMessageAt = DateTimeOffset.UtcNow.AddMinutes(2),
+                PrimaryAssigneeUserId = staffId,
+                Status = ThreadStatus.InProgress
+            },
+            new EmailThread
+            {
+                Id = Guid.NewGuid(),
+                TenantId = tenantId,
+                MailboxId = mailboxId,
+                Subject = "General Inquiry",
+                Snippet = "Special VIP handling requested",
+                Participants = ["vip-client@global.com"],
+                LastMessageAt = DateTimeOffset.UtcNow.AddMinutes(3),
+                PrimaryAssigneeUserId = staffId,
+                Status = ThreadStatus.InProgress
+            }
+        );
+        await db.SaveChangesAsync();
+
+        var mockUser = new Mock<ICurrentUserService>();
+        mockUser.Setup(u => u.TenantId).Returns(tenantId);
+        mockUser.Setup(u => u.UserId).Returns(staffId);
+        mockUser.Setup(u => u.Permissions).Returns(["mail:read"]);
+
+        var handler = new ListThreadsQueryHandler(db, mockUser.Object);
+
+        // 1. Search in Subject ("Quotation")
+        var searchSubject = await handler.Handle(new ListThreadsQuery(mailboxId, 20, null, "MY_WORK", Search: "quotation"), CancellationToken.None);
+        Assert.Single(searchSubject.Threads);
+        Assert.Equal("Urgent Quotation Request for Freight", searchSubject.Threads[0].Subject);
+
+        // 2. Search in Snippet ("OCR")
+        var searchSnippet = await handler.Handle(new ListThreadsQuery(mailboxId, 20, null, "MY_WORK", Search: "ocr"), CancellationToken.None);
+        Assert.Single(searchSnippet.Threads);
+        Assert.Equal("Customs Clearance Status", searchSnippet.Threads[0].Subject);
+
+        // 3. Search in Snippet ("VIP")
+        var searchSnippetVip = await handler.Handle(new ListThreadsQuery(mailboxId, 20, null, "MY_WORK", Search: "vip"), CancellationToken.None);
+        Assert.Single(searchSnippetVip.Threads);
+        Assert.Equal("General Inquiry", searchSnippetVip.Threads[0].Subject);
+
+        // 4. Non-matching search
+        var searchNonMatching = await handler.Handle(new ListThreadsQuery(mailboxId, 20, null, "MY_WORK", Search: "nonexistent-keyword-xyz"), CancellationToken.None);
+        Assert.Empty(searchNonMatching.Threads);
+        Assert.False(searchNonMatching.HasMore);
     }
 }

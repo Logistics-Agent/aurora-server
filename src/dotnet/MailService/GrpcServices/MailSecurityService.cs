@@ -232,10 +232,16 @@ public class MailSecurityService : MailSecurity.MailSecurityBase
     public override async Task<ListThreadsResponse> ListThreads(ListThreadsRequest request, ServerCallContext context)
     {
         Guid? mailboxId = string.IsNullOrEmpty(request.MailboxId) ? null : Guid.Parse(request.MailboxId);
-        var threads = await _mediator.Send(new ListThreadsQuery(mailboxId, request.PageSize, request.NextPageToken, request.Scope, request.Status), context.CancellationToken);
+        string? search = string.IsNullOrWhiteSpace(request.Search) ? null : request.Search.Trim();
+        var result = await _mediator.Send(new ListThreadsQuery(mailboxId, request.PageSize, request.NextPageToken, request.Scope, request.Status, search), context.CancellationToken);
 
-        var response = new ListThreadsResponse();
-        foreach (var t in threads)
+        var response = new ListThreadsResponse
+        {
+            NextPageToken = result.NextPageToken ?? string.Empty,
+            HasMore = result.HasMore
+        };
+
+        foreach (var t in result.Threads)
         {
             var summary = new ThreadSummaryDto
             {

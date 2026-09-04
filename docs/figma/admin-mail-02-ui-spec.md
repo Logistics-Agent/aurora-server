@@ -1,639 +1,302 @@
 # Aurora Admin Mail UI — UI Specification
 
-> **Purpose:** Design input for Figma AI / Figma Make. Contains screen-by-screen specs, components, states, interactions, and responsive rules. Use alongside `admin-mail-01-product-context.md` for business context.
+> **Design Target:** Figma AI / Figma Make Component & Screen Specification  
+> **Complementary Document:** `docs/figma/admin-mail-01-product-context.md`  
+> **Source of Truth:** Audited against `.NET 10` MailService, `Admin.Bff`, `Staff.Bff`, and `PermissionConstants.cs`.
 
 ---
 
 ## 1. Design Direction
 
-**Do:**
-- Enterprise B2B, professional, operational, clean
-- Dense enough for admin work without feeling cluttered
-- Desktop-first with data tables as primary content
-- Restrained typography and consistent spacing
-- Clear visual hierarchy: title → description → actions → content
-
-**Don't:**
-- Gmail clone or consumer mail app
-- Large marketing cards, hero sections, heavy gradients
-- Excessive animations or playful illustrations
-- Rounded bubbly mobile-first layouts
+- **Aesthetic:** Enterprise B2B, security-focused, operational, clean, high-density data management.
+- **Layout Model:** Desktop-first (1440px primary viewport, 1280px supported, 1024px minimum).
+- **Core Paradigm:** Data tables with filter toolbars, action side drawers, and confirmation modals.
+- **Tone:** Professional, restrained typography, clear status signaling (Success, Warning, Critical, Neutral).
+- **Anti-Patterns:**
+  - Do **not** design a Gmail-style reading pane or composer (that is the Staff Mail UI).
+  - Do **not** design server infrastructure controls (SMTP listeners, IMAP ports, TLS certs belong to Stalwart).
+  - Do **not** use heavy marketing cards, playful illustrations, or consumer-style rounded bubbles.
 
 ---
 
-## 2. Global Layout
+## 2. Global Admin Layout & Navigation
 
-**Desktop targets:** 1440px primary, 1280px supported, 1024px minimum.
-
-```
-┌──────────────────────────────────────────────────┐
-│  Top Header (logo, tenant name, user menu)       │
-├──────────┬───────────────────────────────────────┤
-│          │                                       │
-│  Left    │  Main Content Area                    │
-│  Sidebar │                                       │
-│          │                                       │
-│          │                                       │
-└──────────┴───────────────────────────────────────┘
-```
-
-**Sidebar — Mail section (active):**
-```
-Mail
-  Overview
-  Domains
-  Mailboxes
-  Aliases
-  Quarantine
-  Audit
-```
-
-The sidebar may show other Aurora platform sections (Shipments, Routes, IAM, etc.) but Mail is the active section for these designs.
-
----
-
-## 3. Screen — Mail Overview
-
-**Route:** `/admin/mail`
-
-**Layout:**
-```
-Page Header: "Mail Overview"
-
-Summary Cards Row:
-┌──────────┐ ┌──────────────┐ ┌────────┐ ┌───────────────────┐
-│ Domains  │ │ Active       │ │ Aliases│ │ Pending           │
-│ [count]  │ │ Mailboxes    │ │ [count]│ │ Quarantine [count]│
-│          │ │ [count]      │ │        │ │                   │
-└──────────┘ └──────────────┘ └────────┘ └───────────────────┘
-
-Recent Quarantine Table (5 rows max)
-  Columns: Received, Sender, Subject, Reason, Status
-  "View all →" link
-
-Recent Audit Activity Table (5 rows max)
-  Columns: Timestamp, Actor, Action, Resource, Result
-  "View all →" link
-```
-
-**Data sources:** Summary counts come from list endpoints. If list endpoints are unavailable, cards show "—" with a note.
-
-**Do not show:** Delivery rate, server uptime, spam prevented %, or any metric the backend does not provide.
-
----
-
-## 4. Screen — Domains
-
-**Route:** `/admin/mail/domains`
-
-**Page Header:**
-```
-Title: "Domains"
-Description: "Manage email domains for your organization"
-Primary Action: "+ Add Domain" (requires mail:domain:manage)
-```
-
-**Table columns:**
-
-| Column | Source Field | Notes |
-| --- | --- | --- |
-| Domain | `DomainName` | Primary identifier |
-| Status | `Status` | Badge: Active (green), Suspended (amber) |
-| DKIM | `DkimSelector` presence | Badge: Configured / Not Set |
-| Max Mailboxes | `MaxMailboxCount` | Numeric |
-| Retention | `RetentionDays` | e.g. "365 days" |
-| Created | `CreatedAt` | Relative or absolute date |
-| Actions | — | Overflow menu |
-
-**Domain Detail — Drawer:**
-```
-Domain: example.com
-Status: Active
-DKIM Selector: aurora-2025
-DKIM TXT Record: [copyable text block]
-Max Mailboxes: 100
-Retention: 365 days
-Created: 2026-01-15
-```
-
-> The DKIM TXT record display is important — admin needs to copy this value to configure DNS.
-
-**Add Domain — Modal/Drawer:**
-```
-Fields:
-  Domain Name* (text input, FQDN validation)
-  Max Mailbox Count (number input, default 100)
-  Retention Days (number input, default 365)
-
-Actions:
-  Cancel | Add Domain
-```
-
-> **⚠ BACKEND/POLICY REVIEW:** Domain provisioning calls Stalwart management API. This is existing source behavior. UI should present it as-is but the feature may be subject to policy gating in production.
-
----
-
-## 5. Screen — Mailboxes
-
-**Route:** `/admin/mail/mailboxes`
-
-**Page Header:**
-```
-Title: "Shared Mailboxes"
-Description: "Company email accounts shared across your team"
-Primary Action: "+ Create Mailbox" (requires mail:mailbox:manage)
-```
-
-Do **not** use "Personal Mailboxes" anywhere.
-
-**Table columns:**
-
-| Column | Source Field | Notes |
-| --- | --- | --- |
-| Email Address | `FullAddress` | e.g. operations@company.com |
-| Domain | Domain `DomainName` (via `DomainId`) | |
-| Status | `Status` | Badge: Active (green), Suspended (amber), Deleted (red) |
-| Created | `CreatedAt` | |
-| Actions | — | Overflow menu |
-
-**Create Mailbox — Modal/Drawer:**
-```
-Fields:
-  Domain* (select from tenant domains)
-  Local Part* (text input, e.g. "operations")
-
-Preview: operations@selected-domain.com
-
-Actions:
-  Cancel | Create Mailbox
-```
-
-**Row Actions (overflow menu):**
-- View Details
-- Suspend (if Active) — requires confirm
-- Activate (if Suspended) — requires confirm
-- Reset Password — note: currently stub, delegated to Cognito OIDC
-
-Do **not** show Delete mailbox action (not supported by backend).
-
-**Mailbox Detail — Drawer:**
-```
-Email: operations@company.com
-Local Part: operations
-Domain: company.com
-Status: Active
-Created: 2026-03-01
+### Shell Layout Structure (1440px)
+```text
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ Header (Height: 56px) | Logo: Aurora Admin | Tenant: Acme Logistics [v] | User Menu │
+├──────────────┬──────────────────────────────────────────────────────────────┤
+│ Sidebar      │ Main Content Area (Padding: 24px 32px)                        │
+│ (Width:240px)│                                                              │
+│              │ Breadcrumbs: Admin / Mail Management / [Active Tab]          │
+│ Dashboard    │ Page Header (Title, Subtitle, Primary Action Button)         │
+│ IAM & Staff  │                                                              │
+│ ──────────── │ Filter Toolbar / Search Controls                             │
+│ > Mail Admin │                                                              │
+│   • Overview │ Data Table / Content Grid                                    │
+│   • Domains  │                                                              │
+│   • Mailboxes│                                                              │
+│   • Aliases  │ Pagination & Record Summary Footer                           │
+│   • Quarantine│                                                             │
+│   • Audit    │                                                              │
+│ ──────────── │                                                              │
+│ System Config│                                                              │
+└──────────────┴──────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## 6. Screen — Aliases
+## 3. Screen 1: Mail Overview (`/admin/mail/overview`)
 
-**Route:** `/admin/mail/aliases`
+**Purpose:** Executive posture of tenant mail resources and pending security issues.
 
-**Page Header:**
-```
-Title: "Aliases"
-Description: "Email forwarding rules for your domains"
-Primary Action: "+ Create Alias" (requires mail:mailbox:manage)
-```
+### 3.1 Metric Summary Cards (4 Columns)
+| Card Title | Value | Subtext / Indicator | Action Link |
+| :--- | :--- | :--- | :--- |
+| **Configured Domains** | `2` | `1 Pending DNS Setup` (Warning badge) | Manage Domains → |
+| **Shared Mailboxes** | `6` | `Limit: 100 max` | View Mailboxes → |
+| **Active Aliases** | `4` | Forwarding to 9 recipients | View Aliases → |
+| **Pending Quarantine** | `3` | `2 High Phishing, 1 Malware` (Critical badge) | Review Threats → |
 
-**Table columns:**
+### 3.2 Recent Security Quarantine Widget (Top 5 rows)
+- **Columns:** Received Time, Sender, Recipient Mailbox, Primary Threat Reason, Threat Score, Action (`Inspect`).
+- **Footer:** `"View all quarantined messages (3) →"`
 
-| Column | Source Field | Notes |
-| --- | --- | --- |
-| Alias Address | `AliasAddress` | e.g. info@company.com |
-| Targets | `Targets[]` | Comma-separated or chip list |
-| Domain | Domain name (via `DomainId`) | |
-| Created | `CreatedAt` | |
-| Actions | — | Overflow menu: Delete |
-
-**Create Alias — Modal/Drawer:**
-```
-Fields:
-  Domain* (select)
-  Alias Address* (text input)
-  Target Addresses* (multi-input, at least 1)
-
-Actions:
-  Cancel | Create Alias
-```
-
-**Delete Alias action:** Show confirmation dialog before proceeding.
-
-> **Note:** Delete alias API (`DELETE /admin/mail/aliases/{id}`) does not exist yet. Design the interaction; backend will follow.
+### 3.3 Recent Administrative Audit Activity Widget (Top 5 rows)
+- **Columns:** Timestamp, Actor (`TenantAdmin (3a7f)`), Action (`DomainProvisioned`, `MailboxCreated`), Resource, Result.
+- **Footer:** `"View full audit log →"`
 
 ---
 
-## 7. Screen — Quarantine
+## 4. Screen 2: Domains (`/admin/mail/domains`)
 
-**Route:** `/admin/mail/quarantine`
+**Purpose:** Manage organizational email domains and access DKIM DNS records.
 
-This is a **security-sensitive** page.
+### 4.1 Header Actions
+- **Title:** `Domains`
+- **Subtitle:** `Manage verified email domains, DKIM keys, and retention policies for your tenant.`
+- **Primary Action:** `[+ Add Domain]` *(Requires `mail:domain:manage`)*
 
-**Page Header:**
-```
-Title: "Quarantine"
-Description: "Emails flagged by security pipeline for review"
-```
+### 4.2 Domains Table
+| Column Name | Data Field | Component Type | Value Example |
+| :--- | :--- | :--- | :--- |
+| **Domain Name** | `DomainName` | Text (Bold) | `acmelogistics.com` |
+| **Status** | `Status` | Status Badge | `Active` (Green) \| `Suspended` (Gray) |
+| **DKIM Status** | `DkimSelector` | Status Badge + Popover | `DKIM Key Generated` (Blue/Neutral) |
+| **Mailboxes** | `Mailboxes.Count` | Text + Progress | `4 / 100` |
+| **Retention** | `RetentionDays` | Text | `365 days` |
+| **Created At** | `CreatedAt` | Timestamp | `2026-08-15 10:30` |
+| **Actions** | — | Button Group | `[DNS Settings]` `[...]` |
 
-No primary create action.
-
-**Filter Bar:**
-```
-Status: All | Pending | Released | Deleted
-```
-
-**Table columns:**
-
-| Column | Source Field | Notes |
-| --- | --- | --- |
-| Received | `QuarantinedAt` | Date/time |
-| Sender | ProcessedMessage → `SenderAddress` | |
-| Recipient | ProcessedMessage → `RecipientAddresses` | First or truncated |
-| Subject | ProcessedMessage → `Subject` | Truncated |
-| Reason | `QuarantineReason` | Security severity badge |
-| Spam Score | ProcessedMessage → `SpamScore` | Numeric with severity color |
-| Phishing Score | ProcessedMessage → `PhishingScore` | Numeric with severity color |
-| Status | `Status` | Badge: Pending (amber), Released (green), Deleted (red) |
-| Actions | — | Contextual per status |
-
-**Quarantine Detail — Drawer:**
-```
-Section: Message Info
-  Sender: attacker@spam.example
-  Recipients: sales@company.com
-  Subject: Urgent wire transfer
-  Received: 2026-08-15 14:32 UTC
-
-Section: Security Analysis
-  Quarantine Reason: High phishing score
-  Spam Score: 8.5 / 10    [severity badge]
-  Phishing Score: 0.92    [severity badge]
-
-  Security Checks:
-  ┌────────────────────────┬────────┬──────┐
-  │ Stage                  │ Result │ Time │
-  │ SPF Validation         │ Pass   │ 12ms │
-  │ DKIM Validation        │ Fail   │ 8ms  │
-  │ AI Phishing Detection  │ Fail   │ 340ms│
-  │ ...                    │        │      │
-  └────────────────────────┴────────┴──────┘
-
-Section: Message Preview
-  [sanitized text preview — no remote images]
-
-Section: Review
-  Reviewed By: [name or "—"]
-  Reviewed At: [date or "—"]
-
-Actions:
-  Release (requires mail:quarantine:release)
-  Delete Permanently (requires mail:quarantine:delete)
-```
-
-**Do not** render external remote images in message preview.
-
-**Security severity badge rules:**
-- Spam Score ≥ 5.0 → Warning (amber)
-- Spam Score ≥ 10.0 → Critical (red)
-- Phishing Score ≥ 0.7 → Critical (red)
+### 4.3 DNS Settings Drawer / Modal (Slide-out from Right, 520px)
+- **Header:** `DNS Configuration — acmelogistics.com`
+- **Notice Banner:** `"Publish the following DNS TXT records with your domain registrar to enable authenticated mail delivery."`
+- **Record Blocks (with One-Click Copy buttons):**
+  1. **DKIM Record**:
+     - Host / Name: `aurora-2025._domainkey.acmelogistics.com`
+     - Type: `TXT`
+     - Value: `v=DKIM1; k=rsa; p=MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8...`
+  2. **SPF Guidance Record**:
+     - Type: `TXT`
+     - Value: `v=spf1 include:relay.aurora-logistics.com ~all`
+  3. **DMARC Guidance Record**:
+     - Host: `_dmarc.acmelogistics.com`
+     - Type: `TXT`
+     - Value: `v=DMARC1; p=quarantine; rua=mailto:dmarc-reports@acmelogistics.com`
 
 ---
 
-## 8. Screen — Audit
+## 5. Screen 3: Shared Mailboxes (`/admin/mail/mailboxes`)
 
-**Route:** `/admin/mail/audit`
+**Purpose:** Manage departmental shared identities (`ops@`, `sales@`, `customs@`).
 
-**Page Header:**
-```
-Title: "Audit Log"
-Description: "Security and administrative activity trail"
-```
+### 5.1 Header Actions
+- **Title:** `Shared Mailboxes`
+- **Subtitle:** `Company communication identities used by staff teams for operational thread triage.`
+- **Primary Action:** `[+ Create Mailbox]` *(Requires `mail:mailbox:manage`)*
 
-**Filter Bar:**
-```
-Resource Type (text/select)
-Resource ID (text)
-```
-
-**Table columns:**
-
-| Column | Source Field | Notes |
-| --- | --- | --- |
-| Timestamp | `Timestamp` | Date/time, sorted desc |
-| Actor | `ActorId` + `ActorType` | Resolve to name if possible |
-| Action | `Action` | e.g. "DOMAIN_PROVISIONED", "QUARANTINE_DELETED" |
-| Resource | `ResourceType` + `ResourceId` | e.g. "Domain / abc-123" |
-| Result | `Result` | Badge: Success (green), Failure (red) |
-
-**Audit Detail — Drawer:**
-```
-Timestamp: 2026-08-15 09:12:34 UTC
-Actor: admin@company.com (TenantAdmin)
-Action: QUARANTINE_DELETED
-Resource Type: QuarantineRecord
-Resource ID: 550e8400-e29b-41d4-a716-446655440000
-Result: Success
-Details: [formatted JSON block]
-```
-
-Pagination: cursor-based, max 100 per page.
+### 5.2 Mailboxes Table
+| Column Name | Data Field | Component Type | Value Example |
+| :--- | :--- | :--- | :--- |
+| **Full Address** | `FullAddress` | Text (Bold) | `operations@acmelogistics.com` |
+| **Domain** | `DomainName` | Text (Secondary) | `acmelogistics.com` |
+| **Department / Local**| `LocalPart` | Text | `operations` |
+| **Status** | `Status` | Status Badge | `Active` (Green) \| `Suspended` (Gray) |
+| **Created At** | `CreatedAt` | Timestamp | `2026-08-18 14:20` |
+| **Actions** | — | Dropdown Menu | `Reset Credentials`, `View Audit` |
 
 ---
 
-## 9. Shared Components
+## 6. Screen 4: Aliases (`/admin/mail/aliases`)
 
-Figma should create or reuse these components:
+**Purpose:** Configure inbound email forwarding rules to one or multiple targets.
 
-| Component | Notes |
-| --- | --- |
-| Admin Sidebar | Collapsible, section grouping, active state |
-| Page Header | Title + description + optional primary action button |
-| Stat Card | Icon + label + count, clickable to navigate |
-| Data Table | Sortable headers, row hover, row click → detail |
-| Search Input | Debounced, clear button |
-| Filter Bar | Horizontal, chips or dropdowns |
-| Pagination | Page size selector + prev/next, cursor-based |
-| Status Badge | Variants: Active, Suspended, Deleted, Pending, Released |
-| Security Severity Badge | Variants: Low, Medium, High, Critical |
-| Dropdown Menu | For overflow row actions |
-| Button | Primary, Secondary, Destructive, Ghost, Icon-only |
-| Form Field | Label, input, helper text, error state |
-| Select | Single and multi-select variants |
-| Modal | For create forms, centered overlay |
-| Drawer | Right-side panel for detail views |
-| Alert / Banner | Info, Warning, Error, Success |
-| Confirmation Dialog | Standard and destructive variants |
-| Toast | Success, error, info — auto-dismiss |
-| Skeleton | Table rows, cards, drawer content |
-| Empty State | Illustration + message + optional action |
-| Error State | Error message + retry action |
-| Permission Denied State | Lock icon + "Insufficient permissions" message |
+### 6.1 Header Actions
+- **Title:** `Email Aliases`
+- **Subtitle:** `Forward incoming emails from an alias address to one or more internal mailboxes.`
+- **Primary Action:** `[+ Add Alias]` *(Requires `mail:mailbox:manage`)*
+
+### 6.2 Aliases Table
+| Column Name | Data Field | Component Type | Value Example |
+| :--- | :--- | :--- | :--- |
+| **Alias Address** | `AliasAddress` | Text (Bold) | `freight-inquiry@acmelogistics.com` |
+| **Domain** | `DomainName` | Text | `acmelogistics.com` |
+| **Target Recipients** | `Targets[]` | Chip List (Tag Group) | `[ops@...]` `[sales@...]` |
+| **Created At** | `CreatedAt` | Timestamp | `2026-08-20 09:15` |
 
 ---
 
-## 10. Table Behavior
+## 7. Screen 5: Security Quarantine (`/admin/mail/quarantine`)
 
-Desktop-first. Every table must support these states:
+**Purpose:** Review, release, or permanently purge emails flagged by security checks.
 
-| State | Behavior |
-| --- | --- |
-| Loading | Skeleton rows (5-10 shimmer rows) |
-| Empty | Empty state illustration + message |
-| Error | Error message + "Retry" button |
-| Loaded | Data rows with hover highlight |
-| Pagination | Previous / Next buttons, page size selector |
-| Row Actions | Overflow `⋯` menu on each row |
-| Row Click | Opens detail drawer |
+### 7.1 Filter Toolbar
+- **Status Filter:** Tabs or segmented button: `Pending (3)` | `Released` | `Deleted` | `All`
+- **Search:** Input field searching Sender Address, Subject, or Message-ID.
 
-Actions used infrequently belong in overflow `⋯` menu. Destructive actions must be visually distinct (red text or icon).
+### 7.2 Quarantine Table
+| Column Name | Data Field | Component Type | Value Example |
+| :--- | :--- | :--- | :--- |
+| **Quarantined At** | `QuarantinedAt` | Timestamp | `2026-08-28 09:14:22` |
+| **Sender** | `SenderAddress` | Text (Mono) | `invoice-update@suspicious-bank.com` |
+| **Recipient Mailbox**| `RecipientAddresses` | Text | `ops@acmelogistics.com` |
+| **Subject** | `Subject` | Text (Truncated) | `URGENT: Updated wire transfer instructions` |
+| **Reason** | `QuarantineReason` | Badge (Warning/Crit)| `AI Phishing (Score: 0.94)` |
+| **Spam Score** | `SpamScore` | Metric Pill | `14.2` *(Threshold: 10.0)* |
+| **Status** | `Status` | Status Badge | `Pending Review` (Yellow) |
+| **Actions** | — | Button Group | `[Inspect]` `[Release]` `[Delete]` |
 
----
-
-## 11. Required States
-
-**Every page must have:**
-```
-Loading       → skeleton content
-Loaded        → data displayed
-Empty         → no records message
-Error         → fetch failed, retry option
-Permission Denied → user lacks required permission
-```
-
-**Every form must have:**
-```
-Idle              → fields enabled, ready for input
-Validation Error  → inline field errors shown
-Submitting        → button disabled, spinner
-Server Error      → error banner with message
-Success           → toast + return to list / close drawer
-```
-
-Do not design only the happy path.
+### 7.3 Threat Inspection Drawer (Width: 640px)
+- **Header:** `Threat Analysis — Message Inspection`
+- **Status Bar:** Badge (`Pending Review`), Quarantined At timestamp, Message-ID.
+- **Section 1: Threat Scores & Security Breakdown:**
+  - **ClamAV Antivirus:** `Passed (Clean)`
+  - **SpamAssassin Score:** `14.2` (Exceeds reject threshold `10.0`)
+  - **AI Phishing / BEC Model:** `0.94 / 1.00` (High Probability Phishing)
+  - **Authentication Checks:** `SPF: FAIL`, `DKIM: NONE`, `DMARC: FAIL`
+- **Section 2: Message Headers:**
+  - Collapsible key-value inspector (From, To, Reply-To, Return-Path, Client IP).
+- **Section 3: Sandboxed Body Preview:**
+  - Isolated read-only text viewer with external images and active scripts stripped.
+- **Footer Actions:**
+  - `[Cancel / Close]`
+  - `[Release to Inbound Queue]` *(Requires `mail:quarantine:release` — Primary Outline)*
+  - `[Delete Permanently]` *(Requires `mail:quarantine:delete` — Destructive Red)*
 
 ---
 
-## 12. Permission Variants
+## 8. Screen 6: Audit Trail (`/admin/mail/audit`)
 
-Components must have variants reflecting permission state:
+**Purpose:** Immutable log of all administrative and security actions on tenant mail resources.
 
-| Scenario | Variant |
-| --- | --- |
-| User has permission | Action visible and enabled |
-| User lacks permission | Action hidden (preferred) or disabled with tooltip |
-| Read-only page | All mutation actions hidden |
+### 8.1 Filter Toolbar
+- **Resource Type Filter:** `All` | `Domain` | `Mailbox` | `Alias` | `Quarantine`
+- **Date Range Picker:** Preset ranges (`Today`, `Last 7 Days`, `Last 30 Days`).
 
-**Examples:**
+### 8.2 Audit Table
+| Column Name | Data Field | Component Type | Value Example |
+| :--- | :--- | :--- | :--- |
+| **Timestamp** | `Timestamp` | Timestamp | `2026-08-28 09:20:11 UTC` |
+| **Actor** | `ActorType` + `ActorId` | Text + Subtext | `TenantAdmin`<br/>`id: 3a7f...8812` |
+| **Action** | `Action` | Action Pill | `QuarantineReleased`, `MailboxCreated` |
+| **Resource Type** | `ResourceType` | Badge | `QuarantineRecord` |
+| **Resource ID** | `ResourceId` | Text (Mono Short) | `9a3c...44aa` |
+| **Result** | `Result` | Status Badge | `Success` (Green) \| `Failure` (Red) |
+| **Details** | `DetailJson` | Action Link | `[View JSON]` |
 
-```
-mail:mailbox:manage present → "Create Mailbox" button visible
-mail:mailbox:manage absent  → "Create Mailbox" button hidden
-
-mail:quarantine:read present  → Quarantine page accessible
-mail:quarantine:release present → "Release" button visible in detail
-mail:quarantine:delete present  → "Delete" button visible in detail
-mail:quarantine:release absent  → "Release" button hidden
-
-mail:audit:read present → Audit page accessible
-mail:audit:read absent  → Audit nav item hidden or disabled
-```
+### 8.3 Audit Detail Modal (JSON Viewer)
+- Formatted code block showing structured payload: Actor IP, mutated fields, previous/new status.
 
 ---
 
-## 13. Destructive Interactions
+## 9. Shared Components & Data Table Behavior
 
-### Delete Quarantine Record
-```
-┌────────────────────────────────────┐
-│  Delete permanently?               │
-│                                    │
-│  This message will be permanently  │
-│  removed. This action cannot be    │
-│  undone.                           │
-│                                    │
-│          [Cancel]  [Delete]        │
-│                    (red button)    │
-└────────────────────────────────────┘
-```
-
-### Release Quarantine Record
-```
-┌────────────────────────────────────┐
-│  Release message?                  │
-│                                    │
-│  The message will be released from │
-│  quarantine for further processing │
-│  and delivery.                     │
-│                                    │
-│          [Cancel]  [Release]       │
-└────────────────────────────────────┘
-```
-
-### Suspend Mailbox
-```
-┌────────────────────────────────────┐
-│  Suspend mailbox?                  │
-│                                    │
-│  operations@company.com will no    │
-│  longer send or receive email.     │
-│                                    │
-│          [Cancel]  [Suspend]       │
-│                    (amber button)  │
-└────────────────────────────────────┘
-```
+1. **Table States:**
+   - **Loading State:** Skeleton table rows (5 rows).
+   - **Empty State:** Centered icon, descriptive title (e.g. `"No Quarantined Messages"`), subtext (`"All inbound emails have passed security checks."`).
+   - **Error State:** Alert banner with retry button (`"Failed to load audit records. [Retry]"`).
+2. **Pagination:**
+   - Server-driven cursor pagination (`PageSize`: 20 default, `Previous` / `Next` controls).
+3. **Status Badges Color Scheme:**
+   - `Active` / `Success` / `Released`: Emerald (`#10B981`, light bg `#ECFDF5`)
+   - `Pending` / `Warning`: Amber (`#F59E0B`, light bg `#FFFBEB`)
+   - `Suspended` / `Neutral`: Slate (`#64748B`, light bg `#F1F5F9`)
+   - `Deleted` / `Critical` / `Malware`: Rose (`#F43F5E`, light bg `#FFF1F2`)
 
 ---
 
-## 14. Visual Hierarchy
+## 10. Forms, Drawers & Dialogs
 
-Standard page structure:
-```
-[Breadcrumb (optional)]
-[Title]
-[Description]                              [Primary Action Button]
+### 10.1 Add Domain Modal / Drawer
+- **Input 1:** `DomainName` (Text, Placeholder: `company.com`, validation: valid FQDN).
+- **Input 2:** `MaxMailboxCount` (Number, default: `100`).
+- **Input 3:** `RetentionDays` (Number, default: `365`).
+- **Actions:** `[Cancel]` | `[Provision Domain]`
 
-[Filter Bar / Search]
+### 10.2 Create Shared Mailbox Modal
+- **Input 1:** `Domain` (Dropdown selecting active tenant domain).
+- **Input 2:** `LocalPart` (Text with `@domain.com` prefix, e.g. `customs`).
+- **Hint:** `"Created mailboxes will be available for staff thread assignment."`
+- **Actions:** `[Cancel]` | `[Create Mailbox]`
 
-[Data Table]
+### 10.3 Add Alias Modal
+- **Input 1:** `Domain` (Dropdown).
+- **Input 2:** `AliasAddress` (Text, e.g. `inquiries@company.com`).
+- **Input 3:** `TargetRecipients` (Multi-select / Tag input of existing mailboxes).
+- **Actions:** `[Cancel]` | `[Add Alias]`
 
-[Pagination]
-```
-
-- Typography should be clear, restrained, and professional
-- Tables are the primary content component — not cards
-- Use cards only for overview summary stats
-- Maintain consistent spacing between sections
-- Use horizontal dividers sparingly
-
----
-
-## 15. Responsive Rules
-
-**At 1440px:**
-- Full sidebar visible
-- Full table with all columns
-- Drawers open alongside table
-
-**At 1280px:**
-- Same structure
-- Slightly tighter spacing
-- All columns remain
-
-**At 1024px:**
-- Sidebar may collapse to icons or hamburger toggle
-- Secondary table columns may hide (e.g. Retention, Max Mailboxes)
-- Detail view moves to full-width drawer or overlay
-- Filter bar may wrap to multiple lines
-
-Mobile-first design is **not required** for MVP.
+### 10.4 Delete Quarantine Record Confirmation Modal (Destructive)
+- **Title:** `"Permanently Delete Quarantined Message?"`
+- **Body:** `"This action will permanently purge message Message-ID: <...> from the system and raw storage. This action cannot be undone."`
+- **Actions:** `[Cancel]` | `[Delete Permanently (Red)]`
 
 ---
 
-## 16. Accessibility Notes
+## 11. Permission Variants & Access Control Rules
 
-Figma annotations should include:
-- Visible focus indicators on all interactive elements
-- Keyboard-navigable tables, menus, and dialogs
-- Labels on all form controls (not placeholder-only)
-- Tooltips on icon-only buttons
-- Destructive buttons use explicit text labels (not just icons)
-- Status badges use icon + text, not color alone
-- Sufficient contrast ratios (WCAG AA minimum)
-
----
-
-## 17. Prototype Flows
-
-Figma prototype should connect at minimum:
-
-**Flow A — Create Mailbox**
-```
-Mail Overview → Mailboxes → Create Mailbox → Success Toast → Mailboxes List
-```
-
-**Flow B — Mailbox Detail**
-```
-Mailboxes → Click Row → Mailbox Detail Drawer
-```
-
-**Flow C — Create Alias**
-```
-Aliases → Create Alias → Success Toast → Aliases List
-```
-
-**Flow D — Release Quarantine**
-```
-Quarantine → Click Row → Detail Drawer → Release → Confirmation → Success Toast
-```
-
-**Flow E — Delete Quarantine**
-```
-Quarantine → Click Row → Detail Drawer → Delete → Destructive Confirmation → Success Toast
-```
-
-**Flow F — Browse Audit**
-```
-Audit → Apply Filter → Click Row → Audit Detail Drawer
-```
+| User Permission Set | UI Element State |
+| :--- | :--- |
+| **Has `mail:domain:manage`** | `+ Add Domain` active. Full access to DNS drawers. |
+| **Missing `mail:domain:manage`**| `+ Add Domain` hidden or disabled with tooltip `"Requires mail:domain:manage capability"`. |
+| **Has `mail:mailbox:manage`**| `+ Create Mailbox`, `+ Add Alias`, Reset Password active. |
+| **Missing `mail:mailbox:manage`**| Mailbox and Alias creation actions disabled. |
+| **Has `mail:quarantine:delete`**| `Delete Permanently` button enabled on quarantine drawer. |
+| **Missing `mail:quarantine:delete`**| `Delete Permanently` button hidden (Tenant Admin without purge rights). |
+| **Has `mail:quarantine:release`**| `Release to Inbound` button enabled. |
 
 ---
 
-## 18. Figma Frame Checklist
+## 12. Security-Sensitive Message Preview
 
-Minimum frames to create:
-
-| # | Frame | Notes |
-| --- | --- | --- |
-| 01 | Mail Overview | Summary cards + recent tables |
-| 02 | Domains | Table view |
-| 03 | Domain Detail | Drawer with DKIM display |
-| 04 | Add Domain | Modal/drawer form |
-| 05 | Shared Mailboxes | Table view |
-| 06 | Create Mailbox | Modal/drawer form with preview |
-| 07 | Mailbox Detail | Drawer |
-| 08 | Aliases | Table view |
-| 09 | Create Alias | Modal/drawer form |
-| 10 | Quarantine | Table with filter bar |
-| 11 | Quarantine Detail | Drawer with security analysis |
-| 12 | Release Confirmation | Dialog |
-| 13 | Delete Confirmation | Destructive dialog |
-| 14 | Audit | Table with filter bar |
-| 15 | Audit Detail | Drawer |
-| 16 | Loading State | Skeleton table |
-| 17 | Empty State | No records illustration |
-| 18 | Error State | Fetch failed + retry |
-| 19 | Permission Denied | Lock + message |
-
-No need to create separate frames for each toast notification.
+Quarantine email body inspection must adhere to strict security rendering rules:
+1. **Isolated Iframe / Sandboxed Container**: Render body in a sandboxed frame with `sandbox="allow-same-origin"`, `allow-scripts` disabled.
+2. **External Resource Blocking**: Do not load external `<img>`, `<link>`, or font assets by default. Provide a button: `[Load External Assets (Unsafe)]`.
+3. **Link Defanging**: Render hyperlinks as plain text or rewrite them to prevent accidental click-throughs.
 
 ---
 
-## 19. Do Not Design
+## 13. Figma Frame Checklist
 
-The following belong to other UIs or system layers:
+When generating or constructing Figma artboards, create the following 12 distinct frames:
 
-**Staff Mail UI (separate project):**
-- Email inbox / reading pane
-- Email compose / reply / forward
-- Thread claim / reassign / unassign
-- My Work / Unassigned / All views
-- Draft management
-- Manager monitoring inbox
+- [ ] `01_Mail_Overview` — Full dashboard with metric cards and recent widgets.
+- [ ] `02_Domains_List` — Domains table with status badges and actions.
+- [ ] `03_Domains_AddModal` — Provision new domain form dialog.
+- [ ] `04_Domains_DnsDrawer` — Slide-out drawer with copyable DKIM/SPF/DMARC TXT records.
+- [ ] `05_Mailboxes_List` — Shared mailboxes inventory table.
+- [ ] `06_Mailboxes_CreateModal` — New shared department mailbox modal.
+- [ ] `07_Aliases_List` — Email aliases table with target recipient tag chips.
+- [ ] `08_Aliases_AddModal` — Create forwarding alias modal with chip input.
+- [ ] `09_Quarantine_List` — Security quarantine table with status filters.
+- [ ] `10_Quarantine_InspectDrawer` — Full threat analysis drawer with score breakdown & preview.
+- [ ] `11_Quarantine_DeleteModal` — Destructive permanent purge confirmation dialog.
+- [ ] `12_Audit_List_And_Detail` — Filterable audit table with JSON viewer open.
 
-**Stalwart Admin UI (separate system):**
-- SMTP / IMAP / JMAP listener configuration
-- Server queue management
-- Cluster configuration
-- Global TLS certificates
-- Storage backend settings
+---
 
-**Not in MVP:**
-- SLA tracking / Breached indicators
-- Team / Queue / Collaborator management
-- Auto assignment rules
-- Personal mailbox ownership
-- Mailbox membership management
-- Negotiation UI
-- Shipment UI
+## 14. Do Not Design (Out of Scope Guardrails)
+
+1. **Staff Thread Triage / Inboxes**: Do not design `UNASSIGNED`, `MY_WORK`, `Claim`, `Reply`, or email composing in this Admin UI.
+2. **Stalwart Infrastructure Controls**: Do not design SMTP listener port configs, IMAP server clustering, or certificate file uploaders.
+3. **Personal User Inboxes**: Do not design personal mailboxes or user-specific inbox folders.
+4. **Artificial Percentages**: Do not invent metrics like `"99.4% Spam Catch Rate"` or `"Server Uptime"` not backed by backend APIs.

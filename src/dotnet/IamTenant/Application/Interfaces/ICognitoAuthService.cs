@@ -22,8 +22,8 @@ public class TenantCognitoPoolsResult
 {
     public string AdminUserPoolId { get; set; } = string.Empty;
     public string AdminUserPoolClientId { get; set; } = string.Empty;
-    public string UserUserPoolId { get; set; } = string.Empty;
-    public string UserUserPoolClientId { get; set; } = string.Empty;
+    public string StaffUserPoolId { get; set; } = string.Empty;
+    public string StaffUserPoolClientId { get; set; } = string.Empty;
 }
 
 public class AuthResult

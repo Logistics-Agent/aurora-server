@@ -24,7 +24,7 @@ public class CreateTenantHandler(
         var existing = await context.Tenants
             .IgnoreQueryFilters()
             .FirstOrDefaultAsync(t => t.IdempotencyKey == request.IdempotencyKey, cancellationToken);
-            
+
         if (existing is not null)
         {
             return new TenantDto
@@ -60,8 +60,8 @@ public class CreateTenantHandler(
         var pools = await cognitoService.CreateTenantUserPoolsAsync(tenant.Code, cancellationToken);
         tenant.AdminUserPoolId = pools.AdminUserPoolId;
         tenant.AdminUserPoolClientId = pools.AdminUserPoolClientId;
-        tenant.UserUserPoolId = pools.UserUserPoolId;
-        tenant.UserUserPoolClientId = pools.UserUserPoolClientId;
+        tenant.StaffUserPoolId = pools.StaffUserPoolId;
+        tenant.StaffUserPoolClientId = pools.StaffUserPoolClientId;
 
         context.Tenants.Add(tenant);
 

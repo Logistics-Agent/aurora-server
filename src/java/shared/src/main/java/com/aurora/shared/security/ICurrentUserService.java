@@ -12,6 +12,8 @@ public interface ICurrentUserService {
     UUID getTenantId();
     String getTraceId();
     String getRole();
+
     List<String> getPermissions();
+    Integer getPermissionVersion();
     boolean isSystemAdmin();
 }

@@ -24,7 +24,5 @@
 
   <ItemGroup>
     <ProjectReference Include="../shared/shared.csproj" />
-    <ProjectReference Include="../Contracts/Shipment.Contracts/Shipment.Contracts.csproj" />
-    <ProjectReference Include="../Contracts/GpsTracking.Contracts/GpsTracking.Contracts.csproj" />
   </ItemGroup>
 </Project>

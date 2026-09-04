@@ -83,11 +83,11 @@ public class LoginCommandHandler(ICognitoAuthService cognitoService, IamTenantDb
 
         var clientId = user.Role == Shared.Enums.BaseRole.TenantAdmin
             ? tenant.AdminUserPoolClientId
-            : tenant.UserUserPoolClientId;
+            : tenant.StaffUserPoolClientId;
 
         if (string.IsNullOrWhiteSpace(clientId))
         {
-            clientId = tenant.AdminUserPoolClientId ?? tenant.UserUserPoolClientId;
+            clientId = tenant.AdminUserPoolClientId ?? tenant.StaffUserPoolClientId;
         }
 
         if (string.IsNullOrWhiteSpace(clientId))

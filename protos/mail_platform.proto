@@ -323,11 +323,13 @@ message ListThreadsRequest {
   int32  page_size       = 3; // max 100, default 20
   string scope           = 4; // "UNASSIGNED" | "MY_WORK" | "ALL" | ""
   string status          = 5; // optional "UNASSIGNED" | "IN_PROGRESS" | "WAITING_CUSTOMER" | "RESOLVED"
+  string search          = 6; // optional keyword search in subject/snippet/participants
 }
 
 message ListThreadsResponse {
   repeated ThreadSummaryDto threads = 1;
   string next_page_token            = 2;
+  bool   has_more                   = 3;
 }
 
 message ThreadSummaryDto {

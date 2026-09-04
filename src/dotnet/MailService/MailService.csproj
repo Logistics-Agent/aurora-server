@@ -35,6 +35,13 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Compile Remove="MailService.Tests\**" />
+    <Content Remove="MailService.Tests\**" />
+    <EmbeddedResource Remove="MailService.Tests\**" />
+    <None Remove="MailService.Tests\**" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\shared\shared.csproj" />
   </ItemGroup>
 

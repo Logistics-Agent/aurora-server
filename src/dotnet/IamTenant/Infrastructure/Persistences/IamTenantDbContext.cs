@@ -68,8 +68,8 @@ public class IamTenantDbContext(
             e.Property(t => t.UserGroupId).HasMaxLength(128);
             e.Property(t => t.AdminUserPoolId).HasMaxLength(128);
             e.Property(t => t.AdminUserPoolClientId).HasMaxLength(128);
-            e.Property(t => t.UserUserPoolId).HasMaxLength(128);
-            e.Property(t => t.UserUserPoolClientId).HasMaxLength(128);
+            e.Property(t => t.StaffUserPoolId).HasMaxLength(128);
+            e.Property(t => t.StaffUserPoolClientId).HasMaxLength(128);
         });
 
         modelBuilder.Entity<Permission>(e =>

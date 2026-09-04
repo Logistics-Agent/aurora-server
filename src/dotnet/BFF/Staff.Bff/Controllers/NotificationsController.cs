@@ -1,10 +1,11 @@
 using Asp.Versioning;
+using Microsoft.AspNetCore.Authorization;
 using BuildingBlocks.BFF.Attributes;
 using Grpc.Core;
 using Microsoft.AspNetCore.Mvc;
 using Notification.Grpc;
+using Google.Protobuf.WellKnownTypes;
 using Shared.Constants;
-using Shared.Security;
 
 namespace StaffBff.Controllers;
 
@@ -13,11 +14,37 @@ namespace StaffBff.Controllers;
 /// Route: /api/v1/notifications
 /// </summary>
 [ApiVersion("1.0")]
+[Authorize]
+[RequirePermission(PermissionConstants.Notification.Access)]
 public class NotificationsController(
-    NotificationService.NotificationServiceClient notifClient,
-    ICurrentUserService currentUser,
-    ILogger<NotificationsController> logger) : StaffControllerBase
+    NotificationService.NotificationServiceClient notifClient) : StaffControllerBase
 {
+    [HttpPost("devices")]
+    public async Task<IActionResult> RegisterDevice([FromBody] RegisterDeviceBody body, CancellationToken ct = default)
+    {
+        var response = await notifClient.RegisterDeviceAsync(new RegisterDeviceRequest
+        {
+            Token = body.Token ?? string.Empty,
+            Platform = body.Platform ?? string.Empty,
+            AppVersion = body.AppVersion ?? string.Empty
+        }, cancellationToken: ct);
+        return Ok(response);
+    }
+
+    [HttpDelete("devices/{id}")]
+    public async Task<IActionResult> RemoveDevice([FromRoute] string id, CancellationToken ct = default)
+    {
+        await notifClient.RemoveDeviceAsync(new RemoveDeviceRequest { Id = id }, cancellationToken: ct);
+        return NoContent();
+    }
+
+    [HttpPost("subscriptions/shipments/{shipmentId}")]
+    public async Task<IActionResult> SubscribeShipment([FromRoute] string shipmentId, CancellationToken ct = default)
+    {
+        await notifClient.SubscribeShipmentAsync(new SubscribeShipmentRequest { ShipmentId = shipmentId }, cancellationToken: ct);
+        return NoContent();
+    }
+
     [HttpGet]
     public async Task<IActionResult> ListNotifications(
         [FromQuery] int page = 1,
@@ -36,6 +63,10 @@ public class NotificationsController(
         return Ok(response);
     }
 
+    [HttpGet("unread-count")]
+    public async Task<IActionResult> GetUnreadCount(CancellationToken ct = default) =>
+        Ok(await notifClient.GetUnreadCountAsync(new GetUnreadCountRequest(), cancellationToken: ct));
+
     [HttpPatch("{id}/read")]
     public async Task<IActionResult> MarkNotificationRead(
         [FromRoute] string id,
@@ -44,8 +75,8 @@ public class NotificationsController(
         try
         {
             var req = new MarkNotificationReadRequest { Id = id };
-            var response = await notifClient.MarkNotificationReadAsync(req, cancellationToken: ct);
-            return Ok(response);
+            await notifClient.MarkNotificationReadAsync(req, cancellationToken: ct);
+            return NoContent();
         }
         catch (RpcException ex) when (ex.StatusCode == Grpc.Core.StatusCode.NotFound)
         {
@@ -53,36 +84,15 @@ public class NotificationsController(
         }
     }
 
-    [HttpGet("preferences")]
-    public async Task<IActionResult> ListNotificationPreferences(CancellationToken ct = default)
+    [HttpPatch("read-all")]
+    public async Task<IActionResult> MarkAllNotificationsRead(CancellationToken ct = default)
     {
-        var response = await notifClient.ListNotificationPreferencesAsync(
-            new ListNotificationPreferencesRequest(), cancellationToken: ct);
-        return Ok(response);
-    }
-
-    [HttpPut("preferences")]
-    public async Task<IActionResult> UpsertNotificationPreference(
-        [FromBody] UpsertNotificationPreferenceBody body,
-        CancellationToken ct = default)
-    {
-        var req = new UpsertNotificationPreferenceRequest
-        {
-            EventType = body.EventType ?? string.Empty,
-            Channel = body.Channel ?? string.Empty,
-            IsEnabled = body.IsEnabled,
-            RecipientAddress = body.RecipientAddress ?? string.Empty
-        };
-
-        var response = await notifClient.UpsertNotificationPreferenceAsync(req, cancellationToken: ct);
+        var response = await notifClient.MarkAllNotificationsReadAsync(
+            new MarkAllNotificationsReadRequest(), cancellationToken: ct);
         return Ok(response);
     }
 }
 
 // ── DTOs ───────────────────────────────────────────────────────────────────
 
-public record UpsertNotificationPreferenceBody(
-    string? EventType,
-    string? Channel,
-    bool IsEnabled,
-    string? RecipientAddress);
+public record RegisterDeviceBody(string? Token, string? Platform, string? AppVersion);

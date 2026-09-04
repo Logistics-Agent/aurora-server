@@ -1,26 +1,26 @@
 package com.aurora.aigovernance.governance.infrastructure.service;
 
-import com.aurora.aigovernance.governance.application.port.TenantPlanResolver;
-import com.aurora.aigovernance.governance.domain.enums.TenantStatus;
-import com.aurora.aigovernance.governance.domain.valueobject.TenantPlanResult;
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.aurora.common.grpc.PlanType;
-import iam.IamServiceGrpc;
-import iam.IamTenant;
-import io.grpc.Status;
-import io.grpc.StatusRuntimeException;
-import net.devh.boot.grpc.client.inject.GrpcClient;
+import java.time.Duration;
+import java.util.UUID;
+import java.util.concurrent.TimeUnit;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
-import java.time.Duration;
-import java.util.UUID;
-import java.util.concurrent.TimeUnit;
+import com.aurora.aigovernance.governance.application.port.TenantPlanResolver;
+import com.aurora.aigovernance.governance.domain.enums.TenantStatus;
+import com.aurora.aigovernance.governance.domain.valueobject.TenantPlanResult;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
+import iam.IamServiceGrpc;
+import iam.IamTenant;
+import io.grpc.Status;
+import io.grpc.StatusRuntimeException;
+import net.devh.boot.grpc.client.inject.GrpcClient;
+import org.springframework.beans.factory.annotation.Autowired;
 /**
  * Implementation of TenantPlanResolver that caches only {planCode, status, cloudAiEnabled} in Redis
  * with long TTL (default 1 hour).
@@ -43,6 +43,7 @@ public class CachedTenantPlanResolver implements TenantPlanResolver {
     private final Duration cacheTtl;
 
     @GrpcClient("iam-service")
+    @Autowired
     private IamServiceGrpc.IamServiceBlockingStub iamClient;
 
     public CachedTenantPlanResolver(

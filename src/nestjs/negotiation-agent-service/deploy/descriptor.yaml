@@ -1,0 +1,10 @@
+logicalService: negotiation-agent-service
+implementation: nestjs
+deployTarget: ai
+enabled: true
+status: ready
+
+deployment:
+  chart: aurora-service
+  values: values.yaml
+  namespace: aurora-ai

@@ -1,0 +1,9 @@
+# =============================================================================
+# Bootstrap: Remote Terraform State Variables (Shared Subscription)
+# =============================================================================
+
+subscription_id      = "<SHARED_SUBSCRIPTION_ID>"
+resource_group_name  = "rg-aurora-tfstate-demo"
+location             = "southeastasia"
+storage_account_name = "stauroratfstatedemo"
+container_name       = "tfstate"

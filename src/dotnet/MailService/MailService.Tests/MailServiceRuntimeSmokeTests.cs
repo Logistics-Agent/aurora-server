@@ -144,7 +144,7 @@ public class MailServiceRuntimeSmokeTests
         if (Directory.Exists(mailServiceDir))
         {
             var csFiles = Directory.GetFiles(mailServiceDir, "*.cs", SearchOption.AllDirectories)
-                .Where(f => !f.Contains("Migrations") && !f.Contains("DesignTime"));
+                .Where(f => !f.Contains("MailService.Tests") && !f.Contains("bin") && !f.Contains("obj") && !f.Contains("Migrations") && !f.Contains("DesignTime"));
 
             foreach (var file in csFiles)
             {
@@ -195,7 +195,8 @@ public class MailServiceRuntimeSmokeTests
         string mailServiceDir = Path.Combine(root, "src", "dotnet", "MailService");
         if (Directory.Exists(mailServiceDir))
         {
-            var csFiles = Directory.GetFiles(mailServiceDir, "*.cs", SearchOption.AllDirectories);
+            var csFiles = Directory.GetFiles(mailServiceDir, "*.cs", SearchOption.AllDirectories)
+                .Where(f => !f.Contains("MailService.Tests") && !f.Contains("bin") && !f.Contains("obj"));
 
             foreach (var file in csFiles)
             {
@@ -232,7 +233,8 @@ public class MailServiceRuntimeSmokeTests
         string mailServiceDir = Path.Combine(root, "src", "dotnet", "MailService");
         if (Directory.Exists(mailServiceDir))
         {
-            var csFiles = Directory.GetFiles(mailServiceDir, "*.cs", SearchOption.AllDirectories);
+            var csFiles = Directory.GetFiles(mailServiceDir, "*.cs", SearchOption.AllDirectories)
+                .Where(f => !f.Contains("MailService.Tests") && !f.Contains("bin") && !f.Contains("obj"));
 
             foreach (var file in csFiles)
             {

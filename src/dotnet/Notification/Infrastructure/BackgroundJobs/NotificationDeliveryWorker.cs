@@ -1,96 +1,57 @@
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Options;
-using Notification.Application.Delivery;
+using Notification.Application.Interfaces;
 using Notification.Domain.Enums;
 using Notification.Infrastructure.Persistences;
 
 namespace Notification.Infrastructure.BackgroundJobs;
 
-public sealed class NotificationDeliveryWorkerOptions
+public sealed class NotificationDeliveryWorker(IServiceScopeFactory scopes, ILogger<NotificationDeliveryWorker> logger) : BackgroundService
 {
-    public int BatchSize { get; init; } = 50;
-    public TimeSpan PollInterval { get; init; } = TimeSpan.FromSeconds(5);
-}
-
-public sealed class NotificationDeliveryWorker(
-    IServiceScopeFactory scopeFactory,
-    IOptions<NotificationDeliveryWorkerOptions> options,
-    TimeProvider timeProvider,
-    ILogger<NotificationDeliveryWorker> logger) : BackgroundService
-{
-    private readonly NotificationDeliveryWorkerOptions _options = Validate(options.Value);
-
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        while (!stoppingToken.IsCancellationRequested)
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(15));
+        while (await timer.WaitForNextTickAsync(stoppingToken))
         {
-            try
-            {
-                var notificationIds = await LoadDueNotificationIdsAsync(stoppingToken);
-                foreach (var notificationId in notificationIds)
-                {
-                    try
-                    {
-                        await using var scope = scopeFactory.CreateAsyncScope();
-                        var deliveryService = scope.ServiceProvider
-                            .GetRequiredService<INotificationDeliveryService>();
-                        await deliveryService.DeliverAsync(notificationId, stoppingToken);
-                    }
-                    catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
-                    {
-                        throw;
-                    }
-                    catch (Exception exception)
-                    {
-                        logger.LogError(
-                            exception,
-                            "Notification delivery failed for {NotificationId}.",
-                            notificationId);
-                    }
-                }
-            }
-            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
-            {
-                break;
-            }
-            catch (Exception exception)
-            {
-                logger.LogError(exception, "Notification delivery polling failed.");
-            }
-
-            await Task.Delay(_options.PollInterval, timeProvider, stoppingToken);
+            try { await ProcessRetriesAsync(stoppingToken); }
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { }
+            catch (Exception ex) { logger.LogError(ex, "Notification retry worker failed"); }
         }
     }
 
-    private async Task<IReadOnlyList<Guid>> LoadDueNotificationIdsAsync(
-        CancellationToken cancellationToken)
+    private async Task ProcessRetriesAsync(CancellationToken ct)
     {
-        await using var scope = scopeFactory.CreateAsyncScope();
-        var dbContext = scope.ServiceProvider.GetRequiredService<NotificationDbContext>();
-        var now = timeProvider.GetUtcNow();
-
-        return await dbContext.Notifications
-            .IgnoreQueryFilters()
-            .AsNoTracking()
-            .Where(item => item.Status == NotificationStatus.Pending
-                || (item.Status == NotificationStatus.Failed
-                    && item.NextAttemptAt != null
-                    && item.NextAttemptAt <= now))
-            .OrderBy(item => item.NextAttemptAt ?? item.CreatedAt)
-            .ThenBy(item => item.Id)
-            .Select(item => item.Id)
-            .Take(_options.BatchSize)
-            .ToListAsync(cancellationToken);
-    }
-
-    private static NotificationDeliveryWorkerOptions Validate(
-        NotificationDeliveryWorkerOptions options)
-    {
-        if (options.BatchSize <= 0 || options.BatchSize > 1000)
-            throw new InvalidOperationException("NotificationDelivery BatchSize must be between 1 and 1000.");
-        if (options.PollInterval <= TimeSpan.Zero)
-            throw new InvalidOperationException("NotificationDelivery PollInterval must be positive.");
-
-        return options;
+        await using var scope = scopes.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<NotificationDbContext>();
+        var provider = scope.ServiceProvider.GetRequiredService<IFcmPushProvider>();
+        var now = DateTimeOffset.UtcNow;
+        var attempts = await db.DeliveryAttempts
+            .Where(x => x.Status == DeliveryAttemptStatus.Retrying && x.AttemptCount <= 5 && x.NextAttemptAt <= now)
+            .OrderBy(x => x.NextAttemptAt)
+            .Take(100)
+            .ToListAsync(ct);
+        foreach (var attempt in attempts)
+        {
+            var notification = await db.Notifications.SingleOrDefaultAsync(x => x.Id == attempt.NotificationId, ct);
+            var device = await db.Devices.SingleOrDefaultAsync(x => x.Id == attempt.DeviceId && x.IsActive, ct);
+            if (notification is null || device is null) continue;
+            var result = await provider.SendAsync(device, new FcmMessage(notification.Title, notification.Body, new Dictionary<string, string>
+            {
+                ["notificationId"] = notification.Id.ToString(), ["type"] = notification.Type,
+                ["shipmentId"] = notification.ShipmentId?.ToString() ?? string.Empty,
+                ["actionUrl"] = notification.ActionUrl ?? "/notifications"
+            }), ct);
+            if (result.Status == FcmSendStatus.Sent) attempt.Sent(result.ProviderMessageId);
+            else if (result.Status == FcmSendStatus.InvalidToken) { attempt.Failed(result.ErrorCode ?? "invalid_token", true); device.Deactivate(); }
+            else if (attempt.AttemptCount >= 5) attempt.Failed(result.ErrorCode ?? "retry_exhausted", false);
+            else
+            {
+                var delaySeconds = Math.Min(300, 15 * Math.Pow(2, Math.Max(0, attempt.AttemptCount - 1)));
+                attempt.Retry(result.ErrorCode ?? "transient_failure", now.AddSeconds(delaySeconds));
+            }
+            await db.SaveChangesAsync(ct);
+            logger.LogInformation(
+                "Notification retry attempt {AttemptId} completed for notification {NotificationId} with status {Status}",
+                attempt.Id, notification.Id, attempt.Status);
+        }
     }
 }

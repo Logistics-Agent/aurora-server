@@ -1,0 +1,65 @@
+# =============================================================================
+# Subscription 3: SHARED Environment Variables
+# =============================================================================
+
+# 1. Subscription & Resource Group
+subscription_id     = "<SHARED_SUBSCRIPTION_ID>"
+resource_group_name = "rg-aurora-shared-demo"
+location            = "southeastasia"
+environment         = "demo"
+
+# 2. Networking
+vnet_name                     = "vnet-aurora-shared"
+vnet_cidr                     = "10.30.0.0/16"
+private_endpoints_subnet_cidr = "10.30.1.0/24"
+availability_zones            = ["1"]
+
+# 3. Optional Cross-Subscription Networking (For bidirectional peering and Private DNS links)
+# Leave empty on initial deployment of shared, update once core and ai are provisioned
+core_vnet_id = "" # "/subscriptions/<CORE_SUBSCRIPTION_ID>/resourceGroups/rg-aurora-core-demo/providers/Microsoft.Network/virtualNetworks/vnet-aurora-core"
+ai_vnet_id   = "" # "/subscriptions/<AI_SUBSCRIPTION_ID>/resourceGroups/rg-aurora-ai-demo/providers/Microsoft.Network/virtualNetworks/vnet-aurora-ai"
+
+# 4. Data Platform (Storage & Key Vault)
+application_storage_account_name = "stauroradatademo"
+key_vault_name                   = "kv-aurora-shared-demo"
+
+# 5. Azure Managed Redis (AMR) - Set to true when needed
+enable_managed_redis = false
+redis_name           = "redis-aurora-shared-demo"
+redis_sku_name       = "Enterprise_E10-2"
+
+# 6. External Services — AWS Cognito (1 User Pool + 3 App Clients: System, Admin, Staff)
+enable_aws_cognito         = false
+aws_region                 = "ap-southeast-1"
+# aws_access_key           = "<AWS_ACCESS_KEY_ID>"     # Or set AWS_ACCESS_KEY_ID env var
+# aws_secret_key           = "<AWS_SECRET_ACCESS_KEY>" # Or set AWS_SECRET_ACCESS_KEY env var
+aws_cognito_user_pool_name = "aurora-platform-demo"
+aws_iam_user_name          = "aurora-iam-tenant-demo"
+
+aws_cognito_clients = {
+  "system" = {
+    client_name            = "aurora-system-client"
+    generate_secret        = true
+    access_token_validity  = 60
+    refresh_token_validity = 30
+  }
+  "admin" = {
+    client_name            = "aurora-admin-client"
+    generate_secret        = true
+    access_token_validity  = 60
+    refresh_token_validity = 30
+  }
+  "staff" = {
+    client_name            = "aurora-staff-client"
+    generate_secret        = true
+    access_token_validity  = 60
+    refresh_token_validity = 30
+  }
+}
+
+# 7. External Services — Cloudflare R2 for Mail Service (Optional)
+enable_cloudflare_r2  = false
+cloudflare_account_id = "" # "<CLOUDFLARE_ACCOUNT_ID>"
+# cloudflare_api_token= "<CLOUDFLARE_API_TOKEN>" # Or set CLOUDFLARE_API_TOKEN env var
+r2_bucket_name        = "aurora-mail-platform"
+r2_location_hint      = "apac"

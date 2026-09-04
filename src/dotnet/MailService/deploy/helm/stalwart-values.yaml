@@ -1,0 +1,30 @@
+# =============================================================================
+# Stalwart Mail Server Config Overrides Owned by MailService
+# =============================================================================
+
+replicaCount: 1
+
+image:
+  repository: stalwartlabs/mail-server
+  tag: "v0.10.8"
+
+ports:
+  smtp:
+    enabled: true
+    port: 25
+  submission:
+    enabled: false
+    port: 587
+  imaps:
+    enabled: false
+    port: 993
+
+persistence:
+  enabled: true
+  storageClass: "managed-csi"
+  size: 10Gi
+
+service:
+  type: LoadBalancer
+  annotations:
+    service.beta.kubernetes.io/azure-load-balancer-tcp-idle-timeout: "10"

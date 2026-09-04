@@ -18,8 +18,8 @@ public class Tenant : AuditableEntity
     // AWS Cognito User Pools (Admin & User) per Tenant Code
     public string? AdminUserPoolId { get; set; }
     public string? AdminUserPoolClientId { get; set; }
-    public string? UserUserPoolId { get; set; }
-    public string? UserUserPoolClientId { get; set; }
+    public string? StaffUserPoolId { get; set; }
+    public string? StaffUserPoolClientId { get; set; }
 
     public DateTimeOffset? DeletedAt { get; set; }
     public bool IsDeleted { get; private set; }

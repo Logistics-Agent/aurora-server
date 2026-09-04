@@ -1,61 +1,61 @@
 # Notification Event Consumption
 
-Notification hiện không publish integration event. Service subscribe event của các service khác, áp dụng tenant-scoped preferences và tạo Email/InApp notification trong database riêng.
+Notification subscribes to producer events through RabbitMQ/MassTransit. Each
+producer persists its domain change and outbox row atomically. Notification owns
+only its database and never queries Shipment, GPS, OCR, or Regulatory databases.
 
-## Consumer endpoints
+## Consumers
 
-| Endpoint exchange | Consumer | Contracts |
+| Source | Event contracts | Notification consumer policy |
 | --- | --- | --- |
-| `ShipmentNotification` | `ShipmentNotificationConsumer` | 8 Shipment contracts |
-| `GpsNotification` | `GpsNotificationConsumer` | `GpsMonitoringAlertRaisedEvent` |
-| `DocumentOcrNotification` | `DocumentOcrNotificationConsumer` | OCR completed/failed |
-| `ComplianceNotification` | `ComplianceNotificationConsumer` | Compliance completed/failed |
+| Shipment Workflow | Created, Submitted, StatusChanged, Cancelled, PickedUp, Delivered, Completed, DocumentAttached | Shipment subscription audience |
+| GPS Tracking | `GpsMonitoringAlertRaisedEvent` | Shipment subscription audience when shipment ID exists |
+| Document OCR | Completed, Failed | External shipment ID when present; otherwise `NoRecipient` |
+| Regulatory Compliance | EvaluationCompleted, EvaluationFailed | External shipment ID when present; otherwise `NoRecipient` |
 
-## Consumed events
-
-| Source event | Notification event type | Title | Shipment reference |
-| --- | --- | --- | --- |
-| `ShipmentCreatedEvent` | `ShipmentCreated` | Shipment created | Required |
-| `ShipmentSubmittedEvent` | `ShipmentSubmitted` | Shipment submitted | Required |
-| `ShipmentStatusChangedEvent` | `ShipmentStatusChanged` | Shipment status updated | Required |
-| `ShipmentCancelledEvent` | `ShipmentCancelled` | Shipment cancelled | Required |
-| `ShipmentPickedUpEvent` | `ShipmentPickedUp` | Shipment picked up | Required |
-| `ShipmentDeliveredEvent` | `ShipmentDelivered` | Shipment delivered | Required |
-| `ShipmentCompletedEvent` | `ShipmentCompleted` | Shipment completed | Required |
-| `DocumentAttachedEvent` | `DocumentAttached` | Shipment document attached | Required |
-| `GpsMonitoringAlertRaisedEvent` | `GpsMonitoringAlertRaised` | GPS monitoring alert | Optional |
-| `DocumentOcrCompletedEvent` | `DocumentOcrCompleted` | Document OCR completed | Optional external shipment ID |
-| `DocumentOcrFailedEvent` | `DocumentOcrFailed` | Document OCR failed | Optional external shipment ID |
-| `ComplianceEvaluationCompletedEvent` | `ComplianceEvaluationCompleted` | Compliance evaluation completed | Required external shipment ID |
-| `ComplianceEvaluationFailedEvent` | `ComplianceEvaluationFailed` | Compliance evaluation failed | Required external shipment ID |
+The current implementation registers one consumer for each of these thirteen
+contracts. GPS position updates are intentionally not notification events.
 
 ## Processing rules
 
-1. Consumer map trusted event metadata sang bounded notification envelope.
-2. Lookup enabled preference theo `(TenantId, EventType)`; không dùng tenant của request hiện tại.
-3. Tạo một notification cho mỗi enabled recipient/channel.
-4. Ghi `ConsumedIntegrationEvent` kể cả khi không có preference để event retry không tạo kết quả khác về sau.
-5. Notification và consumed receipt được lưu trong một `SaveChangesAsync`.
-6. Unique indexes chống duplicate receipt và duplicate recipient/channel notification.
-7. OCR `NormalizedJson` không được đưa vào title/body; body tối đa 2.000 ký tự.
-8. GPS position update không được subscribe để tránh notification volume cao.
+1. Read trusted `EventId`, `TenantId`, occurrence time, and optional shipment ID
+   from the contract.
+2. Resolve only users subscribed to that shipment. There is no tenant-wide
+   fallback and no client-supplied recipient.
+3. Bound notification type/title/body before persistence. Raw OCR `NormalizedJson`,
+   credentials, and sensitive provider payloads never enter notification text or logs.
+4. Persist one `(TenantId, EventId, Rule)` receipt and all authorized per-user
+   notification projections in one transaction.
+5. For no shipment ID or zero subscribers, persist `NoRecipient` with count zero,
+   create no notification, and acknowledge the event safely.
+6. Duplicate delivery observes the unique receipt and does not create another
+   notification or FCM delivery attempt.
 
-## Example projected notification
+## FCM payload
 
 ```json
 {
-  "eventType": "GpsMonitoringAlertRaised",
-  "channel": "InApp",
-  "title": "GPS monitoring alert",
-  "body": "GeofenceExited alert for vehicle vehicle-001: Vehicle exited geofence Port.",
-  "shipmentId": null
+  "notification": {
+    "title": "Shipment delivered",
+    "body": "Shipment SHP-001 was delivered."
+  },
+  "data": {
+    "notificationId": "uuid",
+    "type": "SHIPMENT_DELIVERED",
+    "shipmentId": "uuid",
+    "actionUrl": "/shipments/uuid"
+  }
 }
 ```
 
-## Delivery behavior
+`actionUrl` is generated by Notification from an internal allowlist. The
+frontend must validate it again before navigation and must handle foreground
+and background display through Firebase Web Messaging.
 
-* InApp delivery được hoàn tất nội bộ và hỗ trợ read/unread.
-* Email đi qua provider interface; SMTP credentials chỉ đến từ deployment configuration.
-* Delivery attempt, provider message ID, lỗi, retry count và next-attempt time được persist.
-* Notification không gọi ngược database của Shipment, GPS, OCR hoặc Compliance.
+## Delivery and security
 
+FCM attempts are stored with provider IDs, bounded errors, retry count, and
+next-attempt time. `Unregistered` tokens are deactivated; transient failures
+use bounded backoff. The browser reaches Notification only through authenticated
+Staff BFF routes protected by `notifications:access`. Firebase Admin credentials
+remain server-side and are injected through runtime configuration.

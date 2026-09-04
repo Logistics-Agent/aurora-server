@@ -93,12 +93,13 @@ public class MailController(
         [FromQuery] int pageSize = 20,
         [FromQuery] string? pageToken = null,
         [FromQuery] string? scope = null,
-        [FromQuery] string? status = null)
+        [FromQuery] string? status = null,
+        [FromQuery] string? search = null)
     {
         try
         {
             var boundedPageSize = Math.Clamp(pageSize, 1, 100);
-            var result = await mailClient.ListThreadsAsync(mailboxId, boundedPageSize, pageToken, scope, status, HttpContext.RequestAborted);
+            var result = await mailClient.ListThreadsAsync(mailboxId, boundedPageSize, pageToken, scope, status, search, HttpContext.RequestAborted);
             return Ok(result);
         }
         catch (RpcException ex)

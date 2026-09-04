@@ -1,0 +1,57 @@
+nameOverride: "system-bff"
+fullnameOverride: "system-bff"
+
+image:
+  repository: acrauroracoredemo.azurecr.io/aurora/system-bff
+  tag: "latest"
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  port: 8080
+  targetPort: 8080
+
+env:
+  ASPNETCORE_ENVIRONMENT: "Production"
+  Redis__Host: "redis-aurora-shared-demo.southeastasia.redis.azure.net:10000"
+  Redis__Ssl: "true"
+  Redis__AbortConnect: "false"
+  GrpcServices__IamTenant: "http://iam-tenant:5000"
+  GrpcServices__ShipmentWorkflow: "http://shipment-workflow:5000"
+  GrpcServices__RoutePlanningAgent: "http://route-planning-agent.aurora-ai.svc.cluster.local:5000"
+  GrpcServices__GpsTracking: "http://gps-tracking:5000"
+  GrpcServices__DocumentOcr: "http://document-ocr.aurora-ai.svc.cluster.local:5000"
+  GrpcServices__RegulatoryCompliance: "http://regulatory-compliance.aurora-ai.svc.cluster.local:5000"
+  GrpcServices__Notification: "http://notification:5000"
+  GrpcServices__MailService: "http://mail-service:5003"
+  GrpcServices__AiGovernance: "http://ai-governance.aurora-ai.svc.cluster.local:9090"
+  GrpcServices__CustomerAssistant: "http://customer-assistant-service.aurora-ai.svc.cluster.local:5007"
+  GrpcServices__NegotiationAgent: "http://negotiation-agent-service.aurora-ai.svc.cluster.local:5006"
+  GrpcServices__Financial: "http://financial-service:5003"
+  GrpcServices__Billing: "http://billing-service:5004"
+
+externalSecret:
+  enabled: true
+  secretStoreRef:
+    name: azure-keyvault-store
+    kind: ClusterSecretStore
+  data:
+    - secretKey: Redis__Password
+      remoteRef:
+        key: redis-password
+    - secretKey: Jwt__SecretKey
+      remoteRef:
+        key: bff-jwt-secret
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 256Mi
+
+serviceMonitor:
+  enabled: true
+  path: /metrics
+  port: http

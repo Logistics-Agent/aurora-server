@@ -1,0 +1,43 @@
+replicaCount: 1
+
+image:
+  repository: stalwartlabs/mail-server
+  tag: "v0.10.8"
+  pullPolicy: IfNotPresent
+
+ports:
+  smtp:
+    enabled: true
+    port: 25
+    targetPort: 25
+  submission:
+    enabled: false # Optional demo conditional
+    port: 587
+    targetPort: 587
+  imaps:
+    enabled: false # Optional demo conditional
+    port: 993
+    targetPort: 993
+  admin:
+    port: 8080
+    targetPort: 8080
+
+persistence:
+  enabled: true
+  storageClass: "managed-csi"
+  accessMode: ReadWriteOnce
+  size: 10Gi
+  mountPath: /opt/stalwart-mail
+
+resources:
+  limits:
+    cpu: 1000m
+    memory: 1Gi
+  requests:
+    cpu: 250m
+    memory: 512Mi
+
+service:
+  type: LoadBalancer # Public Azure Load Balancer for SMTP
+  annotations:
+    service.beta.kubernetes.io/azure-load-balancer-tcp-idle-timeout: "10"

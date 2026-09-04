@@ -1,0 +1,3 @@
+
+ALTER TABLE audit_event_outbox
+ADD COLUMN IF NOT EXISTS version BIGINT NOT NULL DEFAULT 0;

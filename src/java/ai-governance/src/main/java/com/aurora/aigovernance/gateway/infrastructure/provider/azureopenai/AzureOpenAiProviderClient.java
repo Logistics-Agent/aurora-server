@@ -1,18 +1,5 @@
 package com.aurora.aigovernance.gateway.infrastructure.provider.azureopenai;
 
-import com.aurora.aigovernance.gateway.application.port.AiProviderClient;
-import com.aurora.aigovernance.gateway.domain.entity.ProviderSlot;
-import com.aurora.aigovernance.gateway.domain.valueobject.AiEmbeddingRequest;
-import com.aurora.aigovernance.gateway.domain.valueobject.AiEmbeddingResult;
-import com.aurora.aigovernance.gateway.domain.valueobject.AiGenerateRequest;
-import com.aurora.aigovernance.gateway.domain.valueobject.AiGenerateResult;
-import com.aurora.aigovernance.gateway.infrastructure.credential.CredentialPort;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.stereotype.Component;
-
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -22,6 +9,20 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.stereotype.Component;
+
+import com.aurora.aigovernance.gateway.application.port.AiProviderClient;
+import com.aurora.aigovernance.gateway.domain.entity.ProviderSlot;
+import com.aurora.aigovernance.gateway.domain.valueobject.AiEmbeddingRequest;
+import com.aurora.aigovernance.gateway.domain.valueobject.AiEmbeddingResult;
+import com.aurora.aigovernance.gateway.domain.valueobject.AiGenerateRequest;
+import com.aurora.aigovernance.gateway.domain.valueobject.AiGenerateResult;
+import com.aurora.aigovernance.gateway.infrastructure.credential.CredentialPort;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 /**
  * Production Azure OpenAI provider client with real Azure OpenAI HTTP REST integration.

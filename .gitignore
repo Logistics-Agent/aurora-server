@@ -8,17 +8,35 @@ Migrations*
 .env
 target/
 
-
+*.osm.pbf
+*.osrm
+*.osrm.*
 # EF migration bundles
 **/efbundle
 **/efbundle.exe
 **/artifacts/*
 !**/artifacts/.gitkeep
 # Local Codex planning and execution documents
+/docs/technical/DOCKER-LOCAL-ENVIRONMENT.md
+aurora-notification-admin.json
+
+backend.hcl
+.terraform.lock.hcl
+.terraform/
+terraform.tfstate
+terraform.tfstate.backup
+terraform.tfvars
+# Firebase service-account credentials
+/*-firebase-adminsdk-*.json
+/*firebase-service-account*.json
+/*firebase-adminsdk*.json
+/secrets/firebase/*.json
 
 dist/
 target/
 *Migrations
+!src/dotnet/Notification/Infrastructure/Persistences/Migrations/
+!src/dotnet/Notification/Infrastructure/Persistences/Migrations/*.cs
 # User-specific files
 *.rsuser
 *.suo

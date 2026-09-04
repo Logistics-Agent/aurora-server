@@ -1,0 +1,10 @@
+logicalService: notification
+implementation: dotnet
+deployTarget: core
+enabled: true
+status: ready
+
+deployment:
+  chart: aurora-service
+  values: values.yaml
+  namespace: aurora

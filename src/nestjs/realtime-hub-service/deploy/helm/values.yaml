@@ -1,0 +1,49 @@
+nameOverride: "realtime-hub-service"
+fullnameOverride: "realtime-hub-service"
+
+image:
+  repository: acrauroracoredemo.azurecr.io/aurora/realtime-hub-service
+  tag: "latest"
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  port: 5008
+  targetPort: 5008
+
+additionalPorts:
+  - name: websocket
+    port: 8080
+    targetPort: 8080
+    protocol: TCP
+
+env:
+  NODE_ENV: "production"
+  PORT: "8080"
+  GRPC_PORT: "5008"
+  REDIS_HOST: "redis-aurora-shared-demo.southeastasia.redis.azure.net"
+  REDIS_PORT: "10000"
+  REDIS_TLS: "true"
+
+externalSecret:
+  enabled: true
+  secretStoreRef:
+    name: azure-keyvault-store
+    kind: ClusterSecretStore
+  data:
+    - secretKey: REDIS_PASSWORD
+      remoteRef:
+        key: redis-password
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 256Mi
+
+serviceMonitor:
+  enabled: true
+  path: /metrics
+  port: websocket
