@@ -17,7 +17,7 @@ service NegotiationService {
   rpc GetSessionHistory  (GetSessionHistoryRequest)  returns (GetSessionHistoryResponse);
   rpc GetDraftSuggestion (GetDraftSuggestionRequest) returns (GetDraftSuggestionResponse);
 }
-
+  
 message SubmitOfferRequest {
   string shipment_id       = 1;
   string customer_id       = 2;

@@ -55,7 +55,7 @@ message CreateRouteRequest {
   double estimated_distance_km = 7;
   int32 estimated_duration_minutes = 8;
 }
-
+  
 message UpdateRouteRequest {
   string id = 1;
   string name = 2;

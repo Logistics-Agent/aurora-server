@@ -13,7 +13,7 @@ service AiGovernanceService {
   // Pre-check only. Result cannot be used as authorization token for Generate/Embed.
   rpc ExecutePolicy (ExecutePolicyRequest) returns (ExecutePolicyResponse);
 }
-
+    
 message ExecutePolicyRequest {
   string capability_code = 1;
   int64 estimated_input_tokens = 2;

@@ -14,7 +14,7 @@ service GpsTrackingService {
   rpc ListMonitoringAlerts(ListMonitoringAlertsRequest) returns (ListMonitoringAlertsResponse);
   rpc ResolveMonitoringAlert(ResolveMonitoringAlertRequest) returns (MonitoringAlertResponse);
 }
-
+  
 message IngestPositionRequest {
   string external_reading_id = 1;
   string device_id = 2;
