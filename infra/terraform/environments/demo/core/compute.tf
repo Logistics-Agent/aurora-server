@@ -24,6 +24,7 @@ module "aks" {
   node_vm_size        = var.node_vm_size
   availability_zones  = var.availability_zones
   acr_id              = module.acr.id
+  attach_acr          = true
   environment         = var.environment
 
   workload_identities = {

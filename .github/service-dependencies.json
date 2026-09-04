@@ -1,0 +1,286 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "version": "1.0.0",
+  "description": "Single Source of Truth for Aurora Microservices Dependencies and Build Metadata",
+  "services": {
+    "api-gateway": {
+      "group": "bff",
+      "stack": "dotnet",
+      "deploy_target": "core",
+      "namespace": "aurora",
+      "dockerfile": "src/dotnet/BFF/API.Gateway/deploy/docker/Dockerfile",
+      "paths": [
+        "src/dotnet/BFF/API.Gateway"
+      ]
+    },
+    "staff-bff": {
+      "group": "bff",
+      "stack": "dotnet",
+      "deploy_target": "core",
+      "namespace": "aurora",
+      "dockerfile": "src/dotnet/BFF/Staff.Bff/deploy/docker/Dockerfile",
+      "paths": [
+        "src/dotnet/BFF/Staff.Bff",
+        "src/dotnet/BFF/BuildingBlocks.BFF",
+        "src/dotnet/shared",
+        "protos/auth.proto",
+        "protos/billing.proto",
+        "protos/common.proto",
+        "protos/document_ocr.proto",
+        "protos/financial.proto",
+        "protos/gps_tracking.proto",
+        "protos/iam_tenant.proto",
+        "protos/mail_platform.proto",
+        "protos/negotiation.proto",
+        "protos/notification.proto",
+        "protos/regulatory_compliance.proto",
+        "protos/route-planning-agent.proto",
+        "protos/shipment_workflow.proto"
+      ]
+    },
+    "admin-bff": {
+      "group": "bff",
+      "stack": "dotnet",
+      "deploy_target": "core",
+      "namespace": "aurora",
+      "dockerfile": "src/dotnet/BFF/Admin.Bff/deploy/docker/Dockerfile",
+      "paths": [
+        "src/dotnet/BFF/Admin.Bff",
+        "src/dotnet/BFF/BuildingBlocks.BFF",
+        "src/dotnet/shared",
+        "protos/audit.proto",
+        "protos/common.proto",
+        "protos/document_ocr.proto",
+        "protos/iam_tenant.proto",
+        "protos/mail_platform.proto",
+        "protos/regulatory_compliance.proto",
+        "protos/route-planning-agent.proto"
+      ]
+    },
+    "system-bff": {
+      "group": "bff",
+      "stack": "dotnet",
+      "deploy_target": "core",
+      "namespace": "aurora",
+      "dockerfile": "src/dotnet/BFF/System.Bff/deploy/docker/Dockerfile",
+      "paths": [
+        "src/dotnet/BFF/System.Bff",
+        "src/dotnet/BFF/BuildingBlocks.BFF",
+        "src/dotnet/shared",
+        "protos/audit.proto",
+        "protos/common.proto",
+        "protos/iam_tenant.proto",
+        "protos/mail_platform.proto",
+        "protos/regulatory_compliance.proto"
+      ]
+    },
+    "shipment-workflow": {
+      "group": "logistics",
+      "stack": "dotnet",
+      "deploy_target": "core",
+      "namespace": "aurora",
+      "dockerfile": "src/dotnet/ShipmentWorkflow/deploy/docker/Dockerfile",
+      "paths": [
+        "src/dotnet/ShipmentWorkflow",
+        "src/dotnet/shared",
+        "protos/shipment_workflow.proto",
+        "protos/common.proto"
+      ]
+    },
+    "gps-tracking": {
+      "group": "logistics",
+      "stack": "dotnet",
+      "deploy_target": "core",
+      "namespace": "aurora",
+      "dockerfile": "src/dotnet/GpsTracking/deploy/docker/Dockerfile",
+      "paths": [
+        "src/dotnet/GpsTracking",
+        "src/dotnet/shared",
+        "protos/gps_tracking.proto"
+      ]
+    },
+    "route-planning-agent": {
+      "group": "logistics",
+      "stack": "dotnet",
+      "deploy_target": "ai",
+      "namespace": "aurora-ai",
+      "dockerfile": "src/dotnet/RoutePlanningAgent/deploy/docker/Dockerfile",
+      "paths": [
+        "src/dotnet/RoutePlanningAgent",
+        "src/dotnet/shared",
+        "protos/route-planning-agent.proto",
+        "protos/compliance_rag.proto",
+        "protos/ai_governance.proto"
+      ]
+    },
+    "iam-tenant": {
+      "group": "platform",
+      "stack": "dotnet",
+      "deploy_target": "core",
+      "namespace": "aurora",
+      "dockerfile": "src/dotnet/IamTenant/deploy/docker/Dockerfile",
+      "paths": [
+        "src/dotnet/IamTenant",
+        "src/dotnet/shared",
+        "protos/iam_tenant.proto",
+        "protos/auth.proto",
+        "protos/common.proto"
+      ]
+    },
+    "mail-service": {
+      "group": "platform",
+      "stack": "dotnet",
+      "deploy_target": "core",
+      "namespace": "aurora",
+      "dockerfile": "src/dotnet/MailService/deploy/docker/Dockerfile",
+      "paths": [
+        "src/dotnet/MailService",
+        "src/dotnet/shared",
+        "protos/mail_platform.proto",
+        "protos/common.proto",
+        "protos/ai_governance.proto"
+      ]
+    },
+    "notification": {
+      "group": "platform",
+      "stack": "dotnet",
+      "deploy_target": "core",
+      "namespace": "aurora",
+      "dockerfile": "src/dotnet/Notification/deploy/docker/Dockerfile",
+      "paths": [
+        "src/dotnet/Notification",
+        "src/dotnet/shared",
+        "protos/notification.proto",
+        "protos/common.proto"
+      ]
+    },
+    "audit-service": {
+      "group": "platform",
+      "stack": "java",
+      "java_version": "17",
+      "deploy_target": "core",
+      "namespace": "aurora",
+      "dockerfile": "src/java/audit-service/deploy/docker/Dockerfile",
+      "paths": [
+        "src/java/audit-service",
+        "protos/audit.proto"
+      ]
+    },
+    "billing-service": {
+      "group": "platform",
+      "stack": "nestjs",
+      "deploy_target": "core",
+      "namespace": "aurora",
+      "dockerfile": "src/nestjs/billing-service/deploy/docker/Dockerfile",
+      "paths": [
+        "src/nestjs/billing-service",
+        "protos/billing.proto",
+        "protos/financial.proto"
+      ]
+    },
+    "financial-service": {
+      "group": "platform",
+      "stack": "nestjs",
+      "deploy_target": "core",
+      "namespace": "aurora",
+      "dockerfile": "src/nestjs/financial-service/deploy/docker/Dockerfile",
+      "paths": [
+        "src/nestjs/financial-service",
+        "protos/financial.proto"
+      ]
+    },
+    "realtime-hub-service": {
+      "group": "platform",
+      "stack": "nestjs",
+      "deploy_target": "core",
+      "namespace": "aurora",
+      "dockerfile": "src/nestjs/realtime-hub-service/deploy/docker/Dockerfile",
+      "paths": [
+        "src/nestjs/realtime-hub-service"
+      ]
+    },
+    "document-ocr": {
+      "group": "ai",
+      "stack": "dotnet",
+      "deploy_target": "ai",
+      "namespace": "aurora-ai",
+      "dockerfile": "src/dotnet/DocumentOcr/deploy/docker/Dockerfile",
+      "paths": [
+        "src/dotnet/DocumentOcr",
+        "src/dotnet/shared",
+        "protos/document_ocr.proto",
+        "protos/ai_governance.proto"
+      ]
+    },
+    "regulatory-compliance": {
+      "group": "ai",
+      "stack": "dotnet",
+      "deploy_target": "ai",
+      "namespace": "aurora-ai",
+      "dockerfile": "src/dotnet/RegulatoryCompliance/deploy/docker/Dockerfile",
+      "paths": [
+        "src/dotnet/RegulatoryCompliance",
+        "src/dotnet/shared",
+        "protos/regulatory_compliance.proto",
+        "protos/document_ocr.proto",
+        "protos/ai_governance.proto"
+      ]
+    },
+    "ai-governance": {
+      "group": "ai",
+      "stack": "java",
+      "java_version": "21",
+      "deploy_target": "ai",
+      "namespace": "aurora-ai",
+      "dockerfile": "src/java/ai-governance/deploy/docker/Dockerfile",
+      "paths": [
+        "src/java/ai-governance",
+        "src/java/shared",
+        "protos/ai_governance.proto",
+        "protos/iam_tenant.proto",
+        "protos/common.proto"
+      ]
+    },
+    "devops-agent": {
+      "group": "ai",
+      "stack": "java",
+      "java_version": "21",
+      "deploy_target": "ai",
+      "namespace": "aurora-ai",
+      "dockerfile": "src/java/devops-agent/deploy/docker/Dockerfile",
+      "paths": [
+        "src/java/devops-agent",
+        "src/java/shared",
+        "protos/devops_agent.proto",
+        "protos/devops_rag.proto",
+        "protos/ai_governance.proto",
+        "protos/common.proto"
+      ]
+    },
+    "customer-assistant-service": {
+      "group": "ai",
+      "stack": "nestjs",
+      "deploy_target": "ai",
+      "namespace": "aurora-ai",
+      "dockerfile": "src/nestjs/customer-assistant-service/deploy/docker/Dockerfile",
+      "paths": [
+        "src/nestjs/customer-assistant-service",
+        "protos/ai_governance.proto",
+        "protos/regulatory_compliance.proto"
+      ]
+    },
+    "negotiation-agent-service": {
+      "group": "ai",
+      "stack": "nestjs",
+      "deploy_target": "ai",
+      "namespace": "aurora-ai",
+      "dockerfile": "src/nestjs/negotiation-agent-service/deploy/docker/Dockerfile",
+      "paths": [
+        "src/nestjs/negotiation-agent-service",
+        "protos/negotiation.proto",
+        "protos/ai_governance.proto"
+      ]
+    }
+  }
+}
+
