@@ -1,0 +1,193 @@
+name: CI/CD — AI Services
+
+on:
+  pull_request:
+    paths:
+      - 'src/dotnet/DocumentOcr/**'
+      - 'src/dotnet/RegulatoryCompliance/**'
+      - 'src/dotnet/shared/**'
+      - 'src/java/ai-governance/**'
+      - 'src/java/devops-agent/**'
+      - 'src/java/shared/**'
+      - 'src/nestjs/customer-assistant-service/**'
+      - 'src/nestjs/negotiation-agent-service/**'
+      - 'protos/**'
+      - '.github/service-dependencies.json'
+  push:
+    branches:
+      - main
+    paths:
+      - 'src/dotnet/DocumentOcr/**'
+      - 'src/dotnet/RegulatoryCompliance/**'
+      - 'src/dotnet/shared/**'
+      - 'src/java/ai-governance/**'
+      - 'src/java/devops-agent/**'
+      - 'src/java/shared/**'
+      - 'src/nestjs/customer-assistant-service/**'
+      - 'src/nestjs/negotiation-agent-service/**'
+      - 'protos/**'
+      - '.github/service-dependencies.json'
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  changes:
+    name: Detect Changes
+    uses: ./.github/workflows/_detect-changes.yml
+    with:
+      group: ai
+
+  # ─── Document OCR (.NET) ─────────────────────────────────
+  ci-document-ocr:
+    name: CI
+    needs: changes
+    if: needs.changes.outputs.document-ocr == 'true'
+    uses: ./.github/workflows/_ci-dotnet.yml
+    with:
+      service-name: document-ocr
+      service-path: src/dotnet/DocumentOcr
+      dockerfile-path: src/dotnet/DocumentOcr/deploy/docker/Dockerfile
+      is-deploy: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    secrets: inherit
+
+  deploy-document-ocr:
+    name: CD
+    needs: [changes, ci-document-ocr]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.changes.outputs.document-ocr == 'true'
+    uses: ./.github/workflows/_deploy-service.yml
+    with:
+      service-name: document-ocr
+      deploy-target: ai
+      namespace: aurora-ai
+      image-tag: ${{ github.sha }}
+    secrets: inherit
+
+  # ─── Regulatory Compliance (.NET) ────────────────────────
+  ci-regulatory-compliance:
+    name: CI
+    needs: changes
+    if: needs.changes.outputs.regulatory-compliance == 'true'
+    uses: ./.github/workflows/_ci-dotnet.yml
+    with:
+      service-name: regulatory-compliance
+      service-path: src/dotnet/RegulatoryCompliance
+      dockerfile-path: src/dotnet/RegulatoryCompliance/deploy/docker/Dockerfile
+      is-deploy: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    secrets: inherit
+
+  deploy-regulatory-compliance:
+    name: CD
+    needs: [changes, ci-regulatory-compliance]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.changes.outputs.regulatory-compliance == 'true'
+    uses: ./.github/workflows/_deploy-service.yml
+    with:
+      service-name: regulatory-compliance
+      deploy-target: ai
+      namespace: aurora-ai
+      image-tag: ${{ github.sha }}
+    secrets: inherit
+
+  # ─── AI Governance (Java 21) ─────────────────────────────
+  ci-ai-governance:
+    name: CI
+    needs: changes
+    if: needs.changes.outputs.ai-governance == 'true'
+    uses: ./.github/workflows/_ci-java.yml
+    with:
+      service-name: ai-governance
+      service-path: src/java/ai-governance
+      dockerfile-path: src/java/ai-governance/deploy/docker/Dockerfile
+      java-version: '21'
+      is-deploy: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    secrets: inherit
+
+  deploy-ai-governance:
+    name: CD
+    needs: [changes, ci-ai-governance]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.changes.outputs.ai-governance == 'true'
+    uses: ./.github/workflows/_deploy-service.yml
+    with:
+      service-name: ai-governance
+      deploy-target: ai
+      namespace: aurora-ai
+      image-tag: ${{ github.sha }}
+    secrets: inherit
+
+  # ─── DevOps Agent (Java 21) ──────────────────────────────
+  ci-devops-agent:
+    name: CI
+    needs: changes
+    if: needs.changes.outputs.devops-agent == 'true'
+    uses: ./.github/workflows/_ci-java.yml
+    with:
+      service-name: devops-agent
+      service-path: src/java/devops-agent
+      dockerfile-path: src/java/devops-agent/deploy/docker/Dockerfile
+      java-version: '21'
+      is-deploy: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    secrets: inherit
+
+  deploy-devops-agent:
+    name: CD
+    needs: [changes, ci-devops-agent]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.changes.outputs.devops-agent == 'true'
+    uses: ./.github/workflows/_deploy-service.yml
+    with:
+      service-name: devops-agent
+      deploy-target: ai
+      namespace: aurora-ai
+      image-tag: ${{ github.sha }}
+    secrets: inherit
+
+  # ─── Customer Assistant Service (NestJS) ─────────────────
+  ci-customer-assistant-service:
+    name: CI
+    needs: changes
+    if: needs.changes.outputs.customer-assistant-service == 'true'
+    uses: ./.github/workflows/_ci-nestjs.yml
+    with:
+      service-name: customer-assistant-service
+      service-path: src/nestjs/customer-assistant-service
+      dockerfile-path: src/nestjs/customer-assistant-service/deploy/docker/Dockerfile
+      is-deploy: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    secrets: inherit
+
+  deploy-customer-assistant-service:
+    name: CD
+    needs: [changes, ci-customer-assistant-service]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.changes.outputs.customer-assistant-service == 'true'
+    uses: ./.github/workflows/_deploy-service.yml
+    with:
+      service-name: customer-assistant-service
+      deploy-target: ai
+      namespace: aurora-ai
+      image-tag: ${{ github.sha }}
+    secrets: inherit
+
+  # ─── Negotiation Agent Service (NestJS) ──────────────────
+  ci-negotiation-agent-service:
+    name: CI
+    needs: changes
+    if: needs.changes.outputs.negotiation-agent-service == 'true'
+    uses: ./.github/workflows/_ci-nestjs.yml
+    with:
+      service-name: negotiation-agent-service
+      service-path: src/nestjs/negotiation-agent-service
+      dockerfile-path: src/nestjs/negotiation-agent-service/deploy/docker/Dockerfile
+      is-deploy: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    secrets: inherit
+
+  deploy-negotiation-agent-service:
+    name: CD
+    needs: [changes, ci-negotiation-agent-service]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.changes.outputs.negotiation-agent-service == 'true'
+    uses: ./.github/workflows/_deploy-service.yml
+    with:
+      service-name: negotiation-agent-service
+      deploy-target: ai
+      namespace: aurora-ai
+      image-tag: ${{ github.sha }}
+    secrets: inherit
+

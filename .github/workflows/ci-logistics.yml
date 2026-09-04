@@ -1,0 +1,108 @@
+name: CI/CD — Logistics Services
+
+on:
+  pull_request:
+    paths:
+      - 'src/dotnet/ShipmentWorkflow/**'
+      - 'src/dotnet/GpsTracking/**'
+      - 'src/dotnet/RoutePlanningAgent/**'
+      - 'src/dotnet/shared/**'
+      - 'protos/**'
+      - '.github/service-dependencies.json'
+  push:
+    branches:
+      - main
+    paths:
+      - 'src/dotnet/ShipmentWorkflow/**'
+      - 'src/dotnet/GpsTracking/**'
+      - 'src/dotnet/RoutePlanningAgent/**'
+      - 'src/dotnet/shared/**'
+      - 'protos/**'
+      - '.github/service-dependencies.json'
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  changes:
+    name: Detect Changes
+    uses: ./.github/workflows/_detect-changes.yml
+    with:
+      group: logistics
+
+  # ─── Shipment Workflow ───────────────────────────────────
+  ci-shipment-workflow:
+    name: CI
+    needs: changes
+    if: needs.changes.outputs.shipment-workflow == 'true'
+    uses: ./.github/workflows/_ci-dotnet.yml
+    with:
+      service-name: shipment-workflow
+      service-path: src/dotnet/ShipmentWorkflow
+      dockerfile-path: src/dotnet/ShipmentWorkflow/deploy/docker/Dockerfile
+      is-deploy: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    secrets: inherit
+
+  deploy-shipment-workflow:
+    name: CD
+    needs: [changes, ci-shipment-workflow]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.changes.outputs.shipment-workflow == 'true'
+    uses: ./.github/workflows/_deploy-service.yml
+    with:
+      service-name: shipment-workflow
+      deploy-target: core
+      namespace: aurora
+      image-tag: ${{ github.sha }}
+    secrets: inherit
+
+  # ─── GPS Tracking ────────────────────────────────────────
+  ci-gps-tracking:
+    name: CI
+    needs: changes
+    if: needs.changes.outputs.gps-tracking == 'true'
+    uses: ./.github/workflows/_ci-dotnet.yml
+    with:
+      service-name: gps-tracking
+      service-path: src/dotnet/GpsTracking
+      dockerfile-path: src/dotnet/GpsTracking/deploy/docker/Dockerfile
+      is-deploy: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    secrets: inherit
+
+  deploy-gps-tracking:
+    name: CD
+    needs: [changes, ci-gps-tracking]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.changes.outputs.gps-tracking == 'true'
+    uses: ./.github/workflows/_deploy-service.yml
+    with:
+      service-name: gps-tracking
+      deploy-target: core
+      namespace: aurora
+      image-tag: ${{ github.sha }}
+    secrets: inherit
+
+  # ─── Route Planning Agent ────────────────────────────────
+  ci-route-planning-agent:
+    name: CI
+    needs: changes
+    if: needs.changes.outputs.route-planning-agent == 'true'
+    uses: ./.github/workflows/_ci-dotnet.yml
+    with:
+      service-name: route-planning-agent
+      service-path: src/dotnet/RoutePlanningAgent
+      dockerfile-path: src/dotnet/RoutePlanningAgent/deploy/docker/Dockerfile
+      is-deploy: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    secrets: inherit
+
+  deploy-route-planning-agent:
+    name: CD
+    needs: [changes, ci-route-planning-agent]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.changes.outputs.route-planning-agent == 'true'
+    uses: ./.github/workflows/_deploy-service.yml
+    with:
+      service-name: route-planning-agent
+      deploy-target: ai
+      namespace: aurora-ai
+      image-tag: ${{ github.sha }}
+    secrets: inherit
+
