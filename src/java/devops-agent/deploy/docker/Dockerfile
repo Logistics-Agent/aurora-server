@@ -16,7 +16,8 @@ RUN --mount=type=cache,target=/root/.m2 \
     mvn -f /workspace/src/java/shared/pom.xml \
     install -DskipTests -B
 
-RUN test -f \
+RUN --mount=type=cache,target=/root/.m2 \
+    test -f \
     /root/.m2/repository/com/aurora/aurora-java-shared/1.0.0-SNAPSHOT/aurora-java-shared-1.0.0-SNAPSHOT.jar
 
 COPY src/java/devops-agent/pom.xml \

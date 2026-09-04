@@ -77,7 +77,6 @@ public class ProviderCredentialBoundaryTest {
 
     @Test
     public void testSecretResolution_OnlyHappensInsideProviderClient() {
-        GeminiProviderClient client = new GeminiProviderClient(credentialPort);
         GeminiProviderClient client = new GeminiProviderClient(
                 credentialPort,
                 HttpClient.newHttpClient(),
