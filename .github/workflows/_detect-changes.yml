@@ -7,6 +7,11 @@ on:
         description: 'Service group to filter (bff | logistics | platform | ai)'
         required: true
         type: string
+      force-all:
+        description: 'Force all services in the group to be marked as changed'
+        required: false
+        type: boolean
+        default: false
     outputs:
       # BFF group
       api-gateway:
@@ -153,7 +158,21 @@ jobs:
 
             // 4. Evaluate each service in the requested group
             const requestedGroup = '${{ inputs.group }}';
+            const forceAll = '${{ inputs.force-all }}' === 'true';
             const allServices = config.services;
+
+            if (forceAll) {
+              core.info(`force-all is set to true for group ${requestedGroup}. Marking all services in group as changed.`);
+              for (const [svcName, svcMeta] of Object.entries(allServices)) {
+                if (svcMeta.group === requestedGroup) {
+                  core.setOutput(svcName, 'true');
+                  core.info(`Service result: ${svcName} = true (forced)`);
+                } else {
+                  core.setOutput(svcName, 'false');
+                }
+              }
+              return;
+            }
 
             for (const [svcName, svcMeta] of Object.entries(allServices)) {
               if (svcMeta.group !== requestedGroup) {
