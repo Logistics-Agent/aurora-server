@@ -17,9 +17,12 @@ availability_zones = ["1"]
 # 3. Compute
 cluster_name       = "aks-ai-demo"
 dns_prefix         = "aurora-ai"
-node_count         = 2
-node_vm_size       = "Standard_D4s_v5"
-kubernetes_version = "1.30.3"
+node_count          = 1
+node_vm_size        = "Standard_B2ms"
+enable_auto_scaling = true
+min_count           = 1
+max_count           = 2
+kubernetes_version  = null # null để Azure tự động chọn bản Kubernetes mới nhất/mặc định
 
 # 4. Cross-Subscription References (Obtain from Core and Shared outputs)
 core_acr_id                                = "/subscriptions/<CORE_SUBSCRIPTION_ID>/resourceGroups/rg-aurora-core-demo/providers/Microsoft.ContainerRegistry/registries/acrauroracoredemo"

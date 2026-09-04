@@ -52,13 +52,31 @@ variable "dns_prefix" {
 }
 
 variable "kubernetes_version" {
-  description = "Kubernetes version"
+  description = "Kubernetes version (leave null for Azure default)"
   type        = string
-  default     = "1.30.3"
+  default     = null
 }
 
 variable "node_count" {
-  description = "Node count for AI system node pool"
+  description = "Node count for AI system node pool (ignored if auto_scaling is enabled)"
+  type        = number
+  default     = 1
+}
+
+variable "enable_auto_scaling" {
+  description = "Enable cluster autoscaling for AI AKS default node pool"
+  type        = bool
+  default     = true
+}
+
+variable "min_count" {
+  description = "Minimum nodes for autoscaling"
+  type        = number
+  default     = 1
+}
+
+variable "max_count" {
+  description = "Maximum nodes for autoscaling"
   type        = number
   default     = 2
 }
@@ -66,7 +84,7 @@ variable "node_count" {
 variable "node_vm_size" {
   description = "VM size for AI cluster nodes"
   type        = string
-  default     = "Standard_D4s_v5"
+  default     = "Standard_B2ms"
 }
 
 variable "core_acr_id" {

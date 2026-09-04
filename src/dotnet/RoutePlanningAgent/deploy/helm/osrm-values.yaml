@@ -10,7 +10,7 @@ serviceAccount:
   create: true
   name: sa-osrm-downloader
   annotations:
-    azure.workload.identity/client-id: "" # Injected by Terraform output osrm_reader_client_id
+    azure.workload.identity/client-id: "547620e7-95bd-4cb5-a325-d2f6415a4f4f" # Injected by Terraform output osrm_reader_client_id
 
 podLabels:
   azure.workload.identity/use: "true"
@@ -27,16 +27,11 @@ initContainers:
       - /bin/sh
       - -c
       - |
-        echo "Logging in via Workload Identity..."
-        az login --federated-token "$(cat $AZURE_FEDERATED_TOKEN_FILE)" \
-                 --authority "https://login.microsoftonline.com/$AZURE_TENANT_ID" \
-                 --client-id "$AZURE_CLIENT_ID"
-        echo "Downloading OSRM map dataset from Azure Blob Storage..."
-        az storage blob download-batch \
-          --account-name "stauroradatademo" \
-          --source "osrm" \
-          --destination "/data" \
-          --auth-mode login
+        set -e
+        echo "Logging in via Azure Workload Identity..."
+        az login --service-principal -u "$AZURE_CLIENT_ID" -t "$AZURE_TENANT_ID" --federated-token "$(cat $AZURE_FEDERATED_TOKEN_FILE)"
+        echo "Downloading OSRM dataset from Azure Blob Storage..."
+        az storage blob download-batch --account-name "stauroradatademo" --source "osrm" --destination "/data" --auth-mode login --overwrite
         echo "OSRM dataset download complete."
     volumeMounts:
       - name: osrm-data
@@ -46,7 +41,7 @@ command:
   - osrm-routed
   - --algorithm
   - mld
-  - /data/map.osrm
+  - /data/central-america-260901.osrm
 
 volumeMounts:
   - name: osrm-data

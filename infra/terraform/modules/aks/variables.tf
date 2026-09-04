@@ -21,7 +21,7 @@ variable "dns_prefix" {
 variable "kubernetes_version" {
   description = "Kubernetes version"
   type        = string
-  default     = "1.30.3"
+  default     = null
 }
 
 variable "subnet_id" {
@@ -30,15 +30,33 @@ variable "subnet_id" {
 }
 
 variable "node_count" {
-  description = "Node count for system node pool"
+  description = "Node count for system node pool (ignored if auto_scaling is enabled)"
   type        = number
   default     = 1
+}
+
+variable "enable_auto_scaling" {
+  description = "Whether to enable cluster autoscaling on the default node pool"
+  type        = bool
+  default     = false
+}
+
+variable "min_count" {
+  description = "Minimum node count for cluster autoscaler"
+  type        = number
+  default     = 1
+}
+
+variable "max_count" {
+  description = "Maximum node count for cluster autoscaler"
+  type        = number
+  default     = 2
 }
 
 variable "node_vm_size" {
   description = "VM size for nodes"
   type        = string
-  default     = "Standard_D2s_v5"
+  default     = "Standard_B2s"
 }
 
 variable "availability_zones" {
