@@ -60,6 +60,7 @@ jobs:
     uses: ./.github/workflows/_deploy-service.yml
     with:
       service-name: document-ocr
+      service-path: src/dotnet/DocumentOcr
       deploy-target: ai
       namespace: aurora-ai
       image-tag: ${{ github.sha }}
@@ -85,6 +86,7 @@ jobs:
     uses: ./.github/workflows/_deploy-service.yml
     with:
       service-name: regulatory-compliance
+      service-path: src/dotnet/RegulatoryCompliance
       deploy-target: ai
       namespace: aurora-ai
       image-tag: ${{ github.sha }}
@@ -111,6 +113,7 @@ jobs:
     uses: ./.github/workflows/_deploy-service.yml
     with:
       service-name: ai-governance
+      service-path: src/java/ai-governance
       deploy-target: ai
       namespace: aurora-ai
       image-tag: ${{ github.sha }}
@@ -137,6 +140,7 @@ jobs:
     uses: ./.github/workflows/_deploy-service.yml
     with:
       service-name: devops-agent
+      service-path: src/java/devops-agent
       deploy-target: ai
       namespace: aurora-ai
       image-tag: ${{ github.sha }}
@@ -162,6 +166,7 @@ jobs:
     uses: ./.github/workflows/_deploy-service.yml
     with:
       service-name: customer-assistant-service
+      service-path: src/nestjs/customer-assistant-service
       deploy-target: ai
       namespace: aurora-ai
       image-tag: ${{ github.sha }}
@@ -187,6 +192,7 @@ jobs:
     uses: ./.github/workflows/_deploy-service.yml
     with:
       service-name: negotiation-agent-service
+      service-path: src/nestjs/negotiation-agent-service
       deploy-target: ai
       namespace: aurora-ai
       image-tag: ${{ github.sha }}

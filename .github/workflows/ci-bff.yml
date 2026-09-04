@@ -48,6 +48,7 @@ jobs:
     uses: ./.github/workflows/_deploy-service.yml
     with:
       service-name: api-gateway
+      service-path: src/dotnet/BFF/API.Gateway
       deploy-target: core
       namespace: aurora
       image-tag: ${{ github.sha }}
@@ -73,6 +74,7 @@ jobs:
     uses: ./.github/workflows/_deploy-service.yml
     with:
       service-name: staff-bff
+      service-path: src/dotnet/BFF/Staff.Bff
       deploy-target: core
       namespace: aurora
       image-tag: ${{ github.sha }}
@@ -98,6 +100,7 @@ jobs:
     uses: ./.github/workflows/_deploy-service.yml
     with:
       service-name: admin-bff
+      service-path: src/dotnet/BFF/Admin.Bff
       deploy-target: core
       namespace: aurora
       image-tag: ${{ github.sha }}
@@ -123,6 +126,7 @@ jobs:
     uses: ./.github/workflows/_deploy-service.yml
     with:
       service-name: system-bff
+      service-path: src/dotnet/BFF/System.Bff
       deploy-target: core
       namespace: aurora
       image-tag: ${{ github.sha }}

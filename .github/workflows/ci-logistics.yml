@@ -52,6 +52,7 @@ jobs:
     uses: ./.github/workflows/_deploy-service.yml
     with:
       service-name: shipment-workflow
+      service-path: src/dotnet/ShipmentWorkflow
       deploy-target: core
       namespace: aurora
       image-tag: ${{ github.sha }}
@@ -77,6 +78,7 @@ jobs:
     uses: ./.github/workflows/_deploy-service.yml
     with:
       service-name: gps-tracking
+      service-path: src/dotnet/GpsTracking
       deploy-target: core
       namespace: aurora
       image-tag: ${{ github.sha }}
@@ -102,6 +104,7 @@ jobs:
     uses: ./.github/workflows/_deploy-service.yml
     with:
       service-name: route-planning-agent
+      service-path: src/dotnet/RoutePlanningAgent
       deploy-target: ai
       namespace: aurora-ai
       image-tag: ${{ github.sha }}
