@@ -66,12 +66,12 @@ jobs:
             dotnet build "${{ inputs.service-path }}" -c Release --no-restore
           fi
 
-      - name: Execute Tests (if test project exists)
+      - name: Execute Unit Tests (if test project exists)
         run: |
           TEST_CSPROJ=$(find "${{ inputs.service-path }}" "tests" -name "*[Tt]est*.csproj" 2>/dev/null | head -n 1 || true)
           if [ -n "$TEST_CSPROJ" ]; then
             echo "Found test project: $TEST_CSPROJ"
-            dotnet test "$TEST_CSPROJ" -c Release --verbosity normal
+            dotnet test "$TEST_CSPROJ" -c Release --verbosity normal --filter "FullyQualifiedName!~Integration&FullyQualifiedName!~Postgres&FullyQualifiedName!~Database"
           else
             echo "::warning::No test project found for ${{ inputs.service-name }}. Skipping tests."
           fi

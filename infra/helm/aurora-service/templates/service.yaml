@@ -11,8 +11,11 @@ spec:
       targetPort: {{ .Values.service.targetPort | default .Values.service.port }}
       protocol: {{ .Values.service.protocol | default "TCP" }}
       name: {{ .Values.service.name | default "http" }}
-    {{- with .Values.additionalPorts }}
-    {{- toYaml . | nindent 4 }}
+    {{- range .Values.additionalPorts }}
+    - name: {{ .name }}
+      port: {{ .port }}
+      targetPort: {{ .targetPort | default .containerPort | default .port }}
+      protocol: {{ .protocol | default "TCP" }}
     {{- end }}
   selector:
     {{- include "aurora-service.selectorLabels" . | nindent 4 }}

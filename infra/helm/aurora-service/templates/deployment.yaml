@@ -52,9 +52,10 @@ spec:
           ports:
             - name: {{ .Values.service.name | default "http" }}
               containerPort: {{ .Values.service.targetPort | default .Values.service.port }}
-              protocol: {{ .Values.service.protocol | default "TCP" }}
-            {{- with .Values.additionalPorts }}
-            {{- toYaml . | nindent 12 }}
+            {{- range .Values.additionalPorts }}
+            - name: {{ .name }}
+              containerPort: {{ .containerPort | default .targetPort | default .port }}
+              protocol: {{ .protocol | default "TCP" }}
             {{- end }}
           envFrom:
             {{- if .Values.env }}
