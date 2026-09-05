@@ -17,7 +17,7 @@ message QueryKnowledgeRequest {
   string service_context = 3;
   int32 top_k = 4;
 }
-      
+          
 message KnowledgeEntrySnippet {
   string entry_id = 1;
   string title = 2;

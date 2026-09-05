@@ -12,7 +12,7 @@ message CheckRouteComplianceRequest {
   string tenant_id = 1;
   string route_json = 2;
   repeated string risk_reasons = 3;
-}
+}   
       
 message CheckRouteComplianceResponse {
   bool has_violations = 1;

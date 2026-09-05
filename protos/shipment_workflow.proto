@@ -17,7 +17,7 @@ service ShipmentWorkflowService {
   
     rpc UpdateShipmentStatus(UpdateShipmentStatusRequest)
     returns (ShipmentResponse);
-
+            
     rpc GetShipmentTimeline(GetShipmentTimelineRequest)
     returns (ShipmentTimelineResponse);
 

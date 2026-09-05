@@ -7,7 +7,7 @@ option csharp_namespace = "Auth.Grpc";
 
 
 service AuthService {
-
+    
   rpc IdentifyUser(IdentifyUserRequest)
       returns (IdentifyUserResponse);
   

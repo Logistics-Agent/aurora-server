@@ -7,7 +7,7 @@ import "google/protobuf/timestamp.proto";
 option csharp_namespace = "Audit.Grpc";
 option java_package = "com.aurora.audit.grpc";
 option java_multiple_files = true;
-  
+    
 service AuditLogService {
   // Method 1: Dành cho System / Dev / Platform Owner
   rpc GetSystemAuditLogs (GetSystemAuditLogsRequest) returns (AuditLogsResponse);

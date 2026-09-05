@@ -15,7 +15,7 @@ service RegulatoryComplianceService {
   rpc QueryKnowledge(QueryKnowledgeRequest) returns (QueryKnowledgeResponse);
   rpc GenerateGroundedAnswer(GenerateGroundedAnswerRequest) returns (GenerateGroundedAnswerResponse);
   rpc ValidateGroundedEvidence(ValidateGroundedEvidenceRequest) returns (ValidateGroundedEvidenceResponse);
-}
+}     
     
 enum ComplianceEvaluationStatus {
   COMPLIANCE_EVALUATION_STATUS_UNSPECIFIED = 0;

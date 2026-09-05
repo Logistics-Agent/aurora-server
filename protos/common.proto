@@ -9,8 +9,8 @@ enum PlanType {
   PLAN_TYPE_UNSPECIFIED = 0;
   STANDARD = 1;
   ENTERPRISE = 2;
-}
-    
+}   
+        
 enum TenantStatus {
   TENANT_STATUS_UNSPECIFIED = 0;
   TENANT_STATUS_ACTIVE = 1;
