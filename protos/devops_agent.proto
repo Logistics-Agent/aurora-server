@@ -22,7 +22,7 @@ service DevOpsIncidentService {
   rpc ApproveIncident (ApproveIncidentRequest) returns (ApprovalOperationResponse);
   rpc RejectIncident (RejectIncidentRequest) returns (ApprovalOperationResponse);
 }
-
+    
 service DevOpsRuleService {
   rpc ListExistingRules (ListRulesRequest) returns (ListExistingRulesResponse);
   rpc CreateRule (CreateRuleRequest) returns (RuleResponse);

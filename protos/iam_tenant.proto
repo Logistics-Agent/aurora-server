@@ -22,7 +22,7 @@ service IamService {
   rpc ActivateUser(ActivateUserRequest)                              returns (UserResponse);
   rpc ResetUserPassword(ResetUserPasswordRequest)                    returns (EmptyResponse);
   rpc SuspendUser(SuspendUserRequest)                                returns (UserResponse);
-
+    
   // User Persona Role (Single Base Role)
   rpc UpdateUserRole(UpdateUserRoleRequest)                          returns (UserRoleResponse);
 

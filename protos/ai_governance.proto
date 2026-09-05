@@ -4,7 +4,7 @@ package ai_governance;
 option csharp_namespace = "AiGovernance.Grpc";
 option java_package = "com.aurora.aigovernance.grpc.generated";
 option java_multiple_files = true;
-  
+
 // ──────────────────────────────────────────────────
 // AI Governance Service — Policy Pre-Check (preview)
 // ──────────────────────────────────────────────────

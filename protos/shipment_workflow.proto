@@ -20,7 +20,7 @@ service ShipmentWorkflowService {
             
     rpc GetShipmentTimeline(GetShipmentTimelineRequest)
     returns (ShipmentTimelineResponse);
-
+    
     rpc SubmitShipment(SubmitShipmentRequest)
     returns (ShipmentResponse);
 

@@ -18,7 +18,7 @@ option csharp_namespace = "MailService.GrpcServices";
 import "google/protobuf/timestamp.proto";
 
 // ─── Management Service ────────────────────────────────────────────────────
-
+    
 service MailManagement {
   rpc ProvisionDomain      (ProvisionDomainRequest)      returns (ProvisionDomainResponse);
   rpc CreateMailbox        (CreateMailboxRequest)         returns (CreateMailboxResponse);

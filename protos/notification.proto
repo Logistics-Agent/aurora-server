@@ -20,7 +20,7 @@ message RegisterDeviceRequest {
   string platform = 2;
   string app_version = 3;
 }
-
+    
 message DeviceResponse {
   string id = 1;
   string platform = 2;
