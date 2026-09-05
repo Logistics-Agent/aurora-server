@@ -4,8 +4,13 @@
 
 replicaCount: 1
 
+progressDeadlineSeconds: 600
+
 strategy:
-  type: Recreate
+  type: RollingUpdate
+  rollingUpdate:
+    maxSurge: 0
+    maxUnavailable: 1
 
 image:
   repository: acrauroracoredemo.azurecr.io/aurora/service-placeholder
@@ -108,6 +113,7 @@ secretEnv: {}
 # External Secrets Operator configuration (Azure Key Vault)
 externalSecret:
   enabled: false
+  apiVersion: external-secrets.io/v1
   secretStoreRef:
     name: azure-keyvault-store
     kind: ClusterSecretStore

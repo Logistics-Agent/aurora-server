@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: sa-aurora-core
+  namespace: aurora
+  annotations:
+    azure.workload.identity/client-id: "f0288a6b-d9a3-4aa7-b8a2-91b00c450b2a"
+  labels:
+    azure.workload.identity/use: "true"

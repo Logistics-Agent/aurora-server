@@ -8,6 +8,7 @@ spec:
   {{- if not .Values.autoscaling.enabled }}
   replicas: {{ .Values.replicaCount }}
   {{- end }}
+  progressDeadlineSeconds: {{ .Values.progressDeadlineSeconds | default 600 }}
   {{- with .Values.strategy }}
   strategy:
     {{- toYaml . | nindent 4 }}
