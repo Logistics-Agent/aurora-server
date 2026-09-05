@@ -15,8 +15,8 @@ service RegulatoryComplianceService {
   rpc QueryKnowledge(QueryKnowledgeRequest) returns (QueryKnowledgeResponse);
   rpc GenerateGroundedAnswer(GenerateGroundedAnswerRequest) returns (GenerateGroundedAnswerResponse);
   rpc ValidateGroundedEvidence(ValidateGroundedEvidenceRequest) returns (ValidateGroundedEvidenceResponse);
-}
-  
+}     
+    
 enum ComplianceEvaluationStatus {
   COMPLIANCE_EVALUATION_STATUS_UNSPECIFIED = 0;
   COMPLIANCE_EVALUATION_STATUS_PENDING = 1;
@@ -24,7 +24,7 @@ enum ComplianceEvaluationStatus {
   COMPLIANCE_EVALUATION_STATUS_COMPLETED = 3;
   COMPLIANCE_EVALUATION_STATUS_FAILED = 4;
 }
-
+    
 enum ComplianceRiskLevel {
   COMPLIANCE_RISK_LEVEL_UNSPECIFIED = 0;
   COMPLIANCE_RISK_LEVEL_LOW = 1;

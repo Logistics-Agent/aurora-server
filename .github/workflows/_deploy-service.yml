@@ -115,37 +115,147 @@ jobs:
           echo "Target Deployment: $DEPLOYMENT_NAME"
           echo "Target Container:  $CONTAINER_NAME"
           echo "New Image URI:     $IMAGE_URI"
+          VALUES_FILE="${{ inputs.service-path }}/deploy/helm/values.yaml"
+          if [ -f "$VALUES_FILE" ]; then
+            echo "Validating Helm template schema..."
+          helm template "$DEPLOYMENT_NAME" infra/helm/aurora-service \
+          --namespace "${{ inputs.namespace }}" \
+          -f "$VALUES_FILE" \
+          --set image.tag="${{ inputs.image-tag }}" \
+          --set image.repository="${{ steps.env.outputs.acr_server }}/aurora/${{ inputs.service-name }}" \
+          | kubectl apply --dry-run=server -f -
 
-          if kubectl get deployment "$DEPLOYMENT_NAME" -n "${{ inputs.namespace }}" >/dev/null 2>&1; then
-            echo "Deployment $DEPLOYMENT_NAME exists. Updating image via kubectl set image..."
-            kubectl set image "deployment/$DEPLOYMENT_NAME" "$CONTAINER_NAME=$IMAGE_URI" -n "${{ inputs.namespace }}" || \
-            kubectl set image "deployment/$DEPLOYMENT_NAME" "aurora-service=$IMAGE_URI" -n "${{ inputs.namespace }}"
+            echo "Installing/Upgrading via Helm chart..."
+            helm upgrade --install "$DEPLOYMENT_NAME" infra/helm/aurora-service \
+              --namespace "${{ inputs.namespace }}" \
+              --create-namespace \
+              -f "$VALUES_FILE" \
+              --set image.tag="${{ inputs.image-tag }}" \
+              --set image.repository="${{ steps.env.outputs.acr_server }}/aurora/${{ inputs.service-name }}"
           else
-            echo "Deployment $DEPLOYMENT_NAME not found on cluster. Installing via Helm chart..."
-            VALUES_FILE="${{ inputs.service-path }}/deploy/helm/values.yaml"
-            if [ -f "$VALUES_FILE" ]; then
-              echo "Validating Helm template schema..."
-              helm template "$DEPLOYMENT_NAME" infra/helm/aurora-service \
-                --namespace "${{ inputs.namespace }}" \
-                -f "$VALUES_FILE" \
-                --set image.tag="${{ inputs.image-tag }}" \
-                --set image.repository="${{ steps.env.outputs.acr_server }}/aurora/${{ inputs.service-name }}" | kubectl apply --dry-run=client -f -
-                --set image.repository="${{ steps.env.outputs.acr_server }}/aurora/${{ inputs.service-name }}" | kubectl apply --dry-run=server -f -
-
-              echo "Installing/Upgrading via Helm chart..."
-              helm upgrade --install "$DEPLOYMENT_NAME" infra/helm/aurora-service \
-                --namespace "${{ inputs.namespace }}" \
-                --create-namespace \
-                -f "$VALUES_FILE" \
-                --set image.tag="${{ inputs.image-tag }}" \
-                --set image.repository="${{ steps.env.outputs.acr_server }}/aurora/${{ inputs.service-name }}"
+            echo "No Helm values found at $VALUES_FILE, checking existing deployment..."
+            if kubectl get deployment "$DEPLOYMENT_NAME" -n "${{ inputs.namespace }}" >/dev/null 2>&1; then
+              echo "Deployment $DEPLOYMENT_NAME exists. Updating image via kubectl set image..."
+              kubectl set image "deployment/$DEPLOYMENT_NAME" "$CONTAINER_NAME=$IMAGE_URI" -n "${{ inputs.namespace }}" || \
+              kubectl set image "deployment/$DEPLOYMENT_NAME" "aurora-service=$IMAGE_URI" -n "${{ inputs.namespace }}"
             else
-              echo "No Helm values found at $VALUES_FILE, falling back to simple kubectl create..."
+              echo "Deployment $DEPLOYMENT_NAME not found, creating deployment..."
               kubectl create deployment "$DEPLOYMENT_NAME" --image="$IMAGE_URI" -n "${{ inputs.namespace }}"
             fi
           fi
 
+          - name: Quick Pod Health Check
+            shell: bash
+            run: |
+              DEPLOYMENT_NAME="${{ inputs.deployment-name || inputs.service-name }}"
+              NAMESPACE="${{ inputs.namespace }}"
+
+              sleep 20
+
+              kubectl get pods \
+                -n "$NAMESPACE" \
+                -l "app.kubernetes.io/name=$DEPLOYMENT_NAME" \
+                -o wide
+
+              BAD=$(kubectl get pods \
+                -n "$NAMESPACE" \
+                -l "app.kubernetes.io/name=$DEPLOYMENT_NAME" \
+                -o jsonpath='{range .items[*]}{.status.containerStatuses[*].state.waiting.reason}{"\n"}{end}' |
+                grep -E 'CrashLoopBackOff|CreateContainerConfigError|ImagePullBackOff|ErrImagePull' || true)
+
+              if [ -n "$BAD" ]; then
+                echo "Pod entered fatal state early:"
+                echo "$BAD"
+
+                kubectl get events \
+                  -n "$NAMESPACE" \
+                  --sort-by=.lastTimestamp |
+                  tail -50 || true
+
+                exit 1
+              fi
+
       - name: Await Rollout Completion
+        shell: bash
         run: |
+          set -o pipefail
+
           DEPLOYMENT_NAME="${{ inputs.deployment-name || inputs.service-name }}"
-          kubectl rollout status "deployment/$DEPLOYMENT_NAME" -n "${{ inputs.namespace }}" --timeout=300s
+          NAMESPACE="${{ inputs.namespace }}"
+
+          echo "Waiting for deployment: $DEPLOYMENT_NAME"
+
+          if kubectl rollout status \
+            "deployment/$DEPLOYMENT_NAME" \
+            -n "$NAMESPACE" \
+            --timeout=300s; then
+
+            echo "Rollout completed successfully."
+            exit 0
+          fi
+
+          echo ""
+          echo "=========================================="
+          echo "ROLLOUT FAILED: $DEPLOYMENT_NAME"
+          echo "=========================================="
+
+          echo ""
+          echo "=== DEPLOYMENT STATUS ==="
+          kubectl get deployment "$DEPLOYMENT_NAME" \
+            -n "$NAMESPACE" \
+            -o wide || true
+
+          echo ""
+          echo "=== REPLICASETS ==="
+          kubectl get rs \
+            -n "$NAMESPACE" \
+            -l "app.kubernetes.io/name=$DEPLOYMENT_NAME" \
+            -o wide || true
+
+          echo ""
+          echo "=== PODS ==="
+          kubectl get pods \
+            -n "$NAMESPACE" \
+            -l "app.kubernetes.io/name=$DEPLOYMENT_NAME" \
+            -o wide || true
+
+          echo ""
+          echo "=== RECENT EVENTS ==="
+          kubectl get events \
+            -n "$NAMESPACE" \
+            --sort-by=.lastTimestamp |
+            tail -100 || true
+
+          PODS=$(kubectl get pods \
+            -n "$NAMESPACE" \
+            -l "app.kubernetes.io/name=$DEPLOYMENT_NAME" \
+            -o jsonpath='{.items[*].metadata.name}' 2>/dev/null || true)
+
+          for POD in $PODS; do
+            echo ""
+            echo "=========================================="
+            echo "POD: $POD"
+            echo "=========================================="
+
+            echo ""
+            echo "=== POD DESCRIPTION ==="
+            kubectl describe pod "$POD" \
+              -n "$NAMESPACE" || true
+
+            echo ""
+            echo "=== CURRENT LOGS ==="
+            kubectl logs "$POD" \
+              -n "$NAMESPACE" \
+              --all-containers=true \
+              --tail=200 || true
+
+            echo ""
+            echo "=== PREVIOUS LOGS ==="
+            kubectl logs "$POD" \
+              -n "$NAMESPACE" \
+              --all-containers=true \
+              --previous \
+              --tail=200 || true
+          done
+
+          exit 1

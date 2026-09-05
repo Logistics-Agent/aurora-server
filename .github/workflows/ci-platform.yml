@@ -1,6 +1,13 @@
 name: CI/CD — Platform Services
 
 on:
+  workflow_dispatch:
+    inputs:
+      force_all:
+        description: 'Force build and deploy all Platform services'
+        required: false
+        type: boolean
+        default: false
   pull_request:
     paths:
       - 'src/dotnet/IamTenant/**'
@@ -39,6 +46,7 @@ jobs:
     uses: ./.github/workflows/_detect-changes.yml
     with:
       group: platform
+      force-all: ${{ inputs.force_all || false }}
 
   # ─── IAM Tenant (.NET) ───────────────────────────────────
   ci-iam-tenant:
@@ -50,13 +58,13 @@ jobs:
       service-name: iam-tenant
       service-path: src/dotnet/IamTenant
       dockerfile-path: src/dotnet/IamTenant/deploy/docker/Dockerfile
-      is-deploy: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/stagging-prod') }}
+      is-deploy: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/stagging-prod') }}
     secrets: inherit
 
   deploy-iam-tenant:
     name: CD
     needs: [changes, ci-iam-tenant]
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/stagging-prod') && needs.changes.outputs.iam-tenant == 'true'
+    if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/stagging-prod') && needs.changes.outputs.iam-tenant == 'true'
     uses: ./.github/workflows/_deploy-service.yml
     with:
       service-name: iam-tenant
@@ -76,13 +84,13 @@ jobs:
       service-name: mail-service
       service-path: src/dotnet/MailService
       dockerfile-path: src/dotnet/MailService/deploy/docker/Dockerfile
-      is-deploy: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/stagging-prod') }}
+      is-deploy: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/stagging-prod') }}
     secrets: inherit
 
   deploy-mail-service:
     name: CD
     needs: [changes, ci-mail-service]
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/stagging-prod') && needs.changes.outputs.mail-service == 'true'
+    if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/stagging-prod') && needs.changes.outputs.mail-service == 'true'
     uses: ./.github/workflows/_deploy-service.yml
     with:
       service-name: mail-service
@@ -102,13 +110,13 @@ jobs:
       service-name: notification
       service-path: src/dotnet/Notification
       dockerfile-path: src/dotnet/Notification/deploy/docker/Dockerfile
-      is-deploy: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/stagging-prod') }}
+      is-deploy: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/stagging-prod') }}
     secrets: inherit
 
   deploy-notification:
     name: CD
     needs: [changes, ci-notification]
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/stagging-prod') && needs.changes.outputs.notification == 'true'
+    if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/stagging-prod') && needs.changes.outputs.notification == 'true'
     uses: ./.github/workflows/_deploy-service.yml
     with:
       service-name: notification
@@ -129,13 +137,13 @@ jobs:
       service-path: src/java/audit-service
       dockerfile-path: src/java/audit-service/deploy/docker/Dockerfile
       java-version: '17'
-      is-deploy: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/stagging-prod') }}
+      is-deploy: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/stagging-prod') }}
     secrets: inherit
 
   deploy-audit-service:
     name: CD
     needs: [changes, ci-audit-service]
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/stagging-prod') && needs.changes.outputs.audit-service == 'true'
+    if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/stagging-prod') && needs.changes.outputs.audit-service == 'true'
     uses: ./.github/workflows/_deploy-service.yml
     with:
       service-name: audit-service
@@ -155,13 +163,13 @@ jobs:
       service-name: billing-service
       service-path: src/nestjs/billing-service
       dockerfile-path: src/nestjs/billing-service/deploy/docker/Dockerfile
-      is-deploy: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/stagging-prod') }}
+      is-deploy: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/stagging-prod') }}
     secrets: inherit
 
   deploy-billing-service:
     name: CD
     needs: [changes, ci-billing-service]
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/stagging-prod') && needs.changes.outputs.billing-service == 'true'
+    if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/stagging-prod') && needs.changes.outputs.billing-service == 'true'
     uses: ./.github/workflows/_deploy-service.yml
     with:
       service-name: billing-service
@@ -181,13 +189,13 @@ jobs:
       service-name: financial-service
       service-path: src/nestjs/financial-service
       dockerfile-path: src/nestjs/financial-service/deploy/docker/Dockerfile
-      is-deploy: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/stagging-prod') }}
+      is-deploy: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/stagging-prod') }}
     secrets: inherit
 
   deploy-financial-service:
     name: CD
     needs: [changes, ci-financial-service]
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/stagging-prod') && needs.changes.outputs.financial-service == 'true'
+    if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/stagging-prod') && needs.changes.outputs.financial-service == 'true'
     uses: ./.github/workflows/_deploy-service.yml
     with:
       service-name: financial-service
@@ -207,13 +215,13 @@ jobs:
       service-name: realtime-hub-service
       service-path: src/nestjs/realtime-hub-service
       dockerfile-path: src/nestjs/realtime-hub-service/deploy/docker/Dockerfile
-      is-deploy: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/stagging-prod') }}
+      is-deploy: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/stagging-prod') }}
     secrets: inherit
 
   deploy-realtime-hub-service:
     name: CD
     needs: [changes, ci-realtime-hub-service]
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/stagging-prod') && needs.changes.outputs.realtime-hub-service == 'true'
+    if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/stagging-prod') && needs.changes.outputs.realtime-hub-service == 'true'
     uses: ./.github/workflows/_deploy-service.yml
     with:
       service-name: realtime-hub-service

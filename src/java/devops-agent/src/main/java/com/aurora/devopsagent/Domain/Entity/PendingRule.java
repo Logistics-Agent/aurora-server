@@ -1,11 +1,15 @@
 package com.aurora.devopsagent.Domain.Entity;
 
+import java.util.UUID;
+
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
+
 import com.aurora.shared.entity.AuditableEntity;
+
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Table;
-
-import java.util.UUID;
 
 @Entity
 @Table(name = "pending_rules")
@@ -20,7 +24,8 @@ public class PendingRule extends AuditableEntity {
     @Column(name = "action_type", nullable = false, length = 50)
     private String actionType;
 
-    @Column(name = "action_params_json", columnDefinition = "TEXT")
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "action_params_json", columnDefinition = "jsonb")
     private String actionParamsJson = "{}";
 
     @Column(name = "source_incident_id")

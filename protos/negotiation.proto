@@ -11,12 +11,12 @@ import "google/protobuf/timestamp.proto";
 // Aurora SaaS Logistics — Negotiation Agent gRPC Service
 // Contract Version: 1.0.0
 // ==============================================================================
-
+      
 service NegotiationService {
   rpc SubmitOffer        (SubmitOfferRequest)        returns (SubmitOfferResponse);
   rpc GetSessionHistory  (GetSessionHistoryRequest)  returns (GetSessionHistoryResponse);
   rpc GetDraftSuggestion (GetDraftSuggestionRequest) returns (GetDraftSuggestionResponse);
-}
+}     
   
 message SubmitOfferRequest {
   string shipment_id       = 1;

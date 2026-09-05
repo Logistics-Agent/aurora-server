@@ -13,7 +13,7 @@ service IamService {
   rpc UpdateTenantStatus(UpdateTenantStatusRequest)                  returns (TenantResponse);
   rpc ListTenants(ListTenantsRequest)                                returns (ListTenantsResponse);
   rpc DeleteTenant(DeleteTenantRequest)                              returns (EmptyResponse);
-
+        
 // User Lifecycle   
   rpc InviteUser(InviteUserRequest)                                  returns (UserResponse);
   rpc GetUser(GetUserRequest)                                        returns (UserResponse);
@@ -22,7 +22,7 @@ service IamService {
   rpc ActivateUser(ActivateUserRequest)                              returns (UserResponse);
   rpc ResetUserPassword(ResetUserPasswordRequest)                    returns (EmptyResponse);
   rpc SuspendUser(SuspendUserRequest)                                returns (UserResponse);
-
+    
   // User Persona Role (Single Base Role)
   rpc UpdateUserRole(UpdateUserRoleRequest)                          returns (UserRoleResponse);
 

@@ -20,7 +20,7 @@ service RoutePlanningService {
   rpc UpsertTenantAiConfig (UpsertTenantAiConfigRequest) returns (TenantAiConfigResponse);
   rpc UpsertTenantRuleConfig (UpsertTenantRuleConfigRequest) returns (TenantRuleConfigResponse);
   rpc ListTenantRuleConfigs (ListTenantRuleConfigsRequest) returns (ListTenantRuleConfigsResponse);
-
+      
   // Tenant Risk Policy Lifecycle
   rpc CreateRiskPolicyDraft (CreateRiskPolicyDraftRequest) returns (RiskPolicyResponse);
   rpc UpdateRiskPolicyDraft (UpdateRiskPolicyDraftRequest) returns (RiskPolicyResponse);

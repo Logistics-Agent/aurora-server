@@ -9,7 +9,7 @@ service FinancialService {
   rpc GetCustomsDuty(GetCustomsDutyRequest) returns (GetCustomsDutyResponse);
   rpc GetMinAcceptableRate(GetMinAcceptableRateRequest) returns (GetMinAcceptableRateResponse);
 }
-  
+                
 message EstimateCostRequest {
   string originCountry = 1;
   string originPort = 2;

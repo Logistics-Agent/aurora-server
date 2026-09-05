@@ -23,7 +23,7 @@ externalSecret:
   data:
     - secretKey: ConnectionStrings__DefaultConnection
       remoteRef:
-        key: iam-tenant-db-connection
+        key: aurora-iam-db-connection
     - secretKey: AWS_COGNITO_USER_POOL_ID
       remoteRef:
         key: aws-cognito-user-pool-id

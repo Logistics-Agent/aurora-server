@@ -11,16 +11,16 @@ service ShipmentWorkflowService {
 
     rpc GetShipment(GetShipmentRequest)
     returns (ShipmentResponse);
-
+  
     rpc ListShipments(ListShipmentsRequest)
     returns (ListShipmentsResponse);
   
     rpc UpdateShipmentStatus(UpdateShipmentStatusRequest)
     returns (ShipmentResponse);
-
+            
     rpc GetShipmentTimeline(GetShipmentTimelineRequest)
     returns (ShipmentTimelineResponse);
-
+    
     rpc SubmitShipment(SubmitShipmentRequest)
     returns (ShipmentResponse);
 

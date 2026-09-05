@@ -31,7 +31,7 @@ externalSecret:
   data:
     - secretKey: ConnectionStrings__DefaultConnection
       remoteRef:
-        key: mail-service-db-connection
+        key: aurora-mail-db-connection
     - secretKey: Redis__Password
       remoteRef:
         key: redis-password

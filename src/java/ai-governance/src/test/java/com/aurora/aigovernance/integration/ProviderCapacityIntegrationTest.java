@@ -5,6 +5,7 @@ import com.aurora.aigovernance.gateway.domain.entity.ProviderSlot;
 import com.aurora.aigovernance.gateway.domain.valueobject.ProviderReservation;
 import com.aurora.aigovernance.governance.domain.enums.AiProvider;
 import com.aurora.aigovernance.shared.domain.AiOperation;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -14,6 +15,7 @@ import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 
+@Tag("integration")
 @SpringBootTest
 @ActiveProfiles("test")
 public class ProviderCapacityIntegrationTest {

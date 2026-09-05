@@ -39,9 +39,9 @@ externalSecret:
     - secretKey: RabbitMQ__Password
       remoteRef:
         key: rabbitmq-password
-    - secretKey: Smtp__Password
-      remoteRef:
-        key: smtp-password
+    # - secretKey: Smtp__Password
+    #   remoteRef:
+    #     key: smtp-password
     - secretKey: ServiceAuth__ApiKey
       remoteRef:
         key: notification-service-api-key
