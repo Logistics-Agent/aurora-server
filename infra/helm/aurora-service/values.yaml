@@ -82,7 +82,7 @@ livenessProbe:
   httpGet:
     path: /healthz
     port: http
-  initialDelaySeconds: 15
+  initialDelaySeconds: 30
   periodSeconds: 10
   timeoutSeconds: 3
   failureThreshold: 3
@@ -93,16 +93,17 @@ readinessProbe:
     port: http
   initialDelaySeconds: 10
   periodSeconds: 5
-  timeoutSeconds: 2
-  failureThreshold: 3
+  timeoutSeconds: 3
+  failureThreshold: 6
 
 startupProbe:
   httpGet:
     path: /healthz
     port: http
-  initialDelaySeconds: 5
+  initialDelaySeconds: 10
   periodSeconds: 5
-  failureThreshold: 12
+  timeoutSeconds: 3
+  failureThreshold: 36
 
 # Non-secret environment variables (rendered in ConfigMap)
 env: {}

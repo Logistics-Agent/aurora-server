@@ -144,7 +144,118 @@ jobs:
             fi
           fi
 
+          - name: Quick Pod Health Check
+            shell: bash
+            run: |
+              DEPLOYMENT_NAME="${{ inputs.deployment-name || inputs.service-name }}"
+              NAMESPACE="${{ inputs.namespace }}"
+
+              sleep 20
+
+              kubectl get pods \
+                -n "$NAMESPACE" \
+                -l "app.kubernetes.io/name=$DEPLOYMENT_NAME" \
+                -o wide
+
+              BAD=$(kubectl get pods \
+                -n "$NAMESPACE" \
+                -l "app.kubernetes.io/name=$DEPLOYMENT_NAME" \
+                -o jsonpath='{range .items[*]}{.status.containerStatuses[*].state.waiting.reason}{"\n"}{end}' |
+                grep -E 'CrashLoopBackOff|CreateContainerConfigError|ImagePullBackOff|ErrImagePull' || true)
+
+              if [ -n "$BAD" ]; then
+                echo "Pod entered fatal state early:"
+                echo "$BAD"
+
+                kubectl get events \
+                  -n "$NAMESPACE" \
+                  --sort-by=.lastTimestamp |
+                  tail -50 || true
+
+                exit 1
+              fi
+
       - name: Await Rollout Completion
+        shell: bash
         run: |
+          set -o pipefail
+
           DEPLOYMENT_NAME="${{ inputs.deployment-name || inputs.service-name }}"
-          kubectl rollout status "deployment/$DEPLOYMENT_NAME" -n "${{ inputs.namespace }}" --timeout=600s
+          NAMESPACE="${{ inputs.namespace }}"
+
+          echo "Waiting for deployment: $DEPLOYMENT_NAME"
+
+          if kubectl rollout status \
+            "deployment/$DEPLOYMENT_NAME" \
+            -n "$NAMESPACE" \
+            --timeout=300s; then
+
+            echo "Rollout completed successfully."
+            exit 0
+          fi
+
+          echo ""
+          echo "=========================================="
+          echo "ROLLOUT FAILED: $DEPLOYMENT_NAME"
+          echo "=========================================="
+
+          echo ""
+          echo "=== DEPLOYMENT STATUS ==="
+          kubectl get deployment "$DEPLOYMENT_NAME" \
+            -n "$NAMESPACE" \
+            -o wide || true
+
+          echo ""
+          echo "=== REPLICASETS ==="
+          kubectl get rs \
+            -n "$NAMESPACE" \
+            -l "app.kubernetes.io/name=$DEPLOYMENT_NAME" \
+            -o wide || true
+
+          echo ""
+          echo "=== PODS ==="
+          kubectl get pods \
+            -n "$NAMESPACE" \
+            -l "app.kubernetes.io/name=$DEPLOYMENT_NAME" \
+            -o wide || true
+
+          echo ""
+          echo "=== RECENT EVENTS ==="
+          kubectl get events \
+            -n "$NAMESPACE" \
+            --sort-by=.lastTimestamp |
+            tail -100 || true
+
+          PODS=$(kubectl get pods \
+            -n "$NAMESPACE" \
+            -l "app.kubernetes.io/name=$DEPLOYMENT_NAME" \
+            -o jsonpath='{.items[*].metadata.name}' 2>/dev/null || true)
+
+          for POD in $PODS; do
+            echo ""
+            echo "=========================================="
+            echo "POD: $POD"
+            echo "=========================================="
+
+            echo ""
+            echo "=== POD DESCRIPTION ==="
+            kubectl describe pod "$POD" \
+              -n "$NAMESPACE" || true
+
+            echo ""
+            echo "=== CURRENT LOGS ==="
+            kubectl logs "$POD" \
+              -n "$NAMESPACE" \
+              --all-containers=true \
+              --tail=200 || true
+
+            echo ""
+            echo "=== PREVIOUS LOGS ==="
+            kubectl logs "$POD" \
+              -n "$NAMESPACE" \
+              --all-containers=true \
+              --previous \
+              --tail=200 || true
+          done
+
+          exit 1
