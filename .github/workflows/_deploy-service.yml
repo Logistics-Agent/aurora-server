@@ -144,36 +144,36 @@ jobs:
             fi
           fi
 
-          - name: Quick Pod Health Check
-            shell: bash
-            run: |
-              DEPLOYMENT_NAME="${{ inputs.deployment-name || inputs.service-name }}"
-              NAMESPACE="${{ inputs.namespace }}"
+      - name: Quick Pod Health Check
+        shell: bash
+        run: |
+          DEPLOYMENT_NAME="${{ inputs.deployment-name || inputs.service-name }}"
+          NAMESPACE="${{ inputs.namespace }}"
 
-              sleep 20
+          sleep 20
 
-              kubectl get pods \
-                -n "$NAMESPACE" \
-                -l "app.kubernetes.io/name=$DEPLOYMENT_NAME" \
-                -o wide
+          kubectl get pods \
+            -n "$NAMESPACE" \
+            -l "app.kubernetes.io/name=$DEPLOYMENT_NAME" \
+            -o wide
 
-              BAD=$(kubectl get pods \
-                -n "$NAMESPACE" \
-                -l "app.kubernetes.io/name=$DEPLOYMENT_NAME" \
-                -o jsonpath='{range .items[*]}{.status.containerStatuses[*].state.waiting.reason}{"\n"}{end}' |
-                grep -E 'CrashLoopBackOff|CreateContainerConfigError|ImagePullBackOff|ErrImagePull' || true)
+          BAD=$(kubectl get pods \
+            -n "$NAMESPACE" \
+            -l "app.kubernetes.io/name=$DEPLOYMENT_NAME" \
+            -o jsonpath='{range .items[*]}{.status.containerStatuses[*].state.waiting.reason}{"\n"}{end}' |
+            grep -E 'CrashLoopBackOff|CreateContainerConfigError|ImagePullBackOff|ErrImagePull' || true)
 
-              if [ -n "$BAD" ]; then
-                echo "Pod entered fatal state early:"
-                echo "$BAD"
+          if [ -n "$BAD" ]; then
+            echo "Pod entered fatal state early:"
+            echo "$BAD"
 
-                kubectl get events \
-                  -n "$NAMESPACE" \
-                  --sort-by=.lastTimestamp |
-                  tail -50 || true
+            kubectl get events \
+              -n "$NAMESPACE" \
+              --sort-by=.lastTimestamp |
+              tail -50 || true
 
-                exit 1
-              fi
+            exit 1
+          fi
 
       - name: Await Rollout Completion
         shell: bash
