@@ -8,6 +8,9 @@ import jakarta.persistence.Table;
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
 
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
+
 @Entity
 @Table(name = "existing_rules")
 public class ExistingRule extends AuditableEntity {
@@ -21,7 +24,8 @@ public class ExistingRule extends AuditableEntity {
     @Column(name = "action_type", nullable = false, length = 50)
     private String actionType; // restart_pod, adjust_config, rollback_deployment
 
-    @Column(name = "action_params_json", columnDefinition = "TEXT")
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "action_params_json", columnDefinition = "jsonb")
     private String actionParamsJson = "{}";
 
     @Column(name = "confidence", nullable = false, precision = 5, scale = 4)

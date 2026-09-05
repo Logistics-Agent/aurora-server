@@ -11,7 +11,7 @@ option java_multiple_files = true;
 service AuditLogService {
   // Method 1: Dành cho System / Dev / Platform Owner
   rpc GetSystemAuditLogs (GetSystemAuditLogsRequest) returns (AuditLogsResponse);
-
+  
   // Method 2: Dành cho Admin / Tenant Admin
   rpc GetAdminAuditLogs (GetAdminAuditLogsRequest) returns (AuditLogsResponse);
 

@@ -14,7 +14,7 @@ service NotificationService {
   rpc MarkNotificationRead(MarkNotificationReadRequest) returns (google.protobuf.Empty);
   rpc MarkAllNotificationsRead(MarkAllNotificationsReadRequest) returns (CountResponse);
 }
-
+  
 message RegisterDeviceRequest {
   string token = 1;
   string platform = 2;

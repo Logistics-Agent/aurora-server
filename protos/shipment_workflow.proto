@@ -11,7 +11,7 @@ service ShipmentWorkflowService {
 
     rpc GetShipment(GetShipmentRequest)
     returns (ShipmentResponse);
-
+  
     rpc ListShipments(ListShipmentsRequest)
     returns (ListShipmentsResponse);
   

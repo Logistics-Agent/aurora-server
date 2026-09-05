@@ -13,7 +13,7 @@ service BillingService {
   rpc GetInvoice(GetInvoiceRequest) returns (InvoiceResponse);
   rpc ListInvoices(ListInvoicesRequest) returns (ListInvoicesResponse);
   rpc UpdateInvoiceStatus(UpdateInvoiceStatusRequest) returns (InvoiceResponse);
-    
+      
   // Escrow Wallet operations
   rpc CreateEscrowWallet(CreateEscrowWalletRequest) returns (WalletResponse);
   rpc GetWalletBalance(GetWalletBalanceRequest) returns (WalletResponse);

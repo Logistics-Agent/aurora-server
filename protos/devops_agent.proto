@@ -15,7 +15,7 @@ option java_multiple_files = true;
 service DevOpsIngestionService {
   rpc IngestAlert (IngestAlertRequest) returns (IngestAlertResponse);
 }
-    
+      
 service DevOpsIncidentService {
   rpc ListIncidents (ListIncidentsRequest) returns (ListIncidentsResponse);
   rpc GetIncident (GetIncidentRequest) returns (IncidentResponse);

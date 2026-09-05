@@ -13,7 +13,7 @@ message CheckRouteComplianceRequest {
   string route_json = 2;
   repeated string risk_reasons = 3;
 }
-    
+      
 message CheckRouteComplianceResponse {
   bool has_violations = 1;
   repeated string violation_summaries = 2;

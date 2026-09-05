@@ -10,7 +10,7 @@ service AuthService {
 
   rpc IdentifyUser(IdentifyUserRequest)
       returns (IdentifyUserResponse);
-
+  
   rpc Login(LoginRequest)
       returns (LoginResponse);
     
