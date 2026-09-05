@@ -16,19 +16,19 @@ env:
   Redis__Host: "redis-aurora-shared-demo.southeastasia.redis.azure.net:10000"
   Redis__Ssl: "true"
   Redis__AbortConnect: "false"
-  GrpcServices__IamTenant: "http://iam-tenant:5000"
-  GrpcServices__ShipmentWorkflow: "http://shipment-workflow:5000"
-  GrpcServices__RoutePlanningAgent: "http://route-planning-agent.aurora-ai.svc.cluster.local:5000"
-  GrpcServices__GpsTracking: "http://gps-tracking:5000"
-  GrpcServices__DocumentOcr: "http://document-ocr.aurora-ai.svc.cluster.local:5000"
-  GrpcServices__RegulatoryCompliance: "http://regulatory-compliance.aurora-ai.svc.cluster.local:5000"
-  GrpcServices__Notification: "http://notification:5000"
-  GrpcServices__MailService: "http://mail-service:5003"
-  GrpcServices__AiGovernance: "http://ai-governance.aurora-ai.svc.cluster.local:9090"
-  GrpcServices__CustomerAssistant: "http://customer-assistant-service.aurora-ai.svc.cluster.local:5007"
-  GrpcServices__NegotiationAgent: "http://negotiation-agent-service.aurora-ai.svc.cluster.local:5006"
-  GrpcServices__Financial: "http://financial-service:5003"
-  GrpcServices__Billing: "http://billing-service:5004"
+  Grpc__IamTenant__Url: "http://iam-tenant:5000"
+  Grpc__ShipmentWorkflow__Url: "http://shipment-workflow:5000"
+  Grpc__RoutePlanning__Url: "http://route-planning-agent.aurora-ai.svc.cluster.local:5000"
+  Grpc__GpsTracking__Url: "http://gps-tracking:5000"
+  Grpc__DocumentOcr__Url: "http://document-ocr.aurora-ai.svc.cluster.local:5000"
+  Grpc__RegulatoryCompliance__Url: "http://regulatory-compliance.aurora-ai.svc.cluster.local:5000"
+  Grpc__Notification__Url: "http://notification:5000"
+  Grpc__MailService__Url: "http://mail-service:5003"
+  Grpc__AiGovernance__Url: "http://ai-governance.aurora-ai.svc.cluster.local:9090"
+  Grpc__CustomerAssistant__Url: "http://customer-assistant-service.aurora-ai.svc.cluster.local:5007"
+  Grpc__NegotiationAgent__Url: "http://negotiation-agent-service.aurora-ai.svc.cluster.local:5006"
+  Grpc__FinancialService__Url: "http://financial-service:5003"
+  Grpc__BillingService__Url: "http://billing-service:5004"
 
 externalSecret:
   enabled: true
@@ -42,6 +42,9 @@ externalSecret:
     - secretKey: Jwt__SecretKey
       remoteRef:
         key: bff-jwt-secret
+    - secretKey: Grpc__Notification__ServiceApiKey
+      remoteRef:
+        key: notification-service-api-key
 
 resources:
   requests:

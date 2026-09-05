@@ -16,6 +16,7 @@ env:
   RabbitMQ__Host: "rabbitmq.aurora.svc.cluster.local"
   RabbitMQ__Port: "5672"
   RabbitMQ__Username: "aurora_admin"
+  Redis__Host: "redis-aurora-shared-demo.southeastasia.redis.azure.net:10000"
 
 externalSecret:
   enabled: true
@@ -29,6 +30,9 @@ externalSecret:
     - secretKey: RabbitMQ__Password
       remoteRef:
         key: rabbitmq-password
+    - secretKey: Redis__Password
+      remoteRef: 
+        key: redis-password
 
 resources:
   requests:

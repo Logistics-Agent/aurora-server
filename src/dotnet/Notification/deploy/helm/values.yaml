@@ -42,12 +42,15 @@ externalSecret:
     # - secretKey: Smtp__Password
     #   remoteRef:
     #     key: smtp-password
-    - secretKey: ServiceAuth__ApiKey
+    - secretKey: Grpc__Notification__ServiceApiKey
       remoteRef:
         key: notification-service-api-key
     - secretKey: aurora-notification-admin.json
       remoteRef:
         key: notification-firebase-admin-json
+    - secretKey: Redis__Password
+      remoteRef: 
+        key: redis-password
 
 volumes:
   - name: firebase-credentials

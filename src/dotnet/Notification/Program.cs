@@ -70,6 +70,7 @@ app.UseAuthentication();
 app.UseAuthorization();
 app.UseMiddleware<NotificationCurrentUserMiddleware>();
 app.MapHealthChecks("/health");
+app.MapHealthChecks("/healthz");
 app.MapHealthChecks("/ready", new HealthCheckOptions { Predicate = check => check.Tags.Contains("ready") });
 app.MapGrpcService<Notification.GrpcServices.NotificationGrpcService>();
 app.MapGet("/", () => "Notification gRPC Service");

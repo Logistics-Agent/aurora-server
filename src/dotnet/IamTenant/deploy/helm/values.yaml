@@ -14,6 +14,9 @@ service:
 env:
   ASPNETCORE_ENVIRONMENT: "Production"
   AWS_REGION: "ap-southeast-1"
+  Redis__Host: "redis-aurora-shared-demo.southeastasia.redis.azure.net:10000"
+  Redis__Ssl: "true"
+  Redis__AbortConnect: "false"
 
 externalSecret:
   enabled: true
@@ -33,6 +36,9 @@ externalSecret:
     - secretKey: AWS_COGNITO_CLIENT_SECRET
       remoteRef:
         key: aws-cognito-client-secret
+    - secretKey: Redis__Password
+      remoteRef:
+        key: redis-password
 
 resources:
   requests:
