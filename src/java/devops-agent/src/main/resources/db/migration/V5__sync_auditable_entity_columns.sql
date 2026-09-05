@@ -1,0 +1,56 @@
+-- Synchronize database schema with BaseEntity + AuditableEntity mappings.
+--
+-- BaseEntity:
+--   id UUID
+--   version BIGINT
+--
+-- AuditableEntity:
+--   created_at TIMESTAMPTZ
+--   updated_at TIMESTAMPTZ
+--   created_by VARCHAR(100)
+--   updated_by VARCHAR(100)
+
+ALTER TABLE incidents
+    ADD COLUMN IF NOT EXISTS created_by VARCHAR(100),
+    ADD COLUMN IF NOT EXISTS updated_by VARCHAR(100),
+    ADD COLUMN IF NOT EXISTS version BIGINT NOT NULL DEFAULT 0;
+
+ALTER TABLE rca_analyses
+    ADD COLUMN IF NOT EXISTS created_by VARCHAR(100),
+    ADD COLUMN IF NOT EXISTS updated_by VARCHAR(100),
+    ADD COLUMN IF NOT EXISTS version BIGINT NOT NULL DEFAULT 0;
+
+ALTER TABLE existing_rules
+    ADD COLUMN IF NOT EXISTS created_by VARCHAR(100),
+    ADD COLUMN IF NOT EXISTS updated_by VARCHAR(100),
+    ADD COLUMN IF NOT EXISTS version BIGINT NOT NULL DEFAULT 0;
+
+ALTER TABLE pending_rules
+    ADD COLUMN IF NOT EXISTS created_by VARCHAR(100),
+    ADD COLUMN IF NOT EXISTS updated_by VARCHAR(100),
+    ADD COLUMN IF NOT EXISTS version BIGINT NOT NULL DEFAULT 0;
+
+ALTER TABLE devops_agent_self_config
+    ADD COLUMN IF NOT EXISTS created_by VARCHAR(100),
+    ADD COLUMN IF NOT EXISTS updated_by VARCHAR(100),
+    ADD COLUMN IF NOT EXISTS version BIGINT NOT NULL DEFAULT 0;
+
+ALTER TABLE pr_approval_records
+    ADD COLUMN IF NOT EXISTS created_by VARCHAR(100),
+    ADD COLUMN IF NOT EXISTS updated_by VARCHAR(100),
+    ADD COLUMN IF NOT EXISTS version BIGINT NOT NULL DEFAULT 0;
+
+ALTER TABLE rule_approval_records
+    ADD COLUMN IF NOT EXISTS created_by VARCHAR(100),
+    ADD COLUMN IF NOT EXISTS updated_by VARCHAR(100),
+    ADD COLUMN IF NOT EXISTS version BIGINT NOT NULL DEFAULT 0;
+
+ALTER TABLE audit_event_outbox
+    ADD COLUMN IF NOT EXISTS created_by VARCHAR(100),
+    ADD COLUMN IF NOT EXISTS updated_by VARCHAR(100),
+    ADD COLUMN IF NOT EXISTS version BIGINT NOT NULL DEFAULT 0;
+
+ALTER TABLE service_criticality_registry
+    ADD COLUMN IF NOT EXISTS created_by VARCHAR(100),
+    ADD COLUMN IF NOT EXISTS updated_by VARCHAR(100),
+    ADD COLUMN IF NOT EXISTS version BIGINT NOT NULL DEFAULT 0;

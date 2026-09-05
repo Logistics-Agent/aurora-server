@@ -118,11 +118,12 @@ jobs:
           VALUES_FILE="${{ inputs.service-path }}/deploy/helm/values.yaml"
           if [ -f "$VALUES_FILE" ]; then
             echo "Validating Helm template schema..."
-            helm template "$DEPLOYMENT_NAME" infra/helm/aurora-service \
-              --namespace "${{ inputs.namespace }}" \
-              -f "$VALUES_FILE" \
-              --set image.tag="${{ inputs.image-tag }}" \
-              --set image.repository="${{ steps.env.outputs.acr_server }}/aurora/${{ inputs.service-name }}" | kubectl apply --dry-run=client -f -
+          helm template "$DEPLOYMENT_NAME" infra/helm/aurora-service \
+          --namespace "${{ inputs.namespace }}" \
+          -f "$VALUES_FILE" \
+          --set image.tag="${{ inputs.image-tag }}" \
+          --set image.repository="${{ steps.env.outputs.acr_server }}/aurora/${{ inputs.service-name }}" \
+          | kubectl apply --dry-run=server -f -
 
             echo "Installing/Upgrading via Helm chart..."
             helm upgrade --install "$DEPLOYMENT_NAME" infra/helm/aurora-service \
