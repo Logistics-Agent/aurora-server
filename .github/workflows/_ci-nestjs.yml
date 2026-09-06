@@ -31,10 +31,17 @@ on:
       ACR_LOGIN_SERVER:
         required: false
 
+permissions:
+  contents: read
+  id-token: write
+
 jobs:
   build-and-test:
     name: Build & Test (NestJS - ${{ inputs.service-name }})
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4

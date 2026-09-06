@@ -51,10 +51,17 @@ on:
       AKS_AI_RG:
         required: false
 
+permissions:
+  contents: read
+  id-token: write
+
 jobs:
   deploy:
     name: Rollout (${{ inputs.service-name }} -> AKS ${{ inputs.deploy-target }})
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
