@@ -91,10 +91,13 @@ public static class SwaggerExtensions
         app.UseSwaggerUI(options =>
         {
             options.SwaggerEndpoint("/swagger/v1/swagger.json", apiTitle);
-            options.RoutePrefix = "api-docs";
+            options.RoutePrefix = "swagger";
             // Kích hoạt tính năng gửi credential (Cookie) cho "Try it out"
             options.ConfigObject.AdditionalItems["withCredentials"] = true;
         });
+
+        // Hỗ trợ redirect từ /api-docs sang /swagger
+        app.MapGet("/api-docs", () => Results.Redirect("/swagger"));
 
         return app;
     }

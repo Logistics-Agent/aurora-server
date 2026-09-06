@@ -10,8 +10,37 @@ spec:
   ingressClassName: azure-application-gateway
   rules:
     - host: api.aurora-logistics.com
+    - host: api.humanak.cyou
       http:
         paths:
+          - path: /staff/swagger
+            pathType: Prefix
+            backend:
+              service:
+                name: staff-bff
+                port:
+                  number: 8080
+          - path: /admin/swagger
+            pathType: Prefix
+            backend:
+              service:
+                name: admin-bff
+                port:
+                  number: 8080
+          - path: /system/swagger
+            pathType: Prefix
+            backend:
+              service:
+                name: system-bff
+                port:
+                  number: 8080
+          - path: /swagger
+            pathType: Prefix
+            backend:
+              service:
+                name: api-gateway
+                port:
+                  number: 8080
           - path: /
             pathType: Prefix
             backend:
