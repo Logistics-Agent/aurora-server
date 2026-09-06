@@ -6,16 +6,17 @@ image:
   tag: "latest"
   pullPolicy: IfNotPresent
 
-additionalPorts:
-  - name: http-metrics
-    port: 8080
-    targetPort: 8080
-    protocol: TCP
+service:
+  type: ClusterIP
+  port: 8080
+  targetPort: 8080
+  name: http
+
+additionalPorts: []
 
 env:
   NODE_ENV: "production"
   PORT: "8080"
-  GRPC_PORT: "5007"
   REDIS_HOST: "redis-aurora-shared-demo.southeastasia.redis.azure.net"
   REDIS_PORT: "10000"
   REDIS_TLS: "true"
@@ -47,12 +48,7 @@ resources:
 serviceMonitor:
   enabled: true
   path: /metrics
-  port: http-metrics
-
-service:
-  type: ClusterIP
-  port: 8080
-  targetPort: 8080
+  port: http
 
 startupProbe:
   httpGet:
@@ -67,8 +63,16 @@ livenessProbe:
   httpGet:
     path: /healthz/liveness
     port: http
+  initialDelaySeconds: 30
+  periodSeconds: 10
+  timeoutSeconds: 3
+  failureThreshold: 3
 
 readinessProbe:
   httpGet:
     path: /healthz/readiness
     port: http
+  initialDelaySeconds: 10
+  periodSeconds: 5
+  timeoutSeconds: 3
+  failureThreshold: 6

@@ -14,3 +14,4 @@ export interface Conversation {
   updatedAt: Date;
   lastActivityAt: Date;
 }
+        

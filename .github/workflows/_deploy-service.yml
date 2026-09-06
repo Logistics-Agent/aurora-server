@@ -117,13 +117,30 @@ jobs:
           echo "New Image URI:     $IMAGE_URI"
           VALUES_FILE="${{ inputs.service-path }}/deploy/helm/values.yaml"
           if [ -f "$VALUES_FILE" ]; then
+            echo "Detecting ExternalSecrets API version from cluster..."
+            ESO_API_VERSION=""
+            if kubectl api-resources --api-group=external-secrets.io -o name 2>/dev/null | grep -qx "externalsecrets.external-secrets.io"; then
+              if kubectl get --raw /apis/external-secrets.io/v1 >/dev/null 2>&1; then
+                ESO_API_VERSION="external-secrets.io/v1/ExternalSecret"
+              elif kubectl get --raw /apis/external-secrets.io/v1beta1 >/dev/null 2>&1; then
+                ESO_API_VERSION="external-secrets.io/v1beta1/ExternalSecret"
+              fi
+            fi
+
+            API_VERSIONS_ARG=""
+            if [ -n "$ESO_API_VERSION" ]; then
+              echo "Detected ExternalSecret API: $ESO_API_VERSION"
+              API_VERSIONS_ARG="--api-versions $ESO_API_VERSION"
+            fi
+
             echo "Validating Helm template schema..."
-          helm template "$DEPLOYMENT_NAME" infra/helm/aurora-service \
-          --namespace "${{ inputs.namespace }}" \
-          -f "$VALUES_FILE" \
-          --set image.tag="${{ inputs.image-tag }}" \
-          --set image.repository="${{ steps.env.outputs.acr_server }}/aurora/${{ inputs.service-name }}" \
-          | kubectl apply --dry-run=server -f -
+            helm template "$DEPLOYMENT_NAME" infra/helm/aurora-service \
+              --namespace "${{ inputs.namespace }}" \
+              -f "$VALUES_FILE" \
+              --set image.tag="${{ inputs.image-tag }}" \
+              --set image.repository="${{ steps.env.outputs.acr_server }}/aurora/${{ inputs.service-name }}" \
+              $API_VERSIONS_ARG \
+              | kubectl apply --dry-run=server -f -
 
             echo "Installing/Upgrading via Helm chart..."
             helm upgrade --install "$DEPLOYMENT_NAME" infra/helm/aurora-service \
