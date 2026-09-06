@@ -16,5 +16,6 @@ var app = builder.Build();
 app.UseSerilogRequestLogging();
 
 app.MapReverseProxy();
+app.MapHealthChecks("/healthz");
 
 app.Run();

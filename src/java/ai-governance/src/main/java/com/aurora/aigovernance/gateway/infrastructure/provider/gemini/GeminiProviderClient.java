@@ -24,6 +24,7 @@ import com.aurora.aigovernance.gateway.domain.valueobject.MultimodalPart;
 import com.aurora.aigovernance.gateway.infrastructure.credential.CredentialPort;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.beans.factory.annotation.Autowired;
 
 /**
  * Production Gemini provider client with real Google Generative Language HTTP integration.
@@ -41,6 +42,11 @@ public class GeminiProviderClient implements AiProviderClient {
     private final HttpClient httpClient;
     private final ObjectMapper objectMapper;
     private final String baseUrl;
+
+    @Autowired
+    public GeminiProviderClient(CredentialPort credentialPort, ObjectMapper objectMapper) {
+        this(credentialPort, HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build(), objectMapper, DEFAULT_GEMINI_BASE_URL);
+    }
 
     public GeminiProviderClient(CredentialPort credentialPort) {
         this(credentialPort, HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build(), new ObjectMapper(), DEFAULT_GEMINI_BASE_URL);

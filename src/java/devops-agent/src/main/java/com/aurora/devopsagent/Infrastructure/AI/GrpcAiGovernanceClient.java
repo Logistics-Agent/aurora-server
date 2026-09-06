@@ -5,7 +5,9 @@ import java.util.concurrent.TimeUnit;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+
 
 import com.aurora.aigovernance.grpc.generated.AiExecutionServiceGrpc;
 import com.aurora.aigovernance.grpc.generated.AiGenerateRequest;
@@ -50,9 +52,16 @@ public class GrpcAiGovernanceClient implements AiGovernanceClient {
     private final CircuitBreaker circuitBreaker;
     private final Retry retry;
 
-    public GrpcAiGovernanceClient(CircuitBreakerRegistry circuitBreakerRegistry, RetryRegistry retryRegistry) {
-        this.circuitBreaker = configureCircuitBreaker(circuitBreakerRegistry);
-        this.retry = configureRetry(retryRegistry);
+    @Autowired
+    public GrpcAiGovernanceClient(
+            CircuitBreakerRegistry circuitBreakerRegistry,
+            RetryRegistry retryRegistry) {
+
+        this.circuitBreaker =
+            configureCircuitBreaker(circuitBreakerRegistry);
+
+        this.retry =
+            configureRetry(retryRegistry);
     }
 
     public GrpcAiGovernanceClient(

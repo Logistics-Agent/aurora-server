@@ -46,11 +46,13 @@ builder.Services.AddScoped<
     ShipmentIntegrationEventPublisher>();
 builder.Services.AddScoped<ShipmentOutboxProcessor>();
 builder.Services.AddHostedService<ShipmentOutboxPublisherBackgroundService>();
-
+builder.Services.AddHealthChecks();
 var app = builder.Build();
 
 app.MapGrpcService<ShipmentGrpcService>();
 
+app.MapGet("/health", () => Results.Ok("Healthy"));
+app.MapGet("/healthz", () => Results.Ok("Healthy"));
 app.MapGet("/", () => "Shipment Workflow gRPC Service");
 
 app.Run();

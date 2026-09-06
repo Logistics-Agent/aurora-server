@@ -10,7 +10,10 @@ export default () => ({
     password: process.env.REDIS_PASSWORD || undefined,
   },
   rabbitmq: {
-    uri: process.env.RABBITMQ_URI || 'amqp://guest:guest@localhost:5672',
+    uri: process.env.RABBITMQ_URI || 
+      (process.env.RABBITMQ_HOST 
+        ? `amqp://${process.env.RABBITMQ_USERNAME || 'aurora_admin'}:${encodeURIComponent(process.env.RABBITMQ_PASSWORD || '')}@${process.env.RABBITMQ_HOST}:${process.env.RABBITMQ_PORT || 5672}`
+        : 'amqp://guest:guest@localhost:5672'),
   },
   auth: {
     jwtSecret: process.env.JWT_SECRET || 'aurora_super_secret_jwt_key_2026',

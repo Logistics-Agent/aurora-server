@@ -23,6 +23,7 @@ import com.aurora.aigovernance.gateway.domain.valueobject.AiGenerateResult;
 import com.aurora.aigovernance.gateway.infrastructure.credential.CredentialPort;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.beans.factory.annotation.Autowired;
 
 /**
  * Production Azure OpenAI provider client with real Azure OpenAI HTTP REST integration.
@@ -30,6 +31,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
  * Plaintext credential is only resolved internally via {@link CredentialPort}.
  * Enforces output dimension 768 and unit-normalized vectors.
  */
+
+
 @Component("azureOpenAiProviderClient")
 public class AzureOpenAiProviderClient implements AiProviderClient {
 
@@ -40,9 +43,28 @@ public class AzureOpenAiProviderClient implements AiProviderClient {
     private final HttpClient httpClient;
     private final ObjectMapper objectMapper;
     private final String endpoint;
+    
+    @Autowired
+    public AzureOpenAiProviderClient(CredentialPort credentialPort, ObjectMapper objectMapper) {
+        this(
+            credentialPort,
+            HttpClient.newBuilder()
+                .connectTimeout(Duration.ofSeconds(10))
+                .build(),
+            objectMapper,
+            DEFAULT_AZURE_ENDPOINT
+        );
+    }
 
     public AzureOpenAiProviderClient(CredentialPort credentialPort) {
-        this(credentialPort, HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build(), new ObjectMapper(), DEFAULT_AZURE_ENDPOINT);
+        this(
+            credentialPort,
+            HttpClient.newBuilder()
+                .connectTimeout(Duration.ofSeconds(10))
+                .build(),
+            new ObjectMapper(),
+            DEFAULT_AZURE_ENDPOINT
+        );
     }
 
     public AzureOpenAiProviderClient(CredentialPort credentialPort, HttpClient httpClient, ObjectMapper objectMapper, String endpoint) {

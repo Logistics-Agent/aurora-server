@@ -196,3 +196,148 @@ variable "r2_location_hint" {
   type        = string
   default     = "apac"
 }
+
+# 6. External Services — Cloudflare DNS & Domain Management (humanak.cyou)
+variable "enable_cloudflare_dns" {
+  description = "Whether to provision Cloudflare DNS records for humanak.cyou"
+  type        = bool
+  default     = true
+}
+
+variable "domain_name" {
+  description = "Root domain name managed on Cloudflare"
+  type        = string
+  default     = "humanak.cyou"
+}
+
+variable "cloudflare_zone_id" {
+  description = "Existing Cloudflare Zone ID (if empty and create_zone=false, looked up automatically)"
+  type        = string
+  default     = ""
+}
+
+variable "cloudflare_create_zone" {
+  description = "Whether to create Cloudflare zone via Terraform (true) or use existing (false)"
+  type        = bool
+  default     = false
+}
+
+variable "cloudflare_zone_plan" {
+  description = "Cloudflare zone plan (free, pro, business, enterprise)"
+  type        = string
+  default     = "free"
+}
+
+# Backend API
+variable "api_subdomain" {
+  description = "Subdomain for Backend API (api.humanak.cyou)"
+  type        = string
+  default     = "api"
+}
+
+variable "api_target_ip" {
+  description = "Target IP address or hostname for Backend API (e.g. App Gateway Public IP)"
+  type        = string
+  default     = "20.205.100.1"
+}
+
+variable "api_record_type" {
+  description = "DNS record type for Backend API (A or CNAME)"
+  type        = string
+  default     = "A"
+}
+
+variable "api_proxied" {
+  description = "Whether Cloudflare proxy is enabled for Backend API"
+  type        = bool
+  default     = true
+}
+
+# Vercel Frontends
+variable "admin_subdomain" {
+  description = "Subdomain for Admin Portal on Vercel (admin.humanak.cyou)"
+  type        = string
+  default     = "admin"
+}
+
+variable "admin_cname_target" {
+  description = "CNAME target for Admin Portal on Vercel"
+  type        = string
+  default     = "cname.vercel-dns.com"
+}
+
+variable "admin_proxied" {
+  description = "Whether Cloudflare proxy is enabled for Admin Vercel app"
+  type        = bool
+  default     = false
+}
+
+variable "system_subdomain" {
+  description = "Subdomain for System / Super Admin Portal on Vercel (system.humanak.cyou)"
+  type        = string
+  default     = "system"
+}
+
+variable "system_cname_target" {
+  description = "CNAME target for System Portal on Vercel"
+  type        = string
+  default     = "cname.vercel-dns.com"
+}
+
+variable "system_proxied" {
+  description = "Whether Cloudflare proxy is enabled for System Vercel app"
+  type        = bool
+  default     = false
+}
+
+# Staff Manager (Apex)
+variable "staff_manager_target" {
+  description = "Target IP (A record, 76.76.21.21) or CNAME for Staff Manager main web app"
+  type        = string
+  default     = "76.76.21.21"
+}
+
+variable "staff_manager_record_type" {
+  description = "DNS record type for Staff Manager apex domain (A or CNAME)"
+  type        = string
+  default     = "A"
+}
+
+variable "staff_manager_proxied" {
+  description = "Whether Cloudflare proxy is enabled for Staff Manager main web app"
+  type        = bool
+  default     = false
+}
+
+# WWW Subdomain
+variable "enable_www_subdomain" {
+  description = "Whether to create www subdomain CNAME record"
+  type        = bool
+  default     = true
+}
+
+variable "www_cname_target" {
+  description = "CNAME target for www subdomain on Vercel"
+  type        = string
+  default     = "cname.vercel-dns.com"
+}
+
+variable "www_proxied" {
+  description = "Whether Cloudflare proxy is enabled for www"
+  type        = bool
+  default     = false
+}
+
+# Cloudflare Zone Settings
+variable "cloudflare_configure_zone_settings" {
+  description = "Whether to configure Cloudflare SSL/TLS & HTTPS settings"
+  type        = bool
+  default     = true
+}
+
+variable "cloudflare_ssl_setting" {
+  description = "Cloudflare SSL setting (off, flexible, full, strict)"
+  type        = string
+  default     = "full"
+}
+

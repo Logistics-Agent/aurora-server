@@ -13,7 +13,7 @@ service:
 
 env:
   ASPNETCORE_ENVIRONMENT: "Production"
-  RabbitMQ__Host: "10.10.2.50" # Core Internal LoadBalancer over VNet Peering
+  RabbitMQ__Host: "rabbitmq.aurora.svc.cluster.local"
   RabbitMQ__Port: "5672"
   RabbitMQ__Username: "aurora_admin"
   Redis__Host: "redis-aurora-shared-demo.southeastasia.redis.azure.net:10000"
@@ -22,7 +22,6 @@ env:
 
 externalSecret:
   enabled: true
-  apiVersion: external-secrets.io/v1beta1
   secretStoreRef:
     name: azure-keyvault-store
     kind: ClusterSecretStore
@@ -49,3 +48,30 @@ serviceMonitor:
   enabled: true
   path: /metrics
   port: http
+
+startupProbe:
+  httpGet: null
+  tcpSocket:
+    port: http
+  initialDelaySeconds: 10
+  periodSeconds: 5
+  timeoutSeconds: 3
+  failureThreshold: 36
+
+livenessProbe:
+  httpGet: null
+  tcpSocket:
+    port: http
+  initialDelaySeconds: 30
+  periodSeconds: 10
+  timeoutSeconds: 3
+  failureThreshold: 3
+
+readinessProbe:
+  httpGet: null
+  tcpSocket:
+    port: http
+  initialDelaySeconds: 10
+  periodSeconds: 5
+  timeoutSeconds: 3
+  failureThreshold: 6

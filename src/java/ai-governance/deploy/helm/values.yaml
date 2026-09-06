@@ -6,21 +6,18 @@ image:
   tag: "latest"
   pullPolicy: IfNotPresent
 
-service:
-  type: ClusterIP
-  port: 8080
-  targetPort: 8080
-
 env:
   SPRING_PROFILES_ACTIVE: "prod"
   SERVER_PORT: "8080"
   SPRING_REDIS_HOST: "redis-aurora-shared-demo.southeastasia.redis.azure.net"
   SPRING_REDIS_PORT: "10000"
   SPRING_REDIS_SSL: "true"
+  SPRING_RABBITMQ_HOST: "10.10.0.62"
+  SPRING_RABBITMQ_PORT: "5672"
+  SPRING_RABBITMQ_USERNAME: "aurora_admin"
 
 externalSecret:
   enabled: true
-  apiVersion: external-secrets.io/v1beta1
   secretStoreRef:
     name: azure-keyvault-store
     kind: ClusterSecretStore
@@ -40,7 +37,9 @@ externalSecret:
     - secretKey: OPENAI_API_KEY
       remoteRef:
         key: openai-api-key
-
+    - secretKey: SPRING_RABBITMQ_PASSWORD
+      remoteRef:
+        key: rabbitmq-password
 resources:
   requests:
     cpu: 200m
@@ -54,16 +53,35 @@ serviceMonitor:
   path: /actuator/prometheus
   port: http
 
+service:
+  type: ClusterIP
+  port: 9090
+  targetPort: 9090
+  name: grpc
+
+startupProbe:
+  httpGet: null
+  grpc:
+    port: 9090
+  initialDelaySeconds: 10
+  periodSeconds: 5
+  timeoutSeconds: 3
+  failureThreshold: 36
+
 livenessProbe:
-  httpGet:
-    path: /actuator/health/liveness
-    port: http
-  initialDelaySeconds: 30
+  httpGet: null
+  grpc:
+    port: 9090
+  initialDelaySeconds: 10
   periodSeconds: 10
+  timeoutSeconds: 3
+  failureThreshold: 3
 
 readinessProbe:
-  httpGet:
-    path: /actuator/health/readiness
-    port: http
-  initialDelaySeconds: 20
+  httpGet: null
+  grpc:
+    port: 9090
+  initialDelaySeconds: 10
   periodSeconds: 5
+  timeoutSeconds: 3
+  failureThreshold: 6

@@ -76,5 +76,6 @@ var app = builder.Build();
 
 app.MapGrpcService<DocumentOcrGrpcService>();
 app.MapGet("/", () => "Document OCR gRPC Service");
+app.MapGet("/healthz", () => Results.Ok("Healthy"));
 
 app.Run();

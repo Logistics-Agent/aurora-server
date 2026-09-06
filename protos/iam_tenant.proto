@@ -5,6 +5,8 @@ package iam;
 import "google/protobuf/timestamp.proto";
 import "common.proto";
 option csharp_namespace = "IamTenant.Grpc";
+option java_package = "com.aurora.iam.grpc";
+option java_multiple_files = true;
 
 service IamService {
   // Tenant

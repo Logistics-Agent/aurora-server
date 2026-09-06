@@ -16,8 +16,9 @@ import com.aurora.aigovernance.shared.domain.AiOperation;
 import com.aurora.aigovernance.shared.domain.TokenBudget;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.aurora.common.grpc.PlanType;
-import iam.IamServiceGrpc;
-import iam.IamTenant;
+import com.aurora.iam.grpc.IamServiceGrpc;
+import com.aurora.iam.grpc.GetTenantRequest;
+import com.aurora.iam.grpc.TenantResponse;
 import io.grpc.Status;
 import io.grpc.StatusRuntimeException;
 import org.junit.jupiter.api.BeforeEach;
@@ -106,7 +107,7 @@ public class CachedTenantPlanResolverTest {
     void cacheMiss_CallsIamTenantAndCachesPlan() {
         when(valueOperations.get(CACHE_KEY)).thenReturn(null);
 
-        IamTenant.TenantResponse response = IamTenant.TenantResponse.newBuilder()
+        TenantResponse response = TenantResponse.newBuilder()
                 .setId(TEST_TENANT_ID.toString())
                 .setPlanType(com.aurora.common.grpc.PlanType.ENTERPRISE)
                 .setStatus(com.aurora.common.grpc.TenantStatus.TENANT_STATUS_ACTIVE)
@@ -121,7 +122,7 @@ public class CachedTenantPlanResolverTest {
         assertEquals("ENTERPRISE", success.info().planCode());
         assertEquals(TenantStatus.ACTIVE, success.info().status());
 
-        verify(iamClient, times(1)).getTenant(argThat(req -> req.getId().equals(TEST_TENANT_ID.toString())));
+        verify(iamClient, times(1)).getTenant(argThat((GetTenantRequest req) -> req != null && TEST_TENANT_ID.toString().equals(req.getId())));
         verify(valueOperations, times(1)).set(eq(CACHE_KEY), anyString(), eq(Duration.ofHours(1)));
     }
 
@@ -131,7 +132,7 @@ public class CachedTenantPlanResolverTest {
         // Cache expired -> null
         when(valueOperations.get(CACHE_KEY)).thenReturn(null);
 
-        IamTenant.TenantResponse response = IamTenant.TenantResponse.newBuilder()
+        TenantResponse response = TenantResponse.newBuilder()
                 .setId(TEST_TENANT_ID.toString())
                 .setPlanType(com.aurora.common.grpc.PlanType.STANDARD)
                 .setStatus(com.aurora.common.grpc.TenantStatus.TENANT_STATUS_ACTIVE)
@@ -153,7 +154,7 @@ public class CachedTenantPlanResolverTest {
     void redisUnavailable_FallsBackToIamTenant() {
         when(valueOperations.get(CACHE_KEY)).thenThrow(new RedisConnectionFailureException("Redis connection refused"));
 
-        IamTenant.TenantResponse response = IamTenant.TenantResponse.newBuilder()
+        TenantResponse response = TenantResponse.newBuilder()
                 .setId(TEST_TENANT_ID.toString())
                 .setPlanType(com.aurora.common.grpc.PlanType.ENTERPRISE)
                 .setStatus(com.aurora.common.grpc.TenantStatus.TENANT_STATUS_ACTIVE)

@@ -106,5 +106,5 @@ if (app.Environment.IsDevelopment())
     app.MapGrpcReflectionService();
 }
 app.MapGet("/", () => "Route Planning Agent Service is running.");
-
+app.MapGet("/healthz", () => Results.Ok("Healthy"));
 app.Run();

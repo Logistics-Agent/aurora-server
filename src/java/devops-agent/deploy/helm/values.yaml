@@ -20,7 +20,6 @@ env:
 
 externalSecret:
   enabled: true
-  apiVersion: external-secrets.io/v1beta1
   secretStoreRef:
     name: azure-keyvault-store
     kind: ClusterSecretStore
@@ -67,3 +66,12 @@ readinessProbe:
     port: http
   initialDelaySeconds: 20
   periodSeconds: 5
+
+startupProbe:
+  httpGet:
+    path: /actuator/health/liveness
+    port: http
+  initialDelaySeconds: 10
+  periodSeconds: 5
+  timeoutSeconds: 3
+  failureThreshold: 36

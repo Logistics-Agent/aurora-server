@@ -40,10 +40,25 @@ externalSecret:
     - secretKey: Redis__Password
       remoteRef:
         key: redis-password
+    - secretKey: Auth__Cognito__UserPoolId
+      remoteRef:
+        key: aws-cognito-user-pool-id
+    - secretKey: Auth__Cognito__ClientId
+      remoteRef:
+        key: aws-cognito-client-id
+    - secretKey: Auth__Cognito__ClientSecret
+      remoteRef:
+        key: aws-cognito-client-secret
+    - secretKey: Auth__Jwt__Audience
+      remoteRef:
+        key: aws-cognito-client-id
     - secretKey: Jwt__SecretKey
       remoteRef:
         key: bff-jwt-secret
     - secretKey: Grpc__Notification__ServiceApiKey
+      remoteRef:
+        key: notification-service-api-key
+    - secretKey: ServiceAuth__ApiKey
       remoteRef:
         key: notification-service-api-key
 

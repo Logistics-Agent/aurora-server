@@ -3,7 +3,7 @@ fullnameOverride: "notification"
 
 image:
   repository: acrauroracoredemo.azurecr.io/aurora/notification
-  tag: "latest"
+  tag: ""
   pullPolicy: IfNotPresent
 
 service:
@@ -43,6 +43,9 @@ externalSecret:
     #   remoteRef:
     #     key: smtp-password
     - secretKey: Grpc__Notification__ServiceApiKey
+      remoteRef:
+        key: notification-service-api-key
+    - secretKey: ServiceAuth__ApiKey
       remoteRef:
         key: notification-service-api-key
     - secretKey: aurora-notification-admin.json

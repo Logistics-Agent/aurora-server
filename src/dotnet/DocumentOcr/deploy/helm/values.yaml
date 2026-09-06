@@ -13,7 +13,7 @@ service:
 
 env:
   ASPNETCORE_ENVIRONMENT: "Production"
-  RabbitMQ__Host: "10.10.2.50" # Core Internal LoadBalancer over VNet Peering
+  RabbitMQ__Host: "rabbitmq.aurora.svc.cluster.local"
   RabbitMQ__Port: "5672"
   RabbitMQ__Username: "aurora_admin"
   AzureStorage__AccountName: "stauroradatademo"
@@ -24,7 +24,6 @@ env:
 
 externalSecret:
   enabled: true
-  apiVersion: external-secrets.io/v1beta1
   secretStoreRef:
     name: azure-keyvault-store
     kind: ClusterSecretStore
