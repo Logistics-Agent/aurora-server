@@ -90,7 +90,7 @@ public static class SwaggerExtensions
 
         app.UseSwaggerUI(options =>
         {
-            options.SwaggerEndpoint("/swagger/v1/swagger.json", apiTitle);
+            options.SwaggerEndpoint("./v1/swagger.json", apiTitle);
             options.RoutePrefix = "swagger";
             // Kích hoạt tính năng gửi credential (Cookie) cho "Try it out"
             options.ConfigObject.AdditionalItems["withCredentials"] = true;
