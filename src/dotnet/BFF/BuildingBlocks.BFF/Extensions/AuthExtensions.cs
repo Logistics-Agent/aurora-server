@@ -107,12 +107,14 @@ public static class AuthExtensions
                 {
                     OnRedirectToIdentityProvider = context =>
                     {
-                        var forwardedHost = context.Request.Headers["X-Forwarded-Host"].FirstOrDefault();
-                        var forwardedProto = context.Request.Headers["X-Forwarded-Proto"].FirstOrDefault() ?? "https";
-                        if (!string.IsNullOrWhiteSpace(forwardedHost))
-                        {
-                            context.ProtocolMessage.RedirectUri = $"{forwardedProto}://{forwardedHost}{options.CallbackPath}";
-                        }
+                        var forwardedHost = context.Request.Headers["X-Forwarded-Host"].FirstOrDefault()
+                                         ?? context.Request.Host.Value;
+
+                        var isLocal = forwardedHost?.StartsWith("localhost", StringComparison.OrdinalIgnoreCase) == true
+                                   || forwardedHost?.StartsWith("127.0.0.1") == true;
+                        var scheme = isLocal ? "http" : "https";
+
+                        context.ProtocolMessage.RedirectUri = $"{scheme}://{forwardedHost ?? context.Request.Host.Value}{options.CallbackPath}";
                         return Task.CompletedTask;
                     },
                     OnTokenValidated = context =>
