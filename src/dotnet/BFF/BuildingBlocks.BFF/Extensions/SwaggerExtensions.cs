@@ -144,7 +144,6 @@ public static class SwaggerExtensions
                             var topbar = document.querySelector('.topbar-wrapper') || document.querySelector('.information-container .title');
                             if (topbar && !document.getElementById('swagger-auth-actions')) {
                                 clearInterval(interval);
-                                var currentUrl = encodeURIComponent(window.location.href);
                                 
                                 var container = document.createElement('div');
                                 container.id = 'swagger-auth-actions';
@@ -152,17 +151,40 @@ public static class SwaggerExtensions
                                 
                                 var loginBtn = document.createElement('a');
                                 loginBtn.className = 'swagger-btn swagger-btn-login';
-                                loginBtn.href = '/api/v1/auth/login?returnUrl=' + currentUrl;
+                                loginBtn.href = '#';
                                 loginBtn.innerText = '🔑 Login (Cognito)';
+                                loginBtn.onclick = function (e) {
+                                    e.preventDefault();
+                                    window.location.href = '/api/v1/auth/login?returnUrl=' + encodeURIComponent(window.location.href);
+                                };
                                 
                                 var logoutBtn = document.createElement('a');
                                 logoutBtn.className = 'swagger-btn swagger-btn-logout';
-                                logoutBtn.href = '/api/v1/auth/logout?returnUrl=' + currentUrl;
+                                logoutBtn.href = '#';
                                 logoutBtn.innerText = '🚪 Logout';
+                                logoutBtn.onclick = function (e) {
+                                    e.preventDefault();
+                                    window.location.href = '/api/v1/auth/logout?returnUrl=' + encodeURIComponent(window.location.href);
+                                };
                                 
                                 container.appendChild(loginBtn);
                                 container.appendChild(logoutBtn);
                                 topbar.appendChild(container);
+
+                                // Cập nhật dynamic returnUrl cho các link trong description nếu có
+                                document.querySelectorAll('.renderedMarkdown a').forEach(function(link) {
+                                    if (link.getAttribute('href') === '/api/v1/auth/login') {
+                                        link.onclick = function(e) {
+                                            e.preventDefault();
+                                            window.location.href = '/api/v1/auth/login?returnUrl=' + encodeURIComponent(window.location.href);
+                                        };
+                                    } else if (link.getAttribute('href') === '/api/v1/auth/logout') {
+                                        link.onclick = function(e) {
+                                            e.preventDefault();
+                                            window.location.href = '/api/v1/auth/logout?returnUrl=' + encodeURIComponent(window.location.href);
+                                        };
+                                    }
+                                });
                             }
                         }, 300);
                     });
