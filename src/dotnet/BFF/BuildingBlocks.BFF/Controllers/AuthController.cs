@@ -30,14 +30,16 @@ public class AuthController(
     /// </summary>
     [HttpGet("login")]
     [AllowAnonymous]
-    public IActionResult Login([FromQuery] string? returnUrl = "/")
+    public IActionResult Login([FromQuery] string? returnUrl = null)
     {
+        var targetUrl = ResolveReturnUrl(returnUrl);
+
         if (User.Identity?.IsAuthenticated == true)
-            return Redirect(returnUrl ?? "/");
+            return Redirect(targetUrl);
 
         var props = new AuthenticationProperties
         {
-            RedirectUri = returnUrl ?? "/"
+            RedirectUri = targetUrl
         };
 
         return Challenge(props, AuthExtensions.CognitoScheme);
@@ -45,38 +47,65 @@ public class AuthController(
 
     /// <summary>
     /// Callback từ Cognito Hosted UI sau khi authenticate thành công.
-    /// Redirect về returnUrl (mặc định: /).
+    /// Redirect về returnUrl (mặc định: /swagger nếu không có returnUrl).
     /// </summary>
     [HttpGet("callback")]
     [AllowAnonymous]
-    public IActionResult Callback([FromQuery] string? returnUrl = "/")
+    public IActionResult Callback([FromQuery] string? returnUrl = null)
     {
-        return Redirect(string.IsNullOrWhiteSpace(returnUrl) ? "/" : returnUrl);
+        var targetUrl = ResolveReturnUrl(returnUrl);
+        return Redirect(targetUrl);
     }
 
     /// <summary>
-    /// POST /api/v1/auth/logout — sign out khỏi cookie session và chuyển tiếp sang Cognito logout endpoint.
+    /// POST /api/v1/auth/logout — sign out khỏi cookie session và chuyển tiếp sang Cognito logout endpoint nếu có cấu hình.
     /// </summary>
     [HttpPost("logout")]
-    [Authorize]
-    public async Task<IActionResult> Logout([FromQuery] string? returnUrl = "/")
+    [HttpGet("logout")]
+    [AllowAnonymous]
+    public async Task<IActionResult> Logout([FromQuery] string? returnUrl = null)
     {
         await HttpContext.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
 
+        var targetUrl = ResolveReturnUrl(returnUrl);
+
+        // Nếu Cognito Domain chưa được cấu hình hoặc là placeholder mặc định (không phân giải được DNS), redirect thẳng về targetUrl
+        if (string.IsNullOrWhiteSpace(_cognito.Domain) ||
+            string.IsNullOrWhiteSpace(_cognito.ClientId) ||
+            _cognito.Domain.Equals("aurora-platform-demo", StringComparison.OrdinalIgnoreCase))
+        {
+            return Redirect(targetUrl);
+        }
+
+        var fullLogoutUri = targetUrl.StartsWith("http", StringComparison.OrdinalIgnoreCase)
+            ? targetUrl
+            : $"{Request.Scheme}://{Request.Host}{targetUrl}";
+
         var logoutUrl = $"{_cognito.LogoutEndpoint}" +
             $"?client_id={_cognito.ClientId}" +
-            $"&logout_uri={Uri.EscapeDataString(returnUrl ?? _cognito.AppDomain)}";
+            $"&logout_uri={Uri.EscapeDataString(fullLogoutUri)}";
 
         return Redirect(logoutUrl);
     }
 
-    /// <summary>
-    /// GET /api/v1/auth/logout — hỗ trợ logout bằng GET cho redirect từ frontend.
-    /// </summary>
-    [HttpGet("logout")]
-    [Authorize]
-    public Task<IActionResult> LogoutGet([FromQuery] string? returnUrl = "/")
-        => Logout(returnUrl);
+    private string ResolveReturnUrl(string? returnUrl)
+    {
+        if (!string.IsNullOrWhiteSpace(returnUrl) && returnUrl != "/")
+            return returnUrl;
+
+        if (Request.Headers.TryGetValue("Referer", out var referer) && !string.IsNullOrWhiteSpace(referer))
+        {
+            var refererStr = referer.ToString();
+            // Tránh loop lại chính trang login/logout
+            if (!refererStr.Contains("/api/v1/auth/login", StringComparison.OrdinalIgnoreCase) &&
+                !refererStr.Contains("/api/v1/auth/logout", StringComparison.OrdinalIgnoreCase))
+            {
+                return refererStr;
+            }
+        }
+
+        return "/swagger";
+    }
 
     /// <summary>
     /// Trả về thông tin user hiện tại từ auth context: Persona Role + N Direct Permissions.
