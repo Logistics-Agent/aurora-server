@@ -105,6 +105,16 @@ public static class AuthExtensions
 
                 options.Events = new OpenIdConnectEvents
                 {
+                    OnRedirectToIdentityProvider = context =>
+                    {
+                        var forwardedHost = context.Request.Headers["X-Forwarded-Host"].FirstOrDefault();
+                        var forwardedProto = context.Request.Headers["X-Forwarded-Proto"].FirstOrDefault() ?? "https";
+                        if (!string.IsNullOrWhiteSpace(forwardedHost))
+                        {
+                            context.ProtocolMessage.RedirectUri = $"{forwardedProto}://{forwardedHost}{options.CallbackPath}";
+                        }
+                        return Task.CompletedTask;
+                    },
                     OnTokenValidated = context =>
                     {
                         var identity = context.Principal?.Identity as ClaimsIdentity;
