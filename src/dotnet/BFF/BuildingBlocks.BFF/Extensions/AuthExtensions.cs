@@ -152,7 +152,8 @@ public static class AuthExtensions
 
                         if (!string.IsNullOrWhiteSpace(expectedClientId))
                         {
-                            var clientId = context.Principal?.FindFirst("client_id")?.Value;
+                            var clientId = context.Principal?.FindFirst("client_id")?.Value
+                                        ?? context.Principal?.FindFirst("aud")?.Value;
                             if (!string.Equals(clientId, expectedClientId, StringComparison.Ordinal))
                                 context.Fail("Invalid client_id.");
                         }
