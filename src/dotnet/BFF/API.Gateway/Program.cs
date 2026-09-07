@@ -10,11 +10,13 @@ builder.Host.UseSerilog((ctx, lc) => lc
 // Add YARP
 builder.Services.AddReverseProxy()
     .LoadFromConfig(builder.Configuration.GetSection("ReverseProxy"));
-
+builder.Services.AddHealthChecks();
 var app = builder.Build();
 
 app.UseSerilogRequestLogging();
 
+app.MapHealthChecks("/healthz");
+app.MapGet("/", () => Results.Redirect("/swagger"));
 app.MapReverseProxy();
 
 app.Run();

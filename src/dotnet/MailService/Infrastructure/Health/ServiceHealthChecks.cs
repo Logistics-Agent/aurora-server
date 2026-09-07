@@ -18,7 +18,9 @@ public class StalwartHealthCheck : IHealthCheck
     public StalwartHealthCheck(IHttpClientFactory httpClientFactory, IConfiguration configuration, ILogger<StalwartHealthCheck> logger)
     {
         _httpClientFactory = httpClientFactory;
-        _baseUrl = configuration["Stalwart:BaseUrl"] ?? "http://localhost:8080";
+        _baseUrl = configuration["Stalwart:BaseUrl"]
+            ?? configuration["Stalwart:AdminUrl"]
+            ?? "http://localhost:8080";
         _logger = logger;
     }
 
@@ -37,12 +39,12 @@ public class StalwartHealthCheck : IHealthCheck
                 return HealthCheckResult.Healthy($"Stalwart is reachable at {_baseUrl}");
             }
 
-            return HealthCheckResult.Unhealthy($"Stalwart returned status code {response.StatusCode} from {uri}");
+            return HealthCheckResult.Degraded($"Stalwart returned status code {response.StatusCode} from {uri}");
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Stalwart health probe failed for {BaseUrl}", _baseUrl);
-            return HealthCheckResult.Unhealthy($"Stalwart unreachable at {_baseUrl}: {ex.Message}");
+            return HealthCheckResult.Degraded($"Stalwart unreachable at {_baseUrl}: {ex.Message}");
         }
     }
 }
@@ -74,7 +76,7 @@ public class ClamAvHealthCheck : IHealthCheck
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "ClamAV health probe failed for {Host}:{Port}", _host, _port);
-            return HealthCheckResult.Unhealthy($"ClamAV daemon unreachable at {_host}:{_port}: {ex.Message}");
+            return HealthCheckResult.Degraded($"ClamAV daemon unreachable at {_host}:{_port}: {ex.Message}");
         }
     }
 }

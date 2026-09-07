@@ -10,9 +10,10 @@ service:
   type: ClusterIP
   port: 5004
   targetPort: 5004
+  name: grpc
 
 additionalPorts:
-  - name: http-metrics
+  - name: http
     port: 8080
     targetPort: 8080
     protocol: TCP
@@ -49,4 +50,31 @@ resources:
 serviceMonitor:
   enabled: true
   path: /metrics
-  port: http-metrics
+  port: http
+
+startupProbe:
+  httpGet: null
+  tcpSocket:
+    port: grpc
+  initialDelaySeconds: 5
+  periodSeconds: 5
+  timeoutSeconds: 3
+  failureThreshold: 36
+
+livenessProbe:
+  httpGet: null
+  tcpSocket:
+    port: grpc
+  initialDelaySeconds: 20
+  periodSeconds: 10
+  timeoutSeconds: 3
+  failureThreshold: 3
+
+readinessProbe:
+  httpGet: null
+  tcpSocket:
+    port: grpc
+  initialDelaySeconds: 10
+  periodSeconds: 5
+  timeoutSeconds: 3
+  failureThreshold: 6

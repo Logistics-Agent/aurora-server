@@ -8,26 +8,21 @@ image:
 
 service:
   type: ClusterIP
-  port: 5007
-  targetPort: 5007
+  port: 8080
+  targetPort: 8080
+  name: http
 
-additionalPorts:
-  - name: http-metrics
-    port: 8080
-    targetPort: 8080
-    protocol: TCP
+additionalPorts: []
 
 env:
   NODE_ENV: "production"
   PORT: "8080"
-  GRPC_PORT: "5007"
   REDIS_HOST: "redis-aurora-shared-demo.southeastasia.redis.azure.net"
   REDIS_PORT: "10000"
   REDIS_TLS: "true"
 
 externalSecret:
   enabled: true
-  apiVersion: external-secrets.io/v1beta1
   secretStoreRef:
     name: azure-keyvault-store
     kind: ClusterSecretStore
@@ -53,4 +48,31 @@ resources:
 serviceMonitor:
   enabled: true
   path: /metrics
-  port: http-metrics
+  port: http
+
+startupProbe:
+  httpGet:
+    path: /healthz/liveness
+    port: http
+  initialDelaySeconds: 10
+  periodSeconds: 5
+  timeoutSeconds: 3
+  failureThreshold: 36
+
+livenessProbe:
+  httpGet:
+    path: /healthz/liveness
+    port: http
+  initialDelaySeconds: 30
+  periodSeconds: 10
+  timeoutSeconds: 3
+  failureThreshold: 3
+
+readinessProbe:
+  httpGet:
+    path: /healthz/readiness
+    port: http
+  initialDelaySeconds: 10
+  periodSeconds: 5
+  timeoutSeconds: 3
+  failureThreshold: 6

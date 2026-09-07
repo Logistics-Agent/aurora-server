@@ -201,6 +201,18 @@
                 <artifactId>spring-boot-maven-plugin</artifactId>
             </plugin>
 
+            <!-- Maven Compiler Plugin -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.13.0</version>
+                <configuration>
+                    <release>21</release>
+                    <parameters>true</parameters>
+                    <useIncrementalCompilation>false</useIncrementalCompilation>
+                </configuration>
+            </plugin>
+
             <!-- Protobuf Maven Plugin -->
             <plugin>
                 <groupId>org.xolstice.maven.plugins</groupId>
@@ -211,6 +223,7 @@
                     <pluginId>grpc-java</pluginId>
                     <pluginArtifact>io.grpc:protoc-gen-grpc-java:${grpc.version}:exe:${os.detected.classifier}</pluginArtifact>
                     <protoSourceRoot>${project.basedir}/../../../protos</protoSourceRoot>
+                    <clearOutputDirectory>false</clearOutputDirectory>
                 </configuration>
                 <executions>
                     <execution>
@@ -218,6 +231,28 @@
                             <goal>compile</goal>
                             <goal>compile-custom</goal>
                         </goals>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <!-- Build Helper Plugin to include generated gRPC sources in compilation -->
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>build-helper-maven-plugin</artifactId>
+                <version>3.5.0</version>
+                <executions>
+                    <execution>
+                        <id>add-protobuf-sources</id>
+                        <phase>generate-sources</phase>
+                        <goals>
+                            <goal>add-source</goal>
+                        </goals>
+                        <configuration>
+                            <sources>
+                                <source>${project.build.directory}/generated-sources/protobuf/java</source>
+                                <source>${project.build.directory}/generated-sources/protobuf/grpc-java</source>
+                            </sources>
+                        </configuration>
                     </execution>
                 </executions>
             </plugin>
@@ -276,7 +311,6 @@
                                         <limit>
                                             <counter>LINE</counter>
                                             <value>COVEREDRATIO</value>
-                                            <minimum>0.80</minimum>
                                             <minimum>0.60</minimum>
                                         </limit>
                                     </limits>
@@ -292,6 +326,7 @@
                 <artifactId>maven-surefire-plugin</artifactId>
                 <configuration>
                     <excludedGroups>integration</excludedGroups>
+                    <argLine>@{argLine} -XX:+EnableDynamicAgentLoading</argLine>
                 </configuration>
             </plugin>
         </plugins>

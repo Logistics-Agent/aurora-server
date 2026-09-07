@@ -63,3 +63,39 @@ cloudflare_account_id = "" # "<CLOUDFLARE_ACCOUNT_ID>"
 # cloudflare_api_token= "<CLOUDFLARE_API_TOKEN>" # Or set CLOUDFLARE_API_TOKEN env var
 r2_bucket_name        = "aurora-mail-platform"
 r2_location_hint      = "apac"
+
+# 8. External Services — Cloudflare DNS & Domain Management (humanak.cyou)
+enable_cloudflare_dns              = true
+domain_name                        = "humanak.cyou"
+# cloudflare_zone_id               = "" # Leave empty to auto-lookup existing zone by domain_name
+# cloudflare_create_zone           = false # Set true if Terraform should create the zone in Cloudflare
+
+# Backend API -> api.humanak.cyou (Points to AppGW Public IP)
+api_subdomain                      = "api"
+api_target_ip                      = "20.205.100.1" # Replace with AppGW Public IP (from core outputs)
+api_record_type                    = "A"
+api_proxied                        = true
+
+# Vercel Frontends (Subdomains)
+admin_subdomain                    = "admin"
+admin_cname_target                 = "cname.vercel-dns.com"
+admin_proxied                      = false # Recommended false for Vercel SSL cert validation
+
+system_subdomain                   = "system"
+system_cname_target                = "cname.vercel-dns.com"
+system_proxied                     = false
+
+# Staff Manager (Main Web App -> Root / Apex humanak.cyou)
+staff_manager_target               = "76.76.21.21" # Vercel standard A-record for root apex domain
+staff_manager_record_type          = "A"
+staff_manager_proxied              = false
+
+# WWW Subdomain (Optional)
+enable_www_subdomain               = true
+www_cname_target                   = "cname.vercel-dns.com"
+www_proxied                        = false
+
+# Cloudflare Zone Settings (Set to false if API token only has DNS:Edit permission)
+cloudflare_configure_zone_settings = false
+cloudflare_ssl_setting             = "full"
+

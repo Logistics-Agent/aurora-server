@@ -124,10 +124,14 @@ builder.Services.AddScoped<IOutboxWriter, OutboxWriter>();
 builder.Services.AddHostedService<OutboxProcessorBackgroundService>();
 
 // Register Infrastructure HTTP Clients & S3 / R2
+var stalwartBaseUrl = builder.Configuration["Stalwart:BaseUrl"]
+    ?? builder.Configuration["Stalwart:AdminUrl"]
+    ?? "http://localhost:8080";
+
 builder.Services.AddHttpClient();
 builder.Services.AddHttpClient<IStalwartManagementClient, StalwartManagementClient>(client =>
 {
-    client.BaseAddress = new Uri(builder.Configuration["Stalwart:BaseUrl"] ?? "http://localhost:8080");
+    client.BaseAddress = new Uri(stalwartBaseUrl);
 });
 
 builder.Services.AddSingleton<IAmazonS3>(sp => new AmazonS3Client(
@@ -141,8 +145,21 @@ builder.Services.AddSingleton<IAmazonS3>(sp => new AmazonS3Client(
 
 // Register Redis Connection Multiplexer
 string redisConnection = builder.Configuration.GetConnectionString("Redis")
-    ?? builder.Configuration["Redis:ConnectionString"]
-    ?? "localhost:6379,abortConnect=false";
+    ?? builder.Configuration["Redis:ConnectionString"];
+
+if (string.IsNullOrEmpty(redisConnection))
+{
+    var redisHost = builder.Configuration["Redis:Host"] ?? "localhost:6379";
+    var redisPassword = builder.Configuration["Redis:Password"];
+    var redisSsl = builder.Configuration.GetValue<bool>("Redis:Ssl", false);
+    var redisAbort = builder.Configuration.GetValue<bool>("Redis:AbortConnect", false);
+
+    redisConnection = $"{redisHost},abortConnect={redisAbort.ToString().ToLower()},ssl={redisSsl.ToString().ToLower()}";
+    if (!string.IsNullOrEmpty(redisPassword))
+    {
+        redisConnection += $",password={redisPassword}";
+    }
+}
 
 builder.Services.AddSingleton<IConnectionMultiplexer>(sp =>
 {
@@ -167,6 +184,7 @@ builder.Services.AddScoped<DmarcEvaluator>();
 builder.Services.Configure<AiGovernanceOptions>(builder.Configuration.GetSection(AiGovernanceOptions.SectionName));
 var aiGovernanceUrl = builder.Configuration["AiGovernance:GrpcEndpoint"]
     ?? builder.Configuration["AiGovernance:ServiceUrl"]
+    ?? builder.Configuration["Grpc:AiGovernance:Url"]
     ?? "http://localhost:5005";
 
 builder.Services.AddGrpcClient<AiGovernanceService.AiGovernanceServiceClient>(o =>
@@ -213,8 +231,8 @@ builder.Services.AddHealthChecks()
     .AddCheck("self", () => HealthCheckResult.Healthy("MailService process is alive"), tags: new[] { "live" })
     .AddNpgSql(connectionString, name: "neon-postgres", tags: new[] { "ready", "critical" })
     .AddRedis(redisConnection, name: "redis", tags: new[] { "ready", "critical" })
-    .AddCheck<StalwartHealthCheck>("stalwart", tags: new[] { "ready", "critical" })
-    .AddCheck<ClamAvHealthCheck>("clamav", tags: new[] { "ready", "critical" })
+    .AddCheck<StalwartHealthCheck>("stalwart", tags: new[] { "ready" })
+    .AddCheck<ClamAvHealthCheck>("clamav", tags: new[] { "general" })
     .AddCheck<SpamAssassinHealthCheck>("spamassassin", tags: new[] { "general" })
     .AddCheck<AiGovernanceHealthCheck>("ai-governance", tags: new[] { "general" });
 
@@ -225,7 +243,7 @@ app.MapGrpcService<MailManagementService>();
 app.MapGrpcService<MailSecurityService>();
 
 // Map Health Endpoints (Port 9090 HTTP/1.1)
-// 1. General health overview
+// 1. General health overview (full diagnostics)
 app.MapHealthChecks("/health", new HealthCheckOptions
 {
     Predicate = _ => true,
@@ -259,6 +277,12 @@ app.MapHealthChecks("/health/live", new HealthCheckOptions
 app.MapHealthChecks("/health/ready", new HealthCheckOptions
 {
     Predicate = check => check.Tags.Contains("ready")
+});
+
+// 4. Default Kubernetes liveness alias
+app.MapHealthChecks("/healthz", new HealthCheckOptions
+{
+    Predicate = check => check.Tags.Contains("live")
 });
 
 app.MapGet("/", () => "Aurora Mail Platform Security Service running.");

@@ -114,7 +114,6 @@ secretEnv: {}
 # External Secrets Operator configuration (Azure Key Vault)
 externalSecret:
   enabled: false
-  apiVersion: external-secrets.io/v1
   secretStoreRef:
     name: azure-keyvault-store
     kind: ClusterSecretStore

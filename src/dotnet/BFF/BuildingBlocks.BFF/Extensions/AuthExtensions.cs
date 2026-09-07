@@ -105,6 +105,18 @@ public static class AuthExtensions
 
                 options.Events = new OpenIdConnectEvents
                 {
+                    OnRedirectToIdentityProvider = context =>
+                    {
+                        var forwardedHost = context.Request.Headers["X-Forwarded-Host"].FirstOrDefault()
+                                         ?? context.Request.Host.Value;
+
+                        var isLocal = forwardedHost?.StartsWith("localhost", StringComparison.OrdinalIgnoreCase) == true
+                                   || forwardedHost?.StartsWith("127.0.0.1") == true;
+                        var scheme = isLocal ? "http" : "https";
+
+                        context.ProtocolMessage.RedirectUri = $"{scheme}://{forwardedHost ?? context.Request.Host.Value}{options.CallbackPath}";
+                        return Task.CompletedTask;
+                    },
                     OnTokenValidated = context =>
                     {
                         var identity = context.Principal?.Identity as ClaimsIdentity;
@@ -140,7 +152,8 @@ public static class AuthExtensions
 
                         if (!string.IsNullOrWhiteSpace(expectedClientId))
                         {
-                            var clientId = context.Principal?.FindFirst("client_id")?.Value;
+                            var clientId = context.Principal?.FindFirst("client_id")?.Value
+                                        ?? context.Principal?.FindFirst("aud")?.Value;
                             if (!string.Equals(clientId, expectedClientId, StringComparison.Ordinal))
                                 context.Fail("Invalid client_id.");
                         }

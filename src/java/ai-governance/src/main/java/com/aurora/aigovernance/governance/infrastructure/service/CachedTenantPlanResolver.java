@@ -15,8 +15,9 @@ import com.aurora.aigovernance.governance.domain.enums.TenantStatus;
 import com.aurora.aigovernance.governance.domain.valueobject.TenantPlanResult;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
-import iam.IamServiceGrpc;
-import iam.IamTenant;
+import com.aurora.iam.grpc.IamServiceGrpc;
+import com.aurora.iam.grpc.GetTenantRequest;
+import com.aurora.iam.grpc.TenantResponse;
 import io.grpc.Status;
 import io.grpc.StatusRuntimeException;
 import net.devh.boot.grpc.client.inject.GrpcClient;
@@ -43,9 +44,9 @@ public class CachedTenantPlanResolver implements TenantPlanResolver {
     private final Duration cacheTtl;
 
     @GrpcClient("iam-service")
-    @Autowired
     private IamServiceGrpc.IamServiceBlockingStub iamClient;
 
+    @Autowired
     public CachedTenantPlanResolver(
             StringRedisTemplate redisTemplate,
             ObjectMapper objectMapper,
@@ -55,7 +56,7 @@ public class CachedTenantPlanResolver implements TenantPlanResolver {
         this.cacheTtl = cacheTtl;
     }
 
-    // Constructor for testing with injected stub
+    // Constructor for tests
     public CachedTenantPlanResolver(
             StringRedisTemplate redisTemplate,
             ObjectMapper objectMapper,
@@ -117,11 +118,11 @@ public class CachedTenantPlanResolver implements TenantPlanResolver {
             return new TenantPlanResult.IamUnavailable("IamTenant gRPC client not configured");
         }
 
-        IamTenant.GetTenantRequest request = IamTenant.GetTenantRequest.newBuilder()
+        GetTenantRequest request = GetTenantRequest.newBuilder()
                 .setId(tenantId.toString())
                 .build();
 
-        IamTenant.TenantResponse response;
+        TenantResponse response;
         try {
             response = iamClient.withDeadlineAfter(GRPC_TIMEOUT_SECONDS, TimeUnit.SECONDS)
                     .getTenant(request);

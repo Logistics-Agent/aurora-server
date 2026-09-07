@@ -8,7 +8,15 @@ public static class SwaggerExtensions
     {
         services.AddSwaggerGen(options =>
         {
-            options.SwaggerDoc("v1", new OpenApiInfo { Title = apiTitle, Version = "v1" });
+            options.SwaggerDoc("v1", new OpenApiInfo
+            {
+                Title = apiTitle,
+                Version = "v1",
+                Description = @"### 🔐 Authentication (BFF Cookie Session)
+* **Login via Cognito**: Click nút **🔑 Login (Cognito)** ở trên thanh tiêu đề hoặc [👉 Bấm vào đây để Đăng nhập](/api/v1/auth/login)
+* **Current User**: [👉 Xem thông tin User hiện tại (/api/v1/auth/me)](/api/v1/auth/me)
+* **Logout**: Click nút **🚪 Logout** hoặc [👉 Bấm vào đây để Đăng xuất](/api/v1/auth/logout)"
+            });
 
             // Tránh trùng lặp DTO model (bắt chước logic E-Verland)
             options.CustomSchemaIds(type =>
@@ -43,13 +51,14 @@ public static class SwaggerExtensions
             });
 
             // Sử dụng Cookie Authentication thay vì Bearer Header
-            // Swagger UI khi gọi "Try it out" sẽ tự động gửi HttpOnly cookie (access_token) của trình duyệt.
+            // Swagger UI khi gọi "Try it out" sẽ tự động gửi HttpOnly cookie (.Aurora.Auth) của trình duyệt.
             // Để hiển thị biểu tượng khoá bảo mật trên Swagger UI, chúng ta định nghĩa ApiKeySecurityScheme In Cookie.
             options.AddSecurityDefinition("cookieAuth", new OpenApiSecurityScheme
             {
-                Name = "access_token",
+                Name = ".Aurora.Auth",
                 Type = SecuritySchemeType.ApiKey,
                 In = ParameterLocation.Cookie,
+                Description = "BFF Cookie Session Authentication (.Aurora.Auth)"
             });
 
             options.AddSecurityRequirement(new OpenApiSecurityRequirement
@@ -90,11 +99,100 @@ public static class SwaggerExtensions
 
         app.UseSwaggerUI(options =>
         {
-            options.SwaggerEndpoint("/swagger/v1/swagger.json", apiTitle);
-            options.RoutePrefix = "api-docs";
+            options.SwaggerEndpoint("./v1/swagger.json", apiTitle);
+            options.RoutePrefix = "swagger";
             // Kích hoạt tính năng gửi credential (Cookie) cho "Try it out"
             options.ConfigObject.AdditionalItems["withCredentials"] = true;
+
+            // Thêm nút Login / Logout trực tiếp trên Swagger UI
+            options.HeadContent = @"
+                <style>
+                    .swagger-auth-container {
+                        display: inline-flex;
+                        align-items: center;
+                        gap: 8px;
+                        margin-left: 16px;
+                    }
+                    .swagger-btn {
+                        display: inline-block;
+                        padding: 6px 14px;
+                        border-radius: 4px;
+                        font-size: 13px;
+                        font-weight: 600;
+                        text-decoration: none !important;
+                        cursor: pointer;
+                        transition: background-color 0.2s;
+                    }
+                    .swagger-btn-login {
+                        background-color: #4990e2;
+                        color: #ffffff !important;
+                    }
+                    .swagger-btn-login:hover {
+                        background-color: #357ae8;
+                    }
+                    .swagger-btn-logout {
+                        background-color: #e53e3e;
+                        color: #ffffff !important;
+                    }
+                    .swagger-btn-logout:hover {
+                        background-color: #c53030;
+                    }
+                </style>
+                <script>
+                    window.addEventListener('DOMContentLoaded', function () {
+                        var interval = setInterval(function () {
+                            var topbar = document.querySelector('.topbar-wrapper') || document.querySelector('.information-container .title');
+                            if (topbar && !document.getElementById('swagger-auth-actions')) {
+                                clearInterval(interval);
+                                
+                                var container = document.createElement('div');
+                                container.id = 'swagger-auth-actions';
+                                container.className = 'swagger-auth-container';
+                                
+                                var loginBtn = document.createElement('a');
+                                loginBtn.className = 'swagger-btn swagger-btn-login';
+                                loginBtn.href = '#';
+                                loginBtn.innerText = '🔑 Login (Cognito)';
+                                loginBtn.onclick = function (e) {
+                                    e.preventDefault();
+                                    window.location.href = '/api/v1/auth/login?returnUrl=' + encodeURIComponent(window.location.href);
+                                };
+                                
+                                var logoutBtn = document.createElement('a');
+                                logoutBtn.className = 'swagger-btn swagger-btn-logout';
+                                logoutBtn.href = '#';
+                                logoutBtn.innerText = '🚪 Logout';
+                                logoutBtn.onclick = function (e) {
+                                    e.preventDefault();
+                                    window.location.href = '/api/v1/auth/logout?returnUrl=' + encodeURIComponent(window.location.href);
+                                };
+                                
+                                container.appendChild(loginBtn);
+                                container.appendChild(logoutBtn);
+                                topbar.appendChild(container);
+
+                                // Cập nhật dynamic returnUrl cho các link trong description nếu có
+                                document.querySelectorAll('.renderedMarkdown a').forEach(function(link) {
+                                    if (link.getAttribute('href') === '/api/v1/auth/login') {
+                                        link.onclick = function(e) {
+                                            e.preventDefault();
+                                            window.location.href = '/api/v1/auth/login?returnUrl=' + encodeURIComponent(window.location.href);
+                                        };
+                                    } else if (link.getAttribute('href') === '/api/v1/auth/logout') {
+                                        link.onclick = function(e) {
+                                            e.preventDefault();
+                                            window.location.href = '/api/v1/auth/logout?returnUrl=' + encodeURIComponent(window.location.href);
+                                        };
+                                    }
+                                });
+                            }
+                        }, 300);
+                    });
+                </script>";
         });
+
+        // Hỗ trợ redirect từ /api-docs sang /swagger
+        app.MapGet("/api-docs", () => Results.Redirect("/swagger"));
 
         return app;
     }

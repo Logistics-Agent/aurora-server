@@ -8,22 +8,20 @@ image:
 
 service:
   type: ClusterIP
-  port: 5008
-  targetPort: 5008
-
-additionalPorts:
-  - name: websocket
-    port: 8080
-    targetPort: 8080
-    protocol: TCP
+  port: 5005
+  targetPort: 5005
+  name: http
 
 env:
   NODE_ENV: "production"
-  PORT: "8080"
-  GRPC_PORT: "5008"
+  WEBSOCKET_PORT: "5005"
+  PORT: "5005"
   REDIS_HOST: "redis-aurora-shared-demo.southeastasia.redis.azure.net"
   REDIS_PORT: "10000"
   REDIS_TLS: "true"
+  RABBITMQ_HOST: "rabbitmq.aurora.svc.cluster.local"
+  RABBITMQ_PORT: "5672"
+  RABBITMQ_USERNAME: "aurora_admin"
 
 externalSecret:
   enabled: true
@@ -34,6 +32,10 @@ externalSecret:
     - secretKey: REDIS_PASSWORD
       remoteRef:
         key: redis-password
+    - secretKey: RABBITMQ_PASSWORD
+      remoteRef:
+        key: rabbitmq-password
+
 
 resources:
   requests:
@@ -46,4 +48,31 @@ resources:
 serviceMonitor:
   enabled: true
   path: /metrics
-  port: websocket
+  port: http
+
+startupProbe:
+  httpGet:
+    path: /healthz/liveness
+    port: http
+  initialDelaySeconds: 10
+  periodSeconds: 5
+  timeoutSeconds: 3
+  failureThreshold: 36
+
+livenessProbe:
+  httpGet:
+    path: /healthz/liveness
+    port: http
+  initialDelaySeconds: 30
+  periodSeconds: 10
+  timeoutSeconds: 3
+  failureThreshold: 3
+
+readinessProbe:
+  httpGet:
+    path: /healthz/readiness
+    port: http
+  initialDelaySeconds: 10
+  periodSeconds: 5
+  timeoutSeconds: 3
+  failureThreshold: 6

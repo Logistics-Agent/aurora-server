@@ -49,5 +49,5 @@ app.MapGrpcService<IamGrpcService>();
 app.MapGrpcService<AuthGrpcService>();
 
 app.MapGet("/", () => "IAM Tenant gRPC Service — use a gRPC client to connect.");
-
+app.MapHealthChecks("/healthz");
 app.Run();

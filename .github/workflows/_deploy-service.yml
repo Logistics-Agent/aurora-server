@@ -51,10 +51,17 @@ on:
       AKS_AI_RG:
         required: false
 
+permissions:
+  contents: read
+  id-token: write
+
 jobs:
   deploy:
     name: Rollout (${{ inputs.service-name }} -> AKS ${{ inputs.deploy-target }})
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -117,13 +124,30 @@ jobs:
           echo "New Image URI:     $IMAGE_URI"
           VALUES_FILE="${{ inputs.service-path }}/deploy/helm/values.yaml"
           if [ -f "$VALUES_FILE" ]; then
+            echo "Detecting ExternalSecrets API version from cluster..."
+            ESO_API_VERSION=""
+            if kubectl api-resources --api-group=external-secrets.io -o name 2>/dev/null | grep -qx "externalsecrets.external-secrets.io"; then
+              if kubectl get --raw /apis/external-secrets.io/v1 >/dev/null 2>&1; then
+                ESO_API_VERSION="external-secrets.io/v1/ExternalSecret"
+              elif kubectl get --raw /apis/external-secrets.io/v1beta1 >/dev/null 2>&1; then
+                ESO_API_VERSION="external-secrets.io/v1beta1/ExternalSecret"
+              fi
+            fi
+
+            API_VERSIONS_ARG=""
+            if [ -n "$ESO_API_VERSION" ]; then
+              echo "Detected ExternalSecret API: $ESO_API_VERSION"
+              API_VERSIONS_ARG="--api-versions $ESO_API_VERSION"
+            fi
+
             echo "Validating Helm template schema..."
-          helm template "$DEPLOYMENT_NAME" infra/helm/aurora-service \
-          --namespace "${{ inputs.namespace }}" \
-          -f "$VALUES_FILE" \
-          --set image.tag="${{ inputs.image-tag }}" \
-          --set image.repository="${{ steps.env.outputs.acr_server }}/aurora/${{ inputs.service-name }}" \
-          | kubectl apply --dry-run=server -f -
+            helm template "$DEPLOYMENT_NAME" infra/helm/aurora-service \
+              --namespace "${{ inputs.namespace }}" \
+              -f "$VALUES_FILE" \
+              --set image.tag="${{ inputs.image-tag }}" \
+              --set image.repository="${{ steps.env.outputs.acr_server }}/aurora/${{ inputs.service-name }}" \
+              $API_VERSIONS_ARG \
+              | kubectl apply --dry-run=server -f -
 
             echo "Installing/Upgrading via Helm chart..."
             helm upgrade --install "$DEPLOYMENT_NAME" infra/helm/aurora-service \
@@ -144,36 +168,36 @@ jobs:
             fi
           fi
 
-          - name: Quick Pod Health Check
-            shell: bash
-            run: |
-              DEPLOYMENT_NAME="${{ inputs.deployment-name || inputs.service-name }}"
-              NAMESPACE="${{ inputs.namespace }}"
+      - name: Quick Pod Health Check
+        shell: bash
+        run: |
+          DEPLOYMENT_NAME="${{ inputs.deployment-name || inputs.service-name }}"
+          NAMESPACE="${{ inputs.namespace }}"
 
-              sleep 20
+          sleep 20
 
-              kubectl get pods \
-                -n "$NAMESPACE" \
-                -l "app.kubernetes.io/name=$DEPLOYMENT_NAME" \
-                -o wide
+          kubectl get pods \
+            -n "$NAMESPACE" \
+            -l "app.kubernetes.io/name=$DEPLOYMENT_NAME" \
+            -o wide
 
-              BAD=$(kubectl get pods \
-                -n "$NAMESPACE" \
-                -l "app.kubernetes.io/name=$DEPLOYMENT_NAME" \
-                -o jsonpath='{range .items[*]}{.status.containerStatuses[*].state.waiting.reason}{"\n"}{end}' |
-                grep -E 'CrashLoopBackOff|CreateContainerConfigError|ImagePullBackOff|ErrImagePull' || true)
+          BAD=$(kubectl get pods \
+            -n "$NAMESPACE" \
+            -l "app.kubernetes.io/name=$DEPLOYMENT_NAME" \
+            -o jsonpath='{range .items[*]}{.status.containerStatuses[*].state.waiting.reason}{"\n"}{end}' |
+            grep -E 'CrashLoopBackOff|CreateContainerConfigError|ImagePullBackOff|ErrImagePull' || true)
 
-              if [ -n "$BAD" ]; then
-                echo "Pod entered fatal state early:"
-                echo "$BAD"
+          if [ -n "$BAD" ]; then
+            echo "Pod entered fatal state early:"
+            echo "$BAD"
 
-                kubectl get events \
-                  -n "$NAMESPACE" \
-                  --sort-by=.lastTimestamp |
-                  tail -50 || true
+            kubectl get events \
+              -n "$NAMESPACE" \
+              --sort-by=.lastTimestamp |
+              tail -50 || true
 
-                exit 1
-              fi
+            exit 1
+          fi
 
       - name: Await Rollout Completion
         shell: bash

@@ -80,7 +80,7 @@ builder.Services.AddHealthChecks()
 var app = builder.Build();
 
 app.MapGrpcService<RegulatoryComplianceGrpcService>();
-app.MapHealthChecks("/health", new HealthCheckOptions());
+app.MapHealthChecks("/healthz");
 app.MapGet("/", () => "Regulatory Compliance RAG gRPC Service");
 
 app.Run();

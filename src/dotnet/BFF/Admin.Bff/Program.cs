@@ -28,7 +28,7 @@ var app = builder.Build();
 app.UseMiddleware<CorrelationIdMiddleware>();
 app.UseMiddleware<ExceptionHandlingMiddleware>();
 
-if (app.Environment.IsDevelopment())
+if (app.Environment.IsDevelopment() || config.GetValue<bool>("Swagger:Enabled", true))
 {
     app.UseCustomSwagger("Admin BFF API");
 }

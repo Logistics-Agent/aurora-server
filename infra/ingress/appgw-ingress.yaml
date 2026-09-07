@@ -9,7 +9,7 @@ metadata:
 spec:
   ingressClassName: azure-application-gateway
   rules:
-    - host: api.aurora-logistics.com
+    - host: api.humanak.cyou
       http:
         paths:
           - path: /

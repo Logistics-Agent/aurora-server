@@ -3,7 +3,7 @@ import { ServerOptions } from 'socket.io';
 import { createAdapter } from '@socket.io/redis-adapter';
 import Redis from 'ioredis';
 import { Logger } from '@nestjs/common';
-
+      
 export class RedisIoAdapter extends IoAdapter {
   private adapterConstructor: ReturnType<typeof createAdapter>;
   private readonly logger = new Logger(RedisIoAdapter.name);

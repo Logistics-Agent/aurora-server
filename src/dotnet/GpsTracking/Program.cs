@@ -59,10 +59,13 @@ builder.Services.AddScoped<IGpsOutboxBatchStore, GpsOutboxBatchStore>();
 builder.Services.AddScoped<IGpsIntegrationEventPublisher, GpsIntegrationEventPublisher>();
 builder.Services.AddScoped<GpsOutboxProcessor>();
 builder.Services.AddHostedService<GpsOutboxPublisherBackgroundService>();
-
+builder.Services.AddHealthChecks();
 var app = builder.Build();
 
 app.MapGrpcService<GpsTrackingGrpcService>();
+
+app.MapGet("/health", () => Results.Ok("Healthy"));
+app.MapGet("/healthz", () => Results.Ok("Healthy"));
 app.MapGet("/", () => "GPS Tracking gRPC Service");
 
 app.Run();

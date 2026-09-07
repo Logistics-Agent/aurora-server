@@ -130,3 +130,35 @@ output "cloudflare_r2_endpoint_url" {
   description = "Cloudflare R2 S3-compatible Endpoint URL"
   value       = length(module.cloudflare_r2) > 0 ? module.cloudflare_r2[0].endpoint_url : null
 }
+
+# Cloudflare DNS & Domain Outputs (Conditional)
+output "cloudflare_zone_id" {
+  description = "Cloudflare Zone ID for humanak.cyou"
+  value       = length(module.cloudflare_dns) > 0 ? module.cloudflare_dns[0].zone_id : null
+}
+
+output "cloudflare_name_servers" {
+  description = "Cloudflare Name Servers to configure at domain registrar"
+  value       = length(module.cloudflare_dns) > 0 ? module.cloudflare_dns[0].name_servers : null
+}
+
+output "api_fqdn" {
+  description = "Backend API URL / FQDN"
+  value       = length(module.cloudflare_dns) > 0 ? module.cloudflare_dns[0].api_fqdn : null
+}
+
+output "admin_fqdn" {
+  description = "Admin Portal Vercel URL / FQDN"
+  value       = length(module.cloudflare_dns) > 0 ? module.cloudflare_dns[0].admin_fqdn : null
+}
+
+output "system_fqdn" {
+  description = "System Portal Vercel URL / FQDN"
+  value       = length(module.cloudflare_dns) > 0 ? module.cloudflare_dns[0].system_fqdn : null
+}
+
+output "staff_manager_fqdn" {
+  description = "Staff Manager Main Web URL / FQDN"
+  value       = length(module.cloudflare_dns) > 0 ? module.cloudflare_dns[0].staff_manager_fqdn : null
+}
+
