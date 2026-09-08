@@ -132,18 +132,19 @@ public static class GrpcClientExtensions
 
     // ── Resilience profiles ──────────────────────────────────────────────────
 
-    /// <summary>IAM: retry nhanh hơn (auth critical path).</summary>
+    /// <summary>IAM: auth & provisioning (Cognito creation requires up to 60s).</summary>
     private static void ConfigureIamResilience(
         Microsoft.Extensions.Http.Resilience.HttpStandardResilienceOptions r)
     {
         r.Retry.MaxRetryAttempts = 2;
         r.Retry.Delay = TimeSpan.FromMilliseconds(200);
         r.Retry.UseJitter = true;
-        r.CircuitBreaker.SamplingDuration = TimeSpan.FromSeconds(30);
+        r.CircuitBreaker.SamplingDuration = TimeSpan.FromSeconds(60);
         r.CircuitBreaker.FailureRatio = 0.5;
         r.CircuitBreaker.MinimumThroughput = 5;
         r.CircuitBreaker.BreakDuration = TimeSpan.FromSeconds(15);
-        r.TotalRequestTimeout.Timeout = TimeSpan.FromSeconds(12);
+        r.AttemptTimeout.Timeout = TimeSpan.FromSeconds(45);
+        r.TotalRequestTimeout.Timeout = TimeSpan.FromSeconds(60);
     }
 
     /// <summary>Business services: timeout rộng hơn cho heavy operations (optimize/LLM).</summary>

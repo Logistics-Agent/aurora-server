@@ -18,88 +18,60 @@ public class CognitoAuthService(
     {
         var sanitizedCode = tenantCode.Replace("-", "_").ToUpperInvariant();
 
-        // 1. Create Admin User Pool & App Client
-        var adminPoolReq = new CreateUserPoolRequest
+        async Task<(string PoolId, string ClientId)> CreatePoolAndClientAsync(string poolSuffix, string clientSuffix)
         {
-            PoolName = $"{sanitizedCode}_Admin_UserPool",
-            AutoVerifiedAttributes = new List<string> { "email" },
-            UsernameAttributes = new List<string> { "email" },
-            Policies = new UserPoolPolicyType
+            var poolReq = new CreateUserPoolRequest
             {
-                PasswordPolicy = new PasswordPolicyType
+                PoolName = $"{sanitizedCode}_{poolSuffix}",
+                AutoVerifiedAttributes = new List<string> { "email" },
+                UsernameAttributes = new List<string> { "email" },
+                Policies = new UserPoolPolicyType
                 {
-                    MinimumLength = 8,
-                    RequireUppercase = true,
-                    RequireLowercase = true,
-                    RequireNumbers = true,
-                    RequireSymbols = true
+                    PasswordPolicy = new PasswordPolicyType
+                    {
+                        MinimumLength = 8,
+                        RequireUppercase = true,
+                        RequireLowercase = true,
+                        RequireNumbers = true,
+                        RequireSymbols = true
+                    }
                 }
-            }
-        };
+            };
 
-        var adminPoolRes = await cognito.CreateUserPoolAsync(adminPoolReq, ct);
-        var adminUserPoolId = adminPoolRes.UserPool.Id;
+            var poolRes = await cognito.CreateUserPoolAsync(poolReq, ct);
+            var poolId = poolRes.UserPool.Id;
 
-        var adminClientReq = new CreateUserPoolClientRequest
-        {
-            UserPoolId = adminUserPoolId,
-            ClientName = $"{sanitizedCode}_Admin_AppClient",
-            GenerateSecret = false,
-            ExplicitAuthFlows = new List<string>
+            var clientReq = new CreateUserPoolClientRequest
             {
-                "ALLOW_ADMIN_USER_PASSWORD_AUTH",
-                "ALLOW_REFRESH_TOKEN_AUTH",
-                "ALLOW_USER_PASSWORD_AUTH"
-            }
-        };
-
-        var adminClientRes = await cognito.CreateUserPoolClientAsync(adminClientReq, ct);
-        var adminClientId = adminClientRes.UserPoolClient.ClientId;
-
-        // 2. Create User User Pool & App Client
-        var userPoolReq = new CreateUserPoolRequest
-        {
-            PoolName = $"{sanitizedCode}_User_UserPool",
-            AutoVerifiedAttributes = new List<string> { "email" },
-            UsernameAttributes = new List<string> { "email" },
-            Policies = new UserPoolPolicyType
-            {
-                PasswordPolicy = new PasswordPolicyType
+                UserPoolId = poolId,
+                ClientName = $"{sanitizedCode}_{clientSuffix}",
+                GenerateSecret = false,
+                ExplicitAuthFlows = new List<string>
                 {
-                    MinimumLength = 8,
-                    RequireUppercase = true,
-                    RequireLowercase = true,
-                    RequireNumbers = true,
-                    RequireSymbols = true
+                    "ALLOW_ADMIN_USER_PASSWORD_AUTH",
+                    "ALLOW_REFRESH_TOKEN_AUTH",
+                    "ALLOW_USER_PASSWORD_AUTH"
                 }
-            }
-        };
+            };
 
-        var userPoolRes = await cognito.CreateUserPoolAsync(userPoolReq, ct);
-        var StaffUserPoolId = userPoolRes.UserPool.Id;
+            var clientRes = await cognito.CreateUserPoolClientAsync(clientReq, ct);
+            return (poolId, clientRes.UserPoolClient.ClientId);
+        }
 
-        var userClientReq = new CreateUserPoolClientRequest
-        {
-            UserPoolId = StaffUserPoolId,
-            ClientName = $"{sanitizedCode}_User_AppClient",
-            GenerateSecret = false,
-            ExplicitAuthFlows = new List<string>
-            {
-                "ALLOW_ADMIN_USER_PASSWORD_AUTH",
-                "ALLOW_REFRESH_TOKEN_AUTH",
-                "ALLOW_USER_PASSWORD_AUTH"
-            }
-        };
+        var adminTask = CreatePoolAndClientAsync("Admin_UserPool", "Admin_AppClient");
+        var staffTask = CreatePoolAndClientAsync("User_UserPool", "User_AppClient");
 
-        var userClientRes = await cognito.CreateUserPoolClientAsync(userClientReq, ct);
-        var userClientId = userClientRes.UserPoolClient.ClientId;
+        await Task.WhenAll(adminTask, staffTask);
+
+        var (adminPoolId, adminClientId) = await adminTask;
+        var (staffPoolId, staffClientId) = await staffTask;
 
         return new TenantCognitoPoolsResult
         {
-            AdminUserPoolId = adminUserPoolId,
+            AdminUserPoolId = adminPoolId,
             AdminUserPoolClientId = adminClientId,
-            StaffUserPoolId = StaffUserPoolId,
-            StaffUserPoolClientId = userClientId
+            StaffUserPoolId = staffPoolId,
+            StaffUserPoolClientId = staffClientId
         };
     }
 
