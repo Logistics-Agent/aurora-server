@@ -43,7 +43,7 @@ public class LoginCommandHandler(ICognitoAuthService cognitoService, IamTenantDb
 
             if (systemAuthResult.Session != null)
             {
-                throw new Shared.Exceptions.ForbiddenException("NEW_PASSWORD_REQUIRED. Please complete invitation.");
+                throw new Shared.Exceptions.ForbiddenException($"NEW_PASSWORD_REQUIRED:{systemAuthResult.Session}");
             }
 
             var systemPermissions = await mediator.Send(new IamTenant.Application.Queries.Permissions.GetUserPermissionsQuery(systemUser.Id, systemUser.PermissionVersion), cancellationToken);
@@ -100,7 +100,7 @@ public class LoginCommandHandler(ICognitoAuthService cognitoService, IamTenantDb
 
         if (authResult.Session != null)
         {
-            throw new Shared.Exceptions.ForbiddenException("NEW_PASSWORD_REQUIRED. Please complete invitation.");
+            throw new Shared.Exceptions.ForbiddenException($"NEW_PASSWORD_REQUIRED:{authResult.Session}");
         }
 
         // 3. Fetch Permissions from Cache / DB

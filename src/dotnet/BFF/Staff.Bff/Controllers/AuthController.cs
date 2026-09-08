@@ -95,7 +95,8 @@ public class AuthController(
             return Conflict(new
             {
                 detail = "Tài khoản cần hoàn tất lời mời (đặt mật khẩu mới).",
-                requiresInvitationCompletion = true
+                requiresInvitationCompletion = true,
+                session = ex.Status.Detail
             });
         }
     }

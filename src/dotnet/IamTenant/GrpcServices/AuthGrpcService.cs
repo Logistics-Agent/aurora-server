@@ -54,6 +54,11 @@ public class AuthGrpcService(
 
             return response;
         }
+        catch (Shared.Exceptions.ForbiddenException ex) when (ex.Message.StartsWith("NEW_PASSWORD_REQUIRED"))
+        {
+            var session = ex.Message.Contains(':') ? ex.Message.Split(':', 2)[1] : "";
+            throw new RpcException(new Status(StatusCode.FailedPrecondition, session));
+        }
         catch (Exception ex)
         {
             throw new RpcException(new Status(StatusCode.Unauthenticated, ex.Message));
