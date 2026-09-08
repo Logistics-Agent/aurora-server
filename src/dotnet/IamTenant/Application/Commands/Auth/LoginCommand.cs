@@ -20,7 +20,9 @@ public class LoginCommandHandler(ICognitoAuthService cognitoService, IamTenantDb
         if (string.IsNullOrWhiteSpace(tenantCode))
             throw new Shared.Exceptions.DomainException("Tenant code is required.");
 
-        if (string.Equals(tenantCode, "SYSTEM", StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(tenantCode, "SYSTEM", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(tenantCode, "SYSTEM_ADMIN", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(tenantCode, "SYSTEMADMIN", StringComparison.OrdinalIgnoreCase))
         {
             var systemUser = await context.Users
                 .IgnoreQueryFilters()

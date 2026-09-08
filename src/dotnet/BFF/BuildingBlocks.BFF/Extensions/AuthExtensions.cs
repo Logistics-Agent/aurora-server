@@ -158,6 +158,28 @@ public static class AuthExtensions
                         if (!identity.HasClaim(c => c.Type == ClaimTypes.Email))
                             identity.AddClaim(new Claim(ClaimTypes.Email, email));
 
+                        // Map Cognito Groups / Role claim to canonical Role
+                        var groupClaims = context.Principal?.FindAll("cognito:groups").Select(c => c.Value).ToList() ?? [];
+                        var rawRole = context.Principal?.FindFirstValue("role") 
+                                   ?? context.Principal?.FindFirstValue("custom:role")
+                                   ?? groupClaims.FirstOrDefault();
+
+                        if (!string.IsNullOrWhiteSpace(rawRole))
+                        {
+                            var canonicalRole = rawRole.Trim().ToUpperInvariant() switch
+                            {
+                                "SYSTEMADMIN" or "SYSTEM_ADMIN" => Shared.Constants.RoleConstants.SystemAdmin,
+                                "TENANTADMIN" or "TENANT_ADMIN" => Shared.Constants.RoleConstants.TenantAdmin,
+                                "MANAGER" => Shared.Constants.RoleConstants.Manager,
+                                _ => Shared.Constants.RoleConstants.Staff
+                            };
+
+                            if (!identity.HasClaim(c => c.Type == Shared.Security.JwtClaims.Role))
+                                identity.AddClaim(new Claim(Shared.Security.JwtClaims.Role, canonicalRole));
+                            if (!identity.HasClaim(c => c.Type == ClaimTypes.Role))
+                                identity.AddClaim(new Claim(ClaimTypes.Role, canonicalRole));
+                        }
+
                         if (!string.IsNullOrWhiteSpace(expectedClientId))
                         {
                             var clientId = context.Principal?.FindFirst("client_id")?.Value
