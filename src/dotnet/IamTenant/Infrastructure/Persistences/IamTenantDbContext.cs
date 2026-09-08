@@ -57,7 +57,12 @@ public class IamTenantDbContext(
             e.Property(u => u.FirstName).HasMaxLength(100);
             e.Property(u => u.LastName).HasMaxLength(100);
             e.Property(u => u.CognitoSub).HasMaxLength(128);
-            e.Property(u => u.Role).HasConversion<string>().HasMaxLength(50).IsRequired();
+            e.Property(u => u.Role)
+                .HasConversion(
+                    r => Shared.Enums.BaseRoleExtensions.ToCode(r),
+                    s => Shared.Enums.BaseRoleExtensions.ParseRole(s))
+                .HasMaxLength(50)
+                .IsRequired();
             e.Property(u => u.Status).HasConversion<string>().HasMaxLength(50);
         });
 

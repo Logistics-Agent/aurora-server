@@ -30,6 +30,12 @@ externalSecret:
     - secretKey: ConnectionStrings__DefaultConnection
       remoteRef:
         key: aurora-iam-db-connection
+    - secretKey: AWS_ACCESS_KEY_ID
+      remoteRef:
+        key: aws-access-key-id
+    - secretKey: AWS_SECRET_ACCESS_KEY
+      remoteRef:
+        key: aws-secret-access-key
     - secretKey: AWS_COGNITO_USER_POOL_ID
       remoteRef:
         key: aws-cognito-user-pool-id
