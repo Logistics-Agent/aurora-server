@@ -1,189 +1,157 @@
-# Implementation Plan: GPS Simulator Enhancements
+# Implementation Plan: GPS Simulator
 
 ## Overview
 
-Enhance the existing `tools/gps-simulator/Program.cs` to fix two bugs, add environment variable support for all configurable values, add a structured startup banner, add UUID validation for `--shipment`, add optional shipment validation via the Shipment Workflow Service, add graceful `Ctrl+C` cancellation, and print a proper completion message. No new architecture — all logic stays in a single `Program.cs` file. The test project (if added) lives alongside as a sibling `xUnit` project.
+Fix and extend the existing `tools/gps-simulator/Program.cs`. The simulator already has the correct route, gRPC plumbing, and request builder — these 10 tasks address bugs, missing validation, missing env-var support, graceful cancellation, and success/failure tracking.
 
 ## Tasks
 
-- [ ] 1. Fix default environment variable values and silent exception
-  - [ ] 1.1 Fix `GPS_GRPC_URL` default from `localhost:5004` to `http://localhost:6002`
-    - Change the fallback value in the env-var read: `Environment.GetEnvironmentVariable("GPS_GRPC_URL") ?? "http://localhost:6002"`
-    - _Requirements: 6.1, 6.4_
+- [ ] 1. Fix env/default bugs
+  - [ ] 1.1 Fix `GPS_GRPC_URL` default from `"http://localhost:5004"` to `"http://localhost:6002"` in `Program.cs`
+  - [ ] 1.2 Fix `TENANT_ID` default from `"00000000-0000-0000-0000-000000000001"` to `"01920000-0000-7000-8000-000000000001"` in `Program.cs`
+  - [ ] 1.3 Add `userId` variable from `USER_ID` env var with default `"01910000-0000-7000-8000-000000000001"` in `Program.cs`
+  - [ ] 1.4 Add `shipmentGrpcUrl` variable from `SHIPMENT_GRPC_URL` env var with default `"http://localhost:6000"` in `Program.cs`
+  - [ ] 1.5 Replace hardcoded `"00000000-0000-0000-0000-000000000002"` in the `x-user-id` metadata header with `userId` in `Program.cs`
+  - [ ] 1.6 Remove the default value `"SHP-2026-00128"` from `shipmentId` — initialize to `null` or empty string instead in `Program.cs`
+  - [ ] 1.7 Fix the silent catch block: replace the `// In demo offline mode...` comment with `Console.WriteLine($"[WARN] IngestPosition failed: {ex.Message}");` in `Program.cs`
+  - File: `tools/gps-simulator/Program.cs`
+  - _Requirements: 5.2, 6.1, 6.2, 6.3, 6.4, 4.2_
 
-  - [ ] 1.2 Fix `TENANT_ID` default to `01920000-0000-7000-8000-000000000001`
-    - Change the fallback value in the env-var read for `TENANT_ID`
-    - _Requirements: 6.3, 6.4_
-
-  - [ ] 1.3 Fix the silent exception catch in `IngestPositionAsync`
-    - Replace the empty `catch` block with: `Console.WriteLine($"[WARN] IngestPosition failed: {ex.Message}");`
-    - The loop must continue after printing the warning
-    - _Requirements: 5.2_
-
-- [ ] 2. Add remaining environment variable support and `USER_ID` header
-  - [ ] 2.1 Add `SHIPMENT_GRPC_URL` env var (default `http://localhost:6000`)
-    - Read `Environment.GetEnvironmentVariable("SHIPMENT_GRPC_URL") ?? "http://localhost:6000"` into a `shipmentGrpcUrl` variable
-    - _Requirements: 6.2, 6.4_
-
-  - [ ] 2.2 Add `USER_ID` env var (default `01910000-0000-7000-8000-000000000001`)
-    - Read `Environment.GetEnvironmentVariable("USER_ID") ?? "01910000-0000-7000-8000-000000000001"` into a `userId` variable
-    - Replace the hardcoded `"00000000-0000-0000-0000-000000000002"` value in the gRPC metadata with `userId`
-    - _Requirements: 4.2_
-
-- [ ] 3. Add `--shipment` UUID format validation and `Ctrl+C` cancellation
-  - [ ] 3.1 Add UUID validation for `--shipment` argument
-    - After parsing CLI args, call `Guid.TryParse(shipmentId, out _)` if a `--shipment` value was provided
-    - If parsing fails or no `--shipment` is provided, print usage message and `return`
-    - Usage message: `"Usage: gps-simulator --shipment <uuid> [--interval <sec>] [--speed <kmh>] [--grpc <url>] [--tenant <id>]"`
-    - _Requirements: 1.1, 1.6, 2.4, 5.3_
-
-  - [ ]* 3.2 Write property test for UUID validation (Property 2)
-    - **Property 2: UUID validation correctly classifies inputs**
-    - Test that the validator returns `true` iff `Guid.TryParse` succeeds on any arbitrary string input
-    - Use FsCheck or xUnit with `[Theory]` data to exercise valid GUIDs, invalid strings, empty string, null-like inputs
-    - Annotate with `// Feature: gps-simulator, Property 2`
-    - **Validates: Requirements 2.4, 5.3**
-
-  - [ ] 3.3 Add graceful `Ctrl+C` cancellation via `CancellationToken`
-    - Create a `CancellationTokenSource cts = new()` in `Main`
-    - Register `Console.CancelKeyPress += (_, e) => { e.Cancel = true; cts.Cancel(); };`
-    - Pass `cts.Token` to `Task.Delay` inside the simulation loop
-    - Wrap the delay in a `try/catch (OperationCanceledException)` to exit the loop cleanly
-    - _Requirements: 5.5_
-
-- [ ] 4. Add structured startup banner
-  - [ ] 4.1 Print startup banner with all configuration values
-    - Replace the two existing `Console.WriteLine` calls with the structured banner format:
+- [ ] 2. Validate `--shipment` UUID
+  - After the CLI arg parsing loop, add a guard in `Program.cs`:
+    - If `shipmentId` is null/empty or `!Guid.TryParse(shipmentId, out _)`, print the following and `return`:
       ```
-      Aurora GPS Simulator
-      Shipment : {shipmentId}
-      Interval : {intervalSeconds}s  Speed: {baseSpeed} km/h
-      GPS URL  : {grpcUrl}
-      Tenant   : {tenantId}
+      Usage: gps-simulator --shipment <uuid> [--interval <sec>] [--speed <kmh>] [--grpc <url>] [--tenant <id>]
+      Error: --shipment is required and must be a valid UUID.
       ```
-    - Print the blank line separator after the banner
-    - _Requirements: 7.1, 6.5_
+  - File: `tools/gps-simulator/Program.cs`
+  - _Requirements: 1.1, 1.6, 2.4, 5.3_
 
-- [ ] 5. Add `shipment_workflow.proto` to csproj and implement shipment validation
-  - [ ] 5.1 Add `shipment_workflow.proto` as a gRPC client in `gps-simulator.csproj`
-    - Add inside the existing `<ItemGroup>` with Protobuf entries:
-      ```xml
-      <Protobuf Include="../../protos/shipment_workflow.proto"
-                GrpcServices="Client"
-                Link="Protos/shipment_workflow.proto" />
-      ```
-    - Verify the project compiles with the new proto (run `dotnet build`)
-    - _Requirements: 2.1_
+- [ ] 3. Add GetShipment — real shipment validation via gRPC
+  - [ ] 3.1 In `gps-simulator.csproj`, add a second `<Protobuf>` entry:
+    ```xml
+    <Protobuf Include="../../protos/shipment_workflow.proto" GrpcServices="Client" Link="Protos/shipment_workflow.proto" />
+    ```
+  - [ ] 3.2 In `Program.cs`, add `using ShipmentWorkflow.Grpc;` at the top
+  - [ ] 3.3 After UUID validation, before printing route info, insert the shipment validation block:
+    - Create a gRPC channel to `shipmentGrpcUrl`
+    - Build headers with `x-tenant-id` and `x-user-id`
+    - Call `GetShipment(new GetShipmentRequest { Id = shipmentId })` with those headers
+    - On success: print `Shipment found: {response.CustomerName} ({response.Status})`
+    - On `RpcException` with `StatusCode.NotFound`: print `Error: Shipment '{shipmentId}' not found.` and `return`
+    - On any other exception: print `Error: Cannot connect to Shipment Workflow Service at {shipmentGrpcUrl}: {ex.Message}` and `return`
+  - Files: `tools/gps-simulator/gps-simulator.csproj`, `tools/gps-simulator/Program.cs`
+  - _Requirements: 2.1, 2.2, 2.3, 2.5, 5.1_
 
-  - [ ] 5.2 Implement optional shipment validation using `GetShipment`
-    - Add `using ShipmentWorkflow.Grpc;` at the top of `Program.cs`
-    - After printing the banner, create a gRPC channel to `shipmentGrpcUrl` and a `ShipmentWorkflowServiceClient`
-    - Call `GetShipment(new GetShipmentRequest { Id = shipmentId })` with the same tenant/user headers
-    - On success: print `"Shipment found: {customerName} ({status})"` and continue
-    - On `RpcException` with `StatusCode.NotFound`: print `$"Error: Shipment '{shipmentId}' not found."` and `return`
-    - On any other exception: print `$"Error: Cannot connect to Shipment Workflow Service at {shipmentGrpcUrl}: {ex.Message}"` and `return`
-    - _Requirements: 2.1, 2.2, 2.3, 2.5, 5.1_
+- [ ] 4. VERIFY vehicleId mapping (documentation + comment)
+  - No code logic changes. Add the following comment block in `Program.cs` immediately above the simulation loop:
+    ```csharp
+    // vehicle_id = shipmentId (UUID string)
+    // GPS Tracking links positions to a shipment via VehicleShipmentAssignment,
+    // which is created automatically when a route is assigned to the shipment.
+    // BFF query: GET /api/v1/tracking/{shipmentId}/current?type=vehicle (always works)
+    //            GET /api/v1/tracking/{shipmentId}/current?type=shipment (requires route assignment)
+    ```
+  - Confirm: `IngestPositionRequest.VehicleId` is already set to `shipmentId` — no field change needed
+  - Confirm: `IngestPositionRequest.DeviceId` is already `$"sim-dev-{shipmentId}"` — no change needed
+  - File: `tools/gps-simulator/Program.cs`
+  - _Requirements: 4.4, 8.4, 8.5_
 
-  - [ ]* 5.3 Write unit tests for shipment validation error paths
-    - Test NotFound path exits with correct message
-    - Test unreachable service path exits with correct message
-    - Test success path prints customer name and status
-    - _Requirements: 2.2, 2.3, 5.1_
+- [ ] 5. Improve startup banner and route info output
+  - Replace the existing `Console.WriteLine("Aurora GPS Simulator")` and `Console.WriteLine($"Shipment: {shipmentId}")` calls with the full banner format:
+    ```
+    Aurora GPS Simulator
+    Shipment : {shipmentId}
+    Interval : {intervalSeconds}s  Speed: {baseSpeed} km/h
+    GPS URL  : {grpcUrl}
+    Tenant   : {tenantId}
+    ```
+  - Add a blank line after the banner (before shipment validation)
+  - The `Route points: {routePoints.Count}` line is already present — keep it
+  - Add `Route: San José CR → Panama City PA (hardcoded ROAD corridor)` printed after building `routePoints`, before printing the count
+  - File: `tools/gps-simulator/Program.cs`
+  - _Requirements: 3.1, 3.2, 7.4_
 
-- [ ] 6. Fix completion message and add points-sent counter
-  - [ ] 6.1 Track the number of positions successfully considered and print completion message
-    - Add an `int sentCount = 0;` counter before the loop; increment after each `Console.WriteLine` progress line (count all points attempted, warnings don't skip the count)
-    - Replace the existing `"ROAD leg destination reached. Simulation completed."` line with:
-      `Console.WriteLine($"\nSimulation completed. {sentCount} points sent.");`
-    - _Requirements: 7.5_
+- [ ] 6. Verify IngestPosition telemetry loop field mapping
+  - Verify the following field assignments in the existing `IngestPositionRequest` builder (no proto changes needed — this is a code review + minor fix task):
+    - `ExternalReadingId = $"sim-{Guid.NewGuid():N}"` — confirm present
+    - `DeviceId = $"sim-dev-{shipmentId}"` — confirm present
+    - `VehicleId = shipmentId` — confirm present
+    - `SpeedKph`, `HeadingDegrees`, `AccuracyMeters = 3.5` — confirm present
+    - `RecordedAt = Timestamp.FromDateTimeOffset(DateTimeOffset.UtcNow)` — confirm present
+  - If the progress line `[{i+1}/{routePoints.Count}] {lat:F4},{lng:F4} | {speed:F0} km/h` is not already present after the `IngestPositionAsync` call, add it — confirm it is already there
+  - File: `tools/gps-simulator/Program.cs`
+  - _Requirements: 4.1, 4.2, 4.3, 4.4, 4.5, 4.6, 7.1, 7.2, 8.1, 8.2, 8.3, 8.4, 8.5_
 
-- [ ] 7. Checkpoint — Build and smoke-test
-  - Run `dotnet build tools/gps-simulator` and verify it compiles without errors or warnings
-  - Run the simulator without arguments and confirm the usage message is printed and the process exits
-  - Ensure all tests pass, ask the user if questions arise.
+- [ ] 7. Add Ctrl+C graceful cancellation
+  - Before the simulation loop in `Program.cs`:
+    - Add `using var cts = new CancellationTokenSource();`
+    - Register: `Console.CancelKeyPress += (_, e) => { e.Cancel = true; cts.Cancel(); };`
+  - In the loop, replace `await Task.Delay(TimeSpan.FromSeconds(intervalSeconds));` with:
+    ```csharp
+    try { await Task.Delay(TimeSpan.FromSeconds(intervalSeconds), cts.Token); }
+    catch (OperationCanceledException) { Console.WriteLine("\nSimulation cancelled."); break; }
+    ```
+  - File: `tools/gps-simulator/Program.cs`
+  - _Requirements: 5.5_
 
-- [ ] 8. Add property-based and unit tests for pure logic functions
-  - [ ] 8.1 Set up xUnit test project alongside the simulator
-    - Create `tools/gps-simulator-tests/gps-simulator-tests.csproj` referencing xUnit and FsCheck (or FsCheck.Xunit)
-    - Add a project reference to `gps-simulator` (make `Program` and helpers `internal` or refactor into testable static methods)
-    - _Requirements: (testing infrastructure)_
+- [ ] 8. Track success/failure counts
+  - Before the simulation loop in `Program.cs`, add:
+    ```csharp
+    int successCount = 0;
+    int failCount = 0;
+    ```
+  - In the `try` block, after `await client.IngestPositionAsync(...)` succeeds: add `successCount++;`
+  - In the `catch` block, after printing the `[WARN]` message: add `failCount++;`
+  - Replace the final completion message with:
+    ```csharp
+    Console.WriteLine($"\nSimulation completed. {successCount} sent, {failCount} failed.");
+    ```
+  - File: `tools/gps-simulator/Program.cs`
+  - _Requirements: 7.5_
 
-  - [ ]* 8.2 Write property test for interval and speed bounds enforcement (Property 1)
-    - **Property 1: Interval and speed bounds are enforced**
-    - For any integer `n`, parsed interval = `max(1, n)`. For any double `d`, parsed speed = `max(10.0, d)`.
-    - Annotate with `// Feature: gps-simulator, Property 1`
-    - **Validates: Requirements 1.2, 1.3**
+- [ ] 9. Build and smoke-test verification
+  - Run `dotnet build tools/gps-simulator` and confirm: zero errors, zero warnings
+  - Run `dotnet run --project tools/gps-simulator` (no args) and confirm: usage message prints and process exits with a non-zero code
+  - Run `dotnet run --project tools/gps-simulator -- --shipment not-a-uuid` and confirm: UUID validation error message prints
+  - Files: `tools/gps-simulator/Program.cs`, `tools/gps-simulator/gps-simulator.csproj`
 
-  - [ ]* 8.3 Write property test for route interpolation point count (Property 3)
-    - **Property 3: Route interpolation produces the expected point count**
-    - For any pair of waypoints and step count `N ≥ 1`, `InterpolateRoute` with 1 segment and N steps produces exactly `N + 1` total points (N intermediates + final endpoint)
-    - All produced points must lie on the straight-line segment between the two input endpoints
-    - Annotate with `// Feature: gps-simulator, Property 3`
-    - **Validates: Requirements 3.2**
-
-  - [ ]* 8.4 Write property test for heading validity (Property 4)
-    - **Property 4: Heading is always a valid compass bearing**
-    - For any two distinct coordinate pairs, `CalculateHeading` returns a value in `[0.0, 360.0)`
-    - Annotate with `// Feature: gps-simulator, Property 4`
-    - **Validates: Requirements 3.3**
-
-  - [ ]* 8.5 Write property test for speed variation bounds (Property 5)
-    - **Property 5: Speed variation stays within ±3 km/h**
-    - For any base speed value, the simulated speed satisfies `|appliedSpeed - baseSpeed| ≤ 3.0`
-    - Annotate with `// Feature: gps-simulator, Property 5`
-    - **Validates: Requirements 3.4**
-
-  - [ ]* 8.6 Write property test for unique external reading IDs (Property 6)
-    - **Property 6: External reading IDs are unique across a simulation run**
-    - For any `N ≥ 1` generated `IngestPositionRequest` objects, all `ExternalReadingId` values are distinct and each matches `^sim-[0-9a-f]{32}$`
-    - Annotate with `// Feature: gps-simulator, Property 6`
-    - **Validates: Requirements 3.7, 8.3**
-
-  - [ ]* 8.7 Write property test for request field mapping completeness (Property 7)
-    - **Property 7: Request field mapping is complete and consistent**
-    - For any shipment UUID and route point, the built `IngestPositionRequest` satisfies: `VehicleId == shipmentId`, `DeviceId == "sim-dev-" + shipmentId`, coordinates match route point, `AccuracyMeters == 3.5`, `RecordedAt` is valid UTC, `SpeedKph` and `HeadingDegrees` are populated
-    - Annotate with `// Feature: gps-simulator, Property 7`
-    - **Validates: Requirements 4.3, 4.4, 4.5, 8.1**
-
-  - [ ]* 8.8 Write property test for coordinate range validation (Property 8)
-    - **Property 8: Geographic coordinates are within valid ranges**
-    - For any latitude outside `[-90, 90]` or longitude outside `[-180, 180]`, the coordinate validator rejects the value; valid ranges are accepted
-    - Annotate with `// Feature: gps-simulator, Property 8`
-    - **Validates: Requirements 8.6**
-
-  - [ ]* 8.9 Write unit tests for CLI argument parsing
-    - Test: defaults applied when no args given
-    - Test: `--interval` clamped to minimum 1
-    - Test: `--speed` clamped to minimum 10.0
-    - Test: `--grpc` overrides env var
-    - Test: `--tenant` overrides env var
-    - _Requirements: 1.1–1.5_
-
-- [ ] 9. Final checkpoint — All tests pass
-  - Run `dotnet test tools/gps-simulator-tests` (if test project was created)
-  - Ensure all tests pass, ask the user if questions arise.
+- [ ] 10. Manual E2E verification with frontend (no code changes)
+  - Prerequisites:
+    1. All Aurora services running: GPS Tracking on `:6002`, Shipment Workflow on `:6000`, BFF
+    2. A shipment exists with an assigned route (so `VehicleShipmentAssignment` record exists in GPS Tracking DB)
+    3. Frontend open on the Shipment Tracking page for that shipment
+  - Steps:
+    1. Get the shipment UUID from `GET /api/v1/shipments` or the FE shipment list
+    2. Run: `dotnet run --project tools/gps-simulator -- --shipment <uuid>`
+    3. Observe console: "Shipment found: ..." line, then `[1/181]`, `[2/181]` ...
+    4. In the FE: verify the map marker moves along the San José → Panama City corridor
+    5. Verify `GET /api/v1/tracking/<uuid>/current?type=vehicle` returns an updated lat/lng
+    6. Verify `GET /api/v1/tracking/<uuid>/history?type=vehicle&from=...&to=...` returns a growing list of positions
+    7. Press Ctrl+C and verify "Simulation cancelled." message appears and the process exits cleanly
+  - Success criteria: marker moves, history grows, Ctrl+C exits cleanly
 
 ## Notes
 
-- Tasks marked with `*` are optional and can be skipped for a faster MVP; the simulator is fully functional without the test project
-- Tasks 1–6 are purely modifications to `Program.cs` and `gps-simulator.csproj` — no new files outside those two
-- Task 5.1 must complete before Task 5.2 (proto code generation required)
-- Task 3.1 (UUID validation) must come before Task 5.2 (shipment validation) — the UUID guard should fire first
-- The cancellation token (Task 3.3) wraps `Task.Delay` only; gRPC calls do not need the token for this demo tool
-- All env vars are read once at startup; CLI args parsed in the existing loop can override them where applicable (`--grpc` overrides `GPS_GRPC_URL`, `--tenant` overrides `TENANT_ID`)
-- The design specifies no `--shipment-grpc` CLI override; `SHIPMENT_GRPC_URL` is env-var only
+- Tasks 1–8 all modify `tools/gps-simulator/Program.cs`; task 3 also modifies `gps-simulator.csproj`
+- Tasks 4 and 6 are verification tasks with minimal or no logic changes
+- Tasks 9 and 10 are purely verification — no code is written
+- No optional tasks: all tasks are required for the demo to work correctly
+- No property-based testing tasks in this plan
 
 ## Task Dependency Graph
 
 ```json
 {
   "waves": [
-    { "id": 0, "tasks": ["1.1", "1.2", "1.3"] },
-    { "id": 1, "tasks": ["2.1", "2.2"] },
-    { "id": 2, "tasks": ["3.1", "3.3", "4.1"] },
-    { "id": 3, "tasks": ["3.2", "5.1", "6.1"] },
-    { "id": 4, "tasks": ["5.2", "8.1"] },
-    { "id": 5, "tasks": ["5.3", "8.2", "8.3", "8.4", "8.5", "8.6", "8.7", "8.8", "8.9"] }
+    { "id": 0, "tasks": ["1.1", "1.2", "1.3", "1.4"] },
+    { "id": 1, "tasks": ["1.5", "1.6", "1.7"] },
+    { "id": 2, "tasks": ["2"] },
+    { "id": 3, "tasks": ["3.1", "3.2"] },
+    { "id": 4, "tasks": ["3.3", "4", "5", "6"] },
+    { "id": 5, "tasks": ["7", "8"] },
+    { "id": 6, "tasks": ["9"] },
+    { "id": 7, "tasks": ["10"] }
   ]
 }
 ```

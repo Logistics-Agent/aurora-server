@@ -60,11 +60,69 @@ public class CurrentUserContextMiddleware(RequestDelegate next)
                 }
             }
 
+            // Đồng bộ role và claims vào ClaimsIdentity để ASP.NET Core [Authorize(Roles = "...")] nhận diện được
+            if (context.User.Identity is ClaimsIdentity claimsIdentity)
+            {
+                if (!string.IsNullOrWhiteSpace(role))
+                {
+                    var canonicalRole = role.Trim().ToUpperInvariant() switch
+                    {
+                        "SYSTEMADMIN" or "SYSTEM_ADMIN" => Shared.Constants.RoleConstants.SystemAdmin,
+                        "TENANTADMIN" or "TENANT_ADMIN" => Shared.Constants.RoleConstants.TenantAdmin,
+                        "MANAGER" => Shared.Constants.RoleConstants.Manager,
+                        _ => role
+                    };
+
+                    role = canonicalRole;
+
+                    EnsureClaim(claimsIdentity, ClaimTypes.Role, canonicalRole);
+                    EnsureClaim(claimsIdentity, "role", canonicalRole);
+                    EnsureClaim(claimsIdentity, "cognito:groups", canonicalRole);
+                    EnsureClaim(claimsIdentity, Shared.Security.JwtClaims.Role, canonicalRole);
+                    if (!string.IsNullOrWhiteSpace(claimsIdentity.RoleClaimType) && claimsIdentity.RoleClaimType != ClaimTypes.Role)
+                    {
+                        EnsureClaim(claimsIdentity, claimsIdentity.RoleClaimType, canonicalRole);
+                    }
+                }
+
+                if (userId.HasValue)
+                {
+                    EnsureClaim(claimsIdentity, "user_id", userId.Value.ToString());
+                    EnsureClaim(claimsIdentity, Shared.Security.JwtClaims.UserId, userId.Value.ToString());
+                    EnsureClaim(claimsIdentity, ClaimTypes.NameIdentifier, userId.Value.ToString());
+                }
+
+                if (tenantId.HasValue)
+                {
+                    EnsureClaim(claimsIdentity, "tenant_id", tenantId.Value.ToString());
+                    EnsureClaim(claimsIdentity, Shared.Security.JwtClaims.TenantId, tenantId.Value.ToString());
+                }
+
+                if (permVersion.HasValue)
+                {
+                    EnsureClaim(claimsIdentity, "permission_version", permVersion.Value.ToString());
+                    EnsureClaim(claimsIdentity, Shared.Security.JwtClaims.PermissionVersion, permVersion.Value.ToString());
+                }
+            }
+
             // Permissions sẽ được load từ Redis bởi PermissionVersionMiddleware (bước tiếp theo)
             currentUser.Populate(userId, tenantId, traceId, permVersion, role, []);
         }
 
         await next(context);
+    }
+
+    private static void EnsureClaim(ClaimsIdentity identity, string claimType, string claimValue)
+    {
+        var existing = identity.FindAll(c => string.Equals(c.Type, claimType, StringComparison.OrdinalIgnoreCase)).ToList();
+        if (existing.Count == 0 || existing.All(c => !string.Equals(c.Value, claimValue, StringComparison.OrdinalIgnoreCase)))
+        {
+            foreach (var c in existing)
+            {
+                identity.RemoveClaim(c);
+            }
+            identity.AddClaim(new Claim(claimType, claimValue));
+        }
     }
 
     private static Guid? GetClaimGuid(ClaimsPrincipal principal, string claimType)
@@ -79,3 +137,4 @@ public class CurrentUserContextMiddleware(RequestDelegate next)
         return int.TryParse(value, out var result) ? result : null;
     }
 }
+
