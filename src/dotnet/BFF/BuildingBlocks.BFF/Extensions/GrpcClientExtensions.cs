@@ -132,19 +132,19 @@ public static class GrpcClientExtensions
 
     // ── Resilience profiles ──────────────────────────────────────────────────
 
-    /// <summary>IAM: auth & provisioning (Cognito creation requires up to 60s).</summary>
+    /// <summary>IAM: auth & provisioning (Cognito creation requires up to 120s).</summary>
     private static void ConfigureIamResilience(
         Microsoft.Extensions.Http.Resilience.HttpStandardResilienceOptions r)
     {
         r.Retry.MaxRetryAttempts = 2;
         r.Retry.Delay = TimeSpan.FromMilliseconds(200);
         r.Retry.UseJitter = true;
-        r.CircuitBreaker.SamplingDuration = TimeSpan.FromSeconds(60);
+        r.CircuitBreaker.SamplingDuration = TimeSpan.FromSeconds(120);
         r.CircuitBreaker.FailureRatio = 0.5;
         r.CircuitBreaker.MinimumThroughput = 5;
         r.CircuitBreaker.BreakDuration = TimeSpan.FromSeconds(15);
         r.AttemptTimeout.Timeout = TimeSpan.FromSeconds(45);
-        r.TotalRequestTimeout.Timeout = TimeSpan.FromSeconds(60);
+        r.TotalRequestTimeout.Timeout = TimeSpan.FromSeconds(120);
     }
 
     /// <summary>Business services: timeout rộng hơn cho heavy operations (optimize/LLM).</summary>
@@ -154,10 +154,11 @@ public static class GrpcClientExtensions
         r.Retry.MaxRetryAttempts = 2;
         r.Retry.Delay = TimeSpan.FromMilliseconds(200);
         r.Retry.UseJitter = true;
-        r.CircuitBreaker.SamplingDuration = TimeSpan.FromSeconds(30);
+        r.CircuitBreaker.SamplingDuration = TimeSpan.FromSeconds(120);
         r.CircuitBreaker.FailureRatio = 0.5;
         r.CircuitBreaker.MinimumThroughput = 5;
         r.CircuitBreaker.BreakDuration = TimeSpan.FromSeconds(15);
-        r.TotalRequestTimeout.Timeout = TimeSpan.FromSeconds(60);
+        r.AttemptTimeout.Timeout = TimeSpan.FromSeconds(45);
+        r.TotalRequestTimeout.Timeout = TimeSpan.FromSeconds(120);
     }
 }
