@@ -1,17 +1,26 @@
+using System.Globalization;
+using System.Security.Claims;
 using Asp.Versioning;
 using Auth.Grpc;
 using BFF.RateLimiting;
 using BuildingBlocks.BFF.Extensions;
+using BuildingBlocks.BFF.Options;
 using Grpc.Core;
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.Extensions.Options;
+using Shared.Constants;
+using Shared.Security;
 
 namespace StaffBff.Controllers;
 
 /// <summary>
 /// Authentication endpoints (mọi persona đều đi qua đây — gateway catch-all /api/v1/** → Staff.Bff).
 /// Token KHÔNG BAO GIỜ trả trong body — chỉ set HttpOnly cookies:
+///   - .Aurora.Auth  (Session cookie DataProtection ASP.NET Core)
 ///   - access_token  (Path=/, MaxAge=expiresIn)
 ///   - refresh_token (Path=/api/v1/auth, MaxAge=30 ngày)
 /// Rate limit chặt (auth-strict) chống brute-force.
@@ -19,6 +28,7 @@ namespace StaffBff.Controllers;
 [ApiVersion("1.0")]
 public class AuthController(
     AuthService.AuthServiceClient authClient,
+    IOptions<AuthCookieOptions> cookieOptions,
     ILogger<AuthController> logger) : StaffControllerBase
 {
     private const string AccessTokenCookie = "access_token";
@@ -26,6 +36,7 @@ public class AuthController(
     private const string TenantCodeCookie = "tenant_code";
     private const string UserTypeCookie = "user_type";
     private const string RefreshCookiePath = "/api/v1/auth";
+    private readonly AuthCookieOptions _cookieOpts = cookieOptions?.Value ?? new AuthCookieOptions();
 
     /// <summary>Kiểm tra email tồn tại + thuộc tenant nào (bước 1 của flow login).</summary>
     [HttpPost("identify")]
@@ -71,7 +82,7 @@ public class AuthController(
                 },
                 GrpcDeadlines.WithDeadline(GrpcDeadlines.LoginTimeout, HttpContext.RequestAborted));
 
-            SetAuthCookies(response, body.TenantCode ?? identity.TenantCode ?? string.Empty, identity.UserType);
+            await SignInUserAsync(response, body.Email, body.TenantCode ?? identity.TenantCode ?? string.Empty, identity.UserType);
 
             logger.LogInformation("User {Email} logged in (userId={UserId})", body.Email, response.UserId);
 
@@ -122,7 +133,7 @@ public class AuthController(
                 },
                 GrpcDeadlines.WithDeadline(GrpcDeadlines.LoginTimeout, HttpContext.RequestAborted));
 
-            SetAuthCookies(response, identity.TenantCode, identity.UserType);
+            await SignInUserAsync(response, body.Email, identity.TenantCode, identity.UserType);
 
             logger.LogInformation("User {Email} completed invitation", body.Email);
 
@@ -182,6 +193,7 @@ public class AuthController(
         }
         catch (RpcException ex) when (ex.StatusCode == Grpc.Core.StatusCode.Unauthenticated)
         {
+            await HttpContext.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
             ClearAuthCookies();
             return Unauthorized(new { detail = "Refresh token invalid or expired." });
         }
@@ -207,20 +219,99 @@ public class AuthController(
             }
         }
 
-        // Luôn xóa cookies phía client dù server revoke thất bại
+        // Luôn xóa session ASP.NET Core + cookies phía client dù server revoke thất bại
+        await HttpContext.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
         ClearAuthCookies();
         return NoContent();
     }
 
-    // --- Cookie helpers ---
+    // --- Sign-in & Cookie helpers ---
+
+    private async Task SignInUserAsync(LoginResponse response, string email, string tenantCode, string userType)
+    {
+        var claims = new List<Claim>
+        {
+            new(ClaimTypes.NameIdentifier, response.UserId),
+            new(JwtClaims.UserId, response.UserId),
+            new(ClaimTypes.Email, email),
+            new("email", email),
+            new("username", email)
+        };
+
+        if (!string.IsNullOrWhiteSpace(response.TenantId))
+        {
+            claims.Add(new Claim(JwtClaims.TenantId, response.TenantId));
+            claims.Add(new Claim("tenant_id", response.TenantId));
+        }
+
+        if (email.Contains('@'))
+        {
+            claims.Add(new Claim("email_domain", email.Split('@')[1]));
+        }
+
+        foreach (var role in response.Roles)
+        {
+            var canonicalRole = role.Trim().ToUpperInvariant() switch
+            {
+                "SYSTEMADMIN" or "SYSTEM_ADMIN" => RoleConstants.SystemAdmin,
+                "TENANTADMIN" or "TENANT_ADMIN" => RoleConstants.TenantAdmin,
+                "MANAGER" => RoleConstants.Manager,
+                _ => role
+            };
+
+            claims.Add(new Claim(ClaimTypes.Role, canonicalRole));
+            claims.Add(new Claim("role", canonicalRole));
+            claims.Add(new Claim("cognito:groups", canonicalRole));
+            claims.Add(new Claim(JwtClaims.Role, canonicalRole));
+        }
+
+        var identity = new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme);
+        var principal = new ClaimsPrincipal(identity);
+
+        var authProperties = new AuthenticationProperties
+        {
+            IsPersistent = true,
+            ExpiresUtc = DateTimeOffset.UtcNow.AddSeconds(response.ExpiresIn)
+        };
+
+        authProperties.StoreTokens(new[]
+        {
+            new AuthenticationToken { Name = "access_token", Value = response.AccessToken },
+            new AuthenticationToken { Name = "refresh_token", Value = response.RefreshToken ?? string.Empty },
+            new AuthenticationToken { Name = "expires_at", Value = DateTimeOffset.UtcNow.AddSeconds(response.ExpiresIn).ToString("o", CultureInfo.InvariantCulture) }
+        });
+
+        await HttpContext.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, principal, authProperties);
+
+        SetAuthCookies(response, tenantCode, userType);
+    }
 
     private void SetAuthCookies(LoginResponse response, string tenantCode, string userType)
     {
-        Response.Cookies.Append(AccessTokenCookie, response.AccessToken, new CookieOptions
+        var sameSiteMode = _cookieOpts.SameSite?.Equals("None", StringComparison.OrdinalIgnoreCase) == true
+            ? SameSiteMode.None
+            : _cookieOpts.SameSite?.Equals("Strict", StringComparison.OrdinalIgnoreCase) == true
+                ? SameSiteMode.Strict
+                : SameSiteMode.Lax;
+
+        var secure = sameSiteMode == SameSiteMode.None || _cookieOpts.Secure;
+
+        var baseCookieOptions = new CookieOptions
         {
             HttpOnly = true,
-            Secure = true,
-            SameSite = SameSiteMode.Strict,
+            Secure = secure,
+            SameSite = sameSiteMode
+        };
+
+        if (!string.IsNullOrWhiteSpace(_cookieOpts.Domain))
+            baseCookieOptions.Domain = _cookieOpts.Domain;
+
+        Response.Cookies.Append(AccessTokenCookie, response.AccessToken, new CookieOptions
+        {
+            HttpOnly = baseCookieOptions.HttpOnly,
+            Secure = baseCookieOptions.Secure,
+            SameSite = baseCookieOptions.SameSite,
+            Domain = baseCookieOptions.Domain,
             Path = "/",
             MaxAge = TimeSpan.FromSeconds(response.ExpiresIn)
         });
@@ -229,27 +320,30 @@ public class AuthController(
         {
             Response.Cookies.Append(RefreshTokenCookie, response.RefreshToken, new CookieOptions
             {
-                HttpOnly = true,
-                Secure = true,
-                SameSite = SameSiteMode.Strict,
+                HttpOnly = baseCookieOptions.HttpOnly,
+                Secure = baseCookieOptions.Secure,
+                SameSite = baseCookieOptions.SameSite,
+                Domain = baseCookieOptions.Domain,
                 Path = RefreshCookiePath, // chỉ gửi kèm cho /api/v1/auth/*
                 MaxAge = TimeSpan.FromDays(30)
             });
 
             Response.Cookies.Append(TenantCodeCookie, tenantCode, new CookieOptions
             {
-                HttpOnly = true,
-                Secure = true,
-                SameSite = SameSiteMode.Strict,
+                HttpOnly = baseCookieOptions.HttpOnly,
+                Secure = baseCookieOptions.Secure,
+                SameSite = baseCookieOptions.SameSite,
+                Domain = baseCookieOptions.Domain,
                 Path = RefreshCookiePath,
                 MaxAge = TimeSpan.FromDays(30)
             });
 
             Response.Cookies.Append(UserTypeCookie, userType, new CookieOptions
             {
-                HttpOnly = true,
-                Secure = true,
-                SameSite = SameSiteMode.Strict,
+                HttpOnly = baseCookieOptions.HttpOnly,
+                Secure = baseCookieOptions.Secure,
+                SameSite = baseCookieOptions.SameSite,
+                Domain = baseCookieOptions.Domain,
                 Path = RefreshCookiePath,
                 MaxAge = TimeSpan.FromDays(30)
             });

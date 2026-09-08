@@ -21,15 +21,20 @@ public class CurrentUserContextMiddleware(RequestDelegate next)
             var tenantId = GetClaimGuid(context.User, "tenant_id");
             var traceId = context.TraceIdentifier;
             var permVersion = GetClaimInt(context.User, "permission_version");
+            var groupClaims = context.User.FindAll("cognito:groups").Select(c => c.Value).ToList();
             var role = context.User.FindFirstValue(ClaimTypes.Role)
-                    ?? context.User.FindFirstValue("role");
+                    ?? context.User.FindFirstValue("role")
+                    ?? context.User.FindFirstValue("custom:role")
+                    ?? groupClaims.FirstOrDefault();
 
             // Custom claims (user_id, tenant_id) — được thêm bởi OnTokenValidated
-            // Nếu cookie chưa có userId (do login từ session cũ), fallback resolve từ AuthService
+            // Nếu cookie chưa có userId (do login từ session cũ hoặc token raw JWT), fallback resolve từ AuthService
             if (!userId.HasValue)
             {
                 var email = context.User.FindFirstValue(ClaimTypes.Email)
-                         ?? context.User.FindFirstValue("email");
+                         ?? context.User.FindFirstValue("email")
+                         ?? context.User.FindFirstValue("username")
+                         ?? context.User.FindFirstValue("cognito:username");
 
                 if (!string.IsNullOrWhiteSpace(email))
                 {

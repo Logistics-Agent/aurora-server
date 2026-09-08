@@ -1,6 +1,9 @@
+using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using BuildingBlocks.BFF.Options;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Http;
@@ -8,6 +11,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.IdentityModel.Protocols.OpenIdConnect;
+using Microsoft.IdentityModel.Tokens;
 using Shared.Extensions;
 using Shared.Security;
 using StackExchange.Redis;
@@ -22,12 +26,14 @@ public class BffAuthEvents;
 public static class AuthExtensions
 {
     public const string CognitoScheme = OpenIdConnectDefaults.AuthenticationScheme;
+    public const string HybridScheme = "Aurora.HybridAuth";
 
     /// <summary>
-    /// Đăng ký cookie session + OpenIdConnect (Cognito) + Authorization.
-    /// Session được lưu trong HttpOnly cookie, còn OIDC xử lý đăng nhập và callback.
-    /// Các custom claims (user_id, tenant_id, role, permission_version — xem JwtClaims)
-    /// cần Pre Token Generation lambda phía Cognito.
+    /// Đăng ký cookie session + JWT Bearer + OpenIdConnect (Cognito) + Authorization.
+    /// Hỗ trợ cả 3 nguồn xác thực:
+    ///   1. Cookie session (.Aurora.Auth - DataProtection ASP.NET Core)
+    ///   2. Header Authorization: Bearer {token} (Swagger / Postman / Mobile)
+    ///   3. Cookie access_token (Cognito JWT thô)
     /// </summary>
     public static IServiceCollection AddBffAuthentication(
         this IServiceCollection services,
@@ -66,8 +72,35 @@ public static class AuthExtensions
         services
             .AddAuthentication(options =>
             {
-                options.DefaultScheme = CookieAuthenticationDefaults.AuthenticationScheme;
-                options.DefaultChallengeScheme = CookieAuthenticationDefaults.AuthenticationScheme;
+                options.DefaultScheme = HybridScheme;
+                options.DefaultAuthenticateScheme = HybridScheme;
+                options.DefaultChallengeScheme = HybridScheme;
+            })
+            .AddPolicyScheme(HybridScheme, "Aurora Hybrid Authentication", options =>
+            {
+                options.ForwardDefaultSelector = context =>
+                {
+                    // 1. Nếu có header Authorization: Bearer -> ưu tiên JwtBearer
+                    var authHeader = context.Request.Headers.Authorization.FirstOrDefault();
+                    if (!string.IsNullOrEmpty(authHeader) && authHeader.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
+                    {
+                        return JwtBearerDefaults.AuthenticationScheme;
+                    }
+
+                    // 2. Nếu có cookie .Aurora.Auth -> dùng Cookie
+                    if (context.Request.Cookies.ContainsKey(".Aurora.Auth"))
+                    {
+                        return CookieAuthenticationDefaults.AuthenticationScheme;
+                    }
+
+                    // 3. Nếu có cookie access_token (Cognito raw JWT) -> dùng JwtBearer
+                    if (context.Request.Cookies.ContainsKey("access_token"))
+                    {
+                        return JwtBearerDefaults.AuthenticationScheme;
+                    }
+
+                    return CookieAuthenticationDefaults.AuthenticationScheme;
+                };
             })
             .AddCookie(options =>
             {
@@ -102,6 +135,50 @@ public static class AuthExtensions
                 {
                     context.Response.StatusCode = StatusCodes.Status403Forbidden;
                     return Task.CompletedTask;
+                };
+            })
+            .AddJwtBearer(options =>
+            {
+                options.Events = new JwtBearerEvents
+                {
+                    OnMessageReceived = context =>
+                    {
+                        if (string.IsNullOrEmpty(context.Token))
+                        {
+                            if (context.Request.Cookies.TryGetValue("access_token", out var cookieToken) && !string.IsNullOrWhiteSpace(cookieToken))
+                            {
+                                context.Token = cookieToken;
+                            }
+                        }
+                        return Task.CompletedTask;
+                    },
+                    OnChallenge = context =>
+                    {
+                        context.HandleResponse();
+                        context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+                        context.Response.ContentType = "application/json";
+                        return Task.CompletedTask;
+                    },
+                    OnForbidden = context =>
+                    {
+                        context.Response.StatusCode = StatusCodes.Status403Forbidden;
+                        return Task.CompletedTask;
+                    }
+                };
+
+                options.TokenValidationParameters = new TokenValidationParameters
+                {
+                    ValidateIssuer = false,
+                    ValidateAudience = false,
+                    ValidateLifetime = true,
+                    ClockSkew = TimeSpan.FromMinutes(2),
+                    SignatureValidator = (token, _) =>
+                    {
+                        var jwtHandler = new JwtSecurityTokenHandler();
+                        return jwtHandler.ReadJwtToken(token);
+                    },
+                    RoleClaimType = roleClaimType,
+                    NameClaimType = ClaimTypes.Email
                 };
             })
             .AddOpenIdConnect(CognitoScheme, options =>
