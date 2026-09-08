@@ -43,28 +43,13 @@ public static class AuthExtensions
         // Shared Data Protection across all BFFs (Staff.Bff, Admin.Bff, System.Bff)
         try
         {
-            var redisConn = SharedServiceExtensions.BuildRedisConnectionString(config);
-            if (!string.IsNullOrWhiteSpace(redisConn))
-            {
-                var redisOptions = ConfigurationOptions.Parse(redisConn);
-                redisOptions.AbortOnConnectFail = false;
-                redisOptions.ConnectTimeout = 15000;
-                redisOptions.SyncTimeout = 15000;
-                redisOptions.SslProtocols = System.Security.Authentication.SslProtocols.Tls12 | System.Security.Authentication.SslProtocols.Tls13;
-                redisOptions.CheckCertificateRevocation = false;
+            var redisOptions = SharedServiceExtensions.BuildRedisConfigurationOptions(config);
+            var redis = ConnectionMultiplexer.Connect(redisOptions);
+            services.AddSingleton<IConnectionMultiplexer>(redis);
 
-                if (redisOptions.EndPoints.Count > 0 && redisOptions.EndPoints[0] is System.Net.DnsEndPoint dns)
-                {
-                    redisOptions.SslHost = dns.Host;
-                }
-
-                var redis = ConnectionMultiplexer.Connect(redisOptions);
-                services.AddSingleton<IConnectionMultiplexer>(redis);
-
-                services.AddDataProtection()
-                    .PersistKeysToStackExchangeRedis(redis, "aurora:dataprotection-keys")
-                    .SetApplicationName("Aurora.BFF");
-            }
+            services.AddDataProtection()
+                .PersistKeysToStackExchangeRedis(redis, "aurora:dataprotection-keys")
+                .SetApplicationName("Aurora.BFF");
         }
         catch (Exception ex)
         {

@@ -2,15 +2,15 @@
 
 ## Overview
 
-The GPS Simulator is a command-line development tool that enables realistic demonstration of GPS device behavior for shipment tracking within the Aurora logistics platform. The simulator integrates with existing Aurora microservices to dynamically resolve shipment routes and generates realistic movement patterns along actual road geometry, transmitting telemetry data through the established GPS tracking infrastructure.
+The GPS Simulator is a lightweight command-line development tool that demonstrates GPS device behavior for shipment tracking within the Aurora logistics platform. The simulator uses a hardcoded Central America route and generates realistic movement patterns, transmitting telemetry data through the GPS tracking infrastructure. This design focuses on polishing the existing implementation for reliable demo capabilities rather than comprehensive service integration.
 
 ### Key Design Goals
 
-- **Service Integration**: Seamlessly integrate with existing Aurora gRPC services (Shipment Workflow, Route Planning, GPS Tracking)
-- **Realistic Simulation**: Generate natural movement patterns with proper speed variations, heading calculations, and timing
-- **Developer Experience**: Provide intuitive CLI interface with comprehensive error handling and progress feedback
-- **Resilience**: Graceful degradation to demo mode when services are unavailable
-- **Extensibility**: Modular architecture that allows for future enhancements and additional simulation features
+- **Simplicity**: Single-file console application with minimal dependencies and straightforward execution
+- **Realistic Demo**: Generate natural movement patterns using hardcoded Central America corridor route
+- **GPS Integration**: Transmit telemetry data through existing GPS Tracking Service for live demo
+- **Graceful Degradation**: Continue simulation with console output when GPS service is unavailable
+- **Easy Configuration**: Simple CLI parameters and environment variables for different demo scenarios
 
 ## Architecture
 

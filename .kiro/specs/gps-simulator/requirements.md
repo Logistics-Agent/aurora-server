@@ -2,18 +2,15 @@
 
 ## Introduction
 
-The GPS Simulator is a development and demonstration tool designed to simulate GPS device behavior for shipment tracking in the Aurora logistics platform. The simulator enables realistic demonstration of shipment movement along real road routes by consuming route geometry data and sending telemetry through existing GPS tracking infrastructure.
+The GPS Simulator is a development and demonstration tool designed to simulate GPS device behavior for shipment tracking in the Aurora logistics platform. The simulator enables realistic demonstration of shipment movement using hardcoded realistic routes and sends telemetry through existing GPS tracking infrastructure for demo and testing purposes.
 
 ## Glossary
 
 - **GPS_Simulator**: A command-line development tool that simulates GPS device telemetry for demonstration purposes
 - **Shipment_Workflow_Service**: The Aurora microservice that manages shipment lifecycle and route assignments
-- **Route_Planning_Service**: The Aurora microservice that manages route data and geometry
 - **GPS_Tracking_Service**: The Aurora microservice that ingests and processes GPS position data
-- **Route_Geometry**: The sequence of geographic coordinates (latitude, longitude) that define a route path
-- **ROAD_Leg**: A segment of a shipment route that uses road transportation mode
 - **Telemetry_Data**: GPS position data including coordinates, speed, heading, and timestamp
-- **Demo_Mode**: Operation mode where the simulator runs without requiring external service connectivity
+- **Central_America_Route**: A hardcoded realistic route from San José, Costa Rica to Panama City, Panama
 
 ## Requirements
 
@@ -30,31 +27,31 @@ The GPS Simulator is a development and demonstration tool designed to simulate G
 5. WHERE no speed is specified, THE GPS_Simulator SHALL default to 50 km/h base speed
 6. THE GPS_Simulator SHALL display usage help when invoked with invalid parameters
 
-### Requirement 2: Shipment and Route Resolution
+### Requirement 2: Shipment Validation
 
-**User Story:** As a developer, I want the simulator to automatically resolve shipment routes through existing Aurora services, so that simulation follows real route data.
+**User Story:** As a developer, I want the simulator to validate that the shipment exists before starting simulation, so that I can ensure I'm working with valid shipment data.
 
 #### Acceptance Criteria
 
 1. WHEN a shipment ID is provided, THE GPS_Simulator SHALL retrieve shipment details via Shipment_Workflow_Service gRPC API
-2. WHEN shipment details are retrieved, THE GPS_Simulator SHALL extract the assigned route ID from the shipment data
-3. WHEN a route ID is available, THE GPS_Simulator SHALL retrieve route details via Route_Planning_Service gRPC API
-4. THE GPS_Simulator SHALL identify ROAD_Leg segments from the route data
-5. IF no ROAD_Leg is found in the route, THEN THE GPS_Simulator SHALL terminate with an informative error message
-6. THE GPS_Simulator SHALL extract Route_Geometry coordinates from the ROAD_Leg data
+2. IF the shipment exists, THEN THE GPS_Simulator SHALL display shipment information and proceed with simulation
+3. IF the shipment does not exist, THEN THE GPS_Simulator SHALL display an error message and terminate
+4. THE GPS_Simulator SHALL validate shipment ID format before making service calls
+5. THE GPS_Simulator SHALL display connection status to the Shipment_Workflow_Service at startup
 
-### Requirement 3: Route Geometry Processing and Movement Simulation
+### Requirement 3: Hardcoded Route Processing and Movement Simulation
 
-**User Story:** As a developer, I want the simulator to process route geometry into realistic movement patterns, so that the simulation appears natural and accurate.
+**User Story:** As a developer, I want the simulator to use a realistic hardcoded route for demonstration purposes, so that I can showcase GPS tracking functionality without dependency on route geometry services.
 
 #### Acceptance Criteria
 
-1. WHEN Route_Geometry is retrieved, THE GPS_Simulator SHALL interpolate additional coordinate points between existing waypoints
-2. THE GPS_Simulator SHALL calculate realistic heading values between consecutive coordinate points
-3. THE GPS_Simulator SHALL apply speed variations around the base speed (±3 km/h random variation)
-4. WHILE simulating movement, THE GPS_Simulator SHALL progress through coordinates in sequential order
-5. THE GPS_Simulator SHALL calculate timestamp values for each position based on the configured interval
-6. THE GPS_Simulator SHALL generate unique external reading IDs for each telemetry transmission
+1. THE GPS_Simulator SHALL use a predefined Central_America_Route from San José, Costa Rica to Panama City, Panama
+2. THE GPS_Simulator SHALL interpolate additional coordinate points between hardcoded waypoints to create smooth movement
+3. THE GPS_Simulator SHALL calculate realistic heading values between consecutive coordinate points
+4. THE GPS_Simulator SHALL apply speed variations around the base speed (±3 km/h random variation)
+5. WHILE simulating movement, THE GPS_Simulator SHALL progress through coordinates in sequential order
+6. THE GPS_Simulator SHALL calculate timestamp values for each position based on the configured interval
+7. THE GPS_Simulator SHALL generate unique external reading IDs for each telemetry transmission
 
 ### Requirement 4: GPS Telemetry Transmission
 
@@ -69,44 +66,41 @@ The GPS Simulator is a development and demonstration tool designed to simulate G
 5. THE GPS_Simulator SHALL generate synthetic device IDs in the format "sim-dev-{shipmentId}"
 6. THE GPS_Simulator SHALL set accuracy to realistic values (2-5 meters)
 
-### Requirement 5: Error Handling and Resilience
+### Requirement 5: Basic Error Handling
 
-**User Story:** As a developer, I want the simulator to handle service unavailability gracefully, so that demonstration can continue even in offline scenarios.
+**User Story:** As a developer, I want the simulator to handle common error conditions gracefully, so that I get clear feedback when something goes wrong.
 
 #### Acceptance Criteria
 
 1. IF Shipment_Workflow_Service is unavailable, THEN THE GPS_Simulator SHALL display a clear error message and terminate
-2. IF Route_Planning_Service is unavailable, THEN THE GPS_Simulator SHALL display a clear error message and terminate
-3. IF GPS_Tracking_Service is unavailable during transmission, THEN THE GPS_Simulator SHALL continue simulation in Demo_Mode
-4. WHILE in Demo_Mode, THE GPS_Simulator SHALL log position data to console instead of transmitting
-5. THE GPS_Simulator SHALL display connection status and service availability at startup
-6. THE GPS_Simulator SHALL validate shipment ID format before making service calls
+2. IF GPS_Tracking_Service is unavailable during transmission, THEN THE GPS_Simulator SHALL continue simulation displaying position data to console
+3. THE GPS_Simulator SHALL validate shipment ID format before making service calls
+4. THE GPS_Simulator SHALL display clear error messages for invalid command line parameters
+5. THE GPS_Simulator SHALL handle network timeouts gracefully with informative error messages
 
-### Requirement 6: Configuration and Environment Support
+### Requirement 6: Basic Configuration Support
 
-**User Story:** As a developer, I want to configure service endpoints and authentication, so that the simulator can work across different environments.
+**User Story:** As a developer, I want to configure service endpoints and tenant information, so that the simulator can work in different environments.
 
 #### Acceptance Criteria
 
-1. THE GPS_Simulator SHALL read gRPC service URLs from environment variables
-2. THE GPS_Simulator SHALL support GPS_GRPC_URL environment variable for GPS tracking service endpoint
-3. THE GPS_Simulator SHALL support SHIPMENT_GRPC_URL environment variable for shipment workflow service endpoint  
-4. THE GPS_Simulator SHALL support ROUTE_GRPC_URL environment variable for route planning service endpoint
-5. THE GPS_Simulator SHALL support TENANT_ID environment variable for multi-tenant operation
-6. WHERE environment variables are not set, THE GPS_Simulator SHALL use default localhost development URLs
+1. THE GPS_Simulator SHALL support GPS_GRPC_URL environment variable for GPS tracking service endpoint
+2. THE GPS_Simulator SHALL support SHIPMENT_GRPC_URL environment variable for shipment workflow service endpoint  
+3. THE GPS_Simulator SHALL support TENANT_ID environment variable for multi-tenant operation
+4. WHERE environment variables are not set, THE GPS_Simulator SHALL use default localhost development URLs
+5. THE GPS_Simulator SHALL display current configuration settings at startup
 
-### Requirement 7: Simulation Progress and Feedback
+### Requirement 7: Console Progress Display
 
-**User Story:** As a developer, I want to monitor simulation progress and status, so that I can understand what the simulator is doing during execution.
+**User Story:** As a developer, I want to monitor simulation progress, so that I can understand what the simulator is doing during execution.
 
 #### Acceptance Criteria
 
 1. THE GPS_Simulator SHALL display startup information including shipment ID and configuration
 2. WHILE simulating movement, THE GPS_Simulator SHALL display current position progress in format "[N/Total] lat,lng | speed km/h"
-3. THE GPS_Simulator SHALL display route resolution status (shipment found, route retrieved, geometry processed)
+3. THE GPS_Simulator SHALL display shipment validation status (found/not found)
 4. THE GPS_Simulator SHALL display total number of coordinate points in the simulation
 5. WHEN simulation completes, THE GPS_Simulator SHALL display completion message
-6. THE GPS_Simulator SHALL display estimated simulation duration based on interval and coordinate count
 
 ### Requirement 8: Data Format Compliance and Integration
 

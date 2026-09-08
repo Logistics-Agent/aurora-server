@@ -29,8 +29,8 @@ public static class SharedServiceExtensions
         services.AddScoped<ICurrentUserContext>(sp => sp.GetRequiredService<CurrentUserService>());
 
         // Redis Permission Cache
-        var redisConn = BuildRedisConnectionString(configuration);
-        services.AddStackExchangeRedisCache(opts => opts.Configuration = redisConn);
+        var redisOpts = BuildRedisConfigurationOptions(configuration);
+        services.AddStackExchangeRedisCache(opts => opts.ConfigurationOptions = redisOpts);
         services.AddScoped<IPermissionCacheService, PermissionCacheService>();
 
         // gRPC Interceptors
@@ -83,7 +83,8 @@ public static class SharedServiceExtensions
 
         return services;
     }
-    public static string BuildRedisConnectionString(IConfiguration configuration)
+
+    public static StackExchange.Redis.ConfigurationOptions BuildRedisConfigurationOptions(IConfiguration configuration)
     {
         var host = configuration["Redis:Host"]
             ?? configuration["Redis:ConnectionString"]
@@ -91,21 +92,49 @@ public static class SharedServiceExtensions
             ?? "localhost:6379";
 
         var password = configuration["Redis:Password"];
-        var ssl = configuration.GetValue<bool?>("Redis:Ssl") ?? configuration.GetValue<bool?>("Redis:UseSsl") ?? (!string.IsNullOrWhiteSpace(password));
+        var ssl = configuration.GetValue<bool?>("Redis:Ssl") 
+               ?? configuration.GetValue<bool?>("Redis:UseSsl") 
+               ?? (!string.IsNullOrWhiteSpace(password));
         var abortConnect = configuration.GetValue<bool?>("Redis:AbortConnect") ?? false;
 
-        if (string.IsNullOrWhiteSpace(password))
+        var options = new StackExchange.Redis.ConfigurationOptions
         {
-            if (host.Contains(','))
-                return host;
+            AbortOnConnectFail = abortConnect,
+            Ssl = ssl,
+            ConnectTimeout = 15000,
+            SyncTimeout = 15000,
+            CheckCertificateRevocation = false,
+            SslProtocols = System.Security.Authentication.SslProtocols.Tls12 | System.Security.Authentication.SslProtocols.Tls13
+        };
 
-            var parts = new List<string> { host };
-            if (ssl) parts.Add("ssl=true");
-            if (!abortConnect) parts.Add("abortConnect=false");
-            return string.Join(",", parts);
+        if (host.Contains(','))
+        {
+            var parsed = StackExchange.Redis.ConfigurationOptions.Parse(host);
+            foreach (var ep in parsed.EndPoints)
+            {
+                options.EndPoints.Add(ep);
+            }
+        }
+        else
+        {
+            options.EndPoints.Add(host);
         }
 
-        // Redis Cloud / Azure Redis: host:port,password=xxx,ssl=true/false,abortConnect=false
-        return $"{host},password={password},ssl={ssl.ToString().ToLowerInvariant()},abortConnect={abortConnect.ToString().ToLowerInvariant()}";
+        if (!string.IsNullOrWhiteSpace(password))
+        {
+            options.Password = password;
+        }
+
+        if (options.EndPoints.Count > 0 && options.EndPoints[0] is System.Net.DnsEndPoint dns)
+        {
+            options.SslHost = dns.Host;
+        }
+
+        return options;
+    }
+
+    public static string BuildRedisConnectionString(IConfiguration configuration)
+    {
+        return BuildRedisConfigurationOptions(configuration).ToString();
     }
 }
