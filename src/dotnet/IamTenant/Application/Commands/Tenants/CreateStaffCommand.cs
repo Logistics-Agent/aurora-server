@@ -82,15 +82,29 @@ public class CreateStaffHandler(
         if (forbiddenSystemPerms.Count > 0)
             throw new DomainException($"Cannot grant platform system-only permissions: {string.Join(", ", forbiddenSystemPerms)}");
 
-        // Validate that requested permissions exist in DB catalog
+        // Validate / Auto-create requested permissions in DB catalog
         var catalogPermissions = await context.Permissions
             .Where(p => permissionCodesToAssign.Contains(p.Code))
             .ToListAsync(cancellationToken);
 
         var validCodeMap = catalogPermissions.ToDictionary(p => p.Code, p => p.Id, StringComparer.OrdinalIgnoreCase);
-        var unknownCodes = permissionCodesToAssign.Where(c => !validCodeMap.ContainsKey(c)).ToList();
-        if (unknownCodes.Count > 0)
-            throw new DomainException($"Unknown permission codes: {string.Join(", ", unknownCodes)}");
+        foreach (var code in permissionCodesToAssign)
+        {
+            if (!validCodeMap.TryGetValue(code, out var permId))
+            {
+                var parts = code.Split(':');
+                var perm = new Domain.Permission
+                {
+                    Id = IamTenantDbContext.DeterministicPermissionId(code),
+                    Code = code,
+                    Module = parts[0],
+                    Description = $"Allows {code}"
+                };
+                context.Permissions.Add(perm);
+                permId = perm.Id;
+                validCodeMap[code] = permId;
+            }
+        }
 
         var isAdmin = baseRole == BaseRole.TenantAdmin;
 

@@ -84,14 +84,30 @@ public class CreateTenantHandler(
             PermissionVersion = 1
         };
 
-        // Attach Tenant Admin direct permissions
+        // Attach Tenant Admin direct permissions (auto-create catalog records if not already present)
         var adminPermCodes = Shared.Constants.PermissionConstants.GetTenantAdminPermissions();
-        var adminPerms = await context.Permissions
+        var existingPerms = await context.Permissions
             .Where(p => adminPermCodes.Contains(p.Code))
             .ToListAsync(cancellationToken);
 
-        foreach (var perm in adminPerms)
+        var existingCodeMap = existingPerms.ToDictionary(p => p.Code, p => p, StringComparer.OrdinalIgnoreCase);
+
+        foreach (var code in adminPermCodes)
         {
+            if (!existingCodeMap.TryGetValue(code, out var perm))
+            {
+                var parts = code.Split(':');
+                perm = new Domain.Permission
+                {
+                    Id = IamTenantDbContext.DeterministicPermissionId(code),
+                    Code = code,
+                    Module = parts[0],
+                    Description = $"Allows {code}"
+                };
+                context.Permissions.Add(perm);
+                existingCodeMap[code] = perm;
+            }
+
             adminUser.UserPermissions.Add(new UserPermission
             {
                 UserId = adminUser.Id,
