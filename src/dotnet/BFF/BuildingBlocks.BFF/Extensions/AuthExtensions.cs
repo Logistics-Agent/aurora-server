@@ -2,12 +2,15 @@ using System.Security.Claims;
 using BuildingBlocks.BFF.Options;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.IdentityModel.Protocols.OpenIdConnect;
+using Shared.Extensions;
 using Shared.Security;
+using StackExchange.Redis;
 
 namespace BuildingBlocks.BFF.Extensions;
 
@@ -36,6 +39,25 @@ public static class AuthExtensions
             ?? new AuthCookieOptions();
         var expectedClientId = config["Auth:Jwt:Audience"];
         var roleClaimType = config["Auth:Jwt:RoleClaimType"] ?? "cognito:groups";
+
+        // Shared Data Protection across all BFFs (Staff.Bff, Admin.Bff, System.Bff)
+        try
+        {
+            var redisConn = SharedServiceExtensions.BuildRedisConnectionString(config);
+            if (!string.IsNullOrWhiteSpace(redisConn))
+            {
+                var redis = ConnectionMultiplexer.Connect(redisConn);
+                services.AddSingleton<IConnectionMultiplexer>(redis);
+                services.AddDataProtection()
+                    .PersistKeysToStackExchangeRedis(redis, "DataProtection-Keys")
+                    .SetApplicationName("Aurora.BFF");
+            }
+        }
+        catch (Exception ex)
+        {
+            var logger = LoggerFactory.Create(b => b.AddConsole()).CreateLogger(nameof(AuthExtensions));
+            logger.LogWarning(ex, "Failed to configure Redis-backed DataProtection. Falling back to local keys.");
+        }
 
         services.Configure<CognitoAuthOptions>(config.GetSection(CognitoAuthOptions.SectionName));
         services.Configure<AuthCookieOptions>(config.GetSection(AuthCookieOptions.SectionName));
