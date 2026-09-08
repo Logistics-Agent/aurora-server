@@ -44,12 +44,16 @@ public class ExceptionHandlingMiddleware(RequestDelegate next, ILogger<Exception
             _ => (HttpStatusCode.InternalServerError, "An unexpected error occurred")
         };
 
+        var detail = exception.InnerException != null
+            ? $"{exception.Message} ---> {exception.InnerException.Message}"
+            : exception.Message;
+
         var problemDetails = new
         {
             Type = $"https://httpstatuses.io/{(int)status}",
             Title = title,
             Status = (int)status,
-            Detail = exception.Message,
+            Detail = detail,
             Instance = context.Request.Path.Value,
             TraceId = context.TraceIdentifier
         };

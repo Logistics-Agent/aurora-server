@@ -51,12 +51,18 @@ public static class AuthExtensions
                 redisOptions.ConnectTimeout = 15000;
                 redisOptions.SyncTimeout = 15000;
                 redisOptions.SslProtocols = System.Security.Authentication.SslProtocols.Tls12 | System.Security.Authentication.SslProtocols.Tls13;
+                redisOptions.CheckCertificateRevocation = false;
+
+                if (redisOptions.EndPoints.Count > 0 && redisOptions.EndPoints[0] is System.Net.DnsEndPoint dns)
+                {
+                    redisOptions.SslHost = dns.Host;
+                }
 
                 var redis = ConnectionMultiplexer.Connect(redisOptions);
                 services.AddSingleton<IConnectionMultiplexer>(redis);
 
                 services.AddDataProtection()
-                    .PersistKeysToStackExchangeRedis(() => redis.GetDatabase(), "aurora:dataprotection-keys")
+                    .PersistKeysToStackExchangeRedis(redis, "aurora:dataprotection-keys")
                     .SetApplicationName("Aurora.BFF");
             }
         }
