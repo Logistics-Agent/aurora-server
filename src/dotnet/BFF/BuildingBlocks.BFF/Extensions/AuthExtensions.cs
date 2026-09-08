@@ -46,17 +46,26 @@ public static class AuthExtensions
             var redisConn = SharedServiceExtensions.BuildRedisConnectionString(config);
             if (!string.IsNullOrWhiteSpace(redisConn))
             {
-                var redis = ConnectionMultiplexer.Connect(redisConn);
+                var redisOptions = ConfigurationOptions.Parse(redisConn);
+                redisOptions.AbortOnConnectFail = false;
+                redisOptions.ConnectTimeout = 15000;
+                redisOptions.SyncTimeout = 15000;
+                redisOptions.SslProtocols = System.Security.Authentication.SslProtocols.Tls12 | System.Security.Authentication.SslProtocols.Tls13;
+
+                var redis = ConnectionMultiplexer.Connect(redisOptions);
                 services.AddSingleton<IConnectionMultiplexer>(redis);
+
                 services.AddDataProtection()
-                    .PersistKeysToStackExchangeRedis(redis, "DataProtection-Keys")
+                    .PersistKeysToStackExchangeRedis(() => redis.GetDatabase(), "aurora:dataprotection-keys")
                     .SetApplicationName("Aurora.BFF");
             }
         }
         catch (Exception ex)
         {
             var logger = LoggerFactory.Create(b => b.AddConsole()).CreateLogger(nameof(AuthExtensions));
-            logger.LogWarning(ex, "Failed to configure Redis-backed DataProtection. Falling back to local keys.");
+            logger.LogWarning(ex, "Failed to connect to Redis for DataProtection.");
+            services.AddDataProtection()
+                .SetApplicationName("Aurora.BFF");
         }
 
         services.Configure<CognitoAuthOptions>(config.GetSection(CognitoAuthOptions.SectionName));

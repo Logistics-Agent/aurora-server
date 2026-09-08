@@ -83,22 +83,29 @@ public static class SharedServiceExtensions
 
         return services;
     }
-    /// <summary>
-    /// Build StackExchange.Redis connection string từ Redis:Host + Redis:Password.
-    /// Nếu có password (Redis Cloud) → thêm password + ssl=true.
-    /// Nếu không có password (local) → chỉ dùng host.
-    /// </summary>
     public static string BuildRedisConnectionString(IConfiguration configuration)
     {
         var host = configuration["Redis:Host"]
-            ?? throw new InvalidOperationException("Redis:Host is required (e.g. localhost:6379)");
+            ?? configuration["Redis:ConnectionString"]
+            ?? configuration.GetConnectionString("Redis")
+            ?? "localhost:6379";
 
         var password = configuration["Redis:Password"];
+        var ssl = configuration.GetValue<bool?>("Redis:Ssl") ?? configuration.GetValue<bool?>("Redis:UseSsl") ?? (!string.IsNullOrWhiteSpace(password));
+        var abortConnect = configuration.GetValue<bool?>("Redis:AbortConnect") ?? false;
 
         if (string.IsNullOrWhiteSpace(password))
-            return host; // Local Redis, không cần password
+        {
+            if (host.Contains(','))
+                return host;
 
-        // Redis Cloud: host:port,password=xxx,ssl=true,abortConnect=false
-        return $"{host},password={password},ssl=true,abortConnect=false";
+            var parts = new List<string> { host };
+            if (ssl) parts.Add("ssl=true");
+            if (!abortConnect) parts.Add("abortConnect=false");
+            return string.Join(",", parts);
+        }
+
+        // Redis Cloud / Azure Redis: host:port,password=xxx,ssl=true/false,abortConnect=false
+        return $"{host},password={password},ssl={ssl.ToString().ToLowerInvariant()},abortConnect={abortConnect.ToString().ToLowerInvariant()}";
     }
 }
