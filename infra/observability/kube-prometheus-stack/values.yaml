@@ -17,6 +17,7 @@ prometheus:
       limits:
         cpu: 1000m
         memory: 1Gi
+
   service:
     type: LoadBalancer
     annotations:
@@ -26,15 +27,13 @@ prometheus:
     loadBalancerIP: 10.10.2.60
 
 grafana:
-  enabled: true
-  adminPassword: "admin"
-  resources:
-    requests:
-      cpu: 100m
-      memory: 128Mi
-    limits:
-      cpu: 500m
-      memory: 256Mi
+  enabled: false
 
 alertmanager:
+  enabled: false
+
+kubeStateMetrics:
+  enabled: false
+
+prometheus-node-exporter:
   enabled: false

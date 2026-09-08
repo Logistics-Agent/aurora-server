@@ -21,7 +21,11 @@ public class AuthGrpcService(
             {
                 Exists = result.Exists,
                 TenantCode = result.TenantCode ?? "",
-                UserType = result.UserType ?? ""
+                UserType = result.UserType ?? "",
+                UserId = result.UserId?.ToString() ?? "",
+                TenantId = result.TenantId?.ToString() ?? "",
+                PermissionVersion = result.PermissionVersion ?? 0,
+                Role = result.Role ?? ""
             };
         }
         catch (Exception ex)

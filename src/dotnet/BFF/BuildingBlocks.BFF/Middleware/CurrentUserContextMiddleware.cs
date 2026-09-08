@@ -17,14 +17,40 @@ public class CurrentUserContextMiddleware(RequestDelegate next)
         if (context.User.Identity?.IsAuthenticated == true)
         {
             // Custom claims (user_id, tenant_id) — được thêm bởi OnTokenValidated
-            // hoặc bởi một middleware riêng resolve từ gRPC IdentifyUser
-            var userId      = GetClaimGuid(context.User, JwtClaims.UserId);
-            var tenantId    = GetClaimGuid(context.User, JwtClaims.TenantId);
-            var permVersion = GetClaimInt(context.User, JwtClaims.PermissionVersion);
-            var traceId     = context.TraceIdentifier;
+            // Nếu cookie chưa có userId (do login từ session cũ), fallback resolve từ AuthService
+            if (!userId.HasValue)
+            {
+                var email = context.User.FindFirstValue(ClaimTypes.Email)
+                         ?? context.User.FindFirstValue("email");
 
-            var role = context.User.FindFirstValue(JwtClaims.Role)
-                ?? context.User.FindFirstValue(ClaimTypes.Role);
+                if (!string.IsNullOrWhiteSpace(email))
+                {
+                    try
+                    {
+                        var authClient = context.RequestServices.GetService<Auth.Grpc.AuthService.AuthServiceClient>();
+                        if (authClient != null)
+                        {
+                            var identity = await authClient.IdentifyUserAsync(
+                                new Auth.Grpc.IdentifyUserRequest { Email = email },
+                                cancellationToken: context.RequestAborted);
+
+                            if (identity != null && identity.Exists && Guid.TryParse(identity.UserId, out var resolvedUserId))
+                            {
+                                userId = resolvedUserId;
+                                permVersion = identity.PermissionVersion;
+                                if (Guid.TryParse(identity.TenantId, out var resolvedTenantId))
+                                    tenantId = resolvedTenantId;
+                                if (!string.IsNullOrWhiteSpace(identity.Role))
+                                    role = identity.Role;
+                            }
+                        }
+                    }
+                    catch
+                    {
+                        // Proceed with available claims if service unreachable
+                    }
+                }
+            }
 
             // Permissions sẽ được load từ Redis bởi PermissionVersionMiddleware (bước tiếp theo)
             currentUser.Populate(userId, tenantId, traceId, permVersion, role, []);

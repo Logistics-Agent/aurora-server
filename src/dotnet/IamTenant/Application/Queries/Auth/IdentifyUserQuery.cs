@@ -6,7 +6,14 @@ using Shared.Enums;
 
 namespace IamTenant.Application.Queries.Auth;
 
-public record IdentifyUserResult(bool Exists, string? TenantCode, string? UserType);
+public record IdentifyUserResult(
+    bool Exists, 
+    string? TenantCode, 
+    string? UserType,
+    Guid? UserId = null,
+    Guid? TenantId = null,
+    int? PermissionVersion = null,
+    string? Role = null);
 
 public record IdentifyUserQuery(string Email) : IRequest<IdentifyUserResult>;
 
@@ -16,13 +23,16 @@ public class IdentifyUserQueryHandler(IamTenantDbContext context) : IRequestHand
     {
         // Global query filter takes care of IsDeleted, but here we query by email across tenants, 
         // so we must use IgnoreQueryFilters() if the current context tenantId is set to something else.
-        // Assuming IdentifyUser is called by BFF before login, context might not have TenantId yet.
         var user = await context.Users
             .IgnoreQueryFilters()
-            .Where(u => u.Email == request.Email && !u.IsDeleted)
+            .Include(u => u.Tenant)
+            .Where(u => (u.Email == request.Email || (u.CognitoSub != null && u.CognitoSub == request.Email)) && !u.IsDeleted)
             .Select(u => new 
             { 
+                u.Id,
+                u.TenantId,
                 u.Role, 
+                u.PermissionVersion,
                 TenantCode = u.Tenant != null ? u.Tenant.Code : null 
             })
             .FirstOrDefaultAsync(cancellationToken);
@@ -32,6 +42,13 @@ public class IdentifyUserQueryHandler(IamTenantDbContext context) : IRequestHand
             return new IdentifyUserResult(false, null, null);
         }
 
-        return new IdentifyUserResult(true, user.TenantCode ?? "SYSTEM_ADMIN", user.Role.ToCode());
+        return new IdentifyUserResult(
+            true, 
+            user.TenantCode ?? "SYSTEM_ADMIN", 
+            user.Role.ToCode(),
+            user.Id,
+            user.TenantId,
+            user.PermissionVersion,
+            user.Role.ToCode());
     }
 }

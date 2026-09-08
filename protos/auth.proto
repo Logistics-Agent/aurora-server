@@ -97,6 +97,10 @@ message IdentifyUserResponse {
   bool exists = 1;
   string tenantCode = 2;
   string userType = 3;
+  string userId = 4;
+  string tenantId = 5;
+  int32 permissionVersion = 6;
+  string role = 7;
 }
 
 message CompleteInvitationRequest {

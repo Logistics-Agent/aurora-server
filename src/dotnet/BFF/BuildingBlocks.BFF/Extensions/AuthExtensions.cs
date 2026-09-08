@@ -125,11 +125,11 @@ public static class AuthExtensions
                         context.ProtocolMessage.RedirectUri = $"{scheme}://{forwardedHost ?? context.Request.Host.Value}{options.CallbackPath}";
                         return Task.CompletedTask;
                     },
-                    OnTokenValidated = context =>
+                    OnTokenValidated = async context =>
                     {
                         var identity = context.Principal?.Identity as ClaimsIdentity;
                         if (identity is null)
-                            return Task.CompletedTask;
+                            return;
 
                         var email = context.Principal?.FindFirstValue("email")
                             ?? context.Principal?.FindFirstValue(ClaimTypes.Email);
@@ -137,7 +137,7 @@ public static class AuthExtensions
                         if (string.IsNullOrWhiteSpace(email))
                         {
                             context.Fail("Email claim not found in Cognito token.");
-                            return Task.CompletedTask;
+                            return;
                         }
 
                         var emailDomain = email.Contains('@') ? email.Split('@')[1] : string.Empty;
@@ -151,9 +151,18 @@ public static class AuthExtensions
                         if (!identity.HasClaim(c => c.Type == "email_domain"))
                             identity.AddClaim(new Claim("email_domain", emailDomain));
 
-                        var cognitoSub = context.Principal?.FindFirstValue("sub");
-                        if (!string.IsNullOrWhiteSpace(cognitoSub) && !identity.HasClaim(c => c.Type == "cognito_sub"))
-                            identity.AddClaim(new Claim("cognito_sub", cognitoSub));
+                        var cognitoSub = context.Principal?.FindFirstValue(ClaimTypes.NameIdentifier)
+                                      ?? context.Principal?.FindFirstValue("sub")
+                                      ?? context.Principal?.FindFirstValue("cognito_sub")
+                                      ?? context.Principal?.FindFirstValue("cognito:username");
+
+                        if (!string.IsNullOrWhiteSpace(cognitoSub))
+                        {
+                            if (!identity.HasClaim(c => c.Type == "cognito_sub"))
+                                identity.AddClaim(new Claim("cognito_sub", cognitoSub));
+                            if (!identity.HasClaim(c => c.Type == "sub"))
+                                identity.AddClaim(new Claim("sub", cognitoSub));
+                        }
 
                         if (!identity.HasClaim(c => c.Type == ClaimTypes.Email))
                             identity.AddClaim(new Claim(ClaimTypes.Email, email));
@@ -164,21 +173,71 @@ public static class AuthExtensions
                                    ?? context.Principal?.FindFirstValue("custom:role")
                                    ?? groupClaims.FirstOrDefault();
 
+                        var canonicalRole = Shared.Constants.RoleConstants.Staff;
                         if (!string.IsNullOrWhiteSpace(rawRole))
                         {
-                            var canonicalRole = rawRole.Trim().ToUpperInvariant() switch
+                            canonicalRole = rawRole.Trim().ToUpperInvariant() switch
                             {
                                 "SYSTEMADMIN" or "SYSTEM_ADMIN" => Shared.Constants.RoleConstants.SystemAdmin,
                                 "TENANTADMIN" or "TENANT_ADMIN" => Shared.Constants.RoleConstants.TenantAdmin,
                                 "MANAGER" => Shared.Constants.RoleConstants.Manager,
                                 _ => Shared.Constants.RoleConstants.Staff
                             };
-
-                            if (!identity.HasClaim(c => c.Type == Shared.Security.JwtClaims.Role))
-                                identity.AddClaim(new Claim(Shared.Security.JwtClaims.Role, canonicalRole));
-                            if (!identity.HasClaim(c => c.Type == ClaimTypes.Role))
-                                identity.AddClaim(new Claim(ClaimTypes.Role, canonicalRole));
                         }
+
+                        // Resolve internal user details (UserId, TenantId, PermissionVersion) from IamTenant service
+                        try
+                        {
+                            var authClient = context.HttpContext.RequestServices.GetService<Auth.Grpc.AuthService.AuthServiceClient>();
+                            var iamClient = context.HttpContext.RequestServices.GetService<IamTenant.Grpc.IamService.IamServiceClient>();
+
+                            if (authClient != null)
+                            {
+                                var identityResp = await authClient.IdentifyUserAsync(
+                                    new Auth.Grpc.IdentifyUserRequest { Email = email });
+
+                                if (identityResp != null && identityResp.Exists)
+                                {
+                                    if (!string.IsNullOrWhiteSpace(identityResp.Role))
+                                        canonicalRole = identityResp.Role;
+
+                                    if (!string.IsNullOrWhiteSpace(identityResp.UserId))
+                                    {
+                                        if (!identity.HasClaim(c => c.Type == Shared.Security.JwtClaims.UserId))
+                                            identity.AddClaim(new Claim(Shared.Security.JwtClaims.UserId, identityResp.UserId));
+
+                                        if (!identity.HasClaim(c => c.Type == Shared.Security.JwtClaims.PermissionVersion))
+                                            identity.AddClaim(new Claim(Shared.Security.JwtClaims.PermissionVersion, identityResp.PermissionVersion.ToString()));
+
+                                        if (!string.IsNullOrWhiteSpace(identityResp.TenantId) && !identity.HasClaim(c => c.Type == Shared.Security.JwtClaims.TenantId))
+                                            identity.AddClaim(new Claim(Shared.Security.JwtClaims.TenantId, identityResp.TenantId));
+
+                                        // Pre-warm Redis cache with direct permissions
+                                        if (iamClient != null)
+                                        {
+                                            try
+                                            {
+                                                await iamClient.GetUserPermissionsAsync(
+                                                    new IamTenant.Grpc.GetUserPermissionsRequest { UserId = identityResp.UserId });
+                                            }
+                                            catch (Exception ex)
+                                            {
+                                                logger.LogWarning(ex, "Failed to pre-warm permission cache for user {UserId}", identityResp.UserId);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            logger.LogWarning(ex, "Failed to resolve user identity during token validation for {Email}", email);
+                        }
+
+                        if (!identity.HasClaim(c => c.Type == Shared.Security.JwtClaims.Role))
+                            identity.AddClaim(new Claim(Shared.Security.JwtClaims.Role, canonicalRole));
+                        if (!identity.HasClaim(c => c.Type == ClaimTypes.Role))
+                            identity.AddClaim(new Claim(ClaimTypes.Role, canonicalRole));
 
                         if (!string.IsNullOrWhiteSpace(expectedClientId))
                         {
@@ -187,8 +246,6 @@ public static class AuthExtensions
                             if (!string.Equals(clientId, expectedClientId, StringComparison.Ordinal))
                                 context.Fail("Invalid client_id.");
                         }
-
-                        return Task.CompletedTask;
                     },
                     OnRemoteFailure = context =>
                     {

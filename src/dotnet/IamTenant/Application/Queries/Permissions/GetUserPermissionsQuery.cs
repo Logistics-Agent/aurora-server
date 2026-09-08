@@ -39,31 +39,34 @@ public class GetUserPermissionsHandler(
         }
 
         var user = await context.Users
+            .IgnoreQueryFilters()
             .Where(u => u.Id == request.UserId && !u.IsDeleted)
             .Select(u => new
             {
                 u.PermissionVersion,
-                RoleCode = u.Role.ToCode(),
-                Permissions = u.UserPermissions
-                    .Where(up => up.Permission != null)
-                    .Select(up => new PermissionDto
-                    {
-                        Id = up.Permission!.Id,
-                        Code = up.Permission.Code,
-                        Module = up.Permission.Module,
-                        Description = up.Permission.Description
-                    })
-                    .OrderBy(p => p.Code)
-                    .ToList()
+                RoleCode = u.Role.ToCode()
             })
             .FirstOrDefaultAsync(cancellationToken)
             ?? throw new NotFoundException("User not found");
+
+        var permissions = await context.UserPermissions
+            .IgnoreQueryFilters()
+            .Where(up => up.UserId == request.UserId && up.Permission != null)
+            .Select(up => new PermissionDto
+            {
+                Id = up.Permission!.Id,
+                Code = up.Permission.Code,
+                Module = up.Permission.Module,
+                Description = up.Permission.Description
+            })
+            .OrderBy(p => p.Code)
+            .ToListAsync(cancellationToken);
 
         var newCache = new UserPermissionCache
         {
             Version = user.PermissionVersion,
             Role = user.RoleCode,
-            Permissions = [.. user.Permissions.Select(p => p.Code)]
+            Permissions = [.. permissions.Select(p => p.Code)]
         };
         await permissionCache.SetAsync(request.UserId, newCache, cancellationToken);
 
@@ -71,7 +74,7 @@ public class GetUserPermissionsHandler(
         {
             UserId = request.UserId,
             Role = user.RoleCode,
-            Permissions = user.Permissions,
+            Permissions = permissions,
             Version = user.PermissionVersion,
             FromCache = false
         };

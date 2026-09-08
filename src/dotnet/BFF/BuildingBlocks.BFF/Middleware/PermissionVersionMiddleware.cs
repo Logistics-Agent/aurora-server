@@ -24,11 +24,43 @@ public class PermissionVersionMiddleware(
         {
             var cached = await permissionCache.GetAsync(currentUser.UserId.Value);
 
-            // Không có cache entry — yêu cầu login lại để repopulate Redis
+            // Nếu không có cache entry — cố gắng warm-up từ IamService trước khi reject
             if (cached is null)
             {
+                logger.LogInformation(
+                    "No permission cache entry for User {UserId}. Fetching from IamService to warm up cache...",
+                    currentUser.UserId);
+
+                try
+                {
+                    var iamClient = context.RequestServices.GetService<IamTenant.Grpc.IamService.IamServiceClient>();
+                    if (iamClient != null)
+                    {
+                        var permsResp = await iamClient.GetUserPermissionsAsync(
+                            new IamTenant.Grpc.GetUserPermissionsRequest { UserId = currentUser.UserId.Value.ToString() },
+                            cancellationToken: context.RequestAborted);
+
+                        if (permsResp != null)
+                        {
+                            var permissions = permsResp.Permissions.Select(p => p.Code).ToList();
+                            currentUser.PopulatePermissions(permissions, permsResp.Role);
+
+                            logger.LogInformation(
+                                "Permissions lazily populated for User {UserId}: {PermissionCount} permissions, role {Role}.",
+                                currentUser.UserId, permissions.Count, permsResp.Role);
+
+                            await next(context);
+                            return;
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    logger.LogWarning(ex, "Failed to lazily load permissions for User {UserId}", currentUser.UserId);
+                }
+
                 logger.LogWarning(
-                    "No permission cache entry for User {UserId}. Forcing re-authentication. Path: {Path}",
+                    "Could not load permissions for User {UserId}. Forcing re-authentication. Path: {Path}",
                     currentUser.UserId, context.Request.Path);
 
                 context.Response.StatusCode = StatusCodes.Status401Unauthorized;
