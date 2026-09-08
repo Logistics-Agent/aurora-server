@@ -47,8 +47,8 @@ startupProbe:
 
 env:
   ASPNETCORE_ENVIRONMENT: "Production"
-  Redis__Host: "redis-aurora-shared-demo.southeastasia.redis.azure.net:10000"
-  Redis__Ssl: "true"
+  Redis__Host: "redis-master.aurora.svc.cluster.local:6379"
+  Redis__Ssl: "false"
   Redis__AbortConnect: "false"
   Stalwart__BaseUrl: "http://stalwart.aurora.svc.cluster.local:8080"
   Stalwart__AdminUrl: "http://stalwart.aurora.svc.cluster.local:8080"

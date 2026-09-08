@@ -14,9 +14,9 @@ service:
 env:
   SPRING_PROFILES_ACTIVE: "prod"
   SERVER_PORT: "8080"
-  SPRING_REDIS_HOST: "redis-aurora-shared-demo.southeastasia.redis.azure.net"
-  SPRING_REDIS_PORT: "10000"
-  SPRING_REDIS_SSL: "true"
+  SPRING_REDIS_HOST: "redis-master.aurora.svc.cluster.local"
+  SPRING_REDIS_PORT: "6379"
+  SPRING_REDIS_SSL: "false"
 
 externalSecret:
   enabled: true

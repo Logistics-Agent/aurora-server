@@ -9,10 +9,10 @@ image:
 env:
   SPRING_PROFILES_ACTIVE: "prod"
   SERVER_PORT: "8080"
-  SPRING_REDIS_HOST: "redis-aurora-shared-demo.southeastasia.redis.azure.net"
-  SPRING_REDIS_PORT: "10000"
-  SPRING_REDIS_SSL: "true"
-  SPRING_RABBITMQ_HOST: "10.10.0.62"
+  SPRING_REDIS_HOST: "redis-master.aurora.svc.cluster.local"
+  SPRING_REDIS_PORT: "6379"
+  SPRING_REDIS_SSL: "false"
+  SPRING_RABBITMQ_HOST: "rabbitmq.aurora.svc.cluster.local"
   SPRING_RABBITMQ_PORT: "5672"
   SPRING_RABBITMQ_USERNAME: "aurora_admin"
 

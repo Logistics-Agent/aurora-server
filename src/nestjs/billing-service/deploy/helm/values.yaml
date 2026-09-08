@@ -22,9 +22,9 @@ env:
   NODE_ENV: "production"
   PORT: "8080"
   GRPC_PORT: "5004"
-  REDIS_HOST: "redis-aurora-shared-demo.southeastasia.redis.azure.net"
-  REDIS_PORT: "10000"
-  REDIS_TLS: "true"
+  REDIS_HOST: "redis-master.aurora.svc.cluster.local"
+  REDIS_PORT: "6379"
+  REDIS_TLS: "false"
 
 externalSecret:
   enabled: true
