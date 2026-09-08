@@ -71,12 +71,18 @@ public static class AuthExtensions
             })
             .AddCookie(options =>
             {
+                var sameSiteMode = cookieOpts.SameSite?.Equals("None", StringComparison.OrdinalIgnoreCase) == true
+                    ? SameSiteMode.None
+                    : cookieOpts.SameSite?.Equals("Strict", StringComparison.OrdinalIgnoreCase) == true
+                        ? SameSiteMode.Strict
+                        : SameSiteMode.Lax;
+
                 options.Cookie.Name = ".Aurora.Auth";
                 options.Cookie.HttpOnly = true;
-                options.Cookie.SecurePolicy = cookieOpts.Secure
+                options.Cookie.SameSite = sameSiteMode;
+                options.Cookie.SecurePolicy = (sameSiteMode == SameSiteMode.None || cookieOpts.Secure)
                     ? CookieSecurePolicy.Always
                     : CookieSecurePolicy.SameAsRequest;
-                options.Cookie.SameSite = SameSiteMode.None;
 
                 if (!string.IsNullOrWhiteSpace(cookieOpts.Domain))
                     options.Cookie.Domain = cookieOpts.Domain;
