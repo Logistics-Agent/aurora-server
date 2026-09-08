@@ -16,6 +16,14 @@ public class CurrentUserContextMiddleware(RequestDelegate next)
         // Chỉ populate khi user đã được authenticate
         if (context.User.Identity?.IsAuthenticated == true)
         {
+            var userId = GetClaimGuid(context.User, "user_id")
+                      ?? GetClaimGuid(context.User, ClaimTypes.NameIdentifier);
+            var tenantId = GetClaimGuid(context.User, "tenant_id");
+            var traceId = context.TraceIdentifier;
+            var permVersion = GetClaimInt(context.User, "permission_version");
+            var role = context.User.FindFirstValue(ClaimTypes.Role)
+                    ?? context.User.FindFirstValue("role");
+
             // Custom claims (user_id, tenant_id) — được thêm bởi OnTokenValidated
             // Nếu cookie chưa có userId (do login từ session cũ), fallback resolve từ AuthService
             if (!userId.HasValue)

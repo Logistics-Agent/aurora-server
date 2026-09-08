@@ -42,7 +42,7 @@ public class PermissionVersionMiddleware(
 
                         if (permsResp != null)
                         {
-                            var permissions = permsResp.Permissions.Select(p => p.Code).ToList();
+                            var permissions = permsResp.Permissions.ToList();
                             currentUser.PopulatePermissions(permissions, permsResp.Role);
 
                             logger.LogInformation(
