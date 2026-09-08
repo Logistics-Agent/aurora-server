@@ -108,7 +108,8 @@ public class CreateTenantHandler(
             tempPassword,
             request.AdminFirstName,
             request.AdminLastName,
-            cancellationToken);
+            role: "TENANT_ADMIN",
+            ct: cancellationToken);
         adminUser.CognitoSub = cognitoSub;
 
         context.Users.Add(adminUser);

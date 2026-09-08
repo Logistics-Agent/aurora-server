@@ -72,6 +72,28 @@ public class CognitoAuthService(
         var (adminPoolId, adminClientId) = await adminTask;
         var (staffPoolId, staffClientId) = await staffTask;
 
+        // Provision default groups in Admin User Pool & Staff User Pool
+        async Task EnsureGroupAsync(string poolId, string groupName, string description)
+        {
+            try
+            {
+                await cognito.CreateGroupAsync(new CreateGroupRequest
+                {
+                    UserPoolId = poolId,
+                    GroupName = groupName,
+                    Description = description
+                }, ct);
+            }
+            catch (GroupExistsException) { }
+            catch { /* non-blocking */ }
+        }
+
+        await Task.WhenAll(
+            EnsureGroupAsync(adminPoolId, "TENANT_ADMIN", "Tenant Administrator Group"),
+            EnsureGroupAsync(staffPoolId, "STAFF", "Tenant Staff Group"),
+            EnsureGroupAsync(staffPoolId, "MANAGER", "Tenant Manager Group")
+        );
+
         return new TenantCognitoPoolsResult
         {
             AdminUserPoolId = adminPoolId,
@@ -81,7 +103,14 @@ public class CognitoAuthService(
         };
     }
 
-    public async Task<string> AdminCreateUserInPoolAsync(string userPoolId, string email, string tempPassword, string? firstName = null, string? lastName = null, CancellationToken ct = default)
+    public async Task<string> AdminCreateUserInPoolAsync(
+        string userPoolId,
+        string email,
+        string tempPassword,
+        string? firstName = null,
+        string? lastName = null,
+        string? role = null,
+        CancellationToken ct = default)
     {
         var attributes = new List<AttributeType>
         {
@@ -110,13 +139,47 @@ public class CognitoAuthService(
 
         var response = await cognito.AdminCreateUserAsync(request, ct);
 
+        // Add user to specified Cognito group if provided
+        if (!string.IsNullOrWhiteSpace(role))
+        {
+            try
+            {
+                await cognito.AdminAddUserToGroupAsync(new AdminAddUserToGroupRequest
+                {
+                    UserPoolId = userPoolId,
+                    Username = email,
+                    GroupName = role
+                }, ct);
+            }
+            catch
+            {
+                try
+                {
+                    await cognito.CreateGroupAsync(new CreateGroupRequest
+                    {
+                        UserPoolId = userPoolId,
+                        GroupName = role,
+                        Description = $"{role} Group"
+                    }, ct);
+
+                    await cognito.AdminAddUserToGroupAsync(new AdminAddUserToGroupRequest
+                    {
+                        UserPoolId = userPoolId,
+                        Username = email,
+                        GroupName = role
+                    }, ct);
+                }
+                catch { /* non-blocking */ }
+            }
+        }
+
         var subAttribute = response.User.Attributes.FirstOrDefault(a => a.Name == "sub");
         return subAttribute?.Value ?? throw new Exception("Sub not found in Cognito response.");
     }
 
-    public async Task<string> AdminCreateUserAsync(string email, string tempPassword, string? firstName = null, string? lastName = null, CancellationToken ct = default)
+    public async Task<string> AdminCreateUserAsync(string email, string tempPassword, string? firstName = null, string? lastName = null, string? role = null, CancellationToken ct = default)
     {
-        return await AdminCreateUserInPoolAsync(_options.UserPoolId, email, tempPassword, firstName, lastName, ct);
+        return await AdminCreateUserInPoolAsync(_options.UserPoolId, email, tempPassword, firstName, lastName, role, ct);
     }
 
     public async Task<AuthResult> InitiateAuthAsync(string email, string password, CancellationToken ct = default)

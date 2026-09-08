@@ -115,7 +115,13 @@ public class CreateStaffHandler(
         if (!string.IsNullOrWhiteSpace(targetUserPoolId))
         {
             var cognitoSub = await cognitoService.AdminCreateUserInPoolAsync(
-                targetUserPoolId, request.Email, tempPassword, request.FirstName, request.LastName, cancellationToken);
+                targetUserPoolId,
+                request.Email,
+                tempPassword,
+                request.FirstName,
+                request.LastName,
+                role: staffUser.Role.ToCode(),
+                ct: cancellationToken);
             staffUser.CognitoSub = cognitoSub;
         }
 

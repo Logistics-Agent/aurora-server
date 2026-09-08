@@ -933,7 +933,7 @@ public class MailServiceTests
         mockCurrentUser.Setup(u => u.TenantId).Returns(tenantId);
 
         var mockCognito = new Mock<IamTenant.Application.Interfaces.ICognitoAuthService>();
-        mockCognito.Setup(c => c.AdminCreateUserInPoolAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
+        mockCognito.Setup(c => c.AdminCreateUserInPoolAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync("cognito-sub-12345");
 
         // Seed tenant

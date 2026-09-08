@@ -29,6 +29,7 @@ env:
   Grpc__NegotiationAgent__Url: "http://negotiation-agent-service.aurora-ai.svc.cluster.local:5006"
   Grpc__FinancialService__Url: "http://financial-service:5003"
   Grpc__BillingService__Url: "http://billing-service:5004"
+  Grpc__AuditService__Url: "http://audit-service:9086"
 
 externalSecret:
   enabled: true

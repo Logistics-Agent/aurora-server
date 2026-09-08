@@ -11,6 +11,11 @@ service:
   port: 8080
   targetPort: 8080
 
+additionalPorts:
+  - name: grpc
+    port: 9086
+    targetPort: 9086
+
 env:
   SPRING_PROFILES_ACTIVE: "prod"
   SERVER_PORT: "8080"
