@@ -76,7 +76,7 @@ public static class AuthExtensions
                 options.Cookie.SecurePolicy = cookieOpts.Secure
                     ? CookieSecurePolicy.Always
                     : CookieSecurePolicy.SameAsRequest;
-                options.Cookie.SameSite = SameSiteMode.Lax;
+                options.Cookie.SameSite = SameSiteMode.None;
 
                 if (!string.IsNullOrWhiteSpace(cookieOpts.Domain))
                     options.Cookie.Domain = cookieOpts.Domain;
