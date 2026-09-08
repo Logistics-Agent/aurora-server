@@ -1,4 +1,4 @@
-logicalService: notification
+logicalService: notification-java-legacy
 implementation: java
 deployTarget: core
 enabled: false # Skipped by ArgoCD ApplicationSet in V1

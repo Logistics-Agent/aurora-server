@@ -45,7 +45,7 @@ public static class AuthExtensions
             .AddAuthentication(options =>
             {
                 options.DefaultScheme = CookieAuthenticationDefaults.AuthenticationScheme;
-                options.DefaultChallengeScheme = CognitoScheme;
+                options.DefaultChallengeScheme = CookieAuthenticationDefaults.AuthenticationScheme;
             })
             .AddCookie(options =>
             {
@@ -107,6 +107,14 @@ public static class AuthExtensions
                 {
                     OnRedirectToIdentityProvider = context =>
                     {
+                        if (context.Request.Path.StartsWithSegments("/api") &&
+                            !context.Request.Path.StartsWithSegments("/api/v1/auth/login"))
+                        {
+                            context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+                            context.HandleResponse();
+                            return Task.CompletedTask;
+                        }
+
                         var forwardedHost = context.Request.Headers["X-Forwarded-Host"].FirstOrDefault()
                                          ?? context.Request.Host.Value;
 
