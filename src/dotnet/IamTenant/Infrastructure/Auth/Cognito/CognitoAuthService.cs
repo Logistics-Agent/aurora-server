@@ -51,7 +51,13 @@ public class CognitoAuthService(
                     "ALLOW_ADMIN_USER_PASSWORD_AUTH",
                     "ALLOW_REFRESH_TOKEN_AUTH",
                     "ALLOW_USER_PASSWORD_AUTH"
-                }
+                },
+                AllowedOAuthFlows = new List<string> { "code", "implicit" },
+                AllowedOAuthScopes = new List<string> { "phone", "email", "openid", "profile", "aws.cognito.signin.user.admin" },
+                AllowedOAuthFlowsUserPoolClient = true,
+                SupportedIdentityProviders = new List<string> { "COGNITO" },
+                CallbackURLs = _options.CallbackUrls,
+                LogoutURLs = _options.LogoutUrls
             };
 
             var clientRes = await cognito.CreateUserPoolClientAsync(clientReq, ct);
@@ -97,7 +103,7 @@ public class CognitoAuthService(
         {
             UserPoolId = userPoolId,
             Username = email,
-            MessageAction = MessageActionType.SUPPRESS,
+            DesiredDeliveryMediums = new List<string> { "EMAIL" },
             TemporaryPassword = tempPassword,
             UserAttributes = attributes
         };
