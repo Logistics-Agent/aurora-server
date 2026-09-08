@@ -143,7 +143,40 @@ variable "www_proxied" {
 }
 
 # -----------------------------------------------------------------------------
-# 6. General DNS & SSL Settings
+# 6. ArgoCD Subdomain (argocd.humanak.cyou)
+# -----------------------------------------------------------------------------
+variable "enable_argocd_subdomain" {
+  description = "Whether to create argocd subdomain record"
+  type        = bool
+  default     = true
+}
+
+variable "argocd_subdomain" {
+  description = "Subdomain name for ArgoCD Control Plane"
+  type        = string
+  default     = "argocd"
+}
+
+variable "argocd_target" {
+  description = "Target IP or hostname for ArgoCD (defaults to api_target / Azure App Gateway Public IP if empty)"
+  type        = string
+  default     = ""
+}
+
+variable "argocd_record_type" {
+  description = "DNS record type for ArgoCD (A or CNAME)"
+  type        = string
+  default     = "A"
+}
+
+variable "argocd_proxied" {
+  description = "Whether Cloudflare proxy (orange cloud) is enabled for ArgoCD"
+  type        = bool
+  default     = true
+}
+
+# -----------------------------------------------------------------------------
+# 7. General DNS & SSL Settings
 # -----------------------------------------------------------------------------
 variable "ttl" {
   description = "Time to live for DNS records (1 = automatic for proxied records)"

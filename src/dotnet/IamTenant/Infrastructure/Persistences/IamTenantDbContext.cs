@@ -33,15 +33,26 @@ public class IamTenantDbContext(
 
         modelBuilder.Entity<User>(e =>
         {
+            // Global query filter: SystemAdmin (TenantId null) hoặc cùng TenantId
             e.HasQueryFilter(u =>
-                _tenantId.HasValue && u.TenantId == _tenantId.Value
+                (!_tenantId.HasValue || u.TenantId == _tenantId.Value)
                 && !u.IsDeleted);
 
             e.HasIndex(u => u.CognitoSub).IsUnique();
-            e.HasIndex(u => new { u.TenantId, u.Email }).IsUnique();
             e.HasIndex(u => new { u.TenantId, u.CreatedAt });
             e.HasIndex(u => new { u.TenantId, u.Status });
 
+            // 1. Index cho SYSTEM_ADMIN (Email là duy nhất toàn platform khi TenantId = NULL)
+            e.HasIndex(u => u.Email)
+                .IsUnique()
+                .HasFilter("\"TenantId\" IS NULL");
+
+            // 2. Index cho Tenant Users (Email là duy nhất trong cùng 1 Tenant)
+            e.HasIndex(u => new { u.TenantId, u.Email })
+                .IsUnique()
+                .HasFilter("\"TenantId\" IS NOT NULL");
+
+            e.Property(u => u.TenantId).IsRequired(false);
             e.Property(u => u.Email).HasMaxLength(256).IsRequired();
             e.Property(u => u.FirstName).HasMaxLength(100);
             e.Property(u => u.LastName).HasMaxLength(100);
@@ -49,6 +60,7 @@ public class IamTenantDbContext(
             e.Property(u => u.Role).HasConversion<string>().HasMaxLength(50).IsRequired();
             e.Property(u => u.Status).HasConversion<string>().HasMaxLength(50);
         });
+
 
         modelBuilder.Entity<Tenant>(e =>
         {

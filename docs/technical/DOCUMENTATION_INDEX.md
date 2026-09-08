@@ -17,17 +17,20 @@
 
 ---
 
-## 2. Frontend & BFF Integration Guides
+## 2. Frontend, BFF & API Gateway Guides
 
+- [`docs/technical/bff/OVERVIEW.md`](file:///D:/IT/CD/aurora-server/docs/technical/bff/OVERVIEW.md): Architecture overview of Micro-BFFs (`Staff.Bff`, `Admin.Bff`, `System.Bff`) and YARP `API.Gateway`.
+- [`docs/technical/bff/DETAILS.md`](file:///D:/IT/CD/aurora-server/docs/technical/bff/DETAILS.md): `BuildingBlocks.BFF` foundation, gRPC client pooling, error translation, cookie-to-bearer bridge, and rate limiting.
+- [`docs/technical/bff/INTERVIEW_QA.md`](file:///D:/IT/CD/aurora-server/docs/technical/bff/INTERVIEW_QA.md): BFF architecture & API Gateway defense Q&A.
 - [`docs/technical/frontend/API_CATALOG.md`](file:///D:/IT/CD/aurora-server/docs/technical/frontend/API_CATALOG.md): Unified REST API catalog across all Micro-BFFs (`Staff.Bff`, `Admin.Bff`, `System.Bff`).
 - [`docs/technical/frontend/FE_INTEGRATION_GUIDE.md`](file:///D:/IT/CD/aurora-server/docs/technical/frontend/FE_INTEGRATION_GUIDE.md): Frontend architectural patterns, cookie authentication, gRPC error translation, and API clients.
 - [`docs/technical/frontend/FE_FLOW_COOKBOOK.md`](file:///D:/IT/CD/aurora-server/docs/technical/frontend/FE_FLOW_COOKBOOK.md): Step-by-step UI recipes for shipment booking, thread claiming, and OCR reviews.
 - [`docs/technical/frontend/ROLE_PERMISSION_API_MATRIX.md`](file:///D:/IT/CD/aurora-server/docs/technical/frontend/ROLE_PERMISSION_API_MATRIX.md): Capability permissions and role requirement matrix for all frontend routes.
-- [`docs/technical/frontend/NOTIFICATION-FE-INTEGRATION.md`](frontend/NOTIFICATION-FE-INTEGRATION.md): Detailed FE Notification/FCM integration, contracts, sequence flows, token lifecycle, auth, and local testing.
+- [`docs/technical/frontend/NOTIFICATION-FE-INTEGRATION.md`](file:///D:/IT/CD/aurora-server/docs/technical/frontend/NOTIFICATION-FE-INTEGRATION.md): Detailed FE Notification/FCM integration, contracts, sequence flows, token lifecycle, auth, and local testing.
 
 ---
 
-## 3. Microservice Technical Suites (13 Services)
+## 3. Microservice Technical Suites (14 Services)
 
 ### 3.1 Identity & Access Management (`iam`)
 - [`docs/technical/iam/OVERVIEW.md`](file:///D:/IT/CD/aurora-server/docs/technical/iam/OVERVIEW.md): Identity & tenant access overview.
@@ -106,6 +109,11 @@
 - [`docs/technical/notification/OVERVIEW.md`](file:///D:/IT/CD/aurora-server/docs/technical/notification/OVERVIEW.md): Event-driven multi-channel alerting and preference routing overview.
 - [`docs/technical/notification/DETAILS.md`](file:///D:/IT/CD/aurora-server/docs/technical/notification/DETAILS.md): Idempotent event consumer, channel router, and retry pipeline.
 - [`docs/technical/notification/INTERVIEW_QA.md`](file:///D:/IT/CD/aurora-server/docs/technical/notification/INTERVIEW_QA.md): Notification service interview Q&A.
+
+### 3.14 Autonomous DevOps & Incident Response Agent (`devops-agent`)
+- [`docs/technical/devops-agent/OVERVIEW.md`](file:///D:/IT/CD/aurora-server/docs/technical/devops-agent/OVERVIEW.md): Autonomous SRE, incident ingestion, anti-flapping, and AI RCA overview.
+- [`docs/technical/devops-agent/DETAILS.md`](file:///D:/IT/CD/aurora-server/docs/technical/devops-agent/DETAILS.md): Sliding-window deduplication, context redaction, RAG integration, and safety-guarded action executors.
+- [`docs/technical/devops-agent/INTERVIEW_QA.md`](file:///D:/IT/CD/aurora-server/docs/technical/devops-agent/INTERVIEW_QA.md): AIOps, incident reliability engineering, and autonomous guardrails interview Q&A.
 
 ---
 
