@@ -75,19 +75,31 @@ public class CognitoAuthService(
         };
     }
 
-    public async Task<string> AdminCreateUserInPoolAsync(string userPoolId, string email, string tempPassword, CancellationToken ct = default)
+    public async Task<string> AdminCreateUserInPoolAsync(string userPoolId, string email, string tempPassword, string? firstName = null, string? lastName = null, CancellationToken ct = default)
     {
+        var attributes = new List<AttributeType>
+        {
+            new() { Name = "email", Value = email },
+            new() { Name = "email_verified", Value = "true" }
+        };
+
+        if (!string.IsNullOrWhiteSpace(firstName))
+            attributes.Add(new() { Name = "given_name", Value = firstName });
+
+        if (!string.IsNullOrWhiteSpace(lastName))
+            attributes.Add(new() { Name = "family_name", Value = lastName });
+
+        var fullName = $"{firstName} {lastName}".Trim();
+        if (!string.IsNullOrWhiteSpace(fullName))
+            attributes.Add(new() { Name = "name", Value = fullName });
+
         var request = new AdminCreateUserRequest
         {
             UserPoolId = userPoolId,
             Username = email,
             MessageAction = MessageActionType.SUPPRESS,
             TemporaryPassword = tempPassword,
-            UserAttributes = new List<AttributeType>
-            {
-                new() { Name = "email", Value = email },
-                new() { Name = "email_verified", Value = "true" }
-            }
+            UserAttributes = attributes
         };
 
         var response = await cognito.AdminCreateUserAsync(request, ct);
@@ -96,9 +108,9 @@ public class CognitoAuthService(
         return subAttribute?.Value ?? throw new Exception("Sub not found in Cognito response.");
     }
 
-    public async Task<string> AdminCreateUserAsync(string email, string tempPassword, CancellationToken ct = default)
+    public async Task<string> AdminCreateUserAsync(string email, string tempPassword, string? firstName = null, string? lastName = null, CancellationToken ct = default)
     {
-        return await AdminCreateUserInPoolAsync(_options.UserPoolId, email, tempPassword, ct);
+        return await AdminCreateUserInPoolAsync(_options.UserPoolId, email, tempPassword, firstName, lastName, ct);
     }
 
     public async Task<AuthResult> InitiateAuthAsync(string email, string password, CancellationToken ct = default)

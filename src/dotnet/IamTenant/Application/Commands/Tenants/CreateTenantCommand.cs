@@ -11,7 +11,15 @@ using IamTenant.Domain.Enums;
 
 namespace IamTenant.Application.Commands.Tenants;
 
-public record CreateTenantCommand(string Name, string CompanyDomain, string AdminEmail, Guid IdempotencyKey, string? TaxCode = null, PlanType PlanType = PlanType.Standard) : IRequest<TenantDto>;
+public record CreateTenantCommand(
+    string Name,
+    string CompanyDomain,
+    string AdminEmail,
+    Guid IdempotencyKey,
+    string? TaxCode = null,
+    PlanType PlanType = PlanType.Standard,
+    string? AdminFirstName = null,
+    string? AdminLastName = null) : IRequest<TenantDto>;
 
 public class CreateTenantHandler(
     IamTenantDbContext context,
@@ -69,6 +77,8 @@ public class CreateTenantHandler(
         {
             TenantId = tenant.Id,
             Email = request.AdminEmail,
+            FirstName = request.AdminFirstName ?? string.Empty,
+            LastName = request.AdminLastName ?? string.Empty,
             Role = Shared.Enums.BaseRole.TenantAdmin,
             Status = UserStatus.Invited,
             PermissionVersion = 1
@@ -92,7 +102,13 @@ public class CreateTenantHandler(
         }
 
         // Cognito AdminCreateUser in the newly provisioned Admin User Pool
-        var cognitoSub = await cognitoService.AdminCreateUserInPoolAsync(tenant.AdminUserPoolId, request.AdminEmail, tempPassword, cancellationToken);
+        var cognitoSub = await cognitoService.AdminCreateUserInPoolAsync(
+            tenant.AdminUserPoolId,
+            request.AdminEmail,
+            tempPassword,
+            request.AdminFirstName,
+            request.AdminLastName,
+            cancellationToken);
         adminUser.CognitoSub = cognitoSub;
 
         context.Users.Add(adminUser);
@@ -103,7 +119,9 @@ public class CreateTenantHandler(
             TenantId = tenant.Id,
             TenantName = tenant.Name,
             UserId = adminUser.Id,
-            Email = adminUser.Email
+            Email = adminUser.Email,
+            FirstName = adminUser.FirstName,
+            LastName = adminUser.LastName
         };
 
         var outboxMessage = new OutboxMessage
