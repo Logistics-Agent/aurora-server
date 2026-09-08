@@ -2,15 +2,15 @@
 
 ## Overview
 
-The GPS Simulator is a lightweight command-line development tool that demonstrates GPS device behavior for shipment tracking within the Aurora logistics platform. The simulator uses a hardcoded Central America route and generates realistic movement patterns, transmitting telemetry data through the GPS tracking infrastructure. This design focuses on polishing the existing implementation for reliable demo capabilities rather than comprehensive service integration.
+The GPS Simulator is a lightweight command-line development tool that demonstrates GPS device behavior for shipment tracking within the Aurora logistics platform. The simulator enhances the existing single-file implementation in `Program.cs`, using a hardcoded Central America route to generate realistic movement patterns and transmit telemetry data through the GPS tracking infrastructure.
 
 ### Key Design Goals
 
-- **Simplicity**: Single-file console application with minimal dependencies and straightforward execution
-- **Realistic Demo**: Generate natural movement patterns using hardcoded Central America corridor route
-- **GPS Integration**: Transmit telemetry data through existing GPS Tracking Service for live demo
-- **Graceful Degradation**: Continue simulation with console output when GPS service is unavailable
-- **Easy Configuration**: Simple CLI parameters and environment variables for different demo scenarios
+- **Enhance Existing Implementation**: Polish and improve the current `Program.cs` rather than rewrite
+- **Hardcoded Route Only**: Use the existing Central America waypoints, no external route services
+- **Simple Architecture**: Maintain single-file approach with improved structure and error handling
+- **Demo-Focused**: Reliable demonstration capability with console fallback when services unavailable
+- **Minimal Dependencies**: Keep current gRPC dependencies, avoid over-engineering
 
 ## Architecture
 
@@ -18,376 +18,189 @@ The GPS Simulator is a lightweight command-line development tool that demonstrat
 
 ```mermaid
 graph TB
-    CLI[GPS Simulator CLI] --> SWS[Shipment Workflow Service]
-    CLI --> RPS[Route Planning Service]  
-    CLI --> GTS[GPS Tracking Service]
-    
-    SWS --> |"GetShipment(shipmentId)"| CLI
-    RPS --> |"GetRoute(routeId)"| CLI
-    CLI --> |"IngestPosition(telemetry)"| GTS
-    
-    CLI --> |"Demo Mode Fallback"| Console[Console Output]
+    CLI[GPS Simulator CLI] --> |optional validation| SWS[Shipment Workflow Service]
+    CLI --> |telemetry transmission| GTS[GPS Tracking Service]
+    CLI --> |fallback when service down| Console[Console Output]
     
     subgraph "Aurora Platform"
         SWS
-        RPS
         GTS
     end
+    
+    subgraph "Hardcoded Data"
+        Route[Central America Route]
+    end
+    
+    CLI --> Route
 ```
 
-### Component Architecture
+### Implementation Structure
+
+The design maintains the existing single-file approach while improving organization through well-structured methods:
 
 ```mermaid
 graph TB
-    subgraph "GPS Simulator Application"
-        CLI[CLI Parser & Orchestrator]
-        Config[Configuration Manager]
+    subgraph "Program.cs Structure"
+        Main[Main Method]
         
-        subgraph "Service Clients"
-            ShipmentClient[Shipment Service Client]
-            RouteClient[Route Service Client] 
-            GpsClient[GPS Tracking Client]
+        subgraph "Core Functions"
+            ParseArgs[ParseCliArguments]
+            ValidateShipment[ValidateShipmentOptional]
+            RouteProcessing[InterpolateRoute]
+            Movement[CalculateHeading + SimulateMovement]
+            Transmission[TransmitTelemetry]
         end
         
-        subgraph "Simulation Engine"
-            RouteProcessor[Route Geometry Processor]
-            MovementSimulator[Movement Simulator]
-            TelemetryGenerator[Telemetry Generator]
-        end
-        
-        subgraph "Output Handlers"
-            GrpcTransmitter[gRPC Transmitter]
-            DemoModeLogger[Demo Mode Logger]
-            ProgressReporter[Progress Reporter]
+        subgraph "Existing Data"
+            Waypoints[Hardcoded Central America Waypoints]
         end
     end
     
-    CLI --> Config
-    CLI --> ShipmentClient
-    CLI --> RouteClient
-    
-    ShipmentClient --> RouteProcessor
-    RouteClient --> RouteProcessor
-    RouteProcessor --> MovementSimulator
-    MovementSimulator --> TelemetryGenerator
-    
-    TelemetryGenerator --> GrpcTransmitter
-    TelemetryGenerator --> DemoModeLogger
-    TelemetryGenerator --> ProgressReporter
-    
-    GrpcTransmitter --> GpsClient
+    Main --> ParseArgs
+    Main --> ValidateShipment
+    Main --> Waypoints
+    Waypoints --> RouteProcessing
+    RouteProcessing --> Movement
+    Movement --> Transmission
 ```
 
 ## Components and Interfaces
 
-### CLI Parser & Orchestrator
+### CLI Argument Processing
 
-**Responsibilities:**
-- Parse and validate command-line arguments
-- Coordinate execution flow across all components
-- Handle application lifecycle and error recovery
+**Current Implementation**: Basic manual parsing with string comparisons
+**Enhancement**: Improve validation and error messages while maintaining simplicity
 
-**Interface:**
 ```csharp
-public class CliOptions
+// Enhanced argument processing (within Main method)
+private static (string shipmentId, int interval, double speed, string grpcUrl, string tenantId) 
+    ParseArguments(string[] args)
 {
-    public string ShipmentId { get; set; }
-    public int IntervalSeconds { get; set; } = 3;
-    public double SpeedKmh { get; set; } = 50.0;
-}
-
-public interface ICliOrchestrator
-{
-    Task<int> RunAsync(string[] args);
-    void DisplayHelp();
-    void DisplayStartupInfo(CliOptions options);
+    // Improve existing parsing with better validation
+    // Add help display for invalid arguments
+    // Maintain current parameter names and defaults
 }
 ```
 
-**Key Features:**
-- Uses CommandLineParser library for robust argument parsing
-- Validates shipment ID format (Aurora shipment number pattern)
-- Enforces minimum values (interval ≥ 1s, speed ≥ 10 km/h)
-- Provides comprehensive usage help and error messages
+### Shipment Validation (Optional)
 
-### Configuration Manager
+**Purpose**: Optional shipment existence check for demo purposes
+**Implementation**: Simple gRPC call with graceful failure handling
 
-**Responsibilities:**
-- Manage environment variable configuration
-- Provide service endpoint URLs and authentication settings
-- Handle configuration defaults and validation
-
-**Interface:**
 ```csharp
-public class SimulatorConfig
+// Optional shipment validation
+private static async Task<bool> ValidateShipmentAsync(string shipmentId, string grpcUrl, string tenantId)
 {
-    public string GpsGrpcUrl { get; set; }
-    public string ShipmentGrpcUrl { get; set; }
-    public string RouteGrpcUrl { get; set; }
-    public string TenantId { get; set; }
-    public string UserId { get; set; }
-}
-
-public interface IConfigurationManager
-{
-    SimulatorConfig LoadConfiguration();
-    void ValidateConfiguration(SimulatorConfig config);
+    // Optional call to Shipment Workflow Service
+    // Continue simulation regardless of result
+    // Display validation status for demo purposes
 }
 ```
 
-**Environment Variables:**
-- `GPS_GRPC_URL` → GPS Tracking Service endpoint
-- `SHIPMENT_GRPC_URL` → Shipment Workflow Service endpoint  
-- `ROUTE_GRPC_URL` → Route Planning Service endpoint
-- `TENANT_ID` → Multi-tenant identifier for gRPC metadata
-- `USER_ID` → User identifier for gRPC metadata (defaults to system user)
+### Route Processing
 
-### Service Clients
+**Current Implementation**: Hardcoded Central America waypoints with interpolation
+**Enhancement**: Improve interpolation algorithm and coordinate validation
 
-#### Shipment Service Client
-**Responsibilities:**
-- Retrieve shipment details via gRPC
-- Extract route assignment information
-- Handle service unavailability scenarios
-
-**Interface:**
 ```csharp
-public interface IShipmentServiceClient
+// Enhanced route processing (existing method improved)
+private static List<(double Lat, double Lng)> InterpolateRoute(
+    (double Lat, double Lng)[] waypoints, 
+    int stepsBetween)
 {
-    Task<ShipmentResponse> GetShipmentAsync(string shipmentId);
-    Task<bool> TestConnectivityAsync();
+    // Keep existing algorithm, add coordinate validation
+    // Ensure smooth movement between points
+    // Validate coordinate ranges
 }
 ```
 
-#### Route Service Client  
-**Responsibilities:**
-- Retrieve route details and geometry data
-- Extract ROAD leg segments for GPS simulation
-- Handle missing or invalid route data
+### Movement Simulation
 
-**Interface:**
+**Current Implementation**: Basic heading calculation and speed variation
+**Enhancement**: Improve accuracy and add better randomization
+
 ```csharp
-public interface IRouteServiceClient
+// Enhanced movement simulation
+private static double CalculateHeading(double lat1, double lon1, double lat2, double lon2)
 {
-    Task<RouteResponse> GetRouteAsync(string routeId);
-    Task<bool> TestConnectivityAsync();
+    // Keep existing haversine-based calculation
+    // Improve precision and edge case handling
+}
+
+private static double ApplySpeedVariation(double baseSpeed, Random random)
+{
+    // Enhanced speed variation with realistic bounds
+    // ±3 km/h variation with normal distribution
 }
 ```
 
-#### GPS Tracking Client
-**Responsibilities:**
-- Transmit telemetry data via IngestPosition API
-- Handle transmission failures and retry logic
-- Support demo mode fallback
+### Telemetry Transmission
 
-**Interface:**
+**Current Implementation**: gRPC call with basic error handling
+**Enhancement**: Improve error handling and demo mode fallback
+
 ```csharp
-public interface IGpsTrackingClient
+// Enhanced telemetry transmission
+private static async Task<bool> TransmitTelemetryAsync(
+    IngestPositionRequest request, 
+    GpsTrackingServiceClient client, 
+    Metadata headers)
 {
-    Task<bool> IngestPositionAsync(IngestPositionRequest request);
-    Task<bool> TestConnectivityAsync();
-}
-```
-
-### Route Geometry Processor
-
-**Responsibilities:**
-- Extract coordinate sequences from route geometry
-- Interpolate additional waypoints for smooth movement
-- Calculate distance and duration estimates
-
-**Interface:**
-```csharp
-public class RoutePoint
-{
-    public double Latitude { get; set; }
-    public double Longitude { get; set; }
-    public double DistanceFromStart { get; set; }
-}
-
-public interface IRouteProcessor
-{
-    List<RoutePoint> ProcessRouteGeometry(RouteResponse route);
-    List<RoutePoint> InterpolatePoints(List<RoutePoint> waypoints, double targetDensityKm);
-    void ValidateGeometry(List<RoutePoint> points);
-}
-```
-
-**Processing Algorithm:**
-1. Extract ROAD leg segments from route data
-2. Parse geometry coordinates (support multiple formats: GeoJSON, encoded polylines)
-3. Interpolate points to achieve ~100m spacing for realistic movement
-4. Calculate cumulative distances and validate coordinate ranges
-5. Remove duplicate or invalid coordinates
-
-### Movement Simulator
-
-**Responsibilities:**
-- Generate realistic movement patterns along route
-- Calculate speed variations and heading values
-- Manage simulation timing and progression
-
-**Interface:**
-```csharp
-public class MovementState
-{
-    public RoutePoint CurrentPosition { get; set; }
-    public double CurrentSpeedKmh { get; set; }
-    public double HeadingDegrees { get; set; }
-    public DateTime Timestamp { get; set; }
-    public int PositionIndex { get; set; }
-}
-
-public interface IMovementSimulator
-{
-    IAsyncEnumerable<MovementState> SimulateMovementAsync(
-        List<RoutePoint> route, 
-        double baseSpeedKmh, 
-        int intervalSeconds);
-        
-    double CalculateHeading(RoutePoint from, RoutePoint to);
-    double ApplySpeedVariation(double baseSpeed);
-}
-```
-
-**Movement Algorithm:**
-1. **Speed Variation**: Apply random variation of ±3 km/h around base speed using normal distribution
-2. **Heading Calculation**: Use haversine formula for accurate bearing between consecutive points
-3. **Timestamp Management**: Increment timestamps by configured interval with millisecond precision
-4. **Progression Control**: Maintain sequential order through route points with smooth transitions
-
-### Telemetry Generator
-
-**Responsibilities:**
-- Convert movement states to gRPC telemetry messages
-- Generate unique identifiers and metadata
-- Format data according to GPS Tracking Service contract
-
-**Interface:**
-```csharp
-public interface ITelemetryGenerator
-{
-    IngestPositionRequest GenerateTelemetry(
-        MovementState movement, 
-        string shipmentId, 
-        string tenantId);
-        
-    string GenerateExternalReadingId();
-    string GenerateDeviceId(string shipmentId);
-    double GenerateAccuracyMeters();
-}
-```
-
-**Data Generation:**
-- **External Reading ID**: GUID with "sim-" prefix for traceability
-- **Device ID**: Format "sim-dev-{shipmentId}" for identification  
-- **Vehicle ID**: Direct mapping from shipment ID
-- **Accuracy**: Random value between 2-5 meters (realistic GPS accuracy)
-- **Timestamps**: UTC format compatible with Protobuf Timestamp
-
-### Output Handlers
-
-#### gRPC Transmitter
-**Responsibilities:**
-- Send telemetry to GPS Tracking Service
-- Handle retry logic and error scenarios
-- Manage gRPC metadata and authentication
-
-**Interface:**
-```csharp
-public interface IGrpcTransmitter
-{
-    Task<bool> TransmitAsync(IngestPositionRequest request);
-    Task<bool> TestConnectionAsync();
-}
-```
-
-**Error Handling:**
-- Exponential backoff retry for transient failures
-- Circuit breaker pattern for sustained outages
-- Automatic fallback to demo mode on connectivity loss
-
-#### Demo Mode Logger
-**Responsibilities:**
-- Provide console output when gRPC transmission fails
-- Format telemetry data for developer visibility
-- Maintain simulation progress without external dependencies
-
-**Interface:**
-```csharp
-public interface IDemoModeLogger
-{
-    void LogPosition(IngestPositionRequest telemetry, int positionIndex, int totalPositions);
-    void LogDemoModeActivation(string reason);
-}
-```
-
-#### Progress Reporter
-**Responsibilities:**
-- Display real-time simulation progress
-- Show connection status and service health
-- Provide completion statistics and summaries
-
-**Interface:**
-```csharp
-public interface IProgressReporter
-{
-    void ReportStartup(CliOptions options, SimulatorConfig config);
-    void ReportServiceStatus(Dictionary<string, bool> serviceStatus);
-    void ReportProgress(int current, int total, MovementState state);
-    void ReportCompletion(TimeSpan duration, int pointsProcessed);
+    // Try gRPC transmission first
+    // Fall back to console output on failure
+    // Maintain simulation progress regardless
 }
 ```
 
 ## Data Models
 
-### Route Processing Models
+### Configuration Data
 
 ```csharp
-public class RouteGeometry
+// Simple configuration structure (within Main method)
+public record SimulatorSettings
 {
-    public string Type { get; set; } // "LineString", "MultiLineString"
-    public List<List<double>> Coordinates { get; set; } // [longitude, latitude] pairs
-}
-
-public class RouteLeg  
-{
-    public string TransportMode { get; set; } // "ROAD", "SEA", "AIR", "RAIL"
-    public RouteGeometry Geometry { get; set; }
-    public double DistanceKm { get; set; }
-    public int DurationMinutes { get; set; }
-}
-
-public class ProcessedRoute
-{
-    public List<RoutePoint> Points { get; set; }
-    public double TotalDistanceKm { get; set; }
-    public TimeSpan EstimatedDuration { get; set; }
-    public string SourceRouteId { get; set; }
+    public string ShipmentId { get; init; }
+    public int IntervalSeconds { get; init; }
+    public double BaseSpeedKmh { get; init; }
+    public string GpsGrpcUrl { get; init; }
+    public string TenantId { get; init; }
 }
 ```
 
-### Simulation State Models
+### Route Data
 
 ```csharp
-public class SimulationConfig
+// Existing hardcoded waypoint structure
+private static readonly (double Lat, double Lng)[] CentralAmericaRoute = 
 {
-    public string ShipmentId { get; set; }
-    public int IntervalSeconds { get; set; }
-    public double BaseSpeedKmh { get; set; }
-    public ProcessedRoute Route { get; set; }
-    public SimulatorConfig ServiceConfig { get; set; }
-}
+    (9.9333, -84.0833), // San Jose Hub
+    (9.8653, -83.9189), // Cartago
+    (9.3789, -83.7042), // San Isidro
+    (8.9667, -83.5167), // Palmar Norte
+    (8.5333, -82.8333), // Paso Canoas Border
+    (8.4333, -82.4333), // David Hub
+    (8.2333, -81.7500), // Tole
+    (8.1000, -80.9667), // Santiago
+    (8.4000, -80.4167), // Penonome
+    (8.9824, -79.5199), // Panama City Logistics Center
+};
+```
 
-public class SimulationMetrics
-{
-    public int TotalPoints { get; set; }
-    public int ProcessedPoints { get; set; }
-    public TimeSpan ElapsedTime { get; set; }
-    public TimeSpan EstimatedRemaining { get; set; }
-    public double AverageSpeed { get; set; }
-    public int SuccessfulTransmissions { get; set; }
-    public int FailedTransmissions { get; set; }
+### Telemetry Message
+
+```csharp
+// gRPC message structure (from existing proto)
+IngestPositionRequest {
+    ExternalReadingId: "sim-{guid}"
+    DeviceId: "sim-dev-{shipmentId}"
+    VehicleId: "{shipmentId}"
+    Latitude: double
+    Longitude: double
+    SpeedKph: double
+    HeadingDegrees: double
+    AccuracyMeters: 3.5
+    RecordedAt: Timestamp (UTC)
 }
 ```
 
@@ -395,45 +208,71 @@ public class SimulationMetrics
 
 *A property is a characteristic or behavior that should hold true across all valid executions of a system-essentially, a formal statement about what the system should do. Properties serve as the bridge between human-readable specifications and machine-verifiable correctness guarantees.*
 
-### Property 1: CLI Argument Validation
-*For any* CLI arguments provided to the GPS Simulator, parameter parsing SHALL correctly extract shipment ID and enforce minimum bounds for interval (≥1 second) and speed (≥10 km/h)
-**Validates: Requirements 1.1, 1.2, 1.3**
+Based on the prework analysis, the following properties are suitable for property-based testing:
 
-### Property 2: Route Data Processing Consistency  
-*For any* route geometry data retrieved from Route Planning Service, the route processor SHALL extract ROAD leg coordinates and maintain sequential order during interpolation
-**Validates: Requirements 2.4, 2.6, 3.1**
+### Property 1: CLI Parameter Bounds Validation
+*For any* numeric CLI parameter (interval, speed), the GPS Simulator SHALL enforce minimum bounds (interval ≥ 1 second, speed ≥ 10 km/h) regardless of input value
+**Validates: Requirements 1.2, 1.3**
 
-### Property 3: Movement Simulation Accuracy
-*For any* base speed and route geometry, the movement simulator SHALL generate heading values between 0-360 degrees and apply speed variations within ±3 km/h bounds while maintaining sequential coordinate progression
-**Validates: Requirements 3.2, 3.3, 3.4**
+### Property 2: Shipment ID Format Validation  
+*For any* string input as shipment ID, the validation logic SHALL correctly identify valid Aurora shipment ID patterns and reject invalid formats
+**Validates: Requirements 2.4, 5.3**
 
-### Property 4: Telemetry Data Format Compliance
-*For any* movement state data, the telemetry generator SHALL produce gRPC messages compliant with IngestPositionRequest format, including valid coordinate ranges (-90 to 90 latitude, -180 to 180 longitude) and consistent field population
-**Validates: Requirements 4.2, 4.3, 4.4, 4.5, 4.6, 8.4, 8.5, 8.6**
+### Property 3: Route Interpolation Consistency
+*For any* set of waypoint coordinates, the interpolation algorithm SHALL create additional points that maintain sequential geographic progression between original waypoints
+**Validates: Requirements 3.2**
 
-### Property 5: Unique Identifier Generation
-*For any* simulation run, the GPS Simulator SHALL generate unique external reading IDs in GUID format with "sim-" prefix and device IDs in format "sim-dev-{shipmentId}"
-**Validates: Requirements 3.6, 4.5, 8.3**
+### Property 4: Heading Calculation Accuracy
+*For any* pair of coordinate points, the heading calculation SHALL produce values within 0-360 degrees using correct haversine formula mathematics
+**Validates: Requirements 3.3**
 
-### Property 6: Timestamp Consistency
-*For any* configured interval, the GPS Simulator SHALL generate timestamps that increment by the exact interval duration and format timestamps as UTC-compatible Protobuf Timestamp
-**Validates: Requirements 3.5, 8.1**
+### Property 5: Speed Variation Bounds
+*For any* base speed value, applied speed variations SHALL remain within ±3 km/h bounds of the original speed
+**Validates: Requirements 3.4**
 
-### Property 7: Configuration Loading Reliability
-*For any* environment variable configuration, the GPS Simulator SHALL correctly read service URLs and apply default localhost URLs when environment variables are not set
-**Validates: Requirements 6.1, 6.2, 6.3, 6.4, 6.5, 6.6**
+### Property 6: Movement Sequential Progression
+*For any* sequence of route coordinates, the movement simulation SHALL progress through points in sequential order without skipping or reordering
+**Validates: Requirements 3.5**
 
-### Property 8: Progress Display Formatting
-*For any* simulation state, the progress reporter SHALL format position display as "[N/Total] lat,lng | speed km/h" with coordinates rounded to 4 decimal places
-**Validates: Requirements 7.2, 8.2**
+### Property 7: Timestamp Interval Consistency
+*For any* configured interval and position sequence, generated timestamps SHALL increment by exactly the specified interval duration
+**Validates: Requirements 3.6**
 
-### Property 9: Demo Mode Behavior Consistency
-*For any* telemetry data in demo mode, the simulator SHALL log position data to console maintaining the same format and progression as normal transmission mode
-**Validates: Requirements 5.4**
+### Property 8: Unique Identifier Generation
+*For any* simulation run, all generated external reading IDs SHALL be unique and follow the "sim-{guid}" format pattern
+**Validates: Requirements 3.7, 8.3**
 
-### Property 10: Service Header Propagation
-*For any* gRPC service call, the GPS Simulator SHALL include required metadata headers (x-tenant-id, x-user-id) and maintain consistent header values throughout the simulation
-**Validates: Requirements 4.2**
+### Property 9: Telemetry Field Population Completeness
+*For any* movement state data, generated telemetry messages SHALL populate all required fields (coordinates, speed, heading, accuracy, timestamp) with valid values
+**Validates: Requirements 4.3**
+
+### Property 10: Device ID Format Consistency
+*For any* shipment ID input, generated device IDs SHALL follow the exact format "sim-dev-{shipmentId}"
+**Validates: Requirements 4.5**
+
+### Property 11: Accuracy Value Bounds
+*For any* generated accuracy value, it SHALL fall within the realistic range of 2-5 meters
+**Validates: Requirements 4.6**
+
+### Property 12: Progress Display Format Consistency
+*For any* position data during simulation, console progress display SHALL follow the exact format "[N/Total] lat,lng | speed km/h"
+**Validates: Requirements 7.2**
+
+### Property 13: UTC Timestamp Format Compliance
+*For any* generated timestamp, it SHALL be formatted in UTC format compatible with Google Protobuf Timestamp specification
+**Validates: Requirements 8.1**
+
+### Property 14: Coordinate Display Precision
+*For any* coordinate values, display formatting SHALL show exactly 4 decimal places
+**Validates: Requirements 8.2**
+
+### Property 15: Message Format Schema Compliance
+*For any* generated telemetry data, the IngestPositionRequest message SHALL comply with all field types and naming defined in gps_tracking.proto
+**Validates: Requirements 8.4, 8.5**
+
+### Property 16: Geographic Coordinate Validation
+*For any* coordinate input or generation, latitude values SHALL be within -90 to 90 range and longitude values SHALL be within -180 to 180 range
+**Validates: Requirements 8.6**
 
 ## Error Handling
 

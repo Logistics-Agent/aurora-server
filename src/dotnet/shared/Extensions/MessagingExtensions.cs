@@ -86,10 +86,15 @@ public static class SharedServiceExtensions
 
     public static StackExchange.Redis.ConfigurationOptions BuildRedisConfigurationOptions(IConfiguration configuration)
     {
-        var host = configuration["Redis:Host"]
-            ?? configuration["Redis:ConnectionString"]
-            ?? configuration.GetConnectionString("Redis")
-            ?? "localhost:6379";
+        var rawHost = configuration["Redis:Host"];
+        if (string.IsNullOrWhiteSpace(rawHost))
+            rawHost = configuration["Redis:ConnectionString"];
+        if (string.IsNullOrWhiteSpace(rawHost))
+            rawHost = configuration.GetConnectionString("Redis");
+        if (string.IsNullOrWhiteSpace(rawHost))
+            rawHost = "localhost:6379";
+
+        var host = rawHost.Trim();
 
         var password = configuration["Redis:Password"];
         var ssl = configuration.GetValue<bool?>("Redis:Ssl") 
