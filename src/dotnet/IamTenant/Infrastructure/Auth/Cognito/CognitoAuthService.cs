@@ -202,14 +202,43 @@ public class CognitoAuthService(
             authParameters["SECRET_HASH"] = secretHash;
         }
 
-        var request = new InitiateAuthRequest
+        InitiateAuthResponse response;
+        try
         {
-            ClientId = targetClientId,
-            AuthFlow = AuthFlowType.USER_PASSWORD_AUTH,
-            AuthParameters = authParameters
-        };
+            var request = new InitiateAuthRequest
+            {
+                ClientId = targetClientId,
+                AuthFlow = AuthFlowType.USER_PASSWORD_AUTH,
+                AuthParameters = authParameters
+            };
 
-        var response = await cognito.InitiateAuthAsync(request, ct);
+            response = await cognito.InitiateAuthAsync(request, ct);
+        }
+        catch (Exception ex) when (ex is NotAuthorizedException or InvalidParameterException && !string.IsNullOrWhiteSpace(_options.UserPoolId))
+        {
+            try
+            {
+                var adminRequest = new AdminInitiateAuthRequest
+                {
+                    UserPoolId = _options.UserPoolId,
+                    ClientId = targetClientId,
+                    AuthFlow = AuthFlowType.ADMIN_NO_SRP_AUTH,
+                    AuthParameters = authParameters
+                };
+
+                var adminResponse = await cognito.AdminInitiateAuthAsync(adminRequest, ct);
+                response = new InitiateAuthResponse
+                {
+                    AuthenticationResult = adminResponse.AuthenticationResult,
+                    ChallengeName = adminResponse.ChallengeName,
+                    Session = adminResponse.Session
+                };
+            }
+            catch
+            {
+                throw;
+            }
+        }
 
         if (response.ChallengeName == ChallengeNameType.NEW_PASSWORD_REQUIRED)
         {

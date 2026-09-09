@@ -98,7 +98,8 @@ public class AuthController(
         }
         catch (RpcException ex) when (ex.StatusCode == Grpc.Core.StatusCode.Unauthenticated)
         {
-            return Unauthorized(new { detail = "Invalid credentials." });
+            var detail = !string.IsNullOrWhiteSpace(ex.Status.Detail) ? ex.Status.Detail : "Invalid credentials.";
+            return Unauthorized(new { detail });
         }
         catch (RpcException ex) when (ex.StatusCode is Grpc.Core.StatusCode.PermissionDenied or Grpc.Core.StatusCode.FailedPrecondition)
         {
