@@ -179,7 +179,7 @@ public class CognitoAuthService(
 
     public async Task<string> AdminCreateUserAsync(string email, string tempPassword, string? firstName = null, string? lastName = null, string? role = null, CancellationToken ct = default)
     {
-        return await AdminCreateUserInPoolAsync(_options.UserPoolId, email, tempPassword, firstName, lastName, role, ct);
+        return await AdminCreateUserInPoolAsync(GetEffectiveUserPoolId(), email, tempPassword, firstName, lastName, role, ct);
     }
 
     public async Task<AuthResult> InitiateAuthAsync(string email, string password, CancellationToken ct = default)
@@ -214,13 +214,14 @@ public class CognitoAuthService(
 
             response = await cognito.InitiateAuthAsync(request, ct);
         }
-        catch (Exception ex) when (ex is NotAuthorizedException or InvalidParameterException && !string.IsNullOrWhiteSpace(_options.UserPoolId))
+        catch (AmazonCognitoIdentityProviderException ex) when (ex is NotAuthorizedException or InvalidParameterException)
         {
-            try
+            var poolId = GetEffectiveUserPoolId();
+            if (!string.IsNullOrWhiteSpace(poolId))
             {
                 var adminRequest = new AdminInitiateAuthRequest
                 {
-                    UserPoolId = _options.UserPoolId,
+                    UserPoolId = poolId,
                     ClientId = targetClientId,
                     AuthFlow = AuthFlowType.ADMIN_NO_SRP_AUTH,
                     AuthParameters = authParameters
@@ -234,7 +235,7 @@ public class CognitoAuthService(
                     Session = adminResponse.Session
                 };
             }
-            catch
+            else
             {
                 throw;
             }
@@ -414,6 +415,26 @@ public class CognitoAuthService(
             return envClientId;
 
         throw new InvalidOperationException("Cognito ClientId is not configured. Please verify AWS_COGNITO_CLIENT_ID environment variable.");
+    }
+
+    private string GetEffectiveUserPoolId(string? explicitPoolId = null)
+    {
+        if (!string.IsNullOrWhiteSpace(explicitPoolId))
+            return explicitPoolId;
+
+        if (!string.IsNullOrWhiteSpace(_options.UserPoolId))
+            return _options.UserPoolId;
+
+        var envPoolId = Environment.GetEnvironmentVariable("AWS_COGNITO_USER_POOL_ID")
+            ?? Environment.GetEnvironmentVariable("AWS_COGNITO_POOL_ID")
+            ?? Environment.GetEnvironmentVariable("COGNITO_USER_POOL_ID")
+            ?? Environment.GetEnvironmentVariable("COGNITO_POOL_ID")
+            ?? Environment.GetEnvironmentVariable("Cognito__UserPoolId");
+
+        if (!string.IsNullOrWhiteSpace(envPoolId))
+            return envPoolId;
+
+        return string.Empty;
     }
 
     private string? GetClientSecret(string clientId)
