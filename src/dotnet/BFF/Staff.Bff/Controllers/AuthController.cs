@@ -356,6 +356,106 @@ public class AuthController(
         }
     }
 
+    /// <summary>Yêu cầu gửi mã OTP đặt lại mật khẩu qua email.</summary>
+    [HttpPost("forgot-password")]
+    [AllowAnonymous]
+    [EnableRateLimiting(RateLimitPolicies.AuthPolicy)]
+    public async Task<IActionResult> ForgotPassword([FromBody] ForgotPasswordBody body)
+    {
+        try
+        {
+            await authClient.ForgotPasswordAsync(
+                new ForgotPasswordRequest { Email = body.Email },
+                GrpcDeadlines.WithDeadline(GrpcDeadlines.DefaultTimeout, HttpContext.RequestAborted));
+
+            logger.LogInformation("Password reset requested for {Email}", body.Email);
+            return Ok(new { message = "Mã xác nhận đã được gửi đến email nếu tài khoản tồn tại." });
+        }
+        catch (RpcException ex) when (ex.StatusCode == Grpc.Core.StatusCode.NotFound)
+        {
+            // Tránh user enumeration
+            return Ok(new { message = "Mã xác nhận đã được gửi đến email nếu tài khoản tồn tại." });
+        }
+        catch (RpcException ex)
+        {
+            logger.LogWarning(ex, "ForgotPassword failed for {Email}: {Detail}", body.Email, ex.Status.Detail);
+            return BadRequest(new { detail = ex.Status.Detail });
+        }
+    }
+
+    /// <summary>Xác nhận mã OTP và đặt mật khẩu mới.</summary>
+    [HttpPost("reset-password")]
+    [HttpPost("confirm-forgot-password")]
+    [AllowAnonymous]
+    [EnableRateLimiting(RateLimitPolicies.AuthPolicy)]
+    public async Task<IActionResult> ResetPassword([FromBody] ResetPasswordBody body)
+    {
+        try
+        {
+            await authClient.ConfirmForgotPasswordAsync(
+                new ConfirmForgotPasswordRequest
+                {
+                    Email = body.Email,
+                    NewPassword = body.NewPassword,
+                    ConfirmationCode = body.ConfirmationCode
+                },
+                GrpcDeadlines.WithDeadline(GrpcDeadlines.DefaultTimeout, HttpContext.RequestAborted));
+
+            logger.LogInformation("Password reset successfully for {Email}", body.Email);
+            return Ok(new { message = "Đặt lại mật khẩu thành công. Vui lòng đăng nhập bằng mật khẩu mới." });
+        }
+        catch (RpcException ex) when (ex.StatusCode == Grpc.Core.StatusCode.InvalidArgument)
+        {
+            return BadRequest(new { detail = ex.Status.Detail });
+        }
+        catch (RpcException ex)
+        {
+            logger.LogWarning(ex, "ResetPassword failed for {Email}: {Detail}", body.Email, ex.Status.Detail);
+            return BadRequest(new { detail = ex.Status.Detail });
+        }
+    }
+
+    /// <summary>Đổi mật khẩu cho người dùng đang đăng nhập.</summary>
+    [HttpPost("change-password")]
+    [Authorize]
+    [EnableRateLimiting(RateLimitPolicies.AuthPolicy)]
+    public async Task<IActionResult> ChangePassword([FromBody] ChangePasswordBody body)
+    {
+        var email = User.FindFirstValue("email") ?? User.FindFirstValue(ClaimTypes.Email);
+        if (string.IsNullOrWhiteSpace(email))
+        {
+            return Unauthorized(new { detail = "Không tìm thấy thông tin email phiên đăng nhập." });
+        }
+
+        try
+        {
+            var tenantCode = Request.Cookies[TenantCodeCookie] ?? string.Empty;
+            var userType = Request.Cookies[UserTypeCookie] ?? string.Empty;
+
+            await authClient.ChangePasswordAsync(
+                new ChangePasswordRequest
+                {
+                    Email = email,
+                    CurrentPassword = body.CurrentPassword,
+                    NewPassword = body.NewPassword,
+                    TenantCode = tenantCode,
+                    UserType = userType
+                },
+                GrpcDeadlines.WithDeadline(GrpcDeadlines.DefaultTimeout, HttpContext.RequestAborted));
+
+            logger.LogInformation("Password changed successfully for {Email}", email);
+            return Ok(new { message = "Đổi mật khẩu thành công." });
+        }
+        catch (RpcException ex) when (ex.StatusCode == Grpc.Core.StatusCode.Unauthenticated)
+        {
+            return Unauthorized(new { detail = "Mật khẩu hiện tại không chính xác." });
+        }
+        catch (RpcException ex)
+        {
+            return BadRequest(new { detail = ex.Status.Detail });
+        }
+    }
+
     private void ClearAuthCookies()
     {
         Response.Cookies.Delete(AccessTokenCookie, new CookieOptions { Path = "/" });
@@ -368,4 +468,7 @@ public class AuthController(
     public record IdentifyBody(string Email);
     public record LoginBody(string Email, string Password, string? TenantCode);
     public record CompleteInvitationBody(string Email, string NewPassword, string ConfirmationCode);
+    public record ForgotPasswordBody(string Email);
+    public record ResetPasswordBody(string Email, string NewPassword, string ConfirmationCode);
+    public record ChangePasswordBody(string CurrentPassword, string NewPassword);
 }

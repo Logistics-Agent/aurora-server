@@ -15,6 +15,8 @@ public interface ICognitoAuthService
     Task ForgotPasswordAsync(string clientId, string email, CancellationToken ct = default);
     Task ConfirmForgotPasswordAsync(string email, string newPassword, string confirmationCode, CancellationToken ct = default);
     Task ConfirmForgotPasswordAsync(string clientId, string email, string newPassword, string confirmationCode, CancellationToken ct = default);
+    Task ChangePasswordAsync(string email, string currentPassword, string newPassword, CancellationToken ct = default);
+    Task ChangePasswordAsync(string clientId, string email, string currentPassword, string newPassword, CancellationToken ct = default);
 }
 
 

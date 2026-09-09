@@ -179,4 +179,40 @@ public class AuthGrpcService(
             throw new RpcException(new Status(StatusCode.InvalidArgument, ex.Message));
         }
     }
+
+    public override async Task<EmptyResponse> ChangePassword(ChangePasswordRequest request, ServerCallContext context)
+    {
+        try
+        {
+            var identity = await mediator.Send(new IdentifyUserQuery(request.Email), context.CancellationToken);
+            if (!identity.Exists)
+                throw new RpcException(new Status(StatusCode.NotFound, "User not found."));
+
+            var tenantCode = !string.IsNullOrWhiteSpace(request.TenantCode) ? request.TenantCode : identity.TenantCode;
+            var userType = !string.IsNullOrWhiteSpace(request.UserType) ? request.UserType : identity.UserType;
+
+            if (string.Equals(tenantCode, "SYSTEM", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(userType, "SystemAdmin", StringComparison.OrdinalIgnoreCase))
+            {
+                await cognitoService.ChangePasswordAsync(request.Email, request.CurrentPassword, request.NewPassword, context.CancellationToken);
+            }
+            else
+            {
+                var clientId = await mediator.Send(
+                    new ResolveTenantAuthClientQuery(tenantCode ?? string.Empty, userType ?? string.Empty),
+                    context.CancellationToken);
+
+                await cognitoService.ChangePasswordAsync(clientId, request.Email, request.CurrentPassword, request.NewPassword, context.CancellationToken);
+            }
+            return new EmptyResponse();
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            throw new RpcException(new Status(StatusCode.Unauthenticated, ex.Message));
+        }
+        catch (Exception ex)
+        {
+            throw new RpcException(new Status(StatusCode.InvalidArgument, ex.Message));
+        }
+    }
 }

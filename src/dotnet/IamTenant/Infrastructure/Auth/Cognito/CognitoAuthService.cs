@@ -319,4 +319,27 @@ public class CognitoAuthService(
 
         await cognito.ConfirmForgotPasswordAsync(request, ct);
     }
+
+    public async Task ChangePasswordAsync(string email, string currentPassword, string newPassword, CancellationToken ct = default)
+    {
+        await ChangePasswordAsync(_options.ClientId, email, currentPassword, newPassword, ct);
+    }
+
+    public async Task ChangePasswordAsync(string clientId, string email, string currentPassword, string newPassword, CancellationToken ct = default)
+    {
+        var auth = await InitiateAuthAsync(clientId, email, currentPassword, ct);
+        if (string.IsNullOrWhiteSpace(auth.AccessToken))
+        {
+            throw new UnauthorizedAccessException("Current password is not valid.");
+        }
+
+        var request = new Amazon.CognitoIdentityProvider.Model.ChangePasswordRequest
+        {
+            AccessToken = auth.AccessToken,
+            PreviousPassword = currentPassword,
+            ProposedPassword = newPassword,
+        };
+
+        await cognito.ChangePasswordAsync(request, ct);
+    }
 }

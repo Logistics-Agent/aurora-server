@@ -31,6 +31,9 @@ service AuthService {
 
   rpc ConfirmForgotPassword(ConfirmForgotPasswordRequest)
       returns (EmptyResponse);
+
+  rpc ChangePassword(ChangePasswordRequest)
+      returns (EmptyResponse);
 }
 
 message EmptyResponse {}
@@ -118,3 +121,12 @@ message ConfirmForgotPasswordRequest {
   string newPassword = 2;
   string confirmationCode = 3;
 }
+
+message ChangePasswordRequest {
+  string email = 1;
+  string currentPassword = 2;
+  string newPassword = 3;
+  string tenantCode = 4;
+  string userType = 5;
+}
+
