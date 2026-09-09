@@ -67,6 +67,60 @@ public sealed class DocumentOcrJobTests
         Assert.Null(job.LeaseExpiresAt);
     }
 
+    [Fact]
+    public void LowConfidenceCompletionEntersRequiresReviewState()
+    {
+        var job = CreateJob();
+        var attempt = job.Start("deterministic", Now, Now.AddMinutes(2));
+
+        job.Complete(
+            attempt.Id,
+            OcrDocumentType.CommercialInvoice,
+            "{\"invoiceNumber\":\"INV-1\"}",
+            "{\"invoiceNumber\":0.60}",
+            0.60m,
+            true,
+            "provider-request-1",
+            Now.AddSeconds(2));
+
+        Assert.Equal(DocumentOcrJobStatus.RequiresReview, job.Status);
+        Assert.True(job.NeedsReview);
+    }
+
+    [Fact]
+    public void ReviewRequiresValidCorrectedJsonAndCompletesTheJob()
+    {
+        var job = CreateJob();
+        var attempt = job.Start("deterministic", Now, Now.AddMinutes(2));
+        job.Complete(
+            attempt.Id,
+            OcrDocumentType.CommercialInvoice,
+            "{\"invoiceNumber\":\"INV-1\"}",
+            "{\"invoiceNumber\":0.60}",
+            0.60m,
+            true,
+            "provider-request-1",
+            Now.AddSeconds(2));
+
+        Assert.Throws<ArgumentException>(() => job.ApplyReview(
+            "CORRECT",
+            "not-json",
+            "corrected",
+            Guid.CreateVersion7(),
+            Now.AddMinutes(1)));
+
+        job.ApplyReview(
+            "CORRECT",
+            "{\"invoiceNumber\":\"INV-2\"}",
+            "corrected",
+            Guid.CreateVersion7(),
+            Now.AddMinutes(1));
+
+        Assert.Equal(DocumentOcrJobStatus.Completed, job.Status);
+        Assert.False(job.NeedsReview);
+        Assert.Equal("{\"invoiceNumber\":\"INV-2\"}", job.NormalizedJson);
+    }
+
     [Theory]
     [InlineData(-0.01)]
     [InlineData(1.01)]

@@ -3,6 +3,7 @@ using DocumentOcr.Domain.Entities;
 using Google.Protobuf.WellKnownTypes;
 using Grpc.Core;
 using Shared.Security;
+using Shared.Constants;
 using OcrGrpc = DocumentOcr.Grpc;
 using DomainDocumentType = DocumentOcr.Domain.Enums.OcrDocumentType;
 using DomainJobStatus = DocumentOcr.Domain.Enums.DocumentOcrJobStatus;
@@ -165,6 +166,7 @@ public sealed class DocumentOcrGrpcService(
         ServerCallContext context)
     {
         RequireTenant();
+        RequirePermission(PermissionConstants.Ocr.Review);
         try
         {
             var jobId = ParseRequiredId(request.JobId, "JobId");
@@ -184,6 +186,10 @@ public sealed class DocumentOcrGrpcService(
         {
             throw new RpcException(new Status(StatusCode.NotFound, exception.Message));
         }
+        catch (ArgumentException exception)
+        {
+            throw InvalidArgument(exception.Message);
+        }
     }
 
     internal static OcrGrpc.DocumentOcrJobResponse MapJob(DocumentOcrJob job)
@@ -199,6 +205,7 @@ public sealed class DocumentOcrGrpcService(
                 ? (OcrGrpc.OcrDocumentType)(int)job.DetectedDocumentType.Value
                 : OcrGrpc.OcrDocumentType.Unspecified,
             NormalizedJson = job.NormalizedJson ?? string.Empty,
+            FieldConfidenceJson = job.FieldConfidenceJson ?? string.Empty,
             NeedsReview = job.NeedsReview ?? false,
             ErrorCode = job.ErrorCode ?? string.Empty,
             ErrorMessage = job.ErrorMessage ?? string.Empty,
@@ -228,6 +235,12 @@ public sealed class DocumentOcrGrpcService(
     {
         if (!currentUser.TenantId.HasValue || currentUser.TenantId == Guid.Empty)
             throw new RpcException(new Status(StatusCode.Unauthenticated, "Tenant context is required."));
+    }
+
+    private void RequirePermission(string permission)
+    {
+        if (!currentUser.HasPermission(permission))
+            throw new RpcException(new Status(StatusCode.PermissionDenied, $"Missing permission: {permission}."));
     }
 
     private static Guid ParseRequiredId(string value, string fieldName) =>

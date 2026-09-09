@@ -194,10 +194,13 @@ public sealed class DocumentsController(
                 try
                 {
                     using var doc = JsonDocument.Parse(job.NormalizedJson);
+                    var fieldConfidences = ParseFieldConfidences(job.FieldConfidenceJson);
                     foreach (var prop in doc.RootElement.EnumerateObject())
                     {
                         var fieldVal = prop.Value.ToString();
-                        var fieldConf = job.Confidence > 0 ? job.Confidence : 0.85;
+                        var fieldConf = fieldConfidences.TryGetValue(prop.Name, out var confidence)
+                            ? confidence
+                            : job.Confidence;
                         var fieldNeedsReview = fieldConf < 0.80 || string.IsNullOrWhiteSpace(fieldVal);
 
                         fields.Add(new OcrFieldReviewItem(
@@ -257,9 +260,17 @@ public sealed class DocumentsController(
         if (string.IsNullOrWhiteSpace(request.Action))
             return BadRequest(new ProblemDetails { Title = "INVALID_REQUEST", Detail = "Action (CONFIRM, CORRECT, REJECT) is required." });
 
+        var action = request.Action.Trim().ToUpperInvariant();
+        if (action is not ("CONFIRM" or "CORRECT" or "REJECT"))
+            return BadRequest(new ProblemDetails { Title = "INVALID_REQUEST", Detail = "Action must be CONFIRM, CORRECT, or REJECT." });
+        if (action == "CORRECT" && (request.Fields is null || request.Fields.Count == 0))
+            return BadRequest(new ProblemDetails { Title = "INVALID_REQUEST", Detail = "Fields are required for CORRECT." });
+
         string? correctedJson = null;
-        if (request.Action.Equals("CORRECT", StringComparison.OrdinalIgnoreCase) && request.Fields != null)
+        if (action == "CORRECT" && request.Fields != null)
         {
+            if (request.Fields.Any(field => string.IsNullOrWhiteSpace(field.Name)))
+                return BadRequest(new ProblemDetails { Title = "INVALID_REQUEST", Detail = "Every corrected field must have a name." });
             var dict = request.Fields.ToDictionary(f => f.Name, f => (object)f.Value);
             correctedJson = JsonSerializer.Serialize(dict);
         }
@@ -269,7 +280,7 @@ public sealed class DocumentsController(
             var updatedJob = await documentOcrClient.ReviewDocumentJobAsync(new ReviewDocumentJobRequest
             {
                 JobId = id,
-                Action = request.Action.ToUpperInvariant(),
+                Action = action,
                 CorrectedJson = correctedJson ?? string.Empty,
                 Comment = request.Comment ?? string.Empty
             }, cancellationToken: cancellationToken);
@@ -304,6 +315,15 @@ public sealed class DocumentsController(
                 Title = "DOCUMENT_NOT_FOUND",
                 Detail = $"Shipment document with ID '{id}' was not found.",
                 Status = (int)HttpStatusCode.NotFound
+            });
+        }
+        catch (RpcException ex) when (ex.StatusCode == Grpc.Core.StatusCode.InvalidArgument)
+        {
+            return BadRequest(new ProblemDetails
+            {
+                Title = "INVALID_REQUEST",
+                Detail = ex.Status.Detail,
+                Status = (int)HttpStatusCode.BadRequest
             });
         }
     }
@@ -744,6 +764,7 @@ public sealed class DocumentsController(
     {
         DocumentOcrJobStatus.Queued => "PROCESSING",
         DocumentOcrJobStatus.Processing => "PROCESSING",
+        DocumentOcrJobStatus.RequiresReview => "NEEDS_REVIEW",
         DocumentOcrJobStatus.Completed => needsReview ? "NEEDS_REVIEW" : "READY",
         DocumentOcrJobStatus.Rejected => "REJECTED",
         DocumentOcrJobStatus.Failed => "FAILED",
@@ -755,9 +776,34 @@ public sealed class DocumentsController(
     {
         DocumentOcrJobStatus.Queued => "EXTRACTING",
         DocumentOcrJobStatus.Processing => "OCR",
+        DocumentOcrJobStatus.RequiresReview => "REVIEW",
         DocumentOcrJobStatus.Completed => "READY",
         _ => null
     };
+
+    private static Dictionary<string, double> ParseFieldConfidences(string? fieldConfidenceJson)
+    {
+        if (string.IsNullOrWhiteSpace(fieldConfidenceJson))
+            return new(StringComparer.OrdinalIgnoreCase);
+
+        try
+        {
+            using var document = JsonDocument.Parse(fieldConfidenceJson);
+            if (document.RootElement.ValueKind != JsonValueKind.Object)
+                return new(StringComparer.OrdinalIgnoreCase);
+
+            return document.RootElement.EnumerateObject()
+                .Where(property => property.Value.ValueKind == JsonValueKind.Number && property.Value.TryGetDouble(out _))
+                .ToDictionary(
+                    property => property.Name,
+                    property => property.Value.GetDouble(),
+                    StringComparer.OrdinalIgnoreCase);
+        }
+        catch (JsonException)
+        {
+            return new(StringComparer.OrdinalIgnoreCase);
+        }
+    }
 
     private static (string status, string? stage) MapIngestionStatus(RegulatoryIngestionStatus status) => status switch
     {
