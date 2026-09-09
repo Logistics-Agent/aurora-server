@@ -24,7 +24,7 @@ public class IdentifyUserQueryHandler(IamTenantDbContext context) : IRequestHand
         // Global query filter takes care of IsDeleted, but here we query by email across tenants, 
         // so we must use IgnoreQueryFilters() if the current context tenantId is set to something else.
         var email = request.Email.Trim();
-        var user = await context.Users
+        var users = await context.Users
             .IgnoreQueryFilters()
             .Include(u => u.Tenant)
             .Where(u => (u.Email == email || u.Email.ToLower() == email.ToLower() || (u.CognitoSub != null && u.CognitoSub == email)) && !u.IsDeleted)
@@ -36,12 +36,15 @@ public class IdentifyUserQueryHandler(IamTenantDbContext context) : IRequestHand
                 u.PermissionVersion,
                 TenantCode = u.Tenant != null ? u.Tenant.Code : null 
             })
-            .FirstOrDefaultAsync(cancellationToken);
+            .ToListAsync(cancellationToken);
 
-        if (user == null)
+        if (users.Count == 0)
         {
             return new IdentifyUserResult(false, null, null);
         }
+
+        // Ưu tiên SystemAdmin nếu tài khoản tồn tại ở cả 2 phạm vi
+        var user = users.FirstOrDefault(u => u.TenantId == null || u.Role == BaseRole.SystemAdmin) ?? users.First();
 
         var isSystemAdmin = user.TenantId == null || user.Role == BaseRole.SystemAdmin;
         var tenantCode = user.TenantCode ?? (isSystemAdmin ? "SYSTEM" : "STAFF");
