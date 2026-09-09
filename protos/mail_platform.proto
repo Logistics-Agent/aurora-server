@@ -26,6 +26,9 @@ service MailManagement {
   rpc ResetPassword        (ResetPasswordRequest)         returns (ResetPasswordResponse);
   rpc GetAuditRecords      (GetAuditRecordsRequest)       returns (GetAuditRecordsResponse);
   rpc RequeueDeadLetter    (RequeueDeadLetterRequest)     returns (RequeueDeadLetterResponse);
+  rpc ListDomains          (ListDomainsRequest)          returns (ListDomainsResponse);
+  rpc ListMailboxes        (ListMailboxesRequest)        returns (ListMailboxesResponse);
+  rpc ListAliases          (ListAliasesRequest)          returns (ListAliasesResponse);
 }
 
 // ─── Security / Pipeline Service ──────────────────────────────────────────
@@ -129,6 +132,69 @@ message RequeueDeadLetterRequest {
 message RequeueDeadLetterResponse {
   bool   success = 1;
   string message = 2;
+}
+
+message ListDomainsRequest {
+  int32 page_size = 1;
+  string next_page_token = 2;
+}
+
+message ListDomainsResponse {
+  repeated DomainSummaryDto domains = 1;
+  string next_page_token = 2;
+}
+
+message DomainSummaryDto {
+  string domain_id = 1;
+  string domain_name = 2;
+  string status = 3;
+  int32 max_mailbox_count = 4;
+  int32 retention_days = 5;
+  string dkim_selector = 6;
+  string dkim_txt_record = 7;
+  google.protobuf.Timestamp created_at = 8;
+  int32 mailbox_usage = 9;
+}
+
+message ListMailboxesRequest {
+  string domain_id = 1;
+  int32 page_size = 2;
+  string next_page_token = 3;
+}
+
+message ListMailboxesResponse {
+  repeated MailboxSummaryDto mailboxes = 1;
+  string next_page_token = 2;
+}
+
+message MailboxSummaryDto {
+  string mailbox_id = 1;
+  string domain_id = 2;
+  string domain_name = 3;
+  string local_part = 4;
+  string full_address = 5;
+  string status = 6;
+  google.protobuf.Timestamp created_at = 7;
+}
+
+message ListAliasesRequest {
+  string domain_id = 1;
+  int32 page_size = 2;
+  string next_page_token = 3;
+}
+
+message ListAliasesResponse {
+  repeated AliasSummaryDto aliases = 1;
+  string next_page_token = 2;
+}
+
+message AliasSummaryDto {
+  string alias_id = 1;
+  string domain_id = 2;
+  string domain_name = 3;
+  string alias_address = 4;
+  repeated string target_addresses = 5;
+  google.protobuf.Timestamp created_at = 6;
 }
 
 // ─── Security / Pipeline Messages ─────────────────────────────────────────

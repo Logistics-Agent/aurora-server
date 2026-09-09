@@ -138,4 +138,75 @@ public class MailManagementService : MailManagement.MailManagementBase
             Message = result.Message
         };
     }
+
+    public override async Task<ListDomainsResponse> ListDomains(ListDomainsRequest request, ServerCallContext context)
+    {
+        var domains = await _mediator.Send(new MailService.Application.Queries.Provisioning.ListDomainsQuery(request.PageSize), context.CancellationToken);
+        var response = new ListDomainsResponse();
+        response.Domains.AddRange(domains.Select(d => new DomainSummaryDto
+        {
+            DomainId = d.Id.ToString(),
+            DomainName = d.DomainName,
+            Status = d.Status.ToString(),
+            MaxMailboxCount = d.MaxMailboxCount,
+            RetentionDays = d.RetentionDays,
+            DkimSelector = d.DkimSelector ?? "aurora-2025",
+            DkimTxtRecord = d.DkimTxtRecord ?? string.Empty,
+            CreatedAt = Timestamp.FromDateTimeOffset(d.CreatedAt),
+            MailboxUsage = d.Mailboxes?.Count ?? 0
+        }));
+        return response;
+    }
+
+    public override async Task<ListMailboxesResponse> ListMailboxes(ListMailboxesRequest request, ServerCallContext context)
+    {
+        Guid? domainId = null;
+        if (!string.IsNullOrEmpty(request.DomainId) && Guid.TryParse(request.DomainId, out var parsedId))
+        {
+            domainId = parsedId;
+        }
+
+        var mailboxes = await _mediator.Send(new MailService.Application.Queries.Provisioning.ListMailboxesQuery(domainId, request.PageSize), context.CancellationToken);
+        var response = new ListMailboxesResponse();
+        response.Mailboxes.AddRange(mailboxes.Select(m => new MailboxSummaryDto
+        {
+            MailboxId = m.Id.ToString(),
+            DomainId = m.DomainId.ToString(),
+            DomainName = m.Domain?.DomainName ?? string.Empty,
+            LocalPart = m.LocalPart,
+            FullAddress = m.FullAddress,
+            Status = m.Status.ToString(),
+            CreatedAt = Timestamp.FromDateTimeOffset(m.CreatedAt)
+        }));
+        return response;
+    }
+
+    public override async Task<ListAliasesResponse> ListAliases(ListAliasesRequest request, ServerCallContext context)
+    {
+        Guid? domainId = null;
+        if (!string.IsNullOrEmpty(request.DomainId) && Guid.TryParse(request.DomainId, out var parsedId))
+        {
+            domainId = parsedId;
+        }
+
+        var aliases = await _mediator.Send(new MailService.Application.Queries.Provisioning.ListAliasesQuery(domainId, request.PageSize), context.CancellationToken);
+        var response = new ListAliasesResponse();
+        response.Aliases.AddRange(aliases.Select(a =>
+        {
+            var dto = new AliasSummaryDto
+            {
+                AliasId = a.Id.ToString(),
+                DomainId = a.DomainId.ToString(),
+                DomainName = a.Domain?.DomainName ?? string.Empty,
+                AliasAddress = a.AliasAddress,
+                CreatedAt = Timestamp.FromDateTimeOffset(a.CreatedAt)
+            };
+            if (a.Targets != null)
+            {
+                dto.TargetAddresses.AddRange(a.Targets);
+            }
+            return dto;
+        }));
+        return response;
+    }
 }

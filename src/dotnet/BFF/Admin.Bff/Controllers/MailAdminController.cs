@@ -118,7 +118,82 @@ public class MailAdminController(
         }
     }
 
+    [HttpGet("domains")]
+    [RequirePermission(PermissionConstants.Mail.DomainManage, "mail:read")]
+    public async Task<IActionResult> ListDomains(
+        [FromQuery] int pageSize = 100,
+        [FromQuery] string? pageToken = null)
+    {
+        try
+        {
+            var boundedPageSize = Math.Clamp(pageSize, 1, 100);
+            var result = await mailClient.ListDomainsAsync(boundedPageSize, pageToken, HttpContext.RequestAborted);
+            return Ok(result);
+        }
+        catch (RpcException ex)
+        {
+            return ex.ToActionResult();
+        }
+    }
+
+    [HttpGet("mailboxes")]
+    [RequirePermission(PermissionConstants.Mail.MailboxManage, "mail:read")]
+    public async Task<IActionResult> ListMailboxes(
+        [FromQuery] string? domainId = null,
+        [FromQuery] int pageSize = 100,
+        [FromQuery] string? pageToken = null)
+    {
+        try
+        {
+            var boundedPageSize = Math.Clamp(pageSize, 1, 100);
+            var result = await mailClient.ListMailboxesAsync(domainId, boundedPageSize, pageToken, HttpContext.RequestAborted);
+            return Ok(result);
+        }
+        catch (RpcException ex)
+        {
+            return ex.ToActionResult();
+        }
+    }
+
+    [HttpGet("aliases")]
+    [RequirePermission(PermissionConstants.Mail.MailboxManage, "mail:read")]
+    public async Task<IActionResult> ListAliases(
+        [FromQuery] string? domainId = null,
+        [FromQuery] int pageSize = 100,
+        [FromQuery] string? pageToken = null)
+    {
+        try
+        {
+            var boundedPageSize = Math.Clamp(pageSize, 1, 100);
+            var result = await mailClient.ListAliasesAsync(domainId, boundedPageSize, pageToken, HttpContext.RequestAborted);
+            return Ok(result);
+        }
+        catch (RpcException ex)
+        {
+            return ex.ToActionResult();
+        }
+    }
+
     // ─── Quarantine Administration ────────────────────────────────────────────
+
+    [HttpGet("quarantine")]
+    [RequirePermission(PermissionConstants.Mail.QuarantineRead, "mail:read")]
+    public async Task<IActionResult> ListQuarantine(
+        [FromQuery] string? status = null,
+        [FromQuery] int pageSize = 50,
+        [FromQuery] string? pageToken = null)
+    {
+        try
+        {
+            var boundedPageSize = Math.Clamp(pageSize, 1, 100);
+            var result = await mailClient.ListQuarantineRecordsAsync(status, boundedPageSize, pageToken, HttpContext.RequestAborted);
+            return Ok(result);
+        }
+        catch (RpcException ex)
+        {
+            return ex.ToActionResult();
+        }
+    }
 
     [HttpDelete("quarantine/{id}")]
     [RequirePermission(PermissionConstants.Mail.QuarantineDelete, "mail:delete")]

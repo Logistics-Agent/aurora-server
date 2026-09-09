@@ -36,6 +36,46 @@ public record CreateAliasResponse(
     string AliasId,
     DateTimeOffset CreatedAt);
 
+public record ListDomainsResponse(
+    List<DomainSummaryDto> Domains,
+    string NextPageToken);
+
+public record DomainSummaryDto(
+    string DomainId,
+    string DomainName,
+    string Status,
+    int MaxMailboxCount,
+    int RetentionDays,
+    string DkimSelector,
+    string DkimTxtRecord,
+    DateTimeOffset CreatedAt,
+    int MailboxUsage);
+
+public record ListMailboxesResponse(
+    List<MailboxSummaryDto> Mailboxes,
+    string NextPageToken);
+
+public record MailboxSummaryDto(
+    string MailboxId,
+    string DomainId,
+    string DomainName,
+    string LocalPart,
+    string FullAddress,
+    string Status,
+    DateTimeOffset CreatedAt);
+
+public record ListAliasesResponse(
+    List<AliasSummaryDto> Aliases,
+    string NextPageToken);
+
+public record AliasSummaryDto(
+    string AliasId,
+    string DomainId,
+    string DomainName,
+    string AliasAddress,
+    List<string> TargetAddresses,
+    DateTimeOffset CreatedAt);
+
 public record ResetPasswordResponse(
     bool Acknowledged,
     string Message);

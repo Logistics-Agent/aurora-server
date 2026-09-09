@@ -75,6 +75,75 @@ public class GrpcMailServiceClient : IMailServiceClient
             response.CreatedAt.ToDateTimeOffset());
     }
 
+    public async Task<BffModels.ListDomainsResponse> ListDomainsAsync(int pageSize = 100, string? nextPageToken = null, CancellationToken cancellationToken = default)
+    {
+        var protoReq = new GrpcModels.ListDomainsRequest
+        {
+            PageSize = pageSize,
+            NextPageToken = nextPageToken ?? string.Empty
+        };
+
+        var response = await _managementClient.ListDomainsAsync(protoReq, cancellationToken: cancellationToken);
+
+        return new BffModels.ListDomainsResponse(
+            response.Domains.Select(d => new BffModels.DomainSummaryDto(
+                d.DomainId,
+                d.DomainName,
+                d.Status,
+                d.MaxMailboxCount,
+                d.RetentionDays,
+                d.DkimSelector,
+                d.DkimTxtRecord,
+                d.CreatedAt.ToDateTimeOffset(),
+                d.MailboxUsage)).ToList(),
+            response.NextPageToken);
+    }
+
+    public async Task<BffModels.ListMailboxesResponse> ListMailboxesAsync(string? domainId = null, int pageSize = 100, string? nextPageToken = null, CancellationToken cancellationToken = default)
+    {
+        var protoReq = new GrpcModels.ListMailboxesRequest
+        {
+            DomainId = domainId ?? string.Empty,
+            PageSize = pageSize,
+            NextPageToken = nextPageToken ?? string.Empty
+        };
+
+        var response = await _managementClient.ListMailboxesAsync(protoReq, cancellationToken: cancellationToken);
+
+        return new BffModels.ListMailboxesResponse(
+            response.Mailboxes.Select(m => new BffModels.MailboxSummaryDto(
+                m.MailboxId,
+                m.DomainId,
+                m.DomainName,
+                m.LocalPart,
+                m.FullAddress,
+                m.Status,
+                m.CreatedAt.ToDateTimeOffset())).ToList(),
+            response.NextPageToken);
+    }
+
+    public async Task<BffModels.ListAliasesResponse> ListAliasesAsync(string? domainId = null, int pageSize = 100, string? nextPageToken = null, CancellationToken cancellationToken = default)
+    {
+        var protoReq = new GrpcModels.ListAliasesRequest
+        {
+            DomainId = domainId ?? string.Empty,
+            PageSize = pageSize,
+            NextPageToken = nextPageToken ?? string.Empty
+        };
+
+        var response = await _managementClient.ListAliasesAsync(protoReq, cancellationToken: cancellationToken);
+
+        return new BffModels.ListAliasesResponse(
+            response.Aliases.Select(a => new BffModels.AliasSummaryDto(
+                a.AliasId,
+                a.DomainId,
+                a.DomainName,
+                a.AliasAddress,
+                a.TargetAddresses.ToList(),
+                a.CreatedAt.ToDateTimeOffset())).ToList(),
+            response.NextPageToken);
+    }
+
     public async Task<BffModels.ResetPasswordResponse> ResetPasswordAsync(string mailboxId, CancellationToken cancellationToken = default)
     {
         var protoReq = new GrpcModels.ResetPasswordRequest
