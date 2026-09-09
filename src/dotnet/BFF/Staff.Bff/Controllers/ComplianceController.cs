@@ -20,6 +20,7 @@ public class ComplianceController(
     ILogger<ComplianceController> logger) : StaffControllerBase
 {
     [HttpPost("evaluations")]
+    [RequirePermission(PermissionConstants.Compliance.Read)]
     public async Task<IActionResult> EvaluateCompliance(
         [FromBody] EvaluateComplianceBody body,
         CancellationToken ct = default)
@@ -33,7 +34,7 @@ public class ComplianceController(
                 OriginCountryCode = body.OriginCountryCode ?? string.Empty,
                 DestinationCountryCode = body.DestinationCountryCode ?? string.Empty,
                 TransportMode = body.TransportMode ?? string.Empty,
-                EffectiveAt = body.EffectiveAt.HasValue ? Timestamp.FromDateTimeOffset(body.EffectiveAt.Value) : null
+                EffectiveAt = Timestamp.FromDateTimeOffset(body.EffectiveAt ?? DateTimeOffset.UtcNow)
             };
 
             if (body.JurisdictionCodes != null)
@@ -79,6 +80,7 @@ public class ComplianceController(
     }
 
     [HttpGet("evaluations/{id}")]
+    [RequirePermission(PermissionConstants.Compliance.Read)]
     public async Task<IActionResult> GetComplianceEvaluation(
         [FromRoute] string id,
         CancellationToken ct = default)
@@ -96,6 +98,7 @@ public class ComplianceController(
     }
 
     [HttpPost("copilot/ask")]
+    [RequirePermission(PermissionConstants.Compliance.Read)]
     public async Task<IActionResult> AskComplianceCopilot(
         [FromBody] AskComplianceCopilotBody body,
         CancellationToken ct = default)
@@ -107,17 +110,46 @@ public class ComplianceController(
                 Query = body.Query ?? string.Empty,
                 Mode = (AssistantSearchMode)body.Mode,
                 JurisdictionCode = body.JurisdictionCode ?? string.Empty,
-                EffectiveAt = body.EffectiveAt.HasValue ? Timestamp.FromDateTimeOffset(body.EffectiveAt.Value) : null,
+                EffectiveAt = Timestamp.FromDateTimeOffset(body.EffectiveAt ?? DateTimeOffset.UtcNow),
                 TopK = body.TopK > 0 ? body.TopK : 5,
                 MinimumRelevanceScore = body.MinimumRelevanceScore
             };
 
             var response = await complianceClient.GenerateGroundedAnswerAsync(req, cancellationToken: ct);
-            return Ok(response);
+            return Ok(new AssistantQueryResponse(
+                response.Query,
+                response.Answer,
+                response.RegulatoryCitations.Select(r => new AssistantRegulatoryCitation(
+                    r.EvidenceId, r.SourceId, r.DocumentVersionId, r.ChunkId, r.Title,
+                    r.Authority, r.Jurisdiction, r.RegulationType, r.Section, r.Page,
+                    r.Excerpt, r.CanonicalSourceUri, r.Score)).ToList(),
+                response.KnowledgeReferences.Select(k => new AssistantKnowledgeReference(
+                    k.EvidenceId, k.SourceId, k.DocumentVersionId, k.ChunkId, k.Title,
+                    k.Category, k.Section, k.Page, k.Excerpt, k.Score)).ToList(),
+                response.Conflicts.Select(c => new AssistantConflict(
+                    c.RegulatoryEvidenceId, c.KnowledgeEvidenceId, c.Description)).ToList(),
+                response.InsufficientEvidence,
+                response.MissingInformation.ToList(),
+                new AssistantGovernanceSummary(
+                    response.Governance?.DecisionId ?? string.Empty,
+                    response.Governance?.AutomationLevel ?? "ASSISTED",
+                    response.Governance?.RequiresApproval ?? false,
+                    response.Governance?.CapabilityCode ?? "compliance.rag",
+                    response.Governance?.TotalTokens ?? 0),
+                response.RetrievalTraceId));
         }
         catch (RpcException ex) when (ex.StatusCode == Grpc.Core.StatusCode.InvalidArgument)
         {
             return BadRequest(new { detail = ex.Status.Detail });
+        }
+        catch (RpcException ex) when (ex.StatusCode == Grpc.Core.StatusCode.PermissionDenied)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new ProblemDetails
+            {
+                Title = "PERMISSION_DENIED",
+                Detail = ex.Status.Detail,
+                Status = StatusCodes.Status403Forbidden
+            });
         }
     }
 }
