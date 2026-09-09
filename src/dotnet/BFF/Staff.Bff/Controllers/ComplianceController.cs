@@ -134,7 +134,7 @@ public class ComplianceController(
                     response.Governance?.DecisionId ?? string.Empty,
                     response.Governance?.AutomationLevel ?? "ASSISTED",
                     response.Governance?.RequiresApproval ?? false,
-                    response.Governance?.CapabilityCode ?? "compliance.rag",
+                    response.Governance?.CapabilityCode ?? "compliance.answer",
                     response.Governance?.TotalTokens ?? 0),
                 response.RetrievalTraceId));
         }

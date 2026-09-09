@@ -313,26 +313,55 @@ public sealed class RegulatoryComplianceGrpcService(
         {
             var mode = request.Mode switch
             {
+                ComplianceGrpc.AssistantSearchMode.All => AssistantSearchMode.All,
                 ComplianceGrpc.AssistantSearchMode.Regulatory => AssistantSearchMode.Regulatory,
                 ComplianceGrpc.AssistantSearchMode.Knowledge => AssistantSearchMode.Knowledge,
-                _ => AssistantSearchMode.All
+                _ => throw InvalidArgument("Assistant search mode is invalid.")
             };
 
+            if (string.IsNullOrWhiteSpace(request.Query) || request.Query.Trim().Length > 2_000)
+                throw InvalidArgument("Query must contain between 1 and 2,000 characters.");
+            if (request.TopK < 0 || request.TopK > 20)
+                throw InvalidArgument("TopK must be between 1 and 20.");
+            if (double.IsNaN(request.MinimumRelevanceScore) ||
+                double.IsInfinity(request.MinimumRelevanceScore) ||
+                request.MinimumRelevanceScore < 0 || request.MinimumRelevanceScore > 1)
+                throw InvalidArgument("MinimumRelevanceScore must be between 0 and 1.");
+
             var regTypes = request.RegulationTypes
-                .Select(t => (DomainRegulationType)(int)t)
+                .Select(t => t switch
+                {
+                    ComplianceGrpc.RegulationType.ImportRestriction => DomainRegulationType.ImportRestriction,
+                    ComplianceGrpc.RegulationType.ExportRestriction => DomainRegulationType.ExportRestriction,
+                    ComplianceGrpc.RegulationType.DangerousGoods => DomainRegulationType.DangerousGoods,
+                    ComplianceGrpc.RegulationType.RequiredDocument => DomainRegulationType.RequiredDocument,
+                    ComplianceGrpc.RegulationType.TransportMode => DomainRegulationType.TransportMode,
+                    ComplianceGrpc.RegulationType.Customs => DomainRegulationType.Customs,
+                    ComplianceGrpc.RegulationType.Other => DomainRegulationType.Other,
+                    _ => throw InvalidArgument("Regulation type is invalid.")
+                })
                 .ToList();
 
             var categories = request.Categories
-                .Select(c => (RegulatoryCompliance.Domain.Enums.KnowledgeCategory)(int)c)
+                .Select(c => c switch
+                {
+                    ComplianceGrpc.KnowledgeCategory.Sop => RegulatoryCompliance.Domain.Enums.KnowledgeCategory.Sop,
+                    ComplianceGrpc.KnowledgeCategory.Contract => RegulatoryCompliance.Domain.Enums.KnowledgeCategory.Contract,
+                    ComplianceGrpc.KnowledgeCategory.InternalPolicy => RegulatoryCompliance.Domain.Enums.KnowledgeCategory.InternalPolicy,
+                    ComplianceGrpc.KnowledgeCategory.Guide => RegulatoryCompliance.Domain.Enums.KnowledgeCategory.Guide,
+                    ComplianceGrpc.KnowledgeCategory.Reference => RegulatoryCompliance.Domain.Enums.KnowledgeCategory.Reference,
+                    ComplianceGrpc.KnowledgeCategory.Other => RegulatoryCompliance.Domain.Enums.KnowledgeCategory.Other,
+                    _ => throw InvalidArgument("Knowledge category is invalid.")
+                })
                 .ToList();
 
             var effectiveAt = request.EffectiveAt?.ToDateTimeOffset();
 
             var result = await groundedAnswerService.GenerateAnswerAsync(
                 new GroundedAnswerInput(
-                    request.Query,
+                    request.Query.Trim(),
                     mode,
-                    request.JurisdictionCode,
+                    string.IsNullOrWhiteSpace(request.JurisdictionCode) ? "VN" : request.JurisdictionCode.Trim(),
                     effectiveAt,
                     regTypes,
                     categories,
