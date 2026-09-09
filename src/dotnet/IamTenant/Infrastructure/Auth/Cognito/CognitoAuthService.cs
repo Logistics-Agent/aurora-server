@@ -258,12 +258,12 @@ public class CognitoAuthService(
 
     public async Task<AuthResult> RefreshTokenAsync(string refreshToken, CancellationToken ct = default)
     {
-        return await RefreshTokenAsync(_options.ClientId, refreshToken, ct);
+        return await RefreshTokenAsync(GetEffectiveClientId(), refreshToken, ct);
     }
 
     public async Task<AuthResult> RefreshTokenAsync(string? clientId, string refreshToken, CancellationToken ct = default)
     {
-        var targetClientId = string.IsNullOrWhiteSpace(clientId) ? _options.ClientId : clientId;
+        var targetClientId = GetEffectiveClientId(clientId);
         var request = new InitiateAuthRequest
         {
             ClientId = targetClientId,
@@ -285,17 +285,17 @@ public class CognitoAuthService(
         };
     }
 
-
     public async Task ForgotPasswordAsync(string email, CancellationToken ct = default)
     {
-        await ForgotPasswordAsync(_options.ClientId, email, ct);
+        await ForgotPasswordAsync(GetEffectiveClientId(), email, ct);
     }
 
     public async Task ForgotPasswordAsync(string clientId, string email, CancellationToken ct = default)
     {
+        var targetClientId = GetEffectiveClientId(clientId);
         var request = new ForgotPasswordRequest
         {
-            ClientId = clientId,
+            ClientId = targetClientId,
             Username = email,
         };
 
@@ -304,14 +304,15 @@ public class CognitoAuthService(
 
     public async Task ConfirmForgotPasswordAsync(string email, string newPassword, string confirmationCode, CancellationToken ct = default)
     {
-        await ConfirmForgotPasswordAsync(_options.ClientId, email, newPassword, confirmationCode, ct);
+        await ConfirmForgotPasswordAsync(GetEffectiveClientId(), email, newPassword, confirmationCode, ct);
     }
 
     public async Task ConfirmForgotPasswordAsync(string clientId, string email, string newPassword, string confirmationCode, CancellationToken ct = default)
     {
+        var targetClientId = GetEffectiveClientId(clientId);
         var request = new ConfirmForgotPasswordRequest
         {
-            ClientId = clientId,
+            ClientId = targetClientId,
             Username = email,
             Password = newPassword,
             ConfirmationCode = confirmationCode,
@@ -322,12 +323,13 @@ public class CognitoAuthService(
 
     public async Task ChangePasswordAsync(string email, string currentPassword, string newPassword, CancellationToken ct = default)
     {
-        await ChangePasswordAsync(_options.ClientId, email, currentPassword, newPassword, ct);
+        await ChangePasswordAsync(GetEffectiveClientId(), email, currentPassword, newPassword, ct);
     }
 
     public async Task ChangePasswordAsync(string clientId, string email, string currentPassword, string newPassword, CancellationToken ct = default)
     {
-        var auth = await InitiateAuthAsync(clientId, email, currentPassword, ct);
+        var targetClientId = GetEffectiveClientId(clientId);
+        var auth = await InitiateAuthAsync(targetClientId, email, currentPassword, ct);
         if (string.IsNullOrWhiteSpace(auth.AccessToken))
         {
             throw new UnauthorizedAccessException("Current password is not valid.");
@@ -341,5 +343,25 @@ public class CognitoAuthService(
         };
 
         await cognito.ChangePasswordAsync(request, ct);
+    }
+
+    private string GetEffectiveClientId(string? explicitClientId = null)
+    {
+        if (!string.IsNullOrWhiteSpace(explicitClientId))
+            return explicitClientId;
+
+        if (!string.IsNullOrWhiteSpace(_options.ClientId))
+            return _options.ClientId;
+
+        var envClientId = Environment.GetEnvironmentVariable("AWS_COGNITO_CLIENT_ID")
+            ?? Environment.GetEnvironmentVariable("AWS_COGNITO_APP_CLIENT_ID")
+            ?? Environment.GetEnvironmentVariable("COGNITO_APP_CLIENT_ID")
+            ?? Environment.GetEnvironmentVariable("COGNITO_CLIENT_ID")
+            ?? Environment.GetEnvironmentVariable("Cognito__ClientId");
+
+        if (!string.IsNullOrWhiteSpace(envClientId))
+            return envClientId;
+
+        throw new InvalidOperationException("Cognito ClientId is not configured. Please verify AWS_COGNITO_CLIENT_ID environment variable.");
     }
 }
