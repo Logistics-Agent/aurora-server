@@ -17,10 +17,8 @@ public class PermissionVersionMiddleware(
     // không được inject qua constructor (middleware là singleton).
     public async Task InvokeAsync(HttpContext context, ICurrentUserContext currentUser, IPermissionCacheService permissionCache)
     {
-        // Chỉ kiểm tra với các request authenticated và có UserId + PermissionVersion
-        if (context.User.Identity?.IsAuthenticated == true
-            && currentUser.UserId.HasValue
-            && currentUser.PermissionVersion.HasValue)
+        // Kiểm tra với các request authenticated và có UserId
+        if (context.User.Identity?.IsAuthenticated == true && currentUser.UserId.HasValue)
         {
             var cached = await permissionCache.GetAsync(currentUser.UserId.Value);
 
@@ -75,8 +73,8 @@ public class PermissionVersionMiddleware(
                 return;
             }
 
-            // Version lệch — admin đã thay đổi quyền
-            if (cached.Version != currentUser.PermissionVersion.Value)
+            // Version lệch — admin đã thay đổi quyền (chỉ reject khi currentUser có version cụ thể và khác với cache)
+            if (currentUser.PermissionVersion.HasValue && cached.Version != currentUser.PermissionVersion.Value)
             {
                 logger.LogWarning(
                     "PermissionVersion mismatch for User {UserId}. JWT={JwtVersion}, Cache={CacheVersion}. Rejecting.",
@@ -94,7 +92,7 @@ public class PermissionVersionMiddleware(
                 return;
             }
 
-            // ✅ Version khớp — load permissions từ Redis vào user context
+            // ✅ Version khớp (hoặc session JWT không có version nhưng cache có) — load permissions từ Redis vào user context
             currentUser.PopulatePermissions(cached.Permissions, cached.Role);
 
             logger.LogDebug(

@@ -82,7 +82,7 @@ public class AuthController(
                 },
                 GrpcDeadlines.WithDeadline(GrpcDeadlines.LoginTimeout, HttpContext.RequestAborted));
 
-            await SignInUserAsync(response, body.Email, body.TenantCode ?? identity.TenantCode ?? string.Empty, identity.UserType);
+            await SignInUserAsync(response, body.Email, body.TenantCode ?? identity.TenantCode ?? string.Empty, identity.UserType, identity.PermissionVersion);
 
             logger.LogInformation("User {Email} logged in (userId={UserId})", body.Email, response.UserId);
 
@@ -133,7 +133,7 @@ public class AuthController(
                 },
                 GrpcDeadlines.WithDeadline(GrpcDeadlines.LoginTimeout, HttpContext.RequestAborted));
 
-            await SignInUserAsync(response, body.Email, identity.TenantCode, identity.UserType);
+            await SignInUserAsync(response, body.Email, identity.TenantCode, identity.UserType, identity.PermissionVersion);
 
             logger.LogInformation("User {Email} completed invitation", body.Email);
 
@@ -227,7 +227,7 @@ public class AuthController(
 
     // --- Sign-in & Cookie helpers ---
 
-    private async Task SignInUserAsync(LoginResponse response, string email, string tenantCode, string userType)
+    private async Task SignInUserAsync(LoginResponse response, string email, string tenantCode, string userType, int? permissionVersion = null)
     {
         var claims = new List<Claim>
         {
@@ -242,6 +242,12 @@ public class AuthController(
         {
             claims.Add(new Claim(JwtClaims.TenantId, response.TenantId));
             claims.Add(new Claim("tenant_id", response.TenantId));
+        }
+
+        if (permissionVersion.HasValue && permissionVersion.Value > 0)
+        {
+            claims.Add(new Claim(JwtClaims.PermissionVersion, permissionVersion.Value.ToString()));
+            claims.Add(new Claim("permission_version", permissionVersion.Value.ToString()));
         }
 
         if (email.Contains('@'))

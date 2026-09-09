@@ -16,25 +16,31 @@ public class CurrentUserContextMiddleware(RequestDelegate next)
         // Chỉ populate khi user đã được authenticate
         if (context.User.Identity?.IsAuthenticated == true)
         {
-            var userId = GetClaimGuid(context.User, "user_id")
-                      ?? GetClaimGuid(context.User, ClaimTypes.NameIdentifier);
-            var tenantId = GetClaimGuid(context.User, "tenant_id");
+            var explicitUserId = GetClaimGuid(context.User, "user_id") 
+                              ?? GetClaimGuid(context.User, Shared.Security.JwtClaims.UserId);
+            var userId = explicitUserId ?? GetClaimGuid(context.User, ClaimTypes.NameIdentifier);
+            var tenantId = GetClaimGuid(context.User, "tenant_id") 
+                        ?? GetClaimGuid(context.User, Shared.Security.JwtClaims.TenantId);
             var traceId = context.TraceIdentifier;
-            var permVersion = GetClaimInt(context.User, "permission_version");
+            var permVersion = GetClaimInt(context.User, "permission_version") 
+                           ?? GetClaimInt(context.User, Shared.Security.JwtClaims.PermissionVersion);
             var groupClaims = context.User.FindAll("cognito:groups").Select(c => c.Value).ToList();
             var role = context.User.FindFirstValue(ClaimTypes.Role)
                     ?? context.User.FindFirstValue("role")
                     ?? context.User.FindFirstValue("custom:role")
+                    ?? context.User.FindFirstValue(Shared.Security.JwtClaims.Role)
                     ?? groupClaims.FirstOrDefault();
 
-            // Custom claims (user_id, tenant_id) — được thêm bởi OnTokenValidated
-            // Nếu cookie chưa có userId (do login từ session cũ hoặc token raw JWT), fallback resolve từ AuthService
-            if (!userId.HasValue)
+            // Custom claims (user_id, tenant_id, permission_version)
+            // Nếu thiếu userId thực tế trong DB hoặc thiếu tenantId / permVersion (vd: khi xác thực bằng raw Cognito access_token), fallback resolve từ AuthService
+            if (!explicitUserId.HasValue || !tenantId.HasValue || !permVersion.HasValue || string.IsNullOrWhiteSpace(role))
             {
                 var email = context.User.FindFirstValue(ClaimTypes.Email)
                          ?? context.User.FindFirstValue("email")
                          ?? context.User.FindFirstValue("username")
-                         ?? context.User.FindFirstValue("cognito:username");
+                         ?? context.User.FindFirstValue("cognito:username")
+                         ?? context.User.FindFirstValue("sub")
+                         ?? context.User.FindFirstValue(ClaimTypes.NameIdentifier);
 
                 if (!string.IsNullOrWhiteSpace(email))
                 {

@@ -23,10 +23,11 @@ public class IdentifyUserQueryHandler(IamTenantDbContext context) : IRequestHand
     {
         // Global query filter takes care of IsDeleted, but here we query by email across tenants, 
         // so we must use IgnoreQueryFilters() if the current context tenantId is set to something else.
+        var email = request.Email.Trim();
         var user = await context.Users
             .IgnoreQueryFilters()
             .Include(u => u.Tenant)
-            .Where(u => (u.Email == request.Email || (u.CognitoSub != null && u.CognitoSub == request.Email)) && !u.IsDeleted)
+            .Where(u => (u.Email == email || u.Email.ToLower() == email.ToLower() || (u.CognitoSub != null && u.CognitoSub == email)) && !u.IsDeleted)
             .Select(u => new 
             { 
                 u.Id,

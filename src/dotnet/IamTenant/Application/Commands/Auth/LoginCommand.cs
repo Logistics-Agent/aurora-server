@@ -20,6 +20,7 @@ public class LoginCommandHandler(ICognitoAuthService cognitoService, IamTenantDb
         if (string.IsNullOrWhiteSpace(tenantCode))
             throw new Shared.Exceptions.DomainException("Tenant code is required.");
 
+        var email = request.Email.Trim();
         if (string.Equals(tenantCode, "SYSTEM", StringComparison.OrdinalIgnoreCase) ||
             string.Equals(tenantCode, "SYSTEM_ADMIN", StringComparison.OrdinalIgnoreCase) ||
             string.Equals(tenantCode, "SYSTEMADMIN", StringComparison.OrdinalIgnoreCase))
@@ -27,7 +28,7 @@ public class LoginCommandHandler(ICognitoAuthService cognitoService, IamTenantDb
             var systemUser = await context.Users
                 .IgnoreQueryFilters()
                 .AsNoTracking()
-                .Where(u => u.Email == request.Email && !u.IsDeleted)
+                .Where(u => (u.Email == email || u.Email.ToLower() == email.ToLower()) && !u.IsDeleted)
                 .Select(u => new
                 {
                     u.Id,
@@ -39,7 +40,7 @@ public class LoginCommandHandler(ICognitoAuthService cognitoService, IamTenantDb
                 .FirstOrDefaultAsync(cancellationToken)
                 ?? throw new Shared.Exceptions.NotFoundException("User not found");
 
-            var systemAuthResult = await cognitoService.InitiateAuthAsync(request.Email, request.Password, cancellationToken);
+            var systemAuthResult = await cognitoService.InitiateAuthAsync(email, request.Password, cancellationToken);
 
             if (systemAuthResult.Session != null)
             {
@@ -61,7 +62,7 @@ public class LoginCommandHandler(ICognitoAuthService cognitoService, IamTenantDb
         var tenant = await context.Tenants
             .IgnoreQueryFilters()
             .AsNoTracking()
-            .FirstOrDefaultAsync(t => t.Code == tenantCode && !t.IsDeleted, cancellationToken)
+            .FirstOrDefaultAsync(t => (t.Code == tenantCode || t.Code.ToUpper() == tenantCode.ToUpper()) && !t.IsDeleted, cancellationToken)
             ?? throw new Shared.Exceptions.NotFoundException("Tenant not found.");
 
         if (tenant.Status != TenantStatus.Active)
@@ -71,7 +72,7 @@ public class LoginCommandHandler(ICognitoAuthService cognitoService, IamTenantDb
         var user = await context.Users
             .IgnoreQueryFilters()
             .AsNoTracking()
-            .Where(u => u.Email == request.Email && !u.IsDeleted && u.TenantId == tenant.Id)
+            .Where(u => (u.Email == email || u.Email.ToLower() == email.ToLower()) && !u.IsDeleted && u.TenantId == tenant.Id)
             .Select(u => new
             {
                 u.Id,

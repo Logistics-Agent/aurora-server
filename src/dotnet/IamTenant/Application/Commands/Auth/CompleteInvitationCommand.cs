@@ -13,7 +13,10 @@ namespace IamTenant.Application.Commands.Auth;
 
 public record CompleteInvitationCommand(string Email, string NewPassword, string ConfirmationCode) : IRequest<LoginResult>;
 
-public class CompleteInvitationCommandHandler(ICognitoAuthService cognitoService, IamTenantDbContext context) : IRequestHandler<CompleteInvitationCommand, LoginResult>
+public class CompleteInvitationCommandHandler(
+    ICognitoAuthService cognitoService, 
+    IamTenantDbContext context,
+    ISender mediator) : IRequestHandler<CompleteInvitationCommand, LoginResult>
 {
     public async Task<LoginResult> Handle(CompleteInvitationCommand request, CancellationToken cancellationToken)
     {
@@ -46,18 +49,17 @@ public class CompleteInvitationCommandHandler(ICognitoAuthService cognitoService
             request.ConfirmationCode,
             cancellationToken);
 
-        var permissions = user.UserPermissions
-            .Where(up => up.Permission != null)
-            .Select(up => up.Permission!.Code)
-            .Distinct()
-            .ToList();
-
         // 3. Mark User as ACTIVE if they were PENDING/INVITED
         if (user.Status != UserStatus.Active)
         {
             user.Status = UserStatus.Active;
             await context.SaveChangesAsync(cancellationToken);
         }
+
+        // 4. Load & Warm up permissions in Redis cache
+        var userPermissions = await mediator.Send(
+            new IamTenant.Application.Queries.Permissions.GetUserPermissionsQuery(user.Id, user.PermissionVersion),
+            cancellationToken);
 
         return new LoginResult(
             authResult.AccessToken,
@@ -66,6 +68,6 @@ public class CompleteInvitationCommandHandler(ICognitoAuthService cognitoService
             user.Id.ToString(),
             user.TenantId == Guid.Empty ? "" : user.TenantId.ToString(),
             user.Role.ToCode(),
-            permissions);
+            userPermissions.Permissions.Select(p => p.Code).ToList());
     }
 }
