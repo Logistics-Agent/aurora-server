@@ -20,11 +20,13 @@ public class RequirePermissionAttribute : Attribute, IAsyncAuthorizationFilter
 {
     public string RequiredPermission { get; }
     public string? LegacyFallbackPermission { get; }
+    public IReadOnlyList<string> FallbackPermissions { get; }
 
     public RequirePermissionAttribute(string permission)
     {
         RequiredPermission = permission;
         LegacyFallbackPermission = null;
+        FallbackPermissions = Array.Empty<string>();
     }
 
     public RequirePermissionAttribute(string permissionOrModule, string legacyFallbackOrAction)
@@ -33,12 +35,28 @@ public class RequirePermissionAttribute : Attribute, IAsyncAuthorizationFilter
         {
             RequiredPermission = permissionOrModule;
             LegacyFallbackPermission = legacyFallbackOrAction;
+            FallbackPermissions = new[] { legacyFallbackOrAction };
         }
         else
         {
             RequiredPermission = $"{permissionOrModule}:{legacyFallbackOrAction}";
             LegacyFallbackPermission = null;
+            FallbackPermissions = Array.Empty<string>();
         }
+    }
+
+    public RequirePermissionAttribute(string permission, string fallback1, string fallback2)
+    {
+        RequiredPermission = permission;
+        LegacyFallbackPermission = fallback1;
+        FallbackPermissions = new[] { fallback1, fallback2 };
+    }
+
+    public RequirePermissionAttribute(string permission, params string[] fallbacks)
+    {
+        RequiredPermission = permission;
+        LegacyFallbackPermission = fallbacks.FirstOrDefault();
+        FallbackPermissions = fallbacks;
     }
 
     public Task OnAuthorizationAsync(AuthorizationFilterContext context)
@@ -63,7 +81,20 @@ public class RequirePermissionAttribute : Attribute, IAsyncAuthorizationFilter
         bool hasPermission = currentUser.HasPermission(RequiredPermission);
 
         // Optional legacy fallback with audit logging
-        if (!hasPermission && !string.IsNullOrWhiteSpace(LegacyFallbackPermission) && currentUser.HasPermission(LegacyFallbackPermission))
+        if (!hasPermission && FallbackPermissions.Count > 0)
+        {
+            var matchedFallback = FallbackPermissions.FirstOrDefault(fb => !string.IsNullOrWhiteSpace(fb) && currentUser.HasPermission(fb));
+            if (matchedFallback != null)
+            {
+                var logger = context.HttpContext.RequestServices.GetService<ILogger<RequirePermissionAttribute>>();
+                logger?.LogWarning(
+                    "Legacy authorization fallback: User {UserId} accessed {Path} using deprecated permission '{Legacy}' instead of capability '{Required}'.",
+                    currentUser.UserId, context.HttpContext.Request.Path, matchedFallback, RequiredPermission);
+
+                hasPermission = true;
+            }
+        }
+        else if (!hasPermission && !string.IsNullOrWhiteSpace(LegacyFallbackPermission) && currentUser.HasPermission(LegacyFallbackPermission))
         {
             var logger = context.HttpContext.RequestServices.GetService<ILogger<RequirePermissionAttribute>>();
             logger?.LogWarning(
