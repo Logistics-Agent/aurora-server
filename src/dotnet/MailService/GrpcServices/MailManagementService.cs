@@ -163,72 +163,114 @@ public class MailManagementService : MailManagement.MailManagementBase
 
     public override async Task<ListDomainsResponse> ListDomains(ListDomainsRequest request, ServerCallContext context)
     {
-        var domains = await _mediator.Send(new MailService.Application.Queries.Provisioning.ListDomainsQuery(request.PageSize), context.CancellationToken);
-        var response = new ListDomainsResponse();
-        response.Domains.AddRange(domains.Select(d => new DomainSummaryDto
+        try
         {
-            DomainId = d.Id.ToString(),
-            DomainName = d.DomainName,
-            Status = d.Status.ToString(),
-            MaxMailboxCount = d.MaxMailboxCount,
-            RetentionDays = d.RetentionDays,
-            DkimSelector = d.DkimSelector ?? "aurora-2025",
-            DkimTxtRecord = d.DkimTxtRecord ?? string.Empty,
-            CreatedAt = Timestamp.FromDateTimeOffset(d.CreatedAt),
-            MailboxUsage = d.Mailboxes?.Count ?? 0
-        }));
-        return response;
+            var domains = await _mediator.Send(new MailService.Application.Queries.Provisioning.ListDomainsQuery(request.PageSize), context.CancellationToken);
+            var response = new ListDomainsResponse();
+            if (domains != null)
+            {
+                response.Domains.AddRange(domains.Select(d =>
+                {
+                    var ts = d.CreatedAt != default ? d.CreatedAt : DateTimeOffset.UtcNow;
+                    return new DomainSummaryDto
+                    {
+                        DomainId = d.Id.ToString(),
+                        DomainName = d.DomainName ?? string.Empty,
+                        Status = d.Status.ToString(),
+                        MaxMailboxCount = d.MaxMailboxCount,
+                        RetentionDays = d.RetentionDays,
+                        DkimSelector = d.DkimSelector ?? "aurora-2025",
+                        DkimTxtRecord = d.DkimTxtRecord ?? string.Empty,
+                        CreatedAt = Timestamp.FromDateTimeOffset(ts.ToUniversalTime()),
+                        MailboxUsage = d.Mailboxes?.Count ?? 0
+                    };
+                }));
+            }
+            return response;
+        }
+        catch (RpcException) { throw; }
+        catch (Exception ex)
+        {
+            throw new RpcException(new Status(StatusCode.Internal, $"Failed to list domains: {ex.Message}"));
+        }
     }
 
     public override async Task<ListMailboxesResponse> ListMailboxes(ListMailboxesRequest request, ServerCallContext context)
     {
-        Guid? domainId = null;
-        if (!string.IsNullOrEmpty(request.DomainId) && Guid.TryParse(request.DomainId, out var parsedId))
+        try
         {
-            domainId = parsedId;
-        }
+            Guid? domainId = null;
+            if (!string.IsNullOrEmpty(request.DomainId) && Guid.TryParse(request.DomainId, out var parsedId))
+            {
+                domainId = parsedId;
+            }
 
-        var mailboxes = await _mediator.Send(new MailService.Application.Queries.Provisioning.ListMailboxesQuery(domainId, request.PageSize), context.CancellationToken);
-        var response = new ListMailboxesResponse();
-        response.Mailboxes.AddRange(mailboxes.Select(m => new MailboxSummaryDto
+            var mailboxes = await _mediator.Send(new MailService.Application.Queries.Provisioning.ListMailboxesQuery(domainId, request.PageSize), context.CancellationToken);
+            var response = new ListMailboxesResponse();
+            if (mailboxes != null)
+            {
+                response.Mailboxes.AddRange(mailboxes.Select(m =>
+                {
+                    var ts = m.CreatedAt != default ? m.CreatedAt : DateTimeOffset.UtcNow;
+                    return new MailboxSummaryDto
+                    {
+                        MailboxId = m.Id.ToString(),
+                        DomainId = m.DomainId.ToString(),
+                        DomainName = m.Domain?.DomainName ?? string.Empty,
+                        LocalPart = m.LocalPart ?? string.Empty,
+                        FullAddress = m.FullAddress ?? string.Empty,
+                        Status = m.Status.ToString(),
+                        CreatedAt = Timestamp.FromDateTimeOffset(ts.ToUniversalTime())
+                    };
+                }));
+            }
+            return response;
+        }
+        catch (RpcException) { throw; }
+        catch (Exception ex)
         {
-            MailboxId = m.Id.ToString(),
-            DomainId = m.DomainId.ToString(),
-            DomainName = m.Domain?.DomainName ?? string.Empty,
-            LocalPart = m.LocalPart,
-            FullAddress = m.FullAddress,
-            Status = m.Status.ToString(),
-            CreatedAt = Timestamp.FromDateTimeOffset(m.CreatedAt)
-        }));
-        return response;
+            throw new RpcException(new Status(StatusCode.Internal, $"Failed to list mailboxes: {ex.Message}"));
+        }
     }
 
     public override async Task<ListAliasesResponse> ListAliases(ListAliasesRequest request, ServerCallContext context)
     {
-        Guid? domainId = null;
-        if (!string.IsNullOrEmpty(request.DomainId) && Guid.TryParse(request.DomainId, out var parsedId))
+        try
         {
-            domainId = parsedId;
-        }
-
-        var aliases = await _mediator.Send(new MailService.Application.Queries.Provisioning.ListAliasesQuery(domainId, request.PageSize), context.CancellationToken);
-        var response = new ListAliasesResponse();
-        response.Aliases.AddRange(aliases.Select(a =>
-        {
-            var dto = new AliasSummaryDto
+            Guid? domainId = null;
+            if (!string.IsNullOrEmpty(request.DomainId) && Guid.TryParse(request.DomainId, out var parsedId))
             {
-                AliasId = a.Id.ToString(),
-                DomainId = a.DomainId.ToString(),
-                DomainName = a.Domain?.DomainName ?? string.Empty,
-                AliasAddress = a.AliasAddress,
-                CreatedAt = Timestamp.FromDateTimeOffset(a.CreatedAt)
-            };
-            if (a.Targets != null)
-            {
-                dto.TargetAddresses.AddRange(a.Targets);
+                domainId = parsedId;
             }
-            return dto;
-        }));
-        return response;
+
+            var aliases = await _mediator.Send(new MailService.Application.Queries.Provisioning.ListAliasesQuery(domainId, request.PageSize), context.CancellationToken);
+            var response = new ListAliasesResponse();
+            if (aliases != null)
+            {
+                response.Aliases.AddRange(aliases.Select(a =>
+                {
+                    var ts = a.CreatedAt != default ? a.CreatedAt : DateTimeOffset.UtcNow;
+                    var dto = new AliasSummaryDto
+                    {
+                        AliasId = a.Id.ToString(),
+                        DomainId = a.DomainId.ToString(),
+                        DomainName = a.Domain?.DomainName ?? string.Empty,
+                        AliasAddress = a.AliasAddress ?? string.Empty,
+                        CreatedAt = Timestamp.FromDateTimeOffset(ts.ToUniversalTime())
+                    };
+                    if (a.Targets != null)
+                    {
+                        dto.TargetAddresses.AddRange(a.Targets);
+                    }
+                    return dto;
+                }));
+            }
+            return response;
+        }
+        catch (RpcException) { throw; }
+        catch (Exception ex)
+        {
+            throw new RpcException(new Status(StatusCode.Internal, $"Failed to list aliases: {ex.Message}"));
+        }
     }
 }

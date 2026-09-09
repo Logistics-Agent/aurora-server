@@ -518,16 +518,19 @@ public class MailSecurityService : MailSecurity.MailSecurityBase
 
     private static QuarantineRecordDto MapQuarantineRecordDto(Domain.Entities.QuarantineRecord rec)
     {
+        var quarantinedAt = rec.QuarantinedAt != default ? rec.QuarantinedAt : DateTimeOffset.UtcNow;
         return new QuarantineRecordDto
         {
             QuarantineId = rec.Id.ToString(),
             ProcessedMessageId = rec.ProcessedMessageId.ToString(),
-            MessageId = rec.MessageId,
-            QuarantineReason = rec.QuarantineReason,
-            QuarantinedAt = Timestamp.FromDateTimeOffset(rec.QuarantinedAt),
+            MessageId = rec.MessageId ?? string.Empty,
+            QuarantineReason = rec.QuarantineReason ?? string.Empty,
+            QuarantinedAt = Timestamp.FromDateTimeOffset(quarantinedAt.ToUniversalTime()),
             Status = rec.Status.ToString(),
             ReviewedBy = rec.ReviewedBy?.ToString() ?? string.Empty,
-            ReviewedAt = rec.ReviewedAt.HasValue ? Timestamp.FromDateTimeOffset(rec.ReviewedAt.Value) : null
+            ReviewedAt = rec.ReviewedAt.HasValue && rec.ReviewedAt.Value != default
+                ? Timestamp.FromDateTimeOffset(rec.ReviewedAt.Value.ToUniversalTime())
+                : null
         };
     }
 }

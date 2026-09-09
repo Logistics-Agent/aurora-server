@@ -134,7 +134,13 @@ public class MailAdminController(
         }
         catch (RpcException ex)
         {
+            logger.LogWarning(ex, "gRPC error in ListDomains: {Detail}", ex.Status.Detail);
             return ex.ToActionResult();
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Unexpected error in ListDomains");
+            return StatusCode(StatusCodes.Status500InternalServerError, new { detail = ex.Message });
         }
     }
 
@@ -153,7 +159,13 @@ public class MailAdminController(
         }
         catch (RpcException ex)
         {
+            logger.LogWarning(ex, "gRPC error in ListMailboxes: {Detail}", ex.Status.Detail);
             return ex.ToActionResult();
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Unexpected error in ListMailboxes");
+            return StatusCode(StatusCodes.Status500InternalServerError, new { detail = ex.Message });
         }
     }
 
@@ -172,7 +184,13 @@ public class MailAdminController(
         }
         catch (RpcException ex)
         {
+            logger.LogWarning(ex, "gRPC error in ListAliases: {Detail}", ex.Status.Detail);
             return ex.ToActionResult();
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Unexpected error in ListAliases");
+            return StatusCode(StatusCodes.Status500InternalServerError, new { detail = ex.Message });
         }
     }
 
@@ -193,7 +211,13 @@ public class MailAdminController(
         }
         catch (RpcException ex)
         {
+            logger.LogWarning(ex, "gRPC error in ListQuarantine: {Detail}", ex.Status.Detail);
             return ex.ToActionResult();
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Unexpected error in ListQuarantine");
+            return StatusCode(StatusCodes.Status500InternalServerError, new { detail = ex.Message });
         }
     }
 
