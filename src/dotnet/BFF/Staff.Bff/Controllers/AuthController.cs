@@ -29,6 +29,7 @@ namespace StaffBff.Controllers;
 public class AuthController(
     AuthService.AuthServiceClient authClient,
     IOptions<AuthCookieOptions> cookieOptions,
+    ICurrentUserService currentUser,
     ILogger<AuthController> logger) : StaffControllerBase
 {
     private const string AccessTokenCookie = "access_token";
@@ -37,6 +38,47 @@ public class AuthController(
     private const string UserTypeCookie = "user_type";
     private const string RefreshCookiePath = "/api/v1/auth";
     private readonly AuthCookieOptions _cookieOpts = cookieOptions?.Value ?? new AuthCookieOptions();
+
+    /// <summary>
+    /// Trả về thông tin user hiện tại từ auth context: Persona Role + Permissions.
+    /// </summary>
+    [HttpGet("me")]
+    [Authorize]
+    public IActionResult Me()
+    {
+        var email = User.FindFirstValue("email")
+                 ?? User.FindFirstValue(ClaimTypes.Email);
+
+        var cognitoSub = User.FindFirstValue("cognito_sub")
+                      ?? User.FindFirstValue(ClaimTypes.NameIdentifier)
+                      ?? User.FindFirstValue("sub")
+                      ?? User.FindFirstValue("cognito:username");
+
+        var role = currentUser.Role ?? User.FindFirstValue(JwtClaims.Role) ?? User.FindFirstValue(ClaimTypes.Role) ?? RoleConstants.Staff;
+        var roles = User.FindAll(ClaimTypes.Role).Select(c => c.Value).Distinct().ToList();
+        if (!roles.Contains(role))
+        {
+            roles.Add(role);
+        }
+
+        return Ok(new
+        {
+            Email = email,
+            EmailDomain = User.FindFirstValue("email_domain")
+                       ?? (email != null && email.Contains('@') ? email.Split('@')[1] : null),
+            CognitoSub = cognitoSub,
+            UserId = currentUser.UserId?.ToString() ?? User.FindFirstValue(JwtClaims.UserId) ?? User.FindFirstValue("user_id"),
+            TenantId = currentUser.TenantId?.ToString() ?? User.FindFirstValue(JwtClaims.TenantId) ?? User.FindFirstValue("tenant_id"),
+            Role = role,
+            Roles = roles,
+            Permissions = currentUser.Permissions ?? [],
+            Name = User.FindFirstValue("name")
+                ?? User.FindFirstValue(ClaimTypes.Name)
+                ?? (email != null && email.Contains('@') ? email.Split('@')[0] : null)
+                ?? cognitoSub,
+            IsAuthenticated = User.Identity?.IsAuthenticated ?? false
+        });
+    }
 
     /// <summary>Kiểm tra email tồn tại + thuộc tenant nào (bước 1 của flow login).</summary>
     [HttpPost("identify")]
