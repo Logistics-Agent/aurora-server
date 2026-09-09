@@ -7,5 +7,6 @@ public enum DocumentOcrJobStatus
     Completed = 3,
     Failed = 4,
     Cancelled = 5,
-    Rejected = 6
+    Rejected = 6,
+    RequiresReview = 7
 }
