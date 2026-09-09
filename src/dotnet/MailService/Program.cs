@@ -117,8 +117,13 @@ builder.Services.AddDbContext<MailServiceDbContext>(options =>
         npgsql.EnableRetryOnFailure(3);
     }));
 
-// Register Scoped Identity & Repositories & Outbox
-builder.Services.AddScoped<ICurrentUserService, CurrentUserService>();
+// Register one scoped identity instance behind both interfaces. AuthInterceptor
+// populates ICurrentUserContext and downstream handlers read ICurrentUserService,
+// so resolving separate CurrentUserService instances would lose the propagated
+// tenant/user identity.
+builder.Services.AddScoped<CurrentUserService>();
+builder.Services.AddScoped<ICurrentUserService>(sp => sp.GetRequiredService<CurrentUserService>());
+builder.Services.AddScoped<ICurrentUserContext>(sp => sp.GetRequiredService<CurrentUserService>());
 builder.Services.AddScoped<IEmailDraftRepository, EmailDraftRepository>();
 builder.Services.AddScoped<IOutboxWriter, OutboxWriter>();
 builder.Services.AddHostedService<OutboxProcessorBackgroundService>();

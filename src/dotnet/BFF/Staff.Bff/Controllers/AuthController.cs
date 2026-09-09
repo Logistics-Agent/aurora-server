@@ -201,7 +201,7 @@ public class AuthController(
 
     /// <summary>Đăng xuất: revoke best-effort phía server + xóa cookies.</summary>
     [HttpPost("logout")]
-    [Authorize]
+    [AllowAnonymous]
     public async Task<IActionResult> Logout()
     {
         var refreshToken = Request.Cookies[RefreshTokenCookie];
