@@ -8,6 +8,7 @@ using BuildingBlocks.BFF.Attributes;
 using BuildingBlocks.BFF.Extensions;
 using Google.Protobuf;
 using Google.Protobuf.WellKnownTypes;
+using Grpc.Core;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -115,10 +116,11 @@ public sealed class PlatformIngestionController(
 
             var categoryEnum = category?.ToLowerInvariant() switch
             {
-                "sop" or "0" => KnowledgeCategory.StandardOperatingProcedure,
-                "carrier contract" or "carriercontract" or "contract" or "1" => KnowledgeCategory.CarrierContract,
-                "customs guideline" or "customsguideline" or "customs" or "2" => KnowledgeCategory.CustomsGuideline,
-                _ => KnowledgeCategory.StandardOperatingProcedure
+                "sop" or "0" => KnowledgeCategory.Sop,
+                "carrier contract" or "carriercontract" or "contract" or "1" => KnowledgeCategory.Contract,
+                "customs guideline" or "customsguideline" or "customs" or "guide" or "2" => KnowledgeCategory.Guide,
+                "policy" or "internal policy" or "3" => KnowledgeCategory.InternalPolicy,
+                _ => KnowledgeCategory.Sop
             };
 
             var ingestRequest = new IngestKnowledgeSourceRequest
@@ -188,14 +190,17 @@ public sealed class PlatformIngestionController(
             {
                 id = e.KnowledgeDocumentId,
                 title = e.Title,
-                category = e.Category.ToString().Replace("StandardOperatingProcedure", "SOP"),
+                category = e.Category == KnowledgeCategory.Sop ? "SOP" :
+                           e.Category == KnowledgeCategory.Contract ? "Carrier Contract" :
+                           e.Category == KnowledgeCategory.Guide ? "Customs Guideline" : e.Category.ToString(),
                 language = "English",
-                version = e.VersionLabel,
-                chunks = e.ChunkCount > 0 ? e.ChunkCount : 1,
-                ingestDate = e.PublishedAt != null ? e.PublishedAt.ToDateTime().ToString("yyyy-MM-dd") : DateTime.UtcNow.ToString("yyyy-MM-dd"),
+                version = "v1.0",
+                chunks = 1,
+                ingestDate = DateTime.UtcNow.ToString("yyyy-MM-dd"),
                 status = "Completed",
                 relevanceScore = e.RelevanceScore,
-                excerpt = e.Excerpt
+                excerpt = e.Excerpt,
+                section = e.SectionLabel
             }).ToList();
 
             return Ok(new { items, total = items.Count });
