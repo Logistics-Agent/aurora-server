@@ -9,6 +9,7 @@
 
   <ItemGroup>
     <Protobuf Include="../../protos/gps_tracking.proto" GrpcServices="Client" Link="Protos/gps_tracking.proto" />
+    <Protobuf Include="../../protos/shipment_workflow.proto" GrpcServices="Client" Link="Protos/shipment_workflow.proto" />
   </ItemGroup>
 
   <ItemGroup>

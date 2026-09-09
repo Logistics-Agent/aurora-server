@@ -98,29 +98,51 @@ public class MailManagementService : MailManagement.MailManagementBase
 
     public override async Task<GetAuditRecordsResponse> GetAuditRecords(GetAuditRecordsRequest request, ServerCallContext context)
     {
-        Guid? resourceId = null;
-        if (!string.IsNullOrEmpty(request.ResourceId) && Guid.TryParse(request.ResourceId, out var parsedId))
+        try
         {
-            resourceId = parsedId;
+            Guid? resourceId = null;
+            if (!string.IsNullOrEmpty(request.ResourceId) && Guid.TryParse(request.ResourceId, out var parsedId))
+            {
+                resourceId = parsedId;
+            }
+
+            var records = await _mediator.Send(new GetAuditRecordsQuery(resourceId, request.PageSize), context.CancellationToken);
+
+            var response = new GetAuditRecordsResponse();
+            if (records != null && records.Count > 0)
+            {
+                response.Records.AddRange(records.Select(r =>
+                {
+                    var ts = r.Timestamp != default ? r.Timestamp : (r.CreatedAt != default ? r.CreatedAt : DateTimeOffset.UtcNow);
+                    return new AuditRecordDto
+                    {
+                        AuditId = r.Id.ToString(),
+                        ActorId = r.ActorId.ToString(),
+                        ActorType = r.ActorType.ToString(),
+                        Action = r.Action ?? string.Empty,
+                        ResourceType = r.ResourceType ?? string.Empty,
+                        ResourceId = r.ResourceId.ToString(),
+                        Timestamp = Timestamp.FromDateTimeOffset(ts.ToUniversalTime()),
+                        Result = r.Result ?? string.Empty,
+                        DetailJson = r.DetailJson ?? string.Empty
+                    };
+                }));
+            }
+
+            return response;
         }
-
-        var records = await _mediator.Send(new GetAuditRecordsQuery(resourceId, request.PageSize), context.CancellationToken);
-
-        var response = new GetAuditRecordsResponse();
-        response.Records.AddRange(records.Select(r => new AuditRecordDto
+        catch (UnauthorizedAccessException ex)
         {
-            AuditId = r.Id.ToString(),
-            ActorId = r.ActorId.ToString(),
-            ActorType = r.ActorType.ToString(),
-            Action = r.Action,
-            ResourceType = r.ResourceType,
-            ResourceId = r.ResourceId.ToString(),
-            Timestamp = Timestamp.FromDateTimeOffset(r.Timestamp),
-            Result = r.Result,
-            DetailJson = r.DetailJson ?? string.Empty
-        }));
-
-        return response;
+            throw new RpcException(new Status(StatusCode.PermissionDenied, ex.Message));
+        }
+        catch (RpcException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            throw new RpcException(new Status(StatusCode.Internal, $"Failed to retrieve audit records: {ex.Message}"));
+        }
     }
 
     public override async Task<RequeueDeadLetterResponse> RequeueDeadLetter(RequeueDeadLetterRequest request, ServerCallContext context)

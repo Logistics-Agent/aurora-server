@@ -19,6 +19,8 @@ namespace AdminBff.Controllers;
 /// Route: /api/v1/admin/mail — yêu cầu role TENANT_ADMIN + [RequirePermission] module mail.
 /// </summary>
 [ApiVersion("1.0")]
+[Route("api/v{version:apiVersion}/admin/mail")]
+[Route("api/v{version:apiVersion}/admin/[controller]")]
 public class MailAdminController(
     IMailServiceClient mailClient,
     ICurrentUserService currentUser,
@@ -229,7 +231,13 @@ public class MailAdminController(
         }
         catch (RpcException ex)
         {
+            logger.LogWarning(ex, "gRPC error querying mail audit records: {Detail}", ex.Status.Detail);
             return ex.ToActionResult();
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Unexpected error querying mail audit records");
+            return StatusCode(StatusCodes.Status500InternalServerError, new { detail = ex.Message });
         }
     }
 }

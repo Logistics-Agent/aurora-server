@@ -18,6 +18,8 @@ namespace AdminBff.Controllers;
 /// Tenant isolation được enforce nghiêm ngặt từ context của current user (JWT).
 /// </summary>
 [ApiVersion("1.0")]
+[Route("api/v{version:apiVersion}/admin/audit-logs")]
+[Route("api/v{version:apiVersion}/admin/[controller]")]
 public class AuditLogsController(
     AuditLogService.AuditLogServiceClient auditClient,
     ICurrentUserService currentUser,
