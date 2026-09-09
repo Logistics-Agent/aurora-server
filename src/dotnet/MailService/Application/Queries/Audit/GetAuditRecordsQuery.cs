@@ -12,7 +12,10 @@ using MailService.Infrastructure.Persistence;
 
 namespace MailService.Application.Queries.Audit;
 
-public record GetAuditRecordsQuery(Guid? ResourceId, int PageSize) : IRequest<List<AuditRecord>>;
+public record GetAuditRecordsQuery(string? ResourceType, Guid? ResourceId, int PageSize) : IRequest<List<AuditRecord>>
+{
+    public GetAuditRecordsQuery(Guid? resourceId, int pageSize) : this(null, resourceId, pageSize) { }
+}
 
 public class GetAuditRecordsQueryHandler : IRequestHandler<GetAuditRecordsQuery, List<AuditRecord>>
 {
@@ -43,6 +46,11 @@ public class GetAuditRecordsQueryHandler : IRequestHandler<GetAuditRecordsQuery,
             }
 
             query = _dbContext.AuditRecords.AsNoTracking();
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.ResourceType))
+        {
+            query = query.Where(a => a.ResourceType == request.ResourceType);
         }
 
         if (request.ResourceId.HasValue && request.ResourceId.Value != Guid.Empty)

@@ -6,6 +6,7 @@ using MediatR;
 using Shared.Security;
 using MailService.Application.Interfaces.Stalwart;
 using MailService.Domain.Entities;
+using MailService.Domain.Enums;
 using MailService.Infrastructure.Persistence;
 
 namespace MailService.Application.Commands.Provisioning;
@@ -39,7 +40,17 @@ public class CreateAliasCommandHandler : IRequestHandler<CreateAliasCommand, Ali
             throw new KeyNotFoundException($"Domain with ID '{request.DomainId}' not found for current tenant.");
         }
 
+        if (domain.Status != DomainStatus.Active)
+        {
+            throw new InvalidOperationException($"Domain '{domain.DomainName}' must be verified before creating an alias.");
+        }
+
         string aliasAddress = request.AliasAddress.Trim().ToLowerInvariant();
+
+        if (!await _stalwartClient.CreateAliasAsync(aliasAddress, request.TargetAddresses, cancellationToken))
+        {
+            throw new InvalidOperationException("Stalwart could not provision the alias; no local alias was created.");
+        }
 
         var alias = new Alias
         {
@@ -51,9 +62,23 @@ public class CreateAliasCommandHandler : IRequestHandler<CreateAliasCommand, Ali
         };
 
         _dbContext.Aliases.Add(alias);
-        await _dbContext.SaveChangesAsync(cancellationToken);
 
-        await _stalwartClient.CreateAliasAsync(aliasAddress, request.TargetAddresses, cancellationToken);
+        var audit = new AuditRecord
+        {
+            TenantId = tenantId,
+            ActorId = _currentUserService.UserId ?? Guid.Empty,
+            ActorType = ActorType.TenantAdmin,
+            Action = "MailAliasCreated",
+            ResourceType = "Alias",
+            ResourceId = alias.Id,
+            Timestamp = DateTimeOffset.UtcNow,
+            Result = "Success",
+            DetailJson = System.Text.Json.JsonSerializer.Serialize(new { AliasAddress = aliasAddress, DomainId = request.DomainId, Targets = request.TargetAddresses })
+        };
+        _dbContext.AuditRecords.Add(audit);
+        MailService.Infrastructure.Messaging.CentralAuditOutbox.Enqueue(_dbContext, audit);
+
+        await _dbContext.SaveChangesAsync(cancellationToken);
 
         return alias;
     }

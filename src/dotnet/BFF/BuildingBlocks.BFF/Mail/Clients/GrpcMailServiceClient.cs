@@ -67,7 +67,17 @@ public class GrpcMailServiceClient : IMailServiceClient
             response.DomainName,
             response.DkimSelector,
             response.DkimTxtRecord,
-            SafeToDateTimeOffset(response.ProvisionedAt));
+            SafeToDateTimeOffset(response.ProvisionedAt),
+            response.Status);
+    }
+
+    public async Task<BffModels.VerifyDomainResponse> VerifyDomainAsync(string domainId, CancellationToken cancellationToken = default)
+    {
+        var response = await _managementClient.VerifyDomainAsync(
+            new GrpcModels.VerifyDomainRequest { DomainId = domainId }, cancellationToken: cancellationToken);
+        return new BffModels.VerifyDomainResponse(response.DomainId, response.Verified, response.Status, response.Message,
+            response.DkimSelector, response.DkimHost, response.ExpectedDkimTxtRecord, response.ObservedDkimTxtRecord,
+            SafeToNullableDateTimeOffset(response.VerifiedAt));
     }
 
     public async Task<BffModels.CreateMailboxResponse> CreateMailboxAsync(BffModels.CreateMailboxRequest request, CancellationToken cancellationToken = default)
@@ -84,7 +94,10 @@ public class GrpcMailServiceClient : IMailServiceClient
         return new BffModels.CreateMailboxResponse(
             response.MailboxId,
             response.FullAddress,
-            SafeToDateTimeOffset(response.CreatedAt));
+            SafeToDateTimeOffset(response.CreatedAt),
+            response.DomainId,
+            response.LocalPart,
+            response.Status);
     }
 
     public async Task<BffModels.CreateAliasResponse> CreateAliasAsync(BffModels.CreateAliasRequest request, CancellationToken cancellationToken = default)

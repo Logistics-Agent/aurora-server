@@ -15,7 +15,12 @@ public record ProvisionDomainResponse(
     string DomainName,
     string DkimSelector,
     string DkimTxtRecord,
-    DateTimeOffset ProvisionedAt);
+    DateTimeOffset ProvisionedAt,
+    string Status = "Pending");
+
+public record VerifyDomainResponse(
+    string DomainId, bool Verified, string Status, string Message, string DkimSelector,
+    string DkimHost, string ExpectedDkimTxtRecord, string ObservedDkimTxtRecord, DateTimeOffset? VerifiedAt);
 
 public record CreateMailboxRequest(
     string DomainId,
@@ -25,7 +30,10 @@ public record CreateMailboxRequest(
 public record CreateMailboxResponse(
     string MailboxId,
     string FullAddress,
-    DateTimeOffset CreatedAt);
+    DateTimeOffset CreatedAt,
+    string DomainId = "",
+    string LocalPart = "",
+    string Status = "Active");
 
 public record CreateAliasRequest(
     string DomainId,

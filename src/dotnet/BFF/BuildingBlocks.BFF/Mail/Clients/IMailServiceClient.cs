@@ -8,6 +8,7 @@ public interface IMailServiceClient
 {
     // Management
     Task<ProvisionDomainResponse> ProvisionDomainAsync(ProvisionDomainRequest request, CancellationToken cancellationToken = default);
+    Task<VerifyDomainResponse> VerifyDomainAsync(string domainId, CancellationToken cancellationToken = default);
     Task<CreateMailboxResponse> CreateMailboxAsync(CreateMailboxRequest request, CancellationToken cancellationToken = default);
     Task<CreateAliasResponse> CreateAliasAsync(CreateAliasRequest request, CancellationToken cancellationToken = default);
     Task<ListDomainsResponse> ListDomainsAsync(int pageSize = 100, string? nextPageToken = null, CancellationToken cancellationToken = default);

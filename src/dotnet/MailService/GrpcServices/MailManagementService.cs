@@ -38,8 +38,27 @@ public class MailManagementService : MailManagement.MailManagementBase
             DomainName = domain.DomainName,
             DkimSelector = domain.DkimSelector ?? "aurora-2025",
             DkimTxtRecord = domain.DkimTxtRecord ?? string.Empty,
-            ProvisionedAt = Timestamp.FromDateTimeOffset(domain.CreatedAt)
+            ProvisionedAt = Timestamp.FromDateTimeOffset(domain.CreatedAt),
+            Status = domain.Status.ToString()
         };
+    }
+
+    public override async Task<VerifyDomainResponse> VerifyDomain(VerifyDomainRequest request, ServerCallContext context)
+    {
+        if (!Guid.TryParse(request.DomainId, out var domainId))
+            throw new RpcException(new Status(StatusCode.InvalidArgument, "Invalid DomainId GUID format."));
+        var result = await _mediator.Send(new VerifyDomainCommand(domainId), context.CancellationToken);
+        var domain = result.Domain;
+        var response = new VerifyDomainResponse
+        {
+            DomainId = domain.Id.ToString(), Verified = result.Verified, Status = domain.Status.ToString(),
+            Message = result.Message, DkimSelector = domain.DkimSelector ?? "aurora-2025",
+            DkimHost = $"{domain.DkimSelector ?? "aurora-2025"}._domainkey.{domain.DomainName}",
+            ExpectedDkimTxtRecord = domain.DkimTxtRecord ?? string.Empty,
+            ObservedDkimTxtRecord = result.ObservedRecord ?? string.Empty
+        };
+        if (result.Verified) response.VerifiedAt = Timestamp.FromDateTimeOffset(DateTimeOffset.UtcNow);
+        return response;
     }
 
     public override async Task<CreateMailboxResponse> CreateMailbox(CreateMailboxRequest request, ServerCallContext context)
@@ -62,7 +81,10 @@ public class MailManagementService : MailManagement.MailManagementBase
         {
             MailboxId = mailbox.Id.ToString(),
             FullAddress = mailbox.FullAddress,
-            CreatedAt = Timestamp.FromDateTimeOffset(mailbox.CreatedAt)
+            CreatedAt = Timestamp.FromDateTimeOffset(mailbox.CreatedAt),
+            DomainId = mailbox.DomainId.ToString(),
+            LocalPart = mailbox.LocalPart,
+            Status = mailbox.Status.ToString()
         };
     }
 
@@ -106,7 +128,7 @@ public class MailManagementService : MailManagement.MailManagementBase
                 resourceId = parsedId;
             }
 
-            var records = await _mediator.Send(new GetAuditRecordsQuery(resourceId, request.PageSize), context.CancellationToken);
+            var records = await _mediator.Send(new GetAuditRecordsQuery(request.ResourceType, resourceId, request.PageSize), context.CancellationToken);
 
             var response = new GetAuditRecordsResponse();
             if (records != null && records.Count > 0)

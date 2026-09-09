@@ -71,7 +71,9 @@ public enum DraftStatus
 public enum DomainStatus
 {
     Active = 0,
-    Suspended = 1
+    Suspended = 1,
+    Pending = 2,
+    Failed = 3
 }
 
 public enum MailboxStatus
