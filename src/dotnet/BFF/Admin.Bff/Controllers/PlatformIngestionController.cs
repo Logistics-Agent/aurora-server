@@ -1,6 +1,8 @@
 using System;
 using System.IO;
 using System.Linq;
+using System.Security.Cryptography;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Asp.Versioning;
@@ -34,13 +36,21 @@ public sealed class PlatformIngestionController(
     /// Ingest Knowledge Document (JSON payload)
     /// </summary>
     [HttpPost("knowledge-documents")]
-    [RequirePermission(PermissionConstants.Documents.Ingest, "documents:create")]
+    [RequirePermission(PermissionConstants.Compliance.PlatformIngest)]
     public async Task<IActionResult> IngestKnowledgeDocument(
         [FromBody] AdminPlatformKnowledgeRequest request,
         CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(request.Title))
             return BadRequest(new { error = "Title is required." });
+        if (string.IsNullOrWhiteSpace(request.RawText))
+            return BadRequest(new { error = "RawText is required for knowledge corpus ingestion." });
+
+        if (string.IsNullOrWhiteSpace(request.ContentReference) ||
+            !request.ContentReference.StartsWith("knowledge/", StringComparison.Ordinal) ||
+            request.ContentReference.Contains("..", StringComparison.Ordinal))
+            return BadRequest(new { error = "ContentReference must be a knowledge/{path} storage key." });
+        var contentBytes = Encoding.UTF8.GetBytes(request.RawText);
 
         try
         {
@@ -51,18 +61,16 @@ public sealed class PlatformIngestionController(
                     : Guid.NewGuid().ToString(),
                 Title = request.Title,
                 Category = (KnowledgeCategory)(int)request.Category,
-                SourceReference = request.SourceReference ?? $"sop://{currentUser.TenantId}/{Guid.NewGuid()}",
+                SourceReference = request.SourceReference ?? $"https://knowledge.aurora.local/{Guid.NewGuid()}",
                 LanguageCode = request.LanguageCode ?? "en",
                 VersionLabel = request.VersionLabel ?? "1.0",
-                ContentReference = request.ContentReference ?? request.StorageReference ?? string.Empty,
-                FileName = request.FileName ?? $"{request.Title.Replace(' ', '_')}.pdf",
-                MimeType = request.MimeType ?? "application/pdf",
-                SizeBytes = request.SizeBytes > 0 ? request.SizeBytes : 1024,
-                ContentSha256 = request.ContentSha256 ?? new string('0', 64),
-                Content = !string.IsNullOrEmpty(request.RawText)
-                    ? ByteString.CopyFromUtf8(request.RawText)
-                    : ByteString.Empty,
-                Visibility = RegulatorySourceVisibility.Tenant
+                ContentReference = request.ContentReference,
+                FileName = request.FileName ?? $"{request.Title.Replace(' ', '_')}.md",
+                MimeType = request.MimeType ?? "text/markdown",
+                SizeBytes = contentBytes.Length,
+                ContentSha256 = Convert.ToHexString(SHA256.HashData(contentBytes)).ToLowerInvariant(),
+                Content = ByteString.CopyFrom(contentBytes),
+                Visibility = RegulatorySourceVisibility.Platform
             };
 
             var response = await regulatoryClient.IngestKnowledgeDocumentAsync(ingestRequest, cancellationToken: cancellationToken);
@@ -91,7 +99,7 @@ public sealed class PlatformIngestionController(
     /// Upload & Ingest Knowledge Document File (Multipart Form)
     /// </summary>
     [HttpPost("knowledge-documents/upload")]
-    [RequirePermission(PermissionConstants.Documents.Ingest, "documents:create")]
+    [RequirePermission(PermissionConstants.Compliance.PlatformIngest)]
     public async Task<IActionResult> UploadKnowledgeDocument(
         [FromForm] string title,
         [FromForm] string? category,
@@ -105,6 +113,9 @@ public sealed class PlatformIngestionController(
 
         if (string.IsNullOrWhiteSpace(title))
             title = Path.GetFileNameWithoutExtension(file.FileName);
+
+        if (file.ContentType is not ("text/plain" or "text/markdown"))
+            return BadRequest(new { error = "Only text/plain and text/markdown files can be indexed. Run PDF files through OCR first." });
 
         try
         {
@@ -126,16 +137,16 @@ public sealed class PlatformIngestionController(
                 IdempotencyKey = Guid.NewGuid().ToString(),
                 Title = title,
                 Category = categoryEnum,
-                SourceReference = $"sop://{currentUser.TenantId}/{file.FileName}",
+                SourceReference = $"https://knowledge.aurora.local/{Uri.EscapeDataString(file.FileName)}",
                 LanguageCode = language ?? "en",
                 VersionLabel = version ?? "v1.0",
-                ContentReference = $"storage://knowledge/{currentUser.TenantId}/{file.FileName}",
+                ContentReference = $"knowledge/platform/{Guid.NewGuid():N}/{Path.GetFileName(file.FileName)}",
                 FileName = file.FileName,
                 MimeType = file.ContentType ?? "application/pdf",
                 SizeBytes = file.Length,
-                ContentSha256 = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(fileBytes)),
+                ContentSha256 = Convert.ToHexString(SHA256.HashData(fileBytes)).ToLowerInvariant(),
                 Content = ByteString.CopyFrom(fileBytes),
-                Visibility = RegulatorySourceVisibility.Tenant
+                Visibility = RegulatorySourceVisibility.Platform
             };
 
             var response = await regulatoryClient.IngestKnowledgeDocumentAsync(ingestRequest, cancellationToken: cancellationToken);
@@ -167,7 +178,7 @@ public sealed class PlatformIngestionController(
     /// </summary>
     [HttpGet("knowledge-documents")]
     [HttpPost("knowledge/query")]
-    [RequirePermission(PermissionConstants.Documents.Ingest, "documents:read", "compliance:read")]
+    [RequirePermission(PermissionConstants.Documents.Read, PermissionConstants.Compliance.Read)]
     public async Task<IActionResult> QueryKnowledgeDocuments(
         [FromQuery] string? query = null,
         CancellationToken cancellationToken = default)
@@ -206,13 +217,12 @@ public sealed class PlatformIngestionController(
         catch (RpcException ex)
         {
             logger.LogWarning(ex, "gRPC error during QueryKnowledgeDocuments: {Detail}", ex.Status.Detail);
-            // Fallback gracefully with empty list if knowledge service is not yet populated
-            return Ok(new { items = Array.Empty<object>(), total = 0 });
+            return ex.ToActionResult();
         }
         catch (Exception ex)
         {
             logger.LogError(ex, "Unexpected error querying knowledge documents");
-            return Ok(new { items = Array.Empty<object>(), total = 0 });
+            return Problem(title: "KNOWLEDGE_QUERY_FAILED", detail: "Knowledge query failed.");
         }
     }
 
@@ -227,6 +237,16 @@ public sealed class PlatformIngestionController(
     {
         if (string.IsNullOrWhiteSpace(request.Title) || string.IsNullOrWhiteSpace(request.Authority))
             return BadRequest(new { error = "Title and Authority are required." });
+        if (string.IsNullOrWhiteSpace(request.RawText))
+            return BadRequest(new { error = "RawText is required for regulatory corpus ingestion." });
+        if (!Uri.TryCreate(request.CanonicalSourceUri, UriKind.Absolute, out var canonicalUri) ||
+            canonicalUri.Scheme != Uri.UriSchemeHttps || !string.IsNullOrEmpty(canonicalUri.UserInfo))
+            return BadRequest(new { error = "CanonicalSourceUri must be an HTTPS provenance URI." });
+        if (string.IsNullOrWhiteSpace(request.ContentReference) ||
+            !request.ContentReference.StartsWith("regulatory/", StringComparison.Ordinal) ||
+            request.ContentReference.Contains("..", StringComparison.Ordinal))
+            return BadRequest(new { error = "ContentReference must be a regulatory/{path} storage key." });
+        var regulatoryBytes = Encoding.UTF8.GetBytes(request.RawText);
 
         try
         {
@@ -237,21 +257,19 @@ public sealed class PlatformIngestionController(
                     : Guid.NewGuid().ToString(),
                 Authority = request.Authority,
                 Title = request.Title,
-                CanonicalSourceUri = request.CanonicalSourceUri ?? $"urn:platform:law:{Guid.NewGuid()}",
+                CanonicalSourceUri = request.CanonicalSourceUri,
                 JurisdictionCode = request.JurisdictionCode ?? "VN",
                 RegulationType = (RegulationType)(int)request.RegulationType,
                 LanguageCode = request.LanguageCode ?? "vi",
                 VersionLabel = request.VersionLabel ?? "1.0",
                 PublishedAt = Timestamp.FromDateTimeOffset(request.PublishedAt ?? DateTimeOffset.UtcNow),
                 EffectiveFrom = Timestamp.FromDateTimeOffset(request.EffectiveFrom ?? DateTimeOffset.UtcNow),
-                ContentReference = request.ContentReference ?? request.StorageReference ?? string.Empty,
-                FileName = request.FileName ?? "platform-law.pdf",
-                MimeType = request.MimeType ?? "application/pdf",
-                SizeBytes = request.SizeBytes > 0 ? request.SizeBytes : 1024,
-                ContentSha256 = request.ContentSha256 ?? new string('0', 64),
-                Content = !string.IsNullOrEmpty(request.RawText)
-                    ? ByteString.CopyFromUtf8(request.RawText)
-                    : ByteString.Empty,
+                ContentReference = request.ContentReference,
+                FileName = request.FileName ?? "platform-law.md",
+                MimeType = request.MimeType ?? "text/markdown",
+                SizeBytes = regulatoryBytes.Length,
+                ContentSha256 = Convert.ToHexString(SHA256.HashData(regulatoryBytes)).ToLowerInvariant(),
+                Content = ByteString.CopyFrom(regulatoryBytes),
                 Visibility = RegulatorySourceVisibility.Platform
             };
 

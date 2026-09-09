@@ -89,6 +89,21 @@ public sealed class RegulationRetrievalTests
     }
 
     [Fact]
+    public async Task EmptyEmbeddingResponseReturnsInsufficientEvidenceInsteadOfThrowing()
+    {
+        var tenantId = Guid.CreateVersion7();
+        var currentUser = CurrentUser(tenantId);
+        await using var context = CreateContext(currentUser);
+
+        var service = CreateService(context, currentUser, new EmptyEmbeddingProvider());
+        var result = await service.QueryAsync(Query());
+
+        Assert.Equal(EvidenceSufficiency.Insufficient, result.EvidenceSufficiency);
+        Assert.Empty(result.Evidence);
+        Assert.Single(await context.RetrievalTraces.ToListAsync());
+    }
+
+    [Fact]
     public async Task HighlyOverlappingChunksAreDeduplicatedDeterministically()
     {
         var tenantId = Guid.CreateVersion7();
@@ -146,9 +161,10 @@ public sealed class RegulationRetrievalTests
 
     private static RegulationRetrievalService CreateService(
         RegulatoryComplianceDbContext context,
-        ICurrentUserService currentUser)
+        ICurrentUserService currentUser,
+        IEmbeddingProvider? embeddingProvider = null)
     {
-        var provider = new DeterministicEmbeddingProvider();
+        var provider = embeddingProvider ?? new DeterministicEmbeddingProvider();
         return new RegulationRetrievalService(
             context,
             provider,
@@ -253,5 +269,15 @@ public sealed class RegulationRetrievalTests
     private sealed class FixedTimeProvider(DateTimeOffset value) : TimeProvider
     {
         public override DateTimeOffset GetUtcNow() => value;
+    }
+
+    private sealed class EmptyEmbeddingProvider : IEmbeddingProvider
+    {
+        public EmbeddingModelDescriptor Model { get; } = new("empty", "1", 768);
+
+        public Task<IReadOnlyList<float[]>> GenerateAsync(
+            IReadOnlyList<string> texts,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<float[]>>([]);
     }
 }
