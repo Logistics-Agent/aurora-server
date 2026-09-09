@@ -189,15 +189,24 @@ public class CognitoAuthService(
 
     public async Task<AuthResult> InitiateAuthAsync(string clientId, string email, string password, CancellationToken ct = default)
     {
+        var targetClientId = GetEffectiveClientId(clientId);
+        var authParameters = new Dictionary<string, string>
+        {
+            ["USERNAME"] = email,
+            ["PASSWORD"] = password
+        };
+
+        var secretHash = CalculateSecretHash(targetClientId, GetClientSecret(targetClientId), email);
+        if (!string.IsNullOrWhiteSpace(secretHash))
+        {
+            authParameters["SECRET_HASH"] = secretHash;
+        }
+
         var request = new InitiateAuthRequest
         {
-            ClientId = clientId,
+            ClientId = targetClientId,
             AuthFlow = AuthFlowType.USER_PASSWORD_AUTH,
-            AuthParameters = new Dictionary<string, string>
-            {
-                ["USERNAME"] = email,
-                ["PASSWORD"] = password
-            }
+            AuthParameters = authParameters
         };
 
         var response = await cognito.InitiateAuthAsync(request, ct);
@@ -223,21 +232,30 @@ public class CognitoAuthService(
 
     public async Task<AuthResult> CompleteNewPasswordChallengeAsync(string email, string newPassword, string session, CancellationToken ct = default)
     {
-        return await CompleteNewPasswordChallengeAsync(_options.ClientId, email, newPassword, session, ct);
+        return await CompleteNewPasswordChallengeAsync(GetEffectiveClientId(), email, newPassword, session, ct);
     }
 
     public async Task<AuthResult> CompleteNewPasswordChallengeAsync(string clientId, string email, string newPassword, string session, CancellationToken ct = default)
     {
+        var targetClientId = GetEffectiveClientId(clientId);
+        var challengeResponses = new Dictionary<string, string>
+        {
+            ["USERNAME"] = email,
+            ["NEW_PASSWORD"] = newPassword
+        };
+
+        var secretHash = CalculateSecretHash(targetClientId, GetClientSecret(targetClientId), email);
+        if (!string.IsNullOrWhiteSpace(secretHash))
+        {
+            challengeResponses["SECRET_HASH"] = secretHash;
+        }
+
         var request = new RespondToAuthChallengeRequest
         {
-            ClientId = clientId,
+            ClientId = targetClientId,
             ChallengeName = ChallengeNameType.NEW_PASSWORD_REQUIRED,
             Session = session,
-            ChallengeResponses = new Dictionary<string, string>
-            {
-                ["USERNAME"] = email,
-                ["NEW_PASSWORD"] = newPassword
-            }
+            ChallengeResponses = challengeResponses
         };
 
         var response = await cognito.RespondToAuthChallengeAsync(request, ct);
@@ -264,14 +282,16 @@ public class CognitoAuthService(
     public async Task<AuthResult> RefreshTokenAsync(string? clientId, string refreshToken, CancellationToken ct = default)
     {
         var targetClientId = GetEffectiveClientId(clientId);
+        var authParameters = new Dictionary<string, string>
+        {
+            ["REFRESH_TOKEN"] = refreshToken
+        };
+
         var request = new InitiateAuthRequest
         {
             ClientId = targetClientId,
             AuthFlow = AuthFlowType.REFRESH_TOKEN_AUTH,
-            AuthParameters = new Dictionary<string, string>
-            {
-                ["REFRESH_TOKEN"] = refreshToken
-            }
+            AuthParameters = authParameters
         };
 
         var response = await cognito.InitiateAuthAsync(request, ct);
@@ -297,6 +317,7 @@ public class CognitoAuthService(
         {
             ClientId = targetClientId,
             Username = email,
+            SecretHash = CalculateSecretHash(targetClientId, GetClientSecret(targetClientId), email)
         };
 
         await cognito.ForgotPasswordAsync(request, ct);
@@ -316,6 +337,7 @@ public class CognitoAuthService(
             Username = email,
             Password = newPassword,
             ConfirmationCode = confirmationCode,
+            SecretHash = CalculateSecretHash(targetClientId, GetClientSecret(targetClientId), email)
         };
 
         await cognito.ConfirmForgotPasswordAsync(request, ct);
@@ -363,5 +385,36 @@ public class CognitoAuthService(
             return envClientId;
 
         throw new InvalidOperationException("Cognito ClientId is not configured. Please verify AWS_COGNITO_CLIENT_ID environment variable.");
+    }
+
+    private string? GetClientSecret(string clientId)
+    {
+        var systemClientId = GetEffectiveClientId();
+        if (string.Equals(clientId, systemClientId, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(clientId, _options.ClientId, StringComparison.OrdinalIgnoreCase))
+        {
+            if (!string.IsNullOrWhiteSpace(_options.ClientSecret))
+                return _options.ClientSecret;
+
+            return Environment.GetEnvironmentVariable("AWS_COGNITO_CLIENT_SECRET")
+                ?? Environment.GetEnvironmentVariable("AWS_COGNITO_APP_CLIENT_SECRET")
+                ?? Environment.GetEnvironmentVariable("COGNITO_APP_CLIENT_SECRET")
+                ?? Environment.GetEnvironmentVariable("COGNITO_CLIENT_SECRET")
+                ?? Environment.GetEnvironmentVariable("Cognito__ClientSecret");
+        }
+
+        return null;
+    }
+
+    private static string? CalculateSecretHash(string clientId, string? clientSecret, string username)
+    {
+        if (string.IsNullOrWhiteSpace(clientSecret) || string.IsNullOrWhiteSpace(clientId) || string.IsNullOrWhiteSpace(username))
+            return null;
+
+        var data = Encoding.UTF8.GetBytes(username + clientId);
+        var key = Encoding.UTF8.GetBytes(clientSecret);
+        using var hmac = new HMACSHA256(key);
+        var hash = hmac.ComputeHash(data);
+        return Convert.ToBase64String(hash);
     }
 }
