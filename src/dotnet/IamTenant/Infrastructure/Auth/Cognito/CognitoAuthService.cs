@@ -214,7 +214,10 @@ public class CognitoAuthService(
 
             response = await cognito.InitiateAuthAsync(request, ct);
         }
-        catch (AmazonCognitoIdentityProviderException ex) when (ex is NotAuthorizedException or InvalidParameterException)
+        catch (AmazonCognitoIdentityProviderException ex) when (
+            string.Equals(targetClientId, GetEffectiveClientId(), StringComparison.OrdinalIgnoreCase) &&
+            (ex is NotAuthorizedException or InvalidParameterException) &&
+            ex.Message.Contains("Auth flow not enabled", StringComparison.OrdinalIgnoreCase))
         {
             var poolId = GetEffectiveUserPoolId();
             if (!string.IsNullOrWhiteSpace(poolId))
