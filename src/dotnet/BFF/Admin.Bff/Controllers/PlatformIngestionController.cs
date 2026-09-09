@@ -19,24 +19,22 @@ using Shared.Security;
 
 namespace AdminBff.Controllers;
 
-[ApiController]
 [ApiVersion("1.0")]
 [Route("api/v{version:apiVersion}/admin/ingestion")]
 [Route("api/v{version:apiVersion}/admin/knowledge")]
 [Route("api/admin")]
 [Route("api/platform")]
-[Authorize]
 public sealed class PlatformIngestionController(
     RegulatoryComplianceService.RegulatoryComplianceServiceClient regulatoryClient,
     ICurrentUserService currentUser,
     ILogger<PlatformIngestionController> logger)
-    : ControllerBase
+    : AdminControllerBase
 {
     /// <summary>
     /// Ingest Knowledge Document (JSON payload)
     /// </summary>
     [HttpPost("knowledge-documents")]
-    [RequirePermission(PermissionConstants.Compliance.PlatformIngest, "documents:create")]
+    [RequirePermission(PermissionConstants.Documents.Ingest, "documents:create")]
     public async Task<IActionResult> IngestKnowledgeDocument(
         [FromBody] AdminPlatformKnowledgeRequest request,
         CancellationToken cancellationToken)
@@ -93,7 +91,7 @@ public sealed class PlatformIngestionController(
     /// Upload & Ingest Knowledge Document File (Multipart Form)
     /// </summary>
     [HttpPost("knowledge-documents/upload")]
-    [RequirePermission(PermissionConstants.Compliance.PlatformIngest, "documents:create")]
+    [RequirePermission(PermissionConstants.Documents.Ingest, "documents:create")]
     public async Task<IActionResult> UploadKnowledgeDocument(
         [FromForm] string title,
         [FromForm] string? category,
@@ -169,7 +167,7 @@ public sealed class PlatformIngestionController(
     /// </summary>
     [HttpGet("knowledge-documents")]
     [HttpPost("knowledge/query")]
-    [RequirePermission(PermissionConstants.Compliance.PlatformIngest, "documents:read", "compliance:read")]
+    [RequirePermission(PermissionConstants.Documents.Ingest, "documents:read", "compliance:read")]
     public async Task<IActionResult> QueryKnowledgeDocuments(
         [FromQuery] string? query = null,
         CancellationToken cancellationToken = default)

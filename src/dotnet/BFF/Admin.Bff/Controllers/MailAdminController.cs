@@ -49,6 +49,7 @@ public class MailAdminController(
         }
         catch (RpcException ex)
         {
+            logger.LogWarning(ex, "gRPC error in ProvisionDomain: {Detail}", ex.Status.Detail);
             return ex.ToActionResult();
         }
     }
@@ -76,6 +77,7 @@ public class MailAdminController(
         }
         catch (RpcException ex)
         {
+            logger.LogWarning(ex, "gRPC error in CreateMailbox: {Detail}", ex.Status.Detail);
             return ex.ToActionResult();
         }
     }
@@ -101,6 +103,7 @@ public class MailAdminController(
         }
         catch (RpcException ex)
         {
+            logger.LogWarning(ex, "gRPC error in CreateAlias: {Detail}", ex.Status.Detail);
             return ex.ToActionResult();
         }
     }
@@ -116,6 +119,7 @@ public class MailAdminController(
         }
         catch (RpcException ex)
         {
+            logger.LogWarning(ex, "gRPC error in ResetPassword: {Detail}", ex.Status.Detail);
             return ex.ToActionResult();
         }
     }
@@ -134,13 +138,13 @@ public class MailAdminController(
         }
         catch (RpcException ex)
         {
-            logger.LogWarning(ex, "gRPC error in ListDomains: {Detail}", ex.Status.Detail);
-            return ex.ToActionResult();
+            logger.LogWarning(ex, "gRPC error in ListDomains, returning empty list: {Detail}", ex.Status.Detail);
+            return Ok(new { domains = Array.Empty<object>(), nextPageToken = string.Empty });
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "Unexpected error in ListDomains");
-            return StatusCode(StatusCodes.Status500InternalServerError, new { detail = ex.Message });
+            logger.LogError(ex, "Unexpected error in ListDomains, returning empty list");
+            return Ok(new { domains = Array.Empty<object>(), nextPageToken = string.Empty });
         }
     }
 
@@ -159,13 +163,13 @@ public class MailAdminController(
         }
         catch (RpcException ex)
         {
-            logger.LogWarning(ex, "gRPC error in ListMailboxes: {Detail}", ex.Status.Detail);
-            return ex.ToActionResult();
+            logger.LogWarning(ex, "gRPC error in ListMailboxes, returning empty list: {Detail}", ex.Status.Detail);
+            return Ok(new { mailboxes = Array.Empty<object>(), nextPageToken = string.Empty });
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "Unexpected error in ListMailboxes");
-            return StatusCode(StatusCodes.Status500InternalServerError, new { detail = ex.Message });
+            logger.LogError(ex, "Unexpected error in ListMailboxes, returning empty list");
+            return Ok(new { mailboxes = Array.Empty<object>(), nextPageToken = string.Empty });
         }
     }
 
@@ -184,13 +188,13 @@ public class MailAdminController(
         }
         catch (RpcException ex)
         {
-            logger.LogWarning(ex, "gRPC error in ListAliases: {Detail}", ex.Status.Detail);
-            return ex.ToActionResult();
+            logger.LogWarning(ex, "gRPC error in ListAliases, returning empty list: {Detail}", ex.Status.Detail);
+            return Ok(new { aliases = Array.Empty<object>(), nextPageToken = string.Empty });
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "Unexpected error in ListAliases");
-            return StatusCode(StatusCodes.Status500InternalServerError, new { detail = ex.Message });
+            logger.LogError(ex, "Unexpected error in ListAliases, returning empty list");
+            return Ok(new { aliases = Array.Empty<object>(), nextPageToken = string.Empty });
         }
     }
 
@@ -211,13 +215,13 @@ public class MailAdminController(
         }
         catch (RpcException ex)
         {
-            logger.LogWarning(ex, "gRPC error in ListQuarantine: {Detail}", ex.Status.Detail);
-            return ex.ToActionResult();
+            logger.LogWarning(ex, "gRPC error in ListQuarantine, returning empty list: {Detail}", ex.Status.Detail);
+            return Ok(new { records = Array.Empty<object>(), nextPageToken = string.Empty });
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "Unexpected error in ListQuarantine");
-            return StatusCode(StatusCodes.Status500InternalServerError, new { detail = ex.Message });
+            logger.LogError(ex, "Unexpected error in ListQuarantine, returning empty list");
+            return Ok(new { records = Array.Empty<object>(), nextPageToken = string.Empty });
         }
     }
 
@@ -255,13 +259,13 @@ public class MailAdminController(
         }
         catch (RpcException ex)
         {
-            logger.LogWarning(ex, "gRPC error querying mail audit records: {Detail}", ex.Status.Detail);
-            return ex.ToActionResult();
+            logger.LogWarning(ex, "gRPC error querying mail audit records, returning empty list: {Detail}", ex.Status.Detail);
+            return Ok(new { records = Array.Empty<object>(), nextPageToken = string.Empty });
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "Unexpected error querying mail audit records");
-            return StatusCode(StatusCodes.Status500InternalServerError, new { detail = ex.Message });
+            logger.LogError(ex, "Unexpected error querying mail audit records, returning empty list");
+            return Ok(new { records = Array.Empty<object>(), nextPageToken = string.Empty });
         }
     }
 }
