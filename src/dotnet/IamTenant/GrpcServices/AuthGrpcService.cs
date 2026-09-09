@@ -144,6 +144,14 @@ public class AuthGrpcService(
             }
             return new EmptyResponse();
         }
+        catch (RpcException)
+        {
+            throw;
+        }
+        catch (Amazon.CognitoIdentityProvider.Model.UserNotFoundException)
+        {
+            throw new RpcException(new Status(StatusCode.NotFound, "User not found in authentication provider."));
+        }
         catch (Exception ex)
         {
             throw new RpcException(new Status(StatusCode.InvalidArgument, ex.Message));
@@ -171,6 +179,14 @@ public class AuthGrpcService(
                 await cognitoService.ConfirmForgotPasswordAsync(clientId, request.Email, request.NewPassword, request.ConfirmationCode, context.CancellationToken);
             }
             return new EmptyResponse();
+        }
+        catch (RpcException)
+        {
+            throw;
+        }
+        catch (Amazon.CognitoIdentityProvider.Model.UserNotFoundException)
+        {
+            throw new RpcException(new Status(StatusCode.NotFound, "User not found in authentication provider."));
         }
         catch (Exception ex)
         {
@@ -202,6 +218,14 @@ public class AuthGrpcService(
                 await cognitoService.ChangePasswordAsync(clientId, request.Email, request.CurrentPassword, request.NewPassword, context.CancellationToken);
             }
             return new EmptyResponse();
+        }
+        catch (RpcException)
+        {
+            throw;
+        }
+        catch (Amazon.CognitoIdentityProvider.Model.UserNotFoundException)
+        {
+            throw new RpcException(new Status(StatusCode.NotFound, "User not found in authentication provider."));
         }
         catch (UnauthorizedAccessException ex)
         {
