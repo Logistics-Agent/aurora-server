@@ -107,6 +107,14 @@ public static class PermissionConstants
     }
 
     // =========================
+    // AI ASSISTANT
+    // =========================
+    public static class Assistant
+    {
+        public const string Query = "assistant:query";
+    }
+
+    // =========================
     // FINANCIAL
     // =========================
     public static class Financial
@@ -196,6 +204,9 @@ public static class PermissionConstants
         // Compliance
         Compliance.Read, Compliance.Override, Compliance.PlatformIngest,
 
+        // AI assistant
+        Assistant.Query,
+
         // Financial
         Financial.Read, Financial.Calculate,
 
@@ -257,7 +268,8 @@ public static class PermissionConstants
 
         // Document and compliance read/query
         Documents.Read,
-        Compliance.Read
+        Compliance.Read,
+        Assistant.Query
     ];
 
     /// <summary>
@@ -298,6 +310,9 @@ public static class PermissionConstants
 
         // Compliance operations
         Compliance.Read,
+
+        // AI assistant
+        Assistant.Query,
 
         // Compliance override
         Compliance.Override,

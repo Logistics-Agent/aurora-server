@@ -337,8 +337,14 @@ public sealed class GroundedAnswerService(
         }
         catch (JsonException)
         {
-            // Fallback: If model did not produce valid JSON, use raw prose as answer
-            return new LlmParsedResponse(rawContent, [], [], [], false, []);
+            // Do not expose unvalidated model prose as a grounded answer.
+            return new LlmParsedResponse(
+                "The assistant response could not be validated against the retrieved evidence.",
+                [],
+                [],
+                [],
+                true,
+                ["The AI response was not valid structured output."]);
         }
     }
 }
