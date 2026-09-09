@@ -43,9 +43,12 @@ public class IdentifyUserQueryHandler(IamTenantDbContext context) : IRequestHand
             return new IdentifyUserResult(false, null, null);
         }
 
+        var isSystemAdmin = user.TenantId == null || user.Role == BaseRole.SystemAdmin;
+        var tenantCode = user.TenantCode ?? (isSystemAdmin ? "SYSTEM" : "STAFF");
+
         return new IdentifyUserResult(
             true, 
-            user.TenantCode ?? "SYSTEM_ADMIN", 
+            tenantCode, 
             user.Role.ToCode(),
             user.Id,
             user.TenantId,
