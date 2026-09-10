@@ -33,11 +33,7 @@ variable "aks_subnet_cidr" {
   default     = "10.10.0.0/20"
 }
 
-variable "appgw_subnet_cidr" {
-  description = "CIDR block for AppGW subnet (10.10.16.0/24)"
-  type        = string
-  default     = "10.10.16.0/24"
-}
+
 
 variable "enable_nat_gateway" {
   description = "Conditionally deploy NAT Gateway (false for demo)"

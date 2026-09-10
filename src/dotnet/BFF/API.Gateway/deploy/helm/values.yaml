@@ -2,7 +2,7 @@ nameOverride: "api-gateway"
 fullnameOverride: "api-gateway"
 
 image:
-  repository: acrauroracoredemo.azurecr.io/aurora/api-gateway
+  repository: acrauroracorekhoa.azurecr.io/aurora/api-gateway
   tag: "latest"
   pullPolicy: IfNotPresent
 

@@ -2,7 +2,7 @@ nameOverride: "customer-assistant-service"
 fullnameOverride: "customer-assistant-service"
 
 image:
-  repository: acrauroracoredemo.azurecr.io/aurora/customer-assistant-service
+  repository: acrauroracorekhoa.azurecr.io/aurora/customer-assistant-service
   tag: "latest"
   pullPolicy: IfNotPresent
 

@@ -2,7 +2,7 @@ nameOverride: "document-ocr"
 fullnameOverride: "document-ocr"
 
 image:
-  repository: acrauroracoredemo.azurecr.io/aurora/document-ocr
+  repository: acrauroracorekhoa.azurecr.io/aurora/document-ocr
   tag: "latest"
   pullPolicy: IfNotPresent
 

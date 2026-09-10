@@ -13,7 +13,7 @@ strategy:
     maxUnavailable: 1
 
 image:
-  repository: acrauroracoredemo.azurecr.io/aurora/service-placeholder
+  repository: acrauroracorekhoa.azurecr.io/aurora/service-placeholder
   pullPolicy: IfNotPresent
   tag: "latest"
 

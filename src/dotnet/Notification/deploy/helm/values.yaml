@@ -2,7 +2,7 @@ nameOverride: "notification"
 fullnameOverride: "notification"
 
 image:
-  repository: acrauroracoredemo.azurecr.io/aurora/notification
+  repository: acrauroracorekhoa.azurecr.io/aurora/notification
   tag: ""
   pullPolicy: IfNotPresent
 

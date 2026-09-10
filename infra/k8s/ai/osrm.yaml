@@ -52,7 +52,7 @@ spec:
               mountPath: /data
       containers:
         - name: osrm
-          image: acrauroracoredemo.azurecr.io/osrm-backend:v5.27.1
+          image: acrauroracorekhoa.azurecr.io/osrm-backend:v5.27.1
           imagePullPolicy: IfNotPresent
           command:
             - osrm-routed

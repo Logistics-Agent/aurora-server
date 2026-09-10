@@ -2,7 +2,7 @@ nameOverride: "iam-tenant"
 fullnameOverride: "iam-tenant"
 
 image:
-  repository: acrauroracoredemo.azurecr.io/aurora/iam-tenant
+  repository: acrauroracorekhoa.azurecr.io/aurora/iam-tenant
   tag: "latest"
   pullPolicy: IfNotPresent
 

@@ -2,7 +2,7 @@ nameOverride: "financial-service"
 fullnameOverride: "financial-service"
 
 image:
-  repository: acrauroracoredemo.azurecr.io/aurora/financial-service
+  repository: acrauroracorekhoa.azurecr.io/aurora/financial-service
   tag: "latest"
   pullPolicy: IfNotPresent
 

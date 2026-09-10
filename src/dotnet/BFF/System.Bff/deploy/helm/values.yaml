@@ -2,8 +2,8 @@ nameOverride: "system-bff"
 fullnameOverride: "system-bff"
 
 image:
-  repository: acrauroracoredemo.azurecr.io/aurora/system-bff
-  tag: "latest"
+  repository: acrauroracorekhoa.azurecr.io/aurora/system-bff
+  tag: ""
   pullPolicy: IfNotPresent
 
 service:

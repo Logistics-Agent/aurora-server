@@ -2,7 +2,7 @@ nameOverride: "ai-governance"
 fullnameOverride: "ai-governance"
 
 image:
-  repository: acrauroracoredemo.azurecr.io/aurora/ai-governance
+  repository: acrauroracorekhoa.azurecr.io/aurora/ai-governance
   tag: "latest"
   pullPolicy: IfNotPresent
 

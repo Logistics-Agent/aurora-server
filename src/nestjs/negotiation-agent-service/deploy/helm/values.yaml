@@ -2,7 +2,7 @@ nameOverride: "negotiation-agent-service"
 fullnameOverride: "negotiation-agent-service"
 
 image:
-  repository: acrauroracoredemo.azurecr.io/aurora/negotiation-agent-service
+  repository: acrauroracorekhoa.azurecr.io/aurora/negotiation-agent-service
   tag: "latest"
   pullPolicy: IfNotPresent
 

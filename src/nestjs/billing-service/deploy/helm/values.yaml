@@ -2,7 +2,7 @@ nameOverride: "billing-service"
 fullnameOverride: "billing-service"
 
 image:
-  repository: acrauroracoredemo.azurecr.io/aurora/billing-service
+  repository: acrauroracorekhoa.azurecr.io/aurora/billing-service
   tag: "latest"
   pullPolicy: IfNotPresent
 

@@ -2,7 +2,7 @@ nameOverride: "devops-agent"
 fullnameOverride: "devops-agent"
 
 image:
-  repository: acrauroracoredemo.azurecr.io/aurora/devops-agent
+  repository: acrauroracorekhoa.azurecr.io/aurora/devops-agent
   tag: "latest"
   pullPolicy: IfNotPresent
 

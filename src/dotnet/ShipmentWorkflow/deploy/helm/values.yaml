@@ -2,7 +2,7 @@ nameOverride: "shipment-workflow"
 fullnameOverride: "shipment-workflow"
 
 image:
-  repository: acrauroracoredemo.azurecr.io/aurora/shipment-workflow
+  repository: acrauroracorekhoa.azurecr.io/aurora/shipment-workflow
   tag: "latest"
   pullPolicy: IfNotPresent
 

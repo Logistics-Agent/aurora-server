@@ -2,7 +2,7 @@ nameOverride: "gps-tracking"
 fullnameOverride: "gps-tracking"
 
 image:
-  repository: acrauroracoredemo.azurecr.io/aurora/gps-tracking
+  repository: acrauroracorekhoa.azurecr.io/aurora/gps-tracking
   tag: "latest"
   pullPolicy: IfNotPresent
 

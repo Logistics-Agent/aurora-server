@@ -2,7 +2,7 @@ nameOverride: "regulatory-compliance"
 fullnameOverride: "regulatory-compliance"
 
 image:
-  repository: acrauroracoredemo.azurecr.io/aurora/regulatory-compliance
+  repository: acrauroracorekhoa.azurecr.io/aurora/regulatory-compliance
   tag: "latest"
   pullPolicy: IfNotPresent
 

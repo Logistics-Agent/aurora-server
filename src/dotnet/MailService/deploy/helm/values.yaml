@@ -2,7 +2,7 @@ nameOverride: "mail-service"
 fullnameOverride: "mail-service"
 
 image:
-  repository: acrauroracoredemo.azurecr.io/aurora/mail-service
+  repository: acrauroracorekhoa.azurecr.io/aurora/mail-service
   tag: "latest"
   pullPolicy: IfNotPresent
 

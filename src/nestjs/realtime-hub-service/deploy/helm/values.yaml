@@ -2,7 +2,7 @@ nameOverride: "realtime-hub-service"
 fullnameOverride: "realtime-hub-service"
 
 image:
-  repository: acrauroracoredemo.azurecr.io/aurora/realtime-hub-service
+  repository: acrauroracorekhoa.azurecr.io/aurora/realtime-hub-service
   tag: "latest"
   pullPolicy: IfNotPresent
 

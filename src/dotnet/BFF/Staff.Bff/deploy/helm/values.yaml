@@ -2,8 +2,8 @@ nameOverride: "staff-bff"
 fullnameOverride: "staff-bff"
 
 image:
-  repository: acrauroracoredemo.azurecr.io/aurora/staff-bff
-  tag: "latest"
+  repository: acrauroracorekhoa.azurecr.io/aurora/staff-bff
+  tag: ""
   pullPolicy: IfNotPresent
 
 service:

@@ -2,7 +2,7 @@ nameOverride: "audit-service"
 fullnameOverride: "audit-service"
 
 image:
-  repository: acrauroracoredemo.azurecr.io/aurora/audit-service
+  repository: acrauroracorekhoa.azurecr.io/aurora/audit-service
   tag: "latest"
   pullPolicy: IfNotPresent
 

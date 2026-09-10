@@ -2,7 +2,7 @@ nameOverride: "route-planning-agent"
 fullnameOverride: "route-planning-agent"
 
 image:
-  repository: acrauroracoredemo.azurecr.io/aurora/route-planning-agent
+  repository: acrauroracorekhoa.azurecr.io/aurora/route-planning-agent
   tag: "latest"
   pullPolicy: IfNotPresent
 
