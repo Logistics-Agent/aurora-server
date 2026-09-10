@@ -28,7 +28,6 @@ env:
 
 externalSecret:
   enabled: true
-  apiVersion: "external-secrets.io/v1"
   secretStoreRef:
     name: azure-keyvault-store
     kind: ClusterSecretStore
