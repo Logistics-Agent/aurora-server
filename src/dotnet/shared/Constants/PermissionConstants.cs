@@ -269,6 +269,9 @@ public static class PermissionConstants
         // Document and compliance read/query
         Documents.Read,
         Compliance.Read,
+        Assistant.Query,
+
+        //AI Assistant
         Assistant.Query
     ];
 

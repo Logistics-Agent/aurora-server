@@ -12,9 +12,42 @@ service:
   targetPort: 3000
 
 env:
-  VROOM_ROUTER: "osrm"
-  VROOM_ROUTER_HOST: "osrm"
-  VROOM_ROUTER_PORT: "5000"
+  config.yml: |
+    cliArgs:
+      geometry: true
+      planmode: false
+      threads: 4
+      explore: 5
+      limit: '1mb'
+      logdir: '/conf'
+      logsize: '100M'
+      maxlocations: 1000
+      maxvehicles: 200
+      override: true
+      path: ''
+      port: 3000
+      router: 'osrm'
+      timeout: 300000
+      baseurl: '/'
+
+    routingServers:
+      osrm:
+        car:
+          host: 'osrm'
+          port: '5000'
+
+volumes:
+  - name: vroom-config-vol
+    configMap:
+      name: vroom-config
+      items:
+        - key: config.yml
+          path: config.yml
+
+volumeMounts:
+  - name: vroom-config-vol
+    mountPath: /conf/config.yml
+    subPath: config.yml
 
 livenessProbe:
   httpGet:
@@ -62,6 +95,7 @@ podSecurityContext:
 securityContext:
   allowPrivilegeEscalation: true
   readOnlyRootFilesystem: false
+
 
 
 
