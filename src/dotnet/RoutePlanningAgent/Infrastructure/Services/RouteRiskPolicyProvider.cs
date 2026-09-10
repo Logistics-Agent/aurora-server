@@ -41,21 +41,13 @@ public class RouteRiskPolicyProvider(
                 $"Truy xuất cấu hình chính sách rủi ro của Tenant '{tenantId}' thất bại: {ex.Message}");
         }
 
-        // 1. UNCONFIGURED -> Chặn tuyệt đối (Block), ném RiskPolicyNotConfiguredException
-        if (config == null)
+        // 1. UNCONFIGURED or USE_PLATFORM_DEFAULT -> Áp dụng Platform Default Policy v1
+        if (config == null || config.PolicyMode == RiskPolicyMode.UsePlatformDefault)
         {
-            throw new RiskPolicyNotConfiguredException(
-                $"Tenant '{tenantId}' chưa thiết lập cấu hình chính sách rủi ro (Risk Policy). " +
-                $"Vui lòng cấu hình tường minh 'UsePlatformDefault' hoặc 'UseCustomPolicy' trước khi thực hiện vận hành.");
-        }
-
-        // 2. USE_PLATFORM_DEFAULT -> Áp dụng Platform Default Policy v1
-        if (config.PolicyMode == RiskPolicyMode.UsePlatformDefault)
-        {
-            var policyId = !string.IsNullOrWhiteSpace(config.ActivePolicyId)
+            var policyId = config != null && !string.IsNullOrWhiteSpace(config.ActivePolicyId)
                 ? config.ActivePolicyId
                 : PlatformDefaultPolicyId;
-            var policyVersion = config.ActivePolicyVersion > 0
+            var policyVersion = config != null && config.ActivePolicyVersion > 0
                 ? config.ActivePolicyVersion
                 : PlatformDefaultVersion;
 
