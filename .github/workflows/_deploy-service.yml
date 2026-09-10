@@ -71,6 +71,9 @@ jobs:
         run: |
           if [ "${{ inputs.deploy-target }}" = "ai" ]; then
             SUB_ID="${{ secrets.AZURE_SUBSCRIPTION_AI }}"
+            [ -z "$SUB_ID" ] && SUB_ID="${{ vars.AZURE_SUBSCRIPTION_AI }}"
+            [ -z "$SUB_ID" ] && SUB_ID="55535e30-3b5c-41a3-a739-2a50704199e5"
+
             CLUSTER="${{ secrets.AKS_AI_CLUSTER }}"
             [ -z "$CLUSTER" ] && CLUSTER="${{ vars.AKS_AI_CLUSTER }}"
             [ -z "$CLUSTER" ] && CLUSTER="aks-ai-demo"
@@ -80,6 +83,9 @@ jobs:
             [ -z "$RG" ] && RG="rg-aurora-ai-demo"
           else
             SUB_ID="${{ secrets.AZURE_SUBSCRIPTION_CORE }}"
+            [ -z "$SUB_ID" ] && SUB_ID="${{ vars.AZURE_SUBSCRIPTION_CORE }}"
+            [ -z "$SUB_ID" ] && SUB_ID="7d37deef-9d7a-4aa9-bb37-a94e85a8eade"
+
             CLUSTER="${{ secrets.AKS_CORE_CLUSTER }}"
             [ -z "$CLUSTER" ] && CLUSTER="${{ vars.AKS_CORE_CLUSTER }}"
             [ -z "$CLUSTER" ] && CLUSTER="aks-core-demo"
@@ -91,7 +97,7 @@ jobs:
 
           ACR_SERVER="${{ secrets.ACR_LOGIN_SERVER }}"
           [ -z "$ACR_SERVER" ] && ACR_SERVER="${{ vars.ACR_LOGIN_SERVER }}"
-          [ -z "$ACR_SERVER" ] && ACR_SERVER="acrauroracoredemo.azurecr.io"
+          [ -z "$ACR_SERVER" ] && ACR_SERVER="acrauroracorekhoa.azurecr.io"
 
           echo "sub_id=$SUB_ID" >> $GITHUB_OUTPUT
           echo "cluster_name=$CLUSTER" >> $GITHUB_OUTPUT
