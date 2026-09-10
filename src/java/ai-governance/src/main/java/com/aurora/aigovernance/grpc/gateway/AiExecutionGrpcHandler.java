@@ -32,6 +32,11 @@ import java.util.UUID;
 public class AiExecutionGrpcHandler extends AiExecutionServiceGrpc.AiExecutionServiceImplBase {
 
     private static final Logger log = LoggerFactory.getLogger(AiExecutionGrpcHandler.class);
+    private static final int MAX_CAPABILITY_CODE_LENGTH = 100;
+    private static final int MAX_PROMPT_LENGTH = 100_000;
+    private static final int MAX_CONTENT_LENGTH = 100_000;
+    private static final long MAX_TOKEN_BUDGET = 1_000_000L;
+    private static final int MAX_EMBEDDING_DIMENSIONS = 4_096;
 
     private final ExecuteAiService executeAiService;
 
@@ -49,6 +54,15 @@ public class AiExecutionGrpcHandler extends AiExecutionServiceGrpc.AiExecutionSe
         if (serviceId == null || serviceId.isBlank()) {
             responseObserver.onError(Status.UNAUTHENTICATED
                     .withDescription("Missing required x-service-id metadata header")
+                    .asRuntimeException());
+            return;
+        }
+
+        try {
+            validateGenerateRequest(request);
+        } catch (IllegalArgumentException exception) {
+            responseObserver.onError(Status.INVALID_ARGUMENT
+                    .withDescription(exception.getMessage())
                     .asRuntimeException());
             return;
         }
@@ -135,9 +149,7 @@ public class AiExecutionGrpcHandler extends AiExecutionServiceGrpc.AiExecutionSe
         } catch (Exception e) {
             log.error("Generation failed: serviceId={}, capability={}, error={}",
                     serviceId, request.getCapabilityCode(), e.getMessage(), e);
-            responseObserver.onError(Status.INTERNAL
-                    .withDescription("AI generation failed: " + e.getMessage())
-                    .asRuntimeException());
+            responseObserver.onError(mapExecutionFailure("AI generation", e));
         }
     }
 
@@ -150,6 +162,15 @@ public class AiExecutionGrpcHandler extends AiExecutionServiceGrpc.AiExecutionSe
         if (serviceId == null || serviceId.isBlank()) {
             responseObserver.onError(Status.UNAUTHENTICATED
                     .withDescription("Missing required x-service-id metadata header")
+                    .asRuntimeException());
+            return;
+        }
+
+        try {
+            validateEmbedRequest(request);
+        } catch (IllegalArgumentException exception) {
+            responseObserver.onError(Status.INVALID_ARGUMENT
+                    .withDescription(exception.getMessage())
                     .asRuntimeException());
             return;
         }
@@ -190,9 +211,60 @@ public class AiExecutionGrpcHandler extends AiExecutionServiceGrpc.AiExecutionSe
         } catch (Exception e) {
             log.error("Embedding failed: serviceId={}, capability={}, error={}",
                     serviceId, request.getCapabilityCode(), e.getMessage(), e);
-            responseObserver.onError(Status.INTERNAL
-                    .withDescription("AI embedding failed: " + e.getMessage())
-                    .asRuntimeException());
+            responseObserver.onError(mapExecutionFailure("AI embedding", e));
         }
+    }
+
+    private static void validateGenerateRequest(AiGenerateRequest request) {
+        validateCapability(request.getCapabilityCode());
+        if (request.getPrompt() == null || request.getPrompt().isBlank()) {
+            throw new IllegalArgumentException("Prompt is required.");
+        }
+        if (request.getPrompt().length() > MAX_PROMPT_LENGTH) {
+            throw new IllegalArgumentException("Prompt exceeds the maximum supported length.");
+        }
+        validateTokenBudget(request.getEstimatedInputTokens(), request.getMaxOutputTokens());
+    }
+
+    private static void validateEmbedRequest(AiEmbedRequest request) {
+        validateCapability(request.getCapabilityCode());
+        if (request.getContent() == null || request.getContent().isBlank()) {
+            throw new IllegalArgumentException("Content is required.");
+        }
+        if (request.getContent().length() > MAX_CONTENT_LENGTH) {
+            throw new IllegalArgumentException("Content exceeds the maximum supported length.");
+        }
+        if (request.getEstimatedInputTokens() < 0 || request.getEstimatedInputTokens() > MAX_TOKEN_BUDGET) {
+            throw new IllegalArgumentException("Estimated input tokens are outside the supported range.");
+        }
+        if (request.getDimensions() < 0 || request.getDimensions() > MAX_EMBEDDING_DIMENSIONS) {
+            throw new IllegalArgumentException("Embedding dimensions are outside the supported range.");
+        }
+    }
+
+    private static void validateCapability(String capabilityCode) {
+        if (capabilityCode == null || capabilityCode.isBlank() || capabilityCode.length() > MAX_CAPABILITY_CODE_LENGTH ||
+                !capabilityCode.matches("[A-Za-z0-9._-]+")) {
+            throw new IllegalArgumentException("Capability code is invalid.");
+        }
+    }
+
+    private static void validateTokenBudget(long estimatedInputTokens, long maxOutputTokens) {
+        if (estimatedInputTokens < 0 || maxOutputTokens < 0 ||
+                estimatedInputTokens > MAX_TOKEN_BUDGET || maxOutputTokens > MAX_TOKEN_BUDGET ||
+                estimatedInputTokens + maxOutputTokens > MAX_TOKEN_BUDGET) {
+            throw new IllegalArgumentException("Token budget is outside the supported range.");
+        }
+    }
+
+    private static io.grpc.StatusRuntimeException mapExecutionFailure(String operation, Exception exception) {
+        var message = exception.getMessage() == null ? "" : exception.getMessage().toUpperCase();
+        if (message.contains("CAPACITY") || message.contains("QUOTA")) {
+            return Status.RESOURCE_EXHAUSTED.withDescription(operation + " capacity is exhausted.").asRuntimeException();
+        }
+        if (message.contains("PROVIDER") || message.contains("TIMEOUT") || message.contains("UNAVAILABLE")) {
+            return Status.UNAVAILABLE.withDescription(operation + " provider is unavailable.").asRuntimeException();
+        }
+        return Status.INTERNAL.withDescription(operation + " failed.").asRuntimeException();
     }
 }

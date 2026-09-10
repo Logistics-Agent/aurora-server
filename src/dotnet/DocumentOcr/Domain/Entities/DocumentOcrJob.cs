@@ -151,7 +151,9 @@ public sealed class DocumentOcrJob : TenantAuditableEntity
         NeedsReview = needsReview;
         FullTextContent = fullTextContent;
         ArtifactReference = artifactReference;
-        Status = DocumentOcrJobStatus.Completed;
+        Status = needsReview
+            ? DocumentOcrJobStatus.RequiresReview
+            : DocumentOcrJobStatus.Completed;
         CompletedAt = completedAt;
         LeaseExpiresAt = null;
         HeartbeatAt = null;
@@ -236,12 +238,27 @@ public sealed class DocumentOcrJob : TenantAuditableEntity
         Guid? reviewedBy,
         DateTimeOffset reviewedAt)
     {
-        if (Status != DocumentOcrJobStatus.Completed)
+        var isReviewable = Status == DocumentOcrJobStatus.RequiresReview ||
+            (Status == DocumentOcrJobStatus.Completed && NeedsReview == true);
+        if (!isReviewable)
             throw new InvalidOperationException($"Cannot review a job with status {Status}.");
+
+        var normalizedAction = action?.Trim().ToUpperInvariant();
+        if (normalizedAction is not ("CONFIRM" or "CORRECT" or "REJECT"))
+            throw new ArgumentException($"Unknown review action: {action}", nameof(action));
+        if (reviewedAt == default)
+            throw new ArgumentException("ReviewedAt is required.", nameof(reviewedAt));
+        if (reviewComment is not null && reviewComment.Length > 2_000)
+            throw new ArgumentOutOfRangeException(nameof(reviewComment));
+        if (normalizedAction == "CORRECT" && string.IsNullOrWhiteSpace(correctedJson))
+            throw new ArgumentException("CorrectedJson is required for CORRECT review.", nameof(correctedJson));
+        var validatedCorrectedJson = normalizedAction == "CORRECT"
+            ? DocumentOcrValidation.Json(correctedJson!, nameof(correctedJson), 100_000)
+            : null;
 
         ReviewedBy = reviewedBy;
         ReviewedAt = reviewedAt;
-        ReviewAction = action.ToUpperInvariant();
+        ReviewAction = normalizedAction;
         ReviewComment = reviewComment;
 
         if (string.IsNullOrEmpty(OriginalAiNormalizedJson))
@@ -249,31 +266,26 @@ public sealed class DocumentOcrJob : TenantAuditableEntity
             OriginalAiNormalizedJson = NormalizedJson;
         }
 
-        if (action.Equals("CONFIRM", StringComparison.OrdinalIgnoreCase))
+        if (normalizedAction == "CONFIRM")
         {
             NeedsReview = false;
+            Status = DocumentOcrJobStatus.Completed;
             UpdatedAt = reviewedAt;
         }
-        else if (action.Equals("CORRECT", StringComparison.OrdinalIgnoreCase))
+        else if (normalizedAction == "CORRECT")
         {
-            if (!string.IsNullOrWhiteSpace(correctedJson))
-            {
-                NormalizedJson = correctedJson;
-            }
+            NormalizedJson = validatedCorrectedJson;
             NeedsReview = false;
+            Status = DocumentOcrJobStatus.Completed;
             UpdatedAt = reviewedAt;
         }
-        else if (action.Equals("REJECT", StringComparison.OrdinalIgnoreCase))
+        else
         {
             Status = DocumentOcrJobStatus.Rejected;
             ErrorCode = "HUMAN_REVIEW_REJECTED";
             ErrorMessage = reviewComment ?? "Document OCR result was rejected during human review.";
             NeedsReview = false;
             UpdatedAt = reviewedAt;
-        }
-        else
-        {
-            throw new ArgumentException($"Unknown review action: {action}", nameof(action));
         }
     }
 

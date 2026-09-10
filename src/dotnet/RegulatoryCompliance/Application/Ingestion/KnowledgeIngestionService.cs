@@ -1,8 +1,10 @@
+using System.Text;
 using Microsoft.EntityFrameworkCore;
 using RegulatoryCompliance.Application.Embeddings;
 using RegulatoryCompliance.Domain.Entities;
 using RegulatoryCompliance.Domain.Enums;
 using RegulatoryCompliance.Infrastructure.Persistences;
+using Shared.Constants;
 using Shared.Security;
 
 namespace RegulatoryCompliance.Application.Ingestion;
@@ -15,14 +17,40 @@ public sealed class KnowledgeIngestionService(
     ICurrentUserService currentUser,
     TimeProvider timeProvider) : IKnowledgeIngestionService
 {
+    public const int MaximumContentBytes = 1_048_576;
+    public const string TenantIngestionPermission = PermissionConstants.Documents.Ingest;
+    public const string PlatformIngestionPermission = PermissionConstants.Compliance.PlatformIngest;
+    private static readonly UTF8Encoding StrictUtf8 = new(false, true);
+    private static readonly HashSet<string> AllowedMimeTypes = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "text/plain", "text/markdown"
+    };
+
     public async Task<KnowledgeIngestionResult> IngestAsync(
         KnowledgeIngestionInput input,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(input);
 
+        Authorize(input.Visibility);
+        var contentBytes = input.Content.ToArray();
+        ValidateMetadata(input, contentBytes);
+        string textContent;
+        try
+        {
+            textContent = StrictUtf8.GetString(contentBytes);
+        }
+        catch (DecoderFallbackException exception)
+        {
+            throw new ArgumentException("Content must be valid UTF-8 text.", nameof(input.Content), exception);
+        }
+        if (string.IsNullOrWhiteSpace(textContent))
+            throw new ArgumentOutOfRangeException(nameof(input.Content), "Content must contain non-whitespace text.");
+
         var now = timeProvider.GetUtcNow();
-        var scopeKey = currentUser.TenantId ?? Guid.Empty;
+        var scopeKey = input.Visibility == SourceVisibility.Platform
+            ? Guid.Empty
+            : currentUser.TenantId!.Value;
 
         // Check idempotency replay
         var existingVersion = await dbContext.KnowledgeDocumentVersions
@@ -68,20 +96,6 @@ public sealed class KnowledgeIngestionService(
             input.SizeBytes,
             now);
 
-        var textContent = System.Text.Encoding.UTF8.GetString(input.Content.Span);
-        if (string.IsNullOrWhiteSpace(textContent))
-        {
-            version.MarkPendingOcr(now);
-            await dbContext.SaveChangesAsync(cancellationToken);
-            return new KnowledgeIngestionResult(
-                document.Id,
-                version.Id,
-                version.IngestionStatus,
-                0,
-                false,
-                now);
-        }
-
         var drafts = chunker.Chunk(textContent);
         foreach (var draft in drafts)
         {
@@ -122,24 +136,24 @@ public sealed class KnowledgeIngestionService(
         decimal minimumRelevanceScore,
         CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(query))
-            return [];
+        if (!currentUser.TenantId.HasValue || currentUser.TenantId == Guid.Empty)
+            throw new InvalidOperationException("Tenant context is required.");
+        ValidateQuery(query, categories, topK, minimumRelevanceScore);
 
-        var queryEmbeddings = await embeddingProvider.GenerateAsync([query], cancellationToken);
+        var queryEmbeddings = await TryGenerateEmbeddingAsync(query, cancellationToken);
         if (queryEmbeddings.Count == 0)
-            return [];
+            return await QueryByKeywordAsync(query, categories, topK, minimumRelevanceScore, cancellationToken);
 
         var queryVector = queryEmbeddings[0];
 
         // Candidate chunk query with tenant isolation pre-filtering
         var chunkQuery = dbContext.KnowledgeChunks
             .AsNoTracking()
-            .Include(c => c.KnowledgeDocumentVersionId)
             .Where(c => c.EmbeddingStatus == ChunkEmbeddingStatus.Completed && c.Embedding != null);
 
         var candidateChunkIds = await chunkQuery.Select(c => c.Id).Take(2000).ToListAsync(cancellationToken);
         if (candidateChunkIds.Count == 0)
-            return [];
+            return await QueryByKeywordAsync(query, categories, topK, minimumRelevanceScore, cancellationToken);
 
         var searchRequest = new VectorSearchRequest(
             queryVector,
@@ -150,9 +164,17 @@ public sealed class KnowledgeIngestionService(
             topK,
             minimumRelevanceScore);
 
-        var searchResults = await vectorStore.SearchAsync(searchRequest, cancellationToken);
+        IReadOnlyList<KnowledgeVectorSearchResult> searchResults;
+        try
+        {
+            searchResults = await vectorStore.SearchAsync(searchRequest, cancellationToken);
+        }
+        catch (Exception) when (!cancellationToken.IsCancellationRequested)
+        {
+            return await QueryByKeywordAsync(query, categories, topK, minimumRelevanceScore, cancellationToken);
+        }
         if (searchResults.Count == 0)
-            return [];
+            return await QueryByKeywordAsync(query, categories, topK, minimumRelevanceScore, cancellationToken);
 
         var resultChunkIds = searchResults.Select(r => r.ChunkId).ToList();
         var chunks = await dbContext.KnowledgeChunks
@@ -195,5 +217,121 @@ public sealed class KnowledgeIngestionService(
         }
 
         return evidence;
+    }
+
+    private void Authorize(SourceVisibility visibility)
+    {
+        if (!Enum.IsDefined(visibility))
+            throw new ArgumentOutOfRangeException(nameof(visibility));
+        var permission = visibility == SourceVisibility.Platform
+            ? PlatformIngestionPermission
+            : TenantIngestionPermission;
+        if (!currentUser.HasPermission(permission))
+            throw new UnauthorizedAccessException("Knowledge source ingestion permission is required.");
+        if (visibility == SourceVisibility.Tenant && (!currentUser.TenantId.HasValue || currentUser.TenantId == Guid.Empty))
+            throw new InvalidOperationException("Tenant ID is required for tenant knowledge.");
+    }
+
+    private static void ValidateMetadata(KnowledgeIngestionInput input, byte[] contentBytes)
+    {
+        if (string.IsNullOrWhiteSpace(input.IdempotencyKey) || input.IdempotencyKey.Length > 150)
+            throw new ArgumentException("IdempotencyKey is required.", nameof(input.IdempotencyKey));
+        if (string.IsNullOrWhiteSpace(input.Title) || input.Title.Length > 500)
+            throw new ArgumentException("Title is required.", nameof(input.Title));
+        if (!Enum.IsDefined(input.Category) || input.Category == KnowledgeCategory.Unspecified)
+            throw new ArgumentOutOfRangeException(nameof(input.Category));
+        if (string.IsNullOrWhiteSpace(input.SourceReference) || input.SourceReference.Length > 1_000)
+            throw new ArgumentException("SourceReference is required.", nameof(input.SourceReference));
+        if (Path.IsPathRooted(input.ContentReference) ||
+            input.ContentReference.Contains("..", StringComparison.Ordinal) ||
+            input.ContentReference.Contains("://", StringComparison.Ordinal) ||
+            !input.ContentReference.StartsWith("knowledge/", StringComparison.Ordinal))
+            throw new ArgumentException("ContentReference must be an approved knowledge storage key.", nameof(input.ContentReference));
+        if (!AllowedMimeTypes.Contains(input.MimeType))
+            throw new ArgumentException("Only UTF-8 text/plain and text/markdown content is accepted.", nameof(input.MimeType));
+        if (contentBytes.Length is < 1 or > MaximumContentBytes)
+            throw new ArgumentOutOfRangeException(nameof(input.Content), $"Content must be 1-{MaximumContentBytes} bytes.");
+        if (input.SizeBytes != contentBytes.Length)
+            throw new ArgumentException("SizeBytes does not match the uploaded content.", nameof(input.SizeBytes));
+        var actualHash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(contentBytes)).ToLowerInvariant();
+        if (!actualHash.Equals(input.ContentSha256, StringComparison.OrdinalIgnoreCase))
+            throw new ArgumentException("ContentSha256 does not match the uploaded content.", nameof(input.ContentSha256));
+    }
+
+    private static void ValidateQuery(
+        string query,
+        IReadOnlyList<KnowledgeCategory> categories,
+        int topK,
+        decimal minimumRelevanceScore)
+    {
+        if (string.IsNullOrWhiteSpace(query) || query.Trim().Length > 2_000)
+            throw new ArgumentException("Query must contain 1-2,000 characters.", nameof(query));
+        if (categories.Any(category => !Enum.IsDefined(category) || category == KnowledgeCategory.Unspecified))
+            throw new ArgumentException("Categories must contain valid values.", nameof(categories));
+        if (topK is < 1 or > 20)
+            throw new ArgumentOutOfRangeException(nameof(topK));
+        if (minimumRelevanceScore is < 0m or > 1m)
+            throw new ArgumentOutOfRangeException(nameof(minimumRelevanceScore));
+    }
+
+    private async Task<IReadOnlyList<float[]>> TryGenerateEmbeddingAsync(
+        string query,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await embeddingProvider.GenerateAsync([query.Trim()], cancellationToken);
+        }
+        catch (Exception) when (!cancellationToken.IsCancellationRequested)
+        {
+            return [];
+        }
+    }
+
+    private async Task<IReadOnlyList<KnowledgeEvidenceResult>> QueryByKeywordAsync(
+        string query,
+        IReadOnlyList<KnowledgeCategory> categories,
+        int topK,
+        decimal minimumRelevanceScore,
+        CancellationToken cancellationToken)
+    {
+        var terms = query.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(term => term.ToLowerInvariant())
+            .Distinct()
+            .ToArray();
+        var rows = await (
+            from chunk in dbContext.KnowledgeChunks.AsNoTracking()
+            join version in dbContext.KnowledgeDocumentVersions.AsNoTracking()
+                on chunk.KnowledgeDocumentVersionId equals version.Id
+            join document in dbContext.KnowledgeDocuments.AsNoTracking()
+                on version.KnowledgeDocumentId equals document.Id
+            where version.IngestionStatus == RegulatoryIngestionStatus.Completed
+            select new { Chunk = chunk, Version = version, Document = document })
+            .Take(2_000)
+            .ToListAsync(cancellationToken);
+
+        return rows
+            .Where(row => categories.Count == 0 || categories.Contains(row.Document.Category))
+            .Select(row =>
+            {
+                var normalized = row.Chunk.NormalizedText.ToLowerInvariant();
+                var matches = terms.Count(term => normalized.Contains(term, StringComparison.Ordinal));
+                var score = terms.Length == 0 ? 0m : (decimal)matches / terms.Length;
+                return new KnowledgeEvidenceResult(
+                    row.Document.Id,
+                    row.Version.Id,
+                    row.Chunk.Id,
+                    row.Document.Title,
+                    row.Document.Category,
+                    row.Chunk.SectionLabel,
+                    row.Chunk.PageLabel,
+                    row.Chunk.NormalizedText,
+                    score);
+            })
+            .Where(item => item.RelevanceScore >= minimumRelevanceScore)
+            .OrderByDescending(item => item.RelevanceScore)
+            .ThenBy(item => item.ChunkId)
+            .Take(topK)
+            .ToArray();
     }
 }

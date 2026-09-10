@@ -88,6 +88,7 @@ public static class PermissionConstants
     public static class Documents
     {
         // Read/query use resource scope.
+        public const string Read = "documents:read";
         public const string Ingest = "documents:ingest";
         public const string Manage = "documents:manage";
     }
@@ -98,10 +99,19 @@ public static class PermissionConstants
     public static class Compliance
     {
         // Read/query/evaluate are normal operational capabilities.
+        public const string Read = "compliance:read";
         public const string Override = "compliance:override";
 
         // Platform knowledge management.
         public const string PlatformIngest = "compliance:platform:ingest";
+    }
+
+    // =========================
+    // AI ASSISTANT
+    // =========================
+    public static class Assistant
+    {
+        public const string Query = "assistant:query";
     }
 
     // =========================
@@ -189,10 +199,13 @@ public static class PermissionConstants
         Ocr.Review,
 
         // Documents
-        Documents.Ingest, Documents.Manage,
+        Documents.Read, Documents.Ingest, Documents.Manage,
 
         // Compliance
-        Compliance.Override, Compliance.PlatformIngest,
+        Compliance.Read, Compliance.Override, Compliance.PlatformIngest,
+
+        // AI assistant
+        Assistant.Query,
 
         // Financial
         Financial.Read, Financial.Calculate,
@@ -251,7 +264,12 @@ public static class PermissionConstants
         Iam.UserRead,
 
         // Notification baseline
-        Notification.Access
+        Notification.Access,
+
+        // Document and compliance read/query
+        Documents.Read,
+        Compliance.Read,
+        Assistant.Query
     ];
 
     /// <summary>
@@ -286,8 +304,15 @@ public static class PermissionConstants
         Ocr.Review,
 
         // Document knowledge management
+        Documents.Read,
         Documents.Ingest,
         Documents.Manage,
+
+        // Compliance operations
+        Compliance.Read,
+
+        // AI assistant
+        Assistant.Query,
 
         // Compliance override
         Compliance.Override,
