@@ -9,6 +9,7 @@ using RoutePlanningAgent.Application.DTOs.Configs;
 using RoutePlanningAgent.Application.Interfaces;
 using RoutePlanningAgent.Domain;
 using RoutePlanningAgent.Infrastructure.Persistences;
+using Shared.Enums;
 using Shared.Events;
 using Shared.Exceptions;
 using Shared.Security;
@@ -77,6 +78,21 @@ public class UpsertTenantRuleConfigHandler(
         config.IsEnabled = request.IsEnabled;
         config.ThresholdsJson = JsonSerializer.Serialize(request.Thresholds);
         config.UpdatedAt = DateTimeOffset.UtcNow;
+
+        // Đảm bảo TenantRiskPolicyConfig được cập nhật khi admin cấu hình rule
+        var policyConfig = await context.TenantRiskPolicyConfigs
+            .FirstOrDefaultAsync(c => c.TenantId == tenantId, cancellationToken);
+        if (policyConfig == null)
+        {
+            context.TenantRiskPolicyConfigs.Add(new Domain.TenantRiskPolicyConfig
+            {
+                TenantId = tenantId,
+                PolicyMode = RiskPolicyMode.UseCustomPolicy,
+                ActivePolicyId = $"tenant-policy-{tenantId}",
+                ActivePolicyVersion = 1,
+                UpdatedAt = DateTimeOffset.UtcNow
+            });
+        }
 
         // Outbox: các instance khác invalidate cache qua consumer
         outbox.Enqueue(new TenantRuleConfigChangedEvent
