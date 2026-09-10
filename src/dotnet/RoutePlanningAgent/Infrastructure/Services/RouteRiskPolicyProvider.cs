@@ -41,9 +41,25 @@ public class RouteRiskPolicyProvider(
                 $"Truy xuất cấu hình chính sách rủi ro của Tenant '{tenantId}' thất bại: {ex.Message}");
         }
 
-        // 1. UNCONFIGURED or USE_PLATFORM_DEFAULT -> Áp dụng Platform Default Policy v1
+        // 1. UNCONFIGURED or USE_PLATFORM_DEFAULT -> Áp dụng TenantRuleConfigs nếu có, hoặc Platform Default Policy v1
         if (config == null || config.PolicyMode == RiskPolicyMode.UsePlatformDefault)
         {
+            var ruleConfigs = await context.TenantRuleConfigs
+                .IgnoreQueryFilters()
+                .AsNoTracking()
+                .Where(r => r.TenantId == tenantId)
+                .ToListAsync(ct);
+
+            var ruleThresholdsMap = new Dictionary<string, TenantRuleThresholds>();
+            if (ruleConfigs.Count > 0)
+            {
+                foreach (var rc in ruleConfigs)
+                {
+                    var thresholds = await ruleConfigService.GetThresholdsAsync(tenantId, rc.RuleName, ct);
+                    ruleThresholdsMap[rc.RuleName] = thresholds;
+                }
+            }
+
             var policyId = config != null && !string.IsNullOrWhiteSpace(config.ActivePolicyId)
                 ? config.ActivePolicyId
                 : PlatformDefaultPolicyId;
@@ -55,10 +71,10 @@ public class RouteRiskPolicyProvider(
             {
                 PolicyId = policyId,
                 Version = policyVersion,
-                Source = RiskPolicySource.PlatformDefault,
+                Source = ruleConfigs.Count > 0 ? RiskPolicySource.Tenant : RiskPolicySource.PlatformDefault,
                 Scope = scope,
                 TenantId = tenantId,
-                RuleThresholds = new Dictionary<string, TenantRuleThresholds>()
+                RuleThresholds = ruleThresholdsMap
             };
         }
 
