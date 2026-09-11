@@ -102,7 +102,6 @@ builder.Services.AddGrpc(options =>
 // Configure MassTransit & RabbitMQ Consumers
 builder.Services.AddSharedMassTransit(builder.Configuration, x =>
 {
-    x.AddConsumer<TenantUserProvisionedConsumer>();
     x.AddConsumer<SendSystemEmailConsumer>();
 });
 

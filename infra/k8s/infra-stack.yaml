@@ -222,13 +222,23 @@ metadata:
   labels:
     app: stalwart
 spec:
-  type: ClusterIP
+  type: LoadBalancer
+
   selector:
     app: stalwart
+
   ports:
-    - name: admin
-      port: 8080
-      targetPort: 8080
     - name: smtp
       port: 25
       targetPort: 25
+      protocol: TCP
+
+    - name: submission
+      port: 587
+      targetPort: 587
+      protocol: TCP
+
+    - name: imaps
+      port: 993
+      targetPort: 993
+      protocol: TCP

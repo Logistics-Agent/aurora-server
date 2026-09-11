@@ -1,4 +1,4 @@
-﻿using System.Text.Json;
+using System.Text.Json;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
@@ -62,6 +62,23 @@ public class ProvisionDomainCommandHandler : IRequestHandler<ProvisionDomainComm
         };
         _dbContext.Domains.Add(domain);
 
+        // Auto-provision default shared department mailbox: operations@<domain>
+        var opsEmail = $"operations@{domainName}";
+        var opsMailbox = new Mailbox
+        {
+            TenantId = tenantId,
+            DomainId = domain.Id,
+            LocalPart = "operations",
+            FullAddress = opsEmail,
+            Status = MailboxStatus.Active,
+            UserId = null, // Shared mailbox (not tied to a specific user)
+            CreatedAt = DateTimeOffset.UtcNow
+        };
+        _dbContext.Mailboxes.Add(opsMailbox);
+
+        // Provision Stalwart account for operations mailbox
+        await _stalwartClient.ProvisionAccountAsync(opsEmail, cancellationToken);
+
         var audit = new AuditRecord
         {
             TenantId = tenantId,
@@ -72,7 +89,7 @@ public class ProvisionDomainCommandHandler : IRequestHandler<ProvisionDomainComm
             ResourceId = domain.Id,
             Timestamp = DateTimeOffset.UtcNow,
             Result = "Success",
-            DetailJson = JsonSerializer.Serialize(new { DomainName = domainName, Status = domain.Status.ToString(), DkimSelector = selector })
+            DetailJson = JsonSerializer.Serialize(new { DomainName = domainName, Status = domain.Status.ToString(), DkimSelector = selector, DefaultMailbox = opsEmail })
         };
         _dbContext.AuditRecords.Add(audit);
         CentralAuditOutbox.Enqueue(_dbContext, audit);
