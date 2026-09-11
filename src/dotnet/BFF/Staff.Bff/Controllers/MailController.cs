@@ -388,12 +388,13 @@ public class MailController(
                 return BadRequest(new { error = "No raw EML content received." });
             }
 
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
             var result = await mailClient.IngestInboundMessageAsync(
                 rawEmlBytes,
                 senderAddress,
                 recipientAddress,
                 source,
-                HttpContext.RequestAborted);
+                cts.Token);
 
             logger.LogInformation("Inbound email successfully ingested: {MessageId} -> Thread {ThreadId} (Status: {Status})",
                 result.MessageId, result.ThreadId, result.Status);
