@@ -215,6 +215,10 @@ public sealed class DocumentOcrGrpcService(
         {
             throw new RpcException(new Status(StatusCode.AlreadyExists, exception.Message));
         }
+        catch (DocumentUploadValidationException exception)
+        {
+            throw UploadValidationFailure(StatusCode.FailedPrecondition, exception);
+        }
         catch (ArgumentException exception)
         {
             throw InvalidArgument(exception.Message);

@@ -1,8 +1,11 @@
 using DocumentOcr.Domain.Entities;
 using DocumentOcr.Domain.Enums;
 using DocumentOcr.Infrastructure.Persistences;
+using DocumentOcr.Infrastructure.Persistences.Migrations;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
+using Microsoft.EntityFrameworkCore.Migrations.Operations;
 using Shared.Interceptors;
 using Shared.Security;
 
@@ -31,6 +34,20 @@ public sealed class DocumentOcrPersistenceModelTests
         AssertIndex(context, typeof(InboxMessage), true, "SourceEventType", "SourceEventId");
         AssertIndex(context, typeof(OutboxMessage), true, "EventId");
         AssertIndex(context, typeof(OutboxMessage), false, "ProcessedAt", "RetryCount", "OccurredAt");
+    }
+
+    [Fact]
+    public void CorrectiveUploadMigrationBackfillsExpiredUnconsumedRowsForDeletion()
+    {
+        var migration = new InspectableCorrectiveUploadMigration();
+
+        var sql = Assert.Single(migration.GetUpOperations().OfType<SqlOperation>()).Sql;
+
+        Assert.Contains("CleanupStatus", sql, StringComparison.Ordinal);
+        Assert.Contains("DeletePending", sql, StringComparison.Ordinal);
+        Assert.Contains("Status", sql, StringComparison.Ordinal);
+        Assert.Contains("Expired", sql, StringComparison.Ordinal);
+        Assert.Contains("ConsumedAt", sql, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -110,5 +127,15 @@ public sealed class DocumentOcrPersistenceModelTests
 
         Assert.NotNull(index);
         Assert.Equal(unique, index!.IsUnique);
+    }
+
+    private sealed class InspectableCorrectiveUploadMigration : CorrectDocumentUploadSessionLifecycle
+    {
+        public IReadOnlyList<MigrationOperation> GetUpOperations()
+        {
+            var builder = new MigrationBuilder("Npgsql.EntityFrameworkCore.PostgreSQL");
+            Up(builder);
+            return builder.Operations;
+        }
     }
 }

@@ -4,6 +4,9 @@ using DocumentOcr.Application.Uploads;
 using DocumentOcr.Domain.Enums;
 using DocumentOcr.Infrastructure.Persistences;
 using DocumentOcr.Infrastructure.BackgroundJobs;
+using Amazon.Runtime;
+using Amazon.S3;
+using Amazon.S3.Model;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Shared.Interceptors;
@@ -141,6 +144,25 @@ public sealed class DocumentUploadServiceTests
     }
 
     [Fact]
+    public async Task SameBodyReplayOfAnExpiredSessionReturnsTheStableExpiryFailure()
+    {
+        await using var context = CreateContext(TenantId);
+        var storage = new FakeDocumentInputStorage();
+        var service = CreateService(context, TenantId, storage, Now);
+        var receipt = await service.CreateAsync(Input());
+        var session = await context.UploadSessions.SingleAsync();
+        session.MarkExpired(Now.AddMinutes(15));
+        await context.SaveChangesAsync();
+
+        var expiredService = CreateService(context, TenantId, storage, Now.AddMinutes(16));
+        var exception = await Assert.ThrowsAsync<DocumentUploadValidationException>(() =>
+            expiredService.CreateAsync(Input()));
+
+        Assert.Equal(receipt.UploadId, session.Id);
+        Assert.Equal("UPLOAD_EXPIRED", exception.Code);
+    }
+
+    [Fact]
     public async Task CrossTenantSessionIsNotEnumerable()
     {
         await using var context = CreateContext(TenantId);
@@ -185,6 +207,105 @@ public sealed class DocumentUploadServiceTests
         Assert.Equal(DocumentUploadStatus.Consumed,
             (await context.UploadSessions.SingleAsync(x => x.Id == consumed.UploadId)).Status);
         Assert.Equal(2, storage.DeletedKeys.Count);
+    }
+
+    [Fact]
+    public async Task CleanupPersistsDeletePendingBeforeADeleteFailureAndRetriesIt()
+    {
+        await using var context = CreateContext(TenantId);
+        var storage = new FakeDocumentInputStorage { DeleteFailuresRemaining = 1 };
+        var service = CreateService(context, TenantId, storage);
+        var receipt = await service.CreateAsync(Input());
+
+        await Assert.ThrowsAsync<IOException>(() => ExpiredUploadCleanupService.CleanupExpiredAsync(
+            context, storage, Now.AddMinutes(16)));
+
+        var failedSession = await context.UploadSessions.SingleAsync();
+        Assert.Equal(DocumentUploadStatus.Expired, failedSession.Status);
+        Assert.Equal(DocumentUploadCleanupStatus.DeletePending, failedSession.CleanupStatus);
+
+        var deleted = await ExpiredUploadCleanupService.CleanupExpiredAsync(context, storage, Now.AddMinutes(17));
+
+        Assert.Equal(1, deleted);
+        Assert.Equal(DocumentUploadCleanupStatus.Deleted,
+            (await context.UploadSessions.SingleAsync(session => session.Id == receipt.UploadId)).CleanupStatus);
+        Assert.Single(storage.DeletedKeys);
+    }
+
+    [Fact]
+    public async Task ConcurrentCleanupMakesAnInProgressExpiredVerificationFailClosed()
+    {
+        var databaseName = Guid.CreateVersion7().ToString();
+        await using var verificationContext = CreateContext(TenantId, databaseName);
+        var headStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseHead = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var storage = new FakeDocumentInputStorage
+        {
+            HeadStarted = headStarted,
+            HeadBlocker = releaseHead.Task
+        };
+        var service = CreateService(verificationContext, TenantId, storage, Now);
+        var receipt = await service.CreateAsync(Input());
+        storage.HeadResult = ValidHead(receipt.StorageReference);
+
+        var verification = service.VerifyAsync(receipt.UploadId);
+        await headStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        await using var cleanupContext = CreateContext(TenantId, databaseName);
+        var deleted = await ExpiredUploadCleanupService.CleanupExpiredAsync(
+            cleanupContext, storage, Now.AddMinutes(16));
+        releaseHead.SetResult();
+
+        var exception = await Assert.ThrowsAsync<DocumentUploadValidationException>(() => verification);
+        Assert.Equal("UPLOAD_EXPIRED", exception.Code);
+        Assert.Equal(1, deleted);
+        Assert.Equal(DocumentUploadStatus.Expired,
+            (await cleanupContext.UploadSessions.SingleAsync(session => session.Id == receipt.UploadId)).Status);
+    }
+
+    [Fact]
+    public async Task VerifyRejectsFilesystemBytesWithMagicAndHashMismatches()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "document-input-tests", Guid.CreateVersion7().ToString());
+        Directory.CreateDirectory(root);
+        try
+        {
+            var configuration = new ConfigurationBuilder()
+                .AddInMemoryCollection(new Dictionary<string, string?>
+                {
+                    ["Storage:InputPath"] = root,
+                    ["Storage:InputBridge:PublicBaseUrl"] = "https://ocr.test",
+                    ["Storage:InputBridge:SigningKey"] = "test-only-signing-key-with-at-least-32-bytes"
+                })
+                .Build();
+            var storage = new global::DocumentOcr.Infrastructure.Storage.FileSystemDocumentInputStorage(configuration);
+            await using var context = CreateContext(TenantId);
+            var service = CreateService(context, TenantId, storage);
+            var png = new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x01 };
+            var magicReceipt = await service.CreateAsync(
+                new CreateDocumentUploadInput("filesystem-magic", "invoice.pdf", "application/pdf", png.Length, null));
+            await storage.WriteAsync(TenantId, magicReceipt.StorageReference, new MemoryStream(png), 10 * 1024 * 1024);
+
+            var magicException = await Assert.ThrowsAsync<DocumentUploadValidationException>(() =>
+                service.VerifyAsync(magicReceipt.UploadId));
+
+            var pdf = "%PDF-test"u8.ToArray();
+            var hashReceipt = await service.CreateAsync(
+                new CreateDocumentUploadInput("filesystem-hash", "packing-list.pdf", "application/pdf", pdf.Length,
+                    new string('0', 64)));
+            await storage.WriteAsync(TenantId, hashReceipt.StorageReference, new MemoryStream(pdf), 10 * 1024 * 1024);
+
+            var hashException = await Assert.ThrowsAsync<DocumentUploadValidationException>(() =>
+                service.VerifyAsync(hashReceipt.UploadId));
+
+            Assert.Equal("UPLOAD_MIME_MISMATCH", magicException.Code);
+            Assert.Equal("UPLOAD_HASH_MISMATCH", hashException.Code);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
     }
 
     [Fact]
@@ -305,6 +426,26 @@ public sealed class DocumentUploadServiceTests
         }
     }
 
+    [Fact]
+    public async Task S3AdapterInspectsResponseBytesInsteadOfSpoofableObjectMetadata()
+    {
+        var tenantId = Guid.CreateVersion7();
+        var objectKey = $"objects/{tenantId}/{Guid.CreateVersion7()}/invoice.pdf";
+        var pngBytes = new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x01 };
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?> { ["Storage:S3:Bucket"] = "documents" })
+            .Build();
+        var storage = new global::DocumentOcr.Infrastructure.Storage.S3DocumentInputStorage(
+            new StreamBackedAmazonS3(pngBytes), configuration);
+
+        var metadata = await storage.HeadAsync(tenantId, objectKey);
+
+        Assert.Equal("image/png", metadata!.ContentType);
+        Assert.Equal(pngBytes.Length, metadata.SizeBytes);
+        Assert.Equal(Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(pngBytes)).ToLowerInvariant(),
+            metadata.ContentSha256);
+    }
+
     private static CreateDocumentUploadInput Input() =>
         new("upload-001", "invoice.pdf", "application/pdf", 1_024, null);
 
@@ -328,12 +469,12 @@ public sealed class DocumentUploadServiceTests
             new DocumentUploadOptions());
     }
 
-    private static DocumentOcrDbContext CreateContext(Guid tenantId)
+    private static DocumentOcrDbContext CreateContext(Guid tenantId, string? databaseName = null)
     {
         var currentUser = new CurrentUserService();
         currentUser.Populate(Guid.CreateVersion7(), tenantId, null, null, null, []);
         var options = new DbContextOptionsBuilder<DocumentOcrDbContext>()
-            .UseInMemoryDatabase(Guid.CreateVersion7().ToString())
+            .UseInMemoryDatabase(databaseName ?? Guid.CreateVersion7().ToString())
             .Options;
         return new DocumentOcrDbContext(options, currentUser, new AuditSaveChangesInterceptor(currentUser));
     }
@@ -347,6 +488,9 @@ public sealed class DocumentUploadServiceTests
     {
         public DocumentObjectMetadata? HeadResult { get; set; }
         public int HeadCalls { get; private set; }
+        public int DeleteFailuresRemaining { get; set; }
+        public TaskCompletionSource? HeadStarted { get; set; }
+        public Task? HeadBlocker { get; set; }
         public List<string> DeletedKeys { get; } = [];
 
         public Task<SignedWriteTarget> CreateSignedWriteTargetAsync(
@@ -359,11 +503,14 @@ public sealed class DocumentUploadServiceTests
                 expiresAt,
                 maximumSizeBytes));
 
-        public Task<DocumentObjectMetadata?> HeadAsync(
+        public async Task<DocumentObjectMetadata?> HeadAsync(
             Guid tenantId, string objectKey, CancellationToken cancellationToken = default)
         {
             HeadCalls++;
-            return Task.FromResult(HeadResult);
+            HeadStarted?.TrySetResult();
+            if (HeadBlocker is not null)
+                await HeadBlocker.WaitAsync(cancellationToken);
+            return HeadResult;
         }
 
         public Task WriteAsync(
@@ -375,8 +522,28 @@ public sealed class DocumentUploadServiceTests
 
         public Task DeleteAsync(Guid tenantId, string objectKey, CancellationToken cancellationToken = default)
         {
+            if (DeleteFailuresRemaining > 0)
+            {
+                DeleteFailuresRemaining--;
+                throw new IOException("Transient delete failure.");
+            }
             DeletedKeys.Add(objectKey);
             return Task.CompletedTask;
+        }
+    }
+
+    private sealed class StreamBackedAmazonS3(byte[] bytes) : AmazonS3Client(
+        new AnonymousAWSCredentials(),
+        new AmazonS3Config { ServiceURL = "https://s3.test", AuthenticationRegion = "us-east-1" })
+    {
+        public override Task<GetObjectResponse> GetObjectAsync(
+            GetObjectRequest request,
+            CancellationToken cancellationToken = default)
+        {
+            var response = new GetObjectResponse { ResponseStream = new MemoryStream(bytes, writable: false) };
+            response.Headers["Content-Type"] = "application/pdf";
+            response.Headers["x-amz-meta-content-sha256"] = new string('0', 64);
+            return Task.FromResult(response);
         }
     }
 }

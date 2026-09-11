@@ -32,6 +32,12 @@ namespace DocumentOcr.Infrastructure.Persistences.Migrations
                 type: "integer",
                 nullable: false,
                 defaultValue: 0);
+
+            migrationBuilder.Sql("""
+                UPDATE document_upload_sessions
+                SET "CleanupStatus" = 'DeletePending'
+                WHERE "Status" = 'Expired' AND "ConsumedAt" IS NULL;
+                """);
         }
 
         /// <inheritdoc />

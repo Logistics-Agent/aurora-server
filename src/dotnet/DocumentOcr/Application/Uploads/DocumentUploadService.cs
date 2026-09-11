@@ -249,10 +249,15 @@ public sealed class DocumentUploadService(
     {
         if (!string.Equals(existing.RequestFingerprint, requestFingerprint, StringComparison.Ordinal))
             throw new UploadSessionConflictException("The idempotency key was already used with a different request.");
+
+        if (existing.Status == DocumentUploadStatus.Expired ||
+            existing.ExpiresAt <= timeProvider.GetUtcNow())
+        {
+            throw new DocumentUploadValidationException("UPLOAD_EXPIRED", "The upload session has expired.");
+        }
+
         if (existing.Status == DocumentUploadStatus.Pending)
         {
-            if (existing.ExpiresAt <= timeProvider.GetUtcNow())
-                throw new DocumentUploadValidationException("UPLOAD_EXPIRED", "The upload session has expired.");
             return await CreateReceiptWithFreshTargetAsync(existing, cancellationToken);
         }
 
