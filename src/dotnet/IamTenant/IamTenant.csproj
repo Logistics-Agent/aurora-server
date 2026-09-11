@@ -8,6 +8,13 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Remove="Tests/**/*.cs" />
+    <Content Remove="Tests/**/*" />
+    <EmbeddedResource Remove="Tests/**/*" />
+    <None Remove="Tests/**/*" />
+  </ItemGroup>
+
+  <ItemGroup>
     <Protobuf Include="../../../protos/iam_tenant.proto" GrpcServices="Server" />
     <Protobuf Include="../../../protos/auth.proto" GrpcServices="Server" />
     <Protobuf Include="../../../protos/common.proto" GrpcServices="None" />

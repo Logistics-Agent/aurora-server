@@ -45,6 +45,7 @@ public class AuthGrpcService(
             {
                 AccessToken = result.AccessToken,
                 RefreshToken = result.RefreshToken,
+                RefreshTokenSubject = result.RefreshTokenSubject,
                 ExpiresIn = result.ExpiresIn,
                 UserId = result.UserId,
                 TenantId = result.TenantId
@@ -76,6 +77,7 @@ public class AuthGrpcService(
             {
                 AccessToken = result.AccessToken,
                 RefreshToken = result.RefreshToken,
+                RefreshTokenSubject = result.RefreshTokenSubject,
                 ExpiresIn = result.ExpiresIn,
                 UserId = result.UserId,
                 TenantId = result.TenantId
@@ -97,17 +99,23 @@ public class AuthGrpcService(
         try
         {
             var authResult = IsSystemUser(request.TenantCode, request.UserType)
-                ? await cognitoService.RefreshTokenAsync(string.Empty, request.RefreshToken, context.CancellationToken)
+                ? await cognitoService.RefreshTokenAsync(
+                    string.Empty,
+                    request.RefreshToken,
+                    request.RefreshTokenSubject,
+                    context.CancellationToken)
                 : await cognitoService.RefreshTokenAsync(
                     await mediator.Send(
                         new ResolveTenantAuthClientQuery(request.TenantCode, request.UserType),
                         context.CancellationToken),
                     request.RefreshToken,
+                    request.RefreshTokenSubject,
                     context.CancellationToken);
             return new LoginResponse
             {
                 AccessToken = authResult.AccessToken,
                 RefreshToken = authResult.RefreshToken,
+                RefreshTokenSubject = authResult.RefreshTokenSubject,
                 ExpiresIn = authResult.ExpiresIn
             };
         }
