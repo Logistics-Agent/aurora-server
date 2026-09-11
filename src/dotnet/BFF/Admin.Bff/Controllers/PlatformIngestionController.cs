@@ -240,39 +240,46 @@ public sealed class PlatformIngestionController(
     /// </summary>
     [HttpGet("knowledge-documents")]
     [HttpPost("knowledge/query")]
-    [RequirePermission(PermissionConstants.Documents.Read, PermissionConstants.Compliance.Read, PermissionConstants.Compliance.PlatformIngest)]
+    [RequirePermission(PermissionConstants.Documents.Read, PermissionConstants.Compliance.Read, PermissionConstants.Compliance.PlatformIngest, PermissionConstants.Documents.Manage, PermissionConstants.Documents.Ingest)]
     public async Task<IActionResult> QueryKnowledgeDocuments(
         [FromQuery] string? query = null,
         CancellationToken cancellationToken = default)
     {
         try
         {
-            var searchTerms = string.IsNullOrWhiteSpace(query) ? "SOP guidelines policy contract" : query;
+            var searchTerms = query?.Trim() ?? string.Empty;
             var rpcRequest = new QueryKnowledgeRequest
             {
                 Query = searchTerms,
-                TopK = 20,
-                MinimumRelevanceScore = 0.01
+                TopK = 50,
+                MinimumRelevanceScore = 0.0
             };
 
             var response = await regulatoryClient.QueryKnowledgeAsync(rpcRequest, cancellationToken: cancellationToken);
 
-            var items = response.Evidence.Select(e => new
-            {
-                id = e.KnowledgeDocumentId,
-                title = e.Title,
-                category = e.Category == KnowledgeCategory.Sop ? "SOP" :
-                           e.Category == KnowledgeCategory.Contract ? "Carrier Contract" :
-                           e.Category == KnowledgeCategory.Guide ? "Customs Guideline" : e.Category.ToString(),
-                language = "English",
-                version = "v1.0",
-                chunks = 1,
-                ingestDate = DateTime.UtcNow.ToString("yyyy-MM-dd"),
-                status = "Completed",
-                relevanceScore = e.RelevanceScore,
-                excerpt = e.Excerpt,
-                section = e.SectionLabel
-            }).ToList();
+            var items = response.Evidence
+                .GroupBy(e => e.KnowledgeDocumentId)
+                .Select(g =>
+                {
+                    var e = g.First();
+                    return new
+                    {
+                        id = e.KnowledgeDocumentId,
+                        title = e.Title,
+                        category = e.Category == KnowledgeCategory.Sop ? "SOP" :
+                                   e.Category == KnowledgeCategory.Contract ? "Carrier Contract" :
+                                   e.Category == KnowledgeCategory.Guide ? "Customs Guideline" :
+                                   e.Category == KnowledgeCategory.InternalPolicy ? "Internal Policy" : e.Category.ToString(),
+                        language = "English",
+                        version = "v1.0",
+                        chunks = g.Count(),
+                        ingestDate = DateTime.UtcNow.ToString("yyyy-MM-dd"),
+                        status = "Completed",
+                        relevanceScore = e.RelevanceScore,
+                        excerpt = e.Excerpt,
+                        section = e.SectionLabel
+                    };
+                }).ToList();
 
             return Ok(new { items, total = items.Count });
         }

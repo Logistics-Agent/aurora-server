@@ -182,6 +182,43 @@ public sealed class KnowledgeIngestionService(
             throw new InvalidOperationException("Tenant context is required.");
         ValidateQuery(query, categories, topK, minimumRelevanceScore);
 
+        if (string.IsNullOrWhiteSpace(query) || query.Trim() == "*")
+        {
+            var docQuery = dbContext.KnowledgeDocuments
+                .AsNoTracking()
+                .Include(d => d.Versions)
+                .ThenInclude(v => v.Chunks)
+                .AsQueryable();
+
+            if (categories.Count > 0)
+            {
+                docQuery = docQuery.Where(d => categories.Contains(d.Category));
+            }
+
+            var docList = await docQuery
+                .OrderByDescending(d => d.CreatedAt)
+                .Take(topK)
+                .ToListAsync(cancellationToken);
+
+            var listResults = new List<KnowledgeEvidenceResult>();
+            foreach (var doc in docList)
+            {
+                var latestVersion = doc.Versions.OrderByDescending(v => v.CreatedAt).FirstOrDefault();
+                var firstChunk = latestVersion?.Chunks.OrderBy(c => c.Sequence).FirstOrDefault();
+                listResults.Add(new KnowledgeEvidenceResult(
+                    doc.Id,
+                    latestVersion?.Id ?? Guid.Empty,
+                    firstChunk?.Id ?? Guid.Empty,
+                    doc.Title,
+                    doc.Category,
+                    firstChunk?.SectionLabel ?? "Overview",
+                    firstChunk?.PageLabel ?? "1",
+                    firstChunk?.NormalizedText ?? string.Empty,
+                    1.0m));
+            }
+            return listResults;
+        }
+
         var queryEmbeddings = await TryGenerateEmbeddingAsync(query, cancellationToken);
         if (queryEmbeddings.Count == 0)
             return await QueryByKeywordAsync(query, categories, topK, minimumRelevanceScore, cancellationToken);
@@ -258,6 +295,9 @@ public sealed class KnowledgeIngestionService(
                 result.Score));
         }
 
+        if (evidence.Count == 0)
+            return await QueryByKeywordAsync(query, categories, topK, minimumRelevanceScore, cancellationToken);
+
         return evidence;
     }
 
@@ -314,16 +354,16 @@ public sealed class KnowledgeIngestionService(
     }
 
     private static void ValidateQuery(
-        string query,
+        string? query,
         IReadOnlyList<KnowledgeCategory> categories,
         int topK,
         decimal minimumRelevanceScore)
     {
-        if (string.IsNullOrWhiteSpace(query) || query.Trim().Length > 2_000)
-            throw new ArgumentException("Query must contain 1-2,000 characters.", nameof(query));
+        if (query != null && query.Trim().Length > 2_000)
+            throw new ArgumentException("Query must contain 0-2,000 characters.", nameof(query));
         if (categories.Any(category => !Enum.IsDefined(category) || category == KnowledgeCategory.Unspecified))
             throw new ArgumentException("Categories must contain valid values.", nameof(categories));
-        if (topK is < 1 or > 20)
+        if (topK is < 1 or > 100)
             throw new ArgumentOutOfRangeException(nameof(topK));
         if (minimumRelevanceScore is < 0m or > 1m)
             throw new ArgumentOutOfRangeException(nameof(minimumRelevanceScore));
@@ -350,7 +390,7 @@ public sealed class KnowledgeIngestionService(
         decimal minimumRelevanceScore,
         CancellationToken cancellationToken)
     {
-        var terms = query.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+        var terms = (query ?? string.Empty).Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
             .Select(term => term.ToLowerInvariant())
             .Distinct()
             .ToArray();
@@ -369,9 +409,9 @@ public sealed class KnowledgeIngestionService(
             .Where(row => categories.Count == 0 || categories.Contains(row.Document.Category))
             .Select(row =>
             {
-                var normalized = row.Chunk.NormalizedText.ToLowerInvariant();
-                var matches = terms.Count(term => normalized.Contains(term, StringComparison.Ordinal));
-                var score = terms.Length == 0 ? 0m : (decimal)matches / terms.Length;
+                var combined = (row.Document.Title + " " + (row.Chunk.SectionLabel ?? "") + " " + row.Chunk.NormalizedText).ToLowerInvariant();
+                var matches = terms.Length == 0 ? 1 : terms.Count(term => combined.Contains(term, StringComparison.Ordinal));
+                var score = terms.Length == 0 ? 1.0m : (decimal)matches / terms.Length;
                 return new KnowledgeEvidenceResult(
                     row.Document.Id,
                     row.Version.Id,
