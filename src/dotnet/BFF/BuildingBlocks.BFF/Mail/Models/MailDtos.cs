@@ -234,13 +234,14 @@ public record SubmitOutboundMessageRequest(
     string SenderAddress,
     List<string> RecipientAddresses,
     string Subject,
-    string BodyText,
-    string BodyHtml,
+    string? BodyText = null,
+    string? BodyHtml = null,
     List<OutboundAttachmentDto>? Attachments = null,
     string? IdempotencyKey = null,
     string? DraftRootId = null,
     string? ThreadId = null,
     string? ReplyToMessageId = null);
+
 
 public record SubmitOutboundMessageResponse(
     string ProcessedMessageId,

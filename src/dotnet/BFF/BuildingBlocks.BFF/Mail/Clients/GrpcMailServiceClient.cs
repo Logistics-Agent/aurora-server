@@ -307,17 +307,30 @@ public class GrpcMailServiceClient : IMailServiceClient
 
     public async Task<BffModels.SubmitOutboundMessageResponse> SubmitOutboundMessageAsync(BffModels.SubmitOutboundMessageRequest request, CancellationToken cancellationToken = default)
     {
+        var bodyText = request.BodyText ?? string.Empty;
+        var bodyHtml = !string.IsNullOrWhiteSpace(request.BodyHtml)
+            ? request.BodyHtml
+            : ConvertTextToHtml(request.BodyText);
+
+
+
+        if (string.IsNullOrWhiteSpace(bodyText) && !string.IsNullOrWhiteSpace(bodyHtml))
+        {
+            bodyText = System.Text.RegularExpressions.Regex.Replace(bodyHtml, "<.*?>", string.Empty);
+        }
+
         var protoReq = new GrpcModels.SubmitOutboundMessageRequest
         {
             SenderAddress = request.SenderAddress,
             Subject = request.Subject,
-            BodyText = request.BodyText,
-            BodyHtml = request.BodyHtml,
+            BodyText = bodyText,
+            BodyHtml = bodyHtml,
             IdempotencyKey = request.IdempotencyKey ?? string.Empty,
             DraftRootId = request.DraftRootId,
             ThreadId = request.ThreadId,
             ReplyToMessageId = request.ReplyToMessageId
         };
+
         protoReq.RecipientAddresses.AddRange(request.RecipientAddresses);
 
         if (request.Attachments != null)
@@ -616,4 +629,13 @@ public class GrpcMailServiceClient : IMailServiceClient
             string.IsNullOrEmpty(rec.ReviewedBy) ? null : rec.ReviewedBy,
             SafeToNullableDateTimeOffset(rec.ReviewedAt));
     }
+
+    private static string ConvertTextToHtml(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return "<p></p>";
+        var encoded = System.Net.WebUtility.HtmlEncode(text);
+        return $"<div style=\"font-family: Arial, sans-serif; font-size: 14px; line-height: 1.6; color: #333333; white-space: pre-wrap;\">{encoded.Replace("\n", "<br/>")}</div>";
+    }
 }
+
+

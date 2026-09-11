@@ -266,12 +266,19 @@ public class MailController(
     [RequirePermission(PermissionConstants.Mail.Send)]
     public async Task<IActionResult> SubmitOutboundMessage([FromBody] SubmitOutboundMessageRequest body)
     {
+        if (string.IsNullOrWhiteSpace(body.BodyHtml) && !string.IsNullOrWhiteSpace(body.BodyText))
+        {
+            var encoded = System.Net.WebUtility.HtmlEncode(body.BodyText);
+            body = body with { BodyHtml = $"<div style=\"font-family: Arial, sans-serif; font-size: 14px; line-height: 1.6; color: #333333; white-space: pre-wrap;\">{encoded.Replace("\n", "<br/>")}</div>" };
+        }
+
         var validator = new SubmitOutboundMessageRequestValidator();
         var validationResult = await validator.ValidateAsync(body, HttpContext.RequestAborted);
         if (!validationResult.IsValid)
         {
             return BadRequest(new { errors = validationResult.Errors.Select(e => e.ErrorMessage) });
         }
+
 
         try
         {
