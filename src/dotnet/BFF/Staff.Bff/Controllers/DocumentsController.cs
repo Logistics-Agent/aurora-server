@@ -136,6 +136,7 @@ public sealed class DocumentsController(
     [HttpGet("shipment-documents")]
     [RequirePermission(PermissionConstants.Shipment.Read, "documents:read")]
     [ProducesResponseType(typeof(ListShipmentDocumentsResponse), 200)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status503ServiceUnavailable)]
     public async Task<IActionResult> ListShipmentDocuments(
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 20,
@@ -176,15 +177,12 @@ public sealed class DocumentsController(
 
             return Ok(new ListShipmentDocumentsResponse(items, response.Page, response.PageSize, response.TotalItems, response.TotalPages));
         }
-        catch (RpcException ex)
+        catch (RpcException ex) when (ex.StatusCode is Grpc.Core.StatusCode.Unavailable or Grpc.Core.StatusCode.DeadlineExceeded)
         {
-            logger.LogWarning(ex, "DocumentOcr service returned RPC error {StatusCode} for ListShipmentDocuments. Returning empty list.", ex.StatusCode);
-            return Ok(new ListShipmentDocumentsResponse([], rpcRequest.Page, rpcRequest.PageSize, 0, 0));
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning(ex, "Failed to list shipment documents. Returning empty list.");
-            return Ok(new ListShipmentDocumentsResponse([], rpcRequest.Page, rpcRequest.PageSize, 0, 0));
+            logger.LogWarning("DocumentOcr service unavailable for ListShipmentDocuments: {StatusCode}", ex.StatusCode);
+            return StatusCode(
+                StatusCodes.Status503ServiceUnavailable,
+                DocumentsContract.CreateUnavailableProblemDetails());
         }
     }
 
@@ -831,14 +829,8 @@ public sealed class DocumentsController(
         _ => "RECEIVED"
     };
 
-    private static string? MapOcrStage(DocumentOcrJobStatus status) => status switch
-    {
-        DocumentOcrJobStatus.Queued => "EXTRACTING",
-        DocumentOcrJobStatus.Processing => "OCR",
-        DocumentOcrJobStatus.RequiresReview => "REVIEW",
-        DocumentOcrJobStatus.Completed => "READY",
-        _ => null
-    };
+    private static string? MapOcrStage(DocumentOcrJobStatus status)
+        => DocumentsContract.MapStage(status);
 
     private static Dictionary<string, double> ParseFieldConfidences(string? fieldConfidenceJson)
     {
@@ -871,6 +863,26 @@ public sealed class DocumentsController(
         RegulatoryIngestionStatus.Completed => ("READY", "READY"),
         RegulatoryIngestionStatus.Failed => ("FAILED", null),
         _ => ("PROCESSING", "INDEXING")
+    };
+}
+
+internal static class DocumentsContract
+{
+    internal static ProblemDetails CreateUnavailableProblemDetails() => new()
+    {
+        Title = "DOCUMENT_OCR_UNAVAILABLE",
+        Detail = "Document OCR service is temporarily unavailable. Please retry shortly.",
+        Status = StatusCodes.Status503ServiceUnavailable
+    };
+
+    internal static string? MapStage(DocumentOcrJobStatus status) => status switch
+    {
+        DocumentOcrJobStatus.Queued => "QUEUED",
+        DocumentOcrJobStatus.Processing => "EXTRACTING",
+        DocumentOcrJobStatus.RequiresReview => "HUMAN_REVIEW",
+        DocumentOcrJobStatus.Completed => "COMPLETED",
+        DocumentOcrJobStatus.Failed => "ERROR",
+        _ => null
     };
 }
 
