@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using System.Text;
 using Microsoft.EntityFrameworkCore;
 using RegulatoryCompliance.Application.Embeddings;
@@ -118,8 +119,28 @@ public sealed class KnowledgeIngestionService(
             now);
 
         var drafts = chunker.Chunk(textContent);
+        if (drafts.Count == 0)
+        {
+            var fallbackText = textContent.Trim();
+            if (string.IsNullOrWhiteSpace(fallbackText))
+                fallbackText = $"# {input.Title}\nStandard Operational Knowledge: {input.FileName}";
+
+            drafts = [new RegulatoryChunkDraft(
+                1,
+                "Overview",
+                null,
+                fallbackText,
+                fallbackText.Split(' ', StringSplitOptions.RemoveEmptyEntries).Length,
+                0,
+                fallbackText.Length,
+                Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(fallbackText))).ToLowerInvariant())];
+        }
+
         foreach (var draft in drafts)
         {
+            if (string.IsNullOrWhiteSpace(draft.Text))
+                continue;
+
             var chunk = version.AddChunk(
                 draft.Sequence,
                 draft.SectionLabel,
