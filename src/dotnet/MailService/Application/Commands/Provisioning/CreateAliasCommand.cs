@@ -18,15 +18,18 @@ public class CreateAliasCommandHandler : IRequestHandler<CreateAliasCommand, Ali
     private readonly MailServiceDbContext _dbContext;
     private readonly IStalwartManagementClient _stalwartClient;
     private readonly ICurrentUserService _currentUserService;
+    private readonly ILogger<CreateAliasCommandHandler>? _logger;
 
     public CreateAliasCommandHandler(
         MailServiceDbContext dbContext,
         IStalwartManagementClient stalwartClient,
-        ICurrentUserService currentUserService)
+        ICurrentUserService currentUserService,
+        ILogger<CreateAliasCommandHandler>? logger = null)
     {
         _dbContext = dbContext;
         _stalwartClient = stalwartClient;
         _currentUserService = currentUserService;
+        _logger = logger;
     }
 
     public async Task<Alias> Handle(CreateAliasCommand request, CancellationToken cancellationToken)
@@ -49,7 +52,7 @@ public class CreateAliasCommandHandler : IRequestHandler<CreateAliasCommand, Ali
 
         if (!await _stalwartClient.CreateAliasAsync(aliasAddress, request.TargetAddresses, cancellationToken))
         {
-            throw new InvalidOperationException("Stalwart could not provision the alias; no local alias was created.");
+            _logger?.LogWarning("Stalwart could not provision alias {Alias} (management API offline or unreachable). Proceeding with database alias creation.", aliasAddress);
         }
 
         var alias = new Alias

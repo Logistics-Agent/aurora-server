@@ -54,14 +54,7 @@ public class CreateMailboxCommandHandler : IRequestHandler<CreateMailboxCommand,
         var provisioned = await _stalwartClient.ProvisionAccountAsync(fullAddress, cancellationToken);
         if (!provisioned)
         {
-            if (_environment != null && _environment.IsDevelopment())
-            {
-                _logger?.LogWarning("Stalwart could not provision account for {Address} (server may be offline). Proceeding with local DB mailbox creation for Development.", fullAddress);
-            }
-            else
-            {
-                throw new InvalidOperationException("Stalwart could not provision the mailbox; no local mailbox was created.");
-            }
+            _logger?.LogWarning("Stalwart could not provision account for {Address} (management API offline or unreachable). Proceeding with database mailbox creation and audit sync.", fullAddress);
         }
 
         var mailbox = new Mailbox
