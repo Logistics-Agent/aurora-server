@@ -157,7 +157,7 @@ public sealed class KnowledgeIngestionService(
         decimal minimumRelevanceScore,
         CancellationToken cancellationToken = default)
     {
-        if (!currentUser.IsSystemAdmin && (!currentUser.TenantId.HasValue || currentUser.TenantId == Guid.Empty))
+        if (!currentUser.IsSystemAdmin() && (!currentUser.TenantId.HasValue || currentUser.TenantId == Guid.Empty))
             throw new InvalidOperationException("Tenant context is required.");
         ValidateQuery(query, categories, topK, minimumRelevanceScore);
 
@@ -245,7 +245,7 @@ public sealed class KnowledgeIngestionService(
         if (!Enum.IsDefined(visibility))
             throw new ArgumentOutOfRangeException(nameof(visibility));
 
-        if (currentUser.IsSystemAdmin || currentUser.HasPermission(PlatformIngestionPermission))
+        if (currentUser.IsSystemAdmin() || currentUser.HasPermission(PlatformIngestionPermission))
             return;
 
         var permission = visibility == SourceVisibility.Platform
