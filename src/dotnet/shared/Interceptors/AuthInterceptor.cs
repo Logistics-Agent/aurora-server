@@ -68,10 +68,15 @@ public class AuthInterceptor(
         if (Guid.TryParse(tenantIdStr, out var tenantId)) parsedTenantId = tenantId;
         if (int.TryParse(versionStr, out var version)) parsedVersion = version;
 
-        currentUser.Populate(parsedUserId, parsedTenantId, traceId, parsedVersion, role, new List<string>());
+        var permissionsStr = headers.GetValue(GrpcMetadataKeys.Permissions);
+        var permissions = !string.IsNullOrWhiteSpace(permissionsStr)
+            ? permissionsStr.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList()
+            : new List<string>();
 
-        logger.LogDebug("AuthInterceptor: UserId={UserId} TenantId={TenantId} Version={Version} Role={Role}",
-            currentUser.UserId, currentUser.TenantId, currentUser.PermissionVersion, currentUser.Role);
+        currentUser.Populate(parsedUserId, parsedTenantId, traceId, parsedVersion, role, permissions);
+
+        logger.LogDebug("AuthInterceptor: UserId={UserId} TenantId={TenantId} Version={Version} Role={Role} PermissionsCount={Count}",
+            currentUser.UserId, currentUser.TenantId, currentUser.PermissionVersion, currentUser.Role, currentUser.Permissions.Count);
     }
 
     private void PopulateDevelopmentIdentity(string? traceId)

@@ -144,11 +144,24 @@ public sealed class RegulatoryIngestionService(
     {
         if (!Enum.IsDefined(visibility))
             throw new ArgumentOutOfRangeException(nameof(visibility));
+
+        if (currentUser.IsSystemAdmin() || currentUser.HasPermission(PlatformIngestionPermission))
+            return;
+
+        if (visibility == SourceVisibility.Tenant && currentUser.IsTenantAdmin())
+            return;
+
         var permission = visibility == SourceVisibility.Platform
             ? PlatformIngestionPermission
             : TenantIngestionPermission;
-        if (!currentUser.Permissions.Contains(permission, StringComparer.OrdinalIgnoreCase))
+
+        if (!currentUser.HasPermission(permission) &&
+            !currentUser.HasPermission(PermissionConstants.Documents.Manage) &&
+            !currentUser.HasPermission(PermissionConstants.Documents.Ingest))
+        {
             throw new UnauthorizedAccessException("Regulatory source ingestion permission is required.");
+        }
+
         if (visibility == SourceVisibility.Tenant &&
             (!currentUser.TenantId.HasValue || currentUser.TenantId == Guid.Empty))
             throw new InvalidOperationException("Tenant context is required for tenant source ingestion.");

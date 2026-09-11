@@ -39,6 +39,8 @@ public class ClientMetadataInterceptor(ICurrentUserService currentUser, string? 
             headers.Add(GrpcMetadataKeys.PermissionVersion, currentUser.PermissionVersion.ToString()!);
         if (!string.IsNullOrEmpty(currentUser.Role))
             headers.Add(GrpcMetadataKeys.Role, currentUser.Role);
+        if (currentUser.Permissions != null && currentUser.Permissions.Count > 0)
+            headers.Add(GrpcMetadataKeys.Permissions, string.Join(",", currentUser.Permissions));
     }
 }
 

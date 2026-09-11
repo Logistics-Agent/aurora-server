@@ -248,6 +248,9 @@ public sealed class KnowledgeIngestionService(
         if (currentUser.IsSystemAdmin() || currentUser.HasPermission(PlatformIngestionPermission))
             return;
 
+        if (visibility == SourceVisibility.Tenant && currentUser.IsTenantAdmin())
+            return;
+
         var permission = visibility == SourceVisibility.Platform
             ? PlatformIngestionPermission
             : TenantIngestionPermission;

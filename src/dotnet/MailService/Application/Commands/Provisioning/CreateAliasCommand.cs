@@ -55,23 +55,39 @@ public class CreateAliasCommandHandler : IRequestHandler<CreateAliasCommand, Ali
             _logger?.LogWarning("Stalwart could not provision alias {Alias} (management API offline or unreachable). Proceeding with database alias creation.", aliasAddress);
         }
 
-        var alias = new Alias
-        {
-            TenantId = tenantId,
-            DomainId = request.DomainId,
-            AliasAddress = aliasAddress,
-            Targets = request.TargetAddresses,
-            CreatedAt = DateTimeOffset.UtcNow
-        };
+        var existingAlias = await Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.FirstOrDefaultAsync(
+            _dbContext.Aliases, a => a.TenantId == tenantId && a.AliasAddress == aliasAddress, cancellationToken);
 
-        _dbContext.Aliases.Add(alias);
+        Alias alias;
+        string actionName;
+
+        if (existingAlias != null)
+        {
+            existingAlias.DomainId = request.DomainId;
+            existingAlias.Targets = request.TargetAddresses;
+            alias = existingAlias;
+            actionName = "MailAliasUpdated";
+        }
+        else
+        {
+            alias = new Alias
+            {
+                TenantId = tenantId,
+                DomainId = request.DomainId,
+                AliasAddress = aliasAddress,
+                Targets = request.TargetAddresses,
+                CreatedAt = DateTimeOffset.UtcNow
+            };
+            _dbContext.Aliases.Add(alias);
+            actionName = "MailAliasCreated";
+        }
 
         var audit = new AuditRecord
         {
             TenantId = tenantId,
             ActorId = _currentUserService.UserId ?? Guid.Empty,
             ActorType = ActorType.TenantAdmin,
-            Action = "MailAliasCreated",
+            Action = actionName,
             ResourceType = "Alias",
             ResourceId = alias.Id,
             Timestamp = DateTimeOffset.UtcNow,
