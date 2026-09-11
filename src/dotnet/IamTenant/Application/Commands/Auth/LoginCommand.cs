@@ -8,7 +8,7 @@ using IamTenant.Domain.Enums;
 
 namespace IamTenant.Application.Commands.Auth;
 
-public record LoginResult(string AccessToken, string RefreshToken, int ExpiresIn, string UserId, string TenantId, string Role, List<string> Permissions);
+public record LoginResult(string AccessToken, string RefreshToken, string RefreshTokenSubject, int ExpiresIn, string UserId, string TenantId, string Role, List<string> Permissions);
 
 public record LoginCommand(string TenantCode, string Email, string Password) : IRequest<LoginResult>;
 
@@ -62,9 +62,12 @@ public class LoginCommandHandler(ICognitoAuthService cognitoService, IamTenantDb
             return new LoginResult(
                 systemAuthResult.AccessToken,
                 systemAuthResult.RefreshToken,
+                systemAuthResult.RefreshTokenSubject,
                 systemAuthResult.ExpiresIn,
                 systemUser.Id.ToString(),
-                systemUser.TenantId == null || systemUser.TenantId == Guid.Empty ? string.Empty : systemUser.TenantId.ToString(),
+                systemUser.TenantId is { } systemTenantId && systemTenantId != Guid.Empty
+                    ? systemTenantId.ToString()
+                    : string.Empty,
                 systemUser.Role.ToCode(),
                 systemPermissions.Permissions.Select(p => p.Code).ToList());
         }
@@ -120,9 +123,10 @@ public class LoginCommandHandler(ICognitoAuthService cognitoService, IamTenantDb
         return new LoginResult(
             authResult.AccessToken,
             authResult.RefreshToken,
+            authResult.RefreshTokenSubject,
             authResult.ExpiresIn,
             user.Id.ToString(),
-            user.TenantId == Guid.Empty ? "" : user.TenantId.ToString(),
+            user.TenantId is { } tenantId && tenantId != Guid.Empty ? tenantId.ToString() : string.Empty,
             user.Role.ToCode(),
             userPermissions.Permissions.Select(p => p.Code).ToList());
     }

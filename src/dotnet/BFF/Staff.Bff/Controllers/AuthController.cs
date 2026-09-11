@@ -34,6 +34,7 @@ public class AuthController(
 {
     private const string AccessTokenCookie = "access_token";
     private const string RefreshTokenCookie = "refresh_token";
+    private const string RefreshTokenSubjectCookie = "refresh_token_subject";
     private const string TenantCodeCookie = "tenant_code";
     private const string UserTypeCookie = "user_type";
     private const string RefreshCookiePath = "/api/v1/auth";
@@ -218,7 +219,8 @@ public class AuthController(
                 {
                     RefreshToken = refreshToken,
                     TenantCode = Request.Cookies[TenantCodeCookie] ?? string.Empty,
-                    UserType = Request.Cookies[UserTypeCookie] ?? string.Empty
+                    UserType = Request.Cookies[UserTypeCookie] ?? string.Empty,
+                    RefreshTokenSubject = Request.Cookies[RefreshTokenSubjectCookie] ?? string.Empty
                 },
                 GrpcDeadlines.WithDeadline(GrpcDeadlines.RefreshTimeout, HttpContext.RequestAborted));
 
@@ -396,6 +398,19 @@ public class AuthController(
                 Path = RefreshCookiePath,
                 MaxAge = TimeSpan.FromDays(30)
             });
+
+            if (!string.IsNullOrWhiteSpace(response.RefreshTokenSubject))
+            {
+                Response.Cookies.Append(RefreshTokenSubjectCookie, response.RefreshTokenSubject, new CookieOptions
+                {
+                    HttpOnly = baseCookieOptions.HttpOnly,
+                    Secure = baseCookieOptions.Secure,
+                    SameSite = baseCookieOptions.SameSite,
+                    Domain = baseCookieOptions.Domain,
+                    Path = RefreshCookiePath,
+                    MaxAge = TimeSpan.FromDays(30)
+                });
+            }
         }
     }
 
@@ -501,10 +516,22 @@ public class AuthController(
 
     private void ClearAuthCookies()
     {
-        Response.Cookies.Delete(AccessTokenCookie, new CookieOptions { Path = "/" });
-        Response.Cookies.Delete(RefreshTokenCookie, new CookieOptions { Path = RefreshCookiePath });
-        Response.Cookies.Delete(TenantCodeCookie, new CookieOptions { Path = RefreshCookiePath });
-        Response.Cookies.Delete(UserTypeCookie, new CookieOptions { Path = RefreshCookiePath });
+        Response.Cookies.Delete(AccessTokenCookie, CreateDeleteCookieOptions("/"));
+        Response.Cookies.Delete(RefreshTokenCookie, CreateDeleteCookieOptions(RefreshCookiePath));
+        Response.Cookies.Delete(RefreshTokenSubjectCookie, CreateDeleteCookieOptions(RefreshCookiePath));
+        Response.Cookies.Delete(TenantCodeCookie, CreateDeleteCookieOptions(RefreshCookiePath));
+        Response.Cookies.Delete(UserTypeCookie, CreateDeleteCookieOptions(RefreshCookiePath));
+    }
+
+    private CookieOptions CreateDeleteCookieOptions(string path)
+    {
+        var options = new CookieOptions { Path = path };
+        if (!string.IsNullOrWhiteSpace(_cookieOpts.Domain))
+        {
+            options.Domain = _cookieOpts.Domain;
+        }
+
+        return options;
     }
 
     // --- DTOs ---

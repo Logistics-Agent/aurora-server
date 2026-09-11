@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using Amazon.CognitoIdentityProvider;
 using Amazon.CognitoIdentityProvider.Model;
 using IamTenant.Application.Interfaces;
@@ -259,7 +260,8 @@ public class CognitoAuthService(
         {
             AccessToken = result.AccessToken,
             RefreshToken = result.RefreshToken,
-            ExpiresIn = (int)result.ExpiresIn!
+            ExpiresIn = (int)result.ExpiresIn!,
+            RefreshTokenSubject = GetRefreshTokenSubject(result.AccessToken)
         };
     }
 
@@ -303,22 +305,38 @@ public class CognitoAuthService(
         {
             AccessToken = result.AccessToken,
             RefreshToken = result.RefreshToken,
-            ExpiresIn = (int)result.ExpiresIn!
+            ExpiresIn = (int)result.ExpiresIn!,
+            RefreshTokenSubject = GetRefreshTokenSubject(result.AccessToken)
         };
     }
 
-    public async Task<AuthResult> RefreshTokenAsync(string refreshToken, CancellationToken ct = default)
+    public async Task<AuthResult> RefreshTokenAsync(string refreshToken, string refreshTokenSubject, CancellationToken ct = default)
     {
-        return await RefreshTokenAsync(GetEffectiveClientId(), refreshToken, ct);
+        return await RefreshTokenAsync(GetEffectiveClientId(), refreshToken, refreshTokenSubject, ct);
     }
 
-    public async Task<AuthResult> RefreshTokenAsync(string? clientId, string refreshToken, CancellationToken ct = default)
+    public async Task<AuthResult> RefreshTokenAsync(string? clientId, string refreshToken, string refreshTokenSubject, CancellationToken ct = default)
     {
         var targetClientId = GetEffectiveClientId(clientId);
         var authParameters = new Dictionary<string, string>
         {
             ["REFRESH_TOKEN"] = refreshToken
         };
+
+        var clientSecret = GetClientSecret(targetClientId);
+        if (!string.IsNullOrWhiteSpace(clientSecret))
+        {
+            if (string.IsNullOrWhiteSpace(refreshTokenSubject))
+            {
+                throw new InvalidOperationException(
+                    "Refresh token subject is required when the Cognito app client has a secret.");
+            }
+
+            authParameters["SECRET_HASH"] = CalculateSecretHash(
+                targetClientId,
+                clientSecret,
+                refreshTokenSubject)!;
+        }
 
         var request = new InitiateAuthRequest
         {
@@ -334,8 +352,38 @@ public class CognitoAuthService(
         {
             AccessToken = result.AccessToken,
             RefreshToken = string.IsNullOrWhiteSpace(result.RefreshToken) ? refreshToken : result.RefreshToken,
-            ExpiresIn = (int)result.ExpiresIn!
+            ExpiresIn = (int)result.ExpiresIn!,
+            RefreshTokenSubject = refreshTokenSubject
         };
+    }
+
+    private static string GetRefreshTokenSubject(string accessToken)
+    {
+        var segments = accessToken.Split('.');
+        if (segments.Length != 3)
+        {
+            throw new InvalidOperationException("Cognito access token is not a valid JWT.");
+        }
+
+        var payload = segments[1].Replace('-', '+').Replace('_', '/');
+        payload = payload.PadRight(payload.Length + ((4 - payload.Length % 4) % 4), '=');
+
+        try
+        {
+            using var document = JsonDocument.Parse(Convert.FromBase64String(payload));
+            if (document.RootElement.TryGetProperty("sub", out var subject) &&
+                subject.ValueKind == JsonValueKind.String &&
+                !string.IsNullOrWhiteSpace(subject.GetString()))
+            {
+                return subject.GetString()!;
+            }
+        }
+        catch (Exception exception) when (exception is FormatException or JsonException)
+        {
+            throw new InvalidOperationException("Cognito access token has an invalid JWT payload.", exception);
+        }
+
+        throw new InvalidOperationException("Cognito access token does not contain a subject claim.");
     }
 
     public async Task ForgotPasswordAsync(string email, CancellationToken ct = default)

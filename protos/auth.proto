@@ -61,12 +61,14 @@ message LoginResponse {
   repeated common.SystemRole systemRoles = 7;
 
   repeated string permissions = 8;
+  string refreshTokenSubject = 9;
 }
 
 message RefreshTokenRequest {
   string refreshToken = 1;
   string tenantCode = 2;
   string userType = 3;
+  string refreshTokenSubject = 4;
 }
 
 message LogoutRequest {
@@ -129,4 +131,3 @@ message ChangePasswordRequest {
   string tenantCode = 4;
   string userType = 5;
 }
-
