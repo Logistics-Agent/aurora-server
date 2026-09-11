@@ -36,7 +36,7 @@ public sealed class DocumentsController(
     /// </summary>
     [HttpPost("shipment")]
     [HttpPost("shipment-documents")]
-    [RequirePermission(PermissionConstants.Shipment.Create, "documents:create")]
+    [RequirePermission(PermissionConstants.Documents.Ingest)]
     [ProducesResponseType(typeof(UnifiedDocumentStatusResponse), 200)]
     public async Task<IActionResult> SubmitShipmentDocument(
         [FromBody] SubmitShipmentDocumentRequest request,
@@ -92,8 +92,9 @@ public sealed class DocumentsController(
     /// </summary>
     [HttpGet("shipment/{id}")]
     [HttpGet("shipment-documents/{id}")]
-    [RequirePermission(PermissionConstants.Shipment.Read, "documents:read")]
+    [RequirePermission(PermissionConstants.Documents.Read)]
     [ProducesResponseType(typeof(UnifiedDocumentStatusResponse), 200)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status503ServiceUnavailable)]
     public async Task<IActionResult> GetShipmentDocumentStatus(
         [FromRoute] string id,
         CancellationToken cancellationToken)
@@ -119,6 +120,12 @@ public sealed class DocumentsController(
                 job.CreatedAt?.ToDateTimeOffset(),
                 job.CompletedAt?.ToDateTimeOffset()));
         }
+        catch (RpcException ex) when (DocumentsContract.IsUnavailable(ex.StatusCode))
+        {
+            return StatusCode(
+                StatusCodes.Status503ServiceUnavailable,
+                DocumentsContract.CreateUnavailableProblemDetails());
+        }
         catch (RpcException ex) when (ex.StatusCode == Grpc.Core.StatusCode.NotFound)
         {
             return NotFound(new ProblemDetails
@@ -134,7 +141,7 @@ public sealed class DocumentsController(
     /// Box 1: List recent shipment document jobs for the current tenant.
     /// </summary>
     [HttpGet("shipment-documents")]
-    [RequirePermission(PermissionConstants.Shipment.Read, "documents:read")]
+    [RequirePermission(PermissionConstants.Documents.Read)]
     [ProducesResponseType(typeof(ListShipmentDocumentsResponse), 200)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status503ServiceUnavailable)]
     public async Task<IActionResult> ListShipmentDocuments(
@@ -177,7 +184,7 @@ public sealed class DocumentsController(
 
             return Ok(new ListShipmentDocumentsResponse(items, response.Page, response.PageSize, response.TotalItems, response.TotalPages));
         }
-        catch (RpcException ex) when (ex.StatusCode is Grpc.Core.StatusCode.Unavailable or Grpc.Core.StatusCode.DeadlineExceeded)
+        catch (RpcException ex) when (DocumentsContract.IsUnavailable(ex.StatusCode))
         {
             logger.LogWarning("DocumentOcr service unavailable for ListShipmentDocuments: {StatusCode}", ex.StatusCode);
             return StatusCode(
@@ -192,6 +199,7 @@ public sealed class DocumentsController(
     [HttpGet("shipment-documents/{id}/review")]
     [RequirePermission(PermissionConstants.Ocr.Review)]
     [ProducesResponseType(typeof(OcrReviewDetailsResponse), 200)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status503ServiceUnavailable)]
     public async Task<IActionResult> GetShipmentDocumentReview(
         [FromRoute] string id,
         CancellationToken cancellationToken)
@@ -248,6 +256,12 @@ public sealed class DocumentsController(
                 reasons,
                 fields));
         }
+        catch (RpcException ex) when (DocumentsContract.IsUnavailable(ex.StatusCode))
+        {
+            return StatusCode(
+                StatusCodes.Status503ServiceUnavailable,
+                DocumentsContract.CreateUnavailableProblemDetails());
+        }
         catch (RpcException ex) when (ex.StatusCode == Grpc.Core.StatusCode.NotFound)
         {
             return NotFound(new ProblemDetails
@@ -266,6 +280,7 @@ public sealed class DocumentsController(
     [HttpPost("shipment-documents/{id}/review")]
     [RequirePermission(PermissionConstants.Ocr.Review)]
     [ProducesResponseType(typeof(UnifiedDocumentStatusResponse), 200)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status503ServiceUnavailable)]
     public async Task<IActionResult> SubmitShipmentDocumentReview(
         [FromRoute] string id,
         [FromBody] SubmitOcrReviewRequest request,
@@ -313,6 +328,12 @@ public sealed class DocumentsController(
                 updatedJob.CreatedAt?.ToDateTimeOffset(),
                 updatedJob.CompletedAt?.ToDateTimeOffset()));
         }
+        catch (RpcException ex) when (DocumentsContract.IsUnavailable(ex.StatusCode))
+        {
+            return StatusCode(
+                StatusCodes.Status503ServiceUnavailable,
+                DocumentsContract.CreateUnavailableProblemDetails());
+        }
         catch (RpcException ex) when (ex.StatusCode == Grpc.Core.StatusCode.FailedPrecondition)
         {
             return StatusCode((int)HttpStatusCode.Conflict, new ProblemDetails
@@ -346,7 +367,7 @@ public sealed class DocumentsController(
     /// Box 1: Cancel an active shipment document OCR job (Allowed only while RECEIVED or PROCESSING).
     /// </summary>
     [HttpPost("shipment-documents/{id}/cancel")]
-    [RequirePermission(PermissionConstants.Shipment.Update, "documents:update")]
+    [RequirePermission(PermissionConstants.Documents.Manage)]
     [ProducesResponseType(typeof(UnifiedDocumentStatusResponse), 200)]
     public async Task<IActionResult> CancelShipmentDocument(
         [FromRoute] string id,
@@ -394,7 +415,7 @@ public sealed class DocumentsController(
     /// Box 1: Retry a failed shipment document OCR job.
     /// </summary>
     [HttpPost("shipment-documents/{id}/retry")]
-    [RequirePermission(PermissionConstants.Shipment.Update, "documents:update")]
+    [RequirePermission(PermissionConstants.Documents.Manage)]
     [ProducesResponseType(typeof(UnifiedDocumentStatusResponse), 200)]
     public async Task<IActionResult> RetryShipmentDocument(
         [FromRoute] string id,
@@ -448,7 +469,7 @@ public sealed class DocumentsController(
     /// </summary>
     [HttpPost("regulatory")]
     [HttpPost("regulatory-sources")]
-    [RequirePermission(PermissionConstants.Documents.Ingest, "documents:create")]
+    [RequirePermission(PermissionConstants.Documents.Ingest)]
     [ProducesResponseType(typeof(UnifiedDocumentStatusResponse), 200)]
     public async Task<IActionResult> SubmitRegulatorySource(
         [FromBody] SubmitRegulatorySourceRequest request,
@@ -535,7 +556,7 @@ public sealed class DocumentsController(
     /// Evidence-first response with citations and relevance scores.
     /// </summary>
     [HttpPost("regulatory/query")]
-    [RequirePermission(PermissionConstants.Documents.Read, PermissionConstants.Compliance.Read)]
+    [RequirePermission(PermissionConstants.Documents.Read)]
     [ProducesResponseType(typeof(RegulatoryQueryResponse), 200)]
     public async Task<IActionResult> QueryRegulations(
         [FromBody] RegulatoryQueryRequest request,
@@ -597,7 +618,7 @@ public sealed class DocumentsController(
     /// </summary>
     [HttpPost("knowledge")]
     [HttpPost("knowledge-documents")]
-    [RequirePermission(PermissionConstants.Documents.Ingest, "documents:create")]
+    [RequirePermission(PermissionConstants.Documents.Ingest)]
     [ProducesResponseType(typeof(UnifiedDocumentStatusResponse), 200)]
     public async Task<IActionResult> SubmitKnowledgeDocument(
         [FromBody] SubmitKnowledgeDocumentRequest request,
@@ -671,7 +692,7 @@ public sealed class DocumentsController(
     /// Box 3: Query knowledge corpus (SOPs, Guides, Contracts for PLATFORM + TENANT).
     /// </summary>
     [HttpPost("knowledge/query")]
-    [RequirePermission(PermissionConstants.Documents.Read, PermissionConstants.Compliance.Read)]
+    [RequirePermission(PermissionConstants.Documents.Read)]
     [ProducesResponseType(typeof(KnowledgeQueryResponse), 200)]
     public async Task<IActionResult> QueryKnowledge(
         [FromBody] KnowledgeQueryRequest request,
@@ -723,6 +744,7 @@ public sealed class DocumentsController(
     /// </summary>
     [HttpPost("general")]
     [HttpPost("general-documents")]
+    [RequirePermission(PermissionConstants.Documents.Ingest)]
     [ProducesResponseType(typeof(UnifiedDocumentStatusResponse), 200)]
     public IActionResult SubmitGeneralDocument([FromBody] SubmitGeneralDocumentRequest request)
     {
@@ -757,6 +779,7 @@ public sealed class DocumentsController(
     /// Reuses existing StorageReference, triggers text extraction, chunking, knowledge.embed, and pgvector indexing.
     /// </summary>
     [HttpPost("general-documents/{id}/promote-to-knowledge")]
+    [RequirePermission(PermissionConstants.Documents.Manage)]
     [ProducesResponseType(typeof(UnifiedDocumentStatusResponse), 200)]
     public async Task<IActionResult> PromoteGeneralDocumentToKnowledge(
         [FromRoute] string id,
@@ -817,17 +840,8 @@ public sealed class DocumentsController(
     // STATUS & STAGE HELPERS
     // ──────────────────────────────────────────────────────────────────────────
 
-    private static string MapOcrStatus(DocumentOcrJobStatus status, bool needsReview) => status switch
-    {
-        DocumentOcrJobStatus.Queued => "PROCESSING",
-        DocumentOcrJobStatus.Processing => "PROCESSING",
-        DocumentOcrJobStatus.RequiresReview => "NEEDS_REVIEW",
-        DocumentOcrJobStatus.Completed => needsReview ? "NEEDS_REVIEW" : "READY",
-        DocumentOcrJobStatus.Rejected => "REJECTED",
-        DocumentOcrJobStatus.Failed => "FAILED",
-        DocumentOcrJobStatus.Cancelled => "CANCELLED",
-        _ => "RECEIVED"
-    };
+    private static string MapOcrStatus(DocumentOcrJobStatus status, bool needsReview)
+        => DocumentsContract.MapStatus(status, needsReview);
 
     private static string? MapOcrStage(DocumentOcrJobStatus status)
         => DocumentsContract.MapStage(status);
@@ -868,11 +882,26 @@ public sealed class DocumentsController(
 
 internal static class DocumentsContract
 {
+    internal static bool IsUnavailable(StatusCode statusCode)
+        => statusCode is StatusCode.Unavailable or StatusCode.DeadlineExceeded;
+
     internal static ProblemDetails CreateUnavailableProblemDetails() => new()
     {
         Title = "DOCUMENT_OCR_UNAVAILABLE",
         Detail = "Document OCR service is temporarily unavailable. Please retry shortly.",
         Status = StatusCodes.Status503ServiceUnavailable
+    };
+
+    internal static string MapStatus(DocumentOcrJobStatus status, bool needsReview) => status switch
+    {
+        DocumentOcrJobStatus.Queued => "PROCESSING",
+        DocumentOcrJobStatus.Processing => "PROCESSING",
+        DocumentOcrJobStatus.RequiresReview => "NEEDS_REVIEW",
+        DocumentOcrJobStatus.Completed => needsReview ? "NEEDS_REVIEW" : "READY",
+        DocumentOcrJobStatus.Rejected => "REJECTED",
+        DocumentOcrJobStatus.Failed => "FAILED",
+        DocumentOcrJobStatus.Cancelled => "CANCELLED",
+        _ => "RECEIVED"
     };
 
     internal static string? MapStage(DocumentOcrJobStatus status) => status switch
