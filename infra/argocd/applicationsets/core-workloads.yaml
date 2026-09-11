@@ -21,7 +21,7 @@ spec:
         path: infra/helm/{{deployment.chart}}
         helm:
           valueFiles:
-            - "{{path.path}}/helm/{{deployment.values}}"
+            - "../../../{{path}}/helm/{{deployment.values}}"
       destination:
         server: https://kubernetes.default.svc
         namespace: "{{deployment.namespace}}"

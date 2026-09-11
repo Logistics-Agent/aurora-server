@@ -244,6 +244,23 @@ public class MailServiceRuntimeSmokeTests
         }
     }
 
+    [Fact]
+    public void SmokeTest9_CurrentUserInterfaces_ResolveToSameScopedInstance()
+    {
+        var services = new ServiceCollection();
+        services.AddScoped<CurrentUserService>();
+        services.AddScoped<ICurrentUserService>(sp => sp.GetRequiredService<CurrentUserService>());
+        services.AddScoped<ICurrentUserContext>(sp => sp.GetRequiredService<CurrentUserService>());
+
+        using var serviceProvider = services.BuildServiceProvider(validateScopes: true);
+        using var scope = serviceProvider.CreateScope();
+
+        var readOnlyUser = scope.ServiceProvider.GetRequiredService<ICurrentUserService>();
+        var mutableUser = scope.ServiceProvider.GetRequiredService<ICurrentUserContext>();
+
+        Assert.Same(mutableUser, readOnlyUser);
+    }
+
     private class MockCurrentUserService : ICurrentUserService
     {
         public MockCurrentUserService(Guid tenantId)

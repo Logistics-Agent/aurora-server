@@ -215,6 +215,11 @@ public class RoutesController(
         {
             return BadRequest(new { detail = ex.Status.Detail });
         }
+        catch (RpcException ex) when (ex.StatusCode == Grpc.Core.StatusCode.Unavailable)
+        {
+            logger.LogWarning("RoutePlanning gRPC service unavailable during OptimizeRoute: {Detail}", ex.Status.Detail);
+            return StatusCode(503, new { detail = "Route Planning optimization service is currently unavailable." });
+        }
     }
 
     /// <summary>Yêu cầu đánh giá/khuyến nghị AI theo automation policy của tenant (rule → compliance → LLM → approval).</summary>
@@ -247,6 +252,11 @@ public class RoutesController(
         catch (RpcException ex) when (ex.StatusCode == Grpc.Core.StatusCode.InvalidArgument)
         {
             return BadRequest(new { detail = ex.Status.Detail });
+        }
+        catch (RpcException ex) when (ex.StatusCode == Grpc.Core.StatusCode.Unavailable)
+        {
+            logger.LogWarning("RoutePlanning gRPC service unavailable during GetRouteRecommendation: {Detail}", ex.Status.Detail);
+            return StatusCode(503, new { detail = "Route Planning AI recommendation service is currently unavailable." });
         }
     }
 

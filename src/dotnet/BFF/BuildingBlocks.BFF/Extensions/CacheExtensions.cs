@@ -13,9 +13,9 @@ public static class CacheExtensions
         this IServiceCollection services,
         IConfiguration config)
     {
-        var redisConn = SharedServiceExtensions.BuildRedisConnectionString(config);
+        var redisOpts = SharedServiceExtensions.BuildRedisConfigurationOptions(config);
 
-        services.AddStackExchangeRedisCache(opts => opts.Configuration = redisConn);
+        services.AddStackExchangeRedisCache(opts => opts.ConfigurationOptions = redisOpts);
         services.AddScoped<IPermissionCacheService, PermissionCacheService>();
 
         return services;

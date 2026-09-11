@@ -254,6 +254,7 @@ public class StaffController(
     /// PATCH /api/v1/admin/staff/{id}/permissions — cập nhật delta (grant/revoke) quyền trực tiếp cho 1 user.
     /// </summary>
     [HttpPatch("{id}/permissions")]
+    [HttpPut("{id}/permissions")]
     [RequirePermission(PermissionConstants.Iam.PermissionManage, "iam:assign")]
     public async Task<IActionResult> UpdateStaffPermissions([FromRoute] string id, [FromBody] UpdateStaffPermissionsBody body)
     {
@@ -291,6 +292,7 @@ public class StaffController(
     /// PATCH /api/v1/admin/staff/permissions — cập nhật bulk delta permissions cho nhiều users.
     /// </summary>
     [HttpPatch("permissions")]
+    [HttpPut("permissions")]
     [RequirePermission(PermissionConstants.Iam.PermissionManage, "iam:assign")]
     public async Task<IActionResult> BulkUpdateStaffPermissions([FromBody] BulkUpdateStaffPermissionsBody body)
     {

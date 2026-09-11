@@ -1,8 +1,13 @@
+﻿using System.Text.Json;
 using MediatR;
+using Microsoft.EntityFrameworkCore;
+using Npgsql;
+using Shared.Exceptions;
 using Shared.Security;
 using MailService.Application.Interfaces.Stalwart;
 using MailService.Domain.Entities;
 using MailService.Domain.Enums;
+using MailService.Infrastructure.Messaging;
 using MailService.Infrastructure.Persistence;
 
 namespace MailService.Application.Commands.Provisioning;
@@ -15,10 +20,7 @@ public class ProvisionDomainCommandHandler : IRequestHandler<ProvisionDomainComm
     private readonly IStalwartManagementClient _stalwartClient;
     private readonly ICurrentUserService _currentUserService;
 
-    public ProvisionDomainCommandHandler(
-        MailServiceDbContext dbContext,
-        IStalwartManagementClient stalwartClient,
-        ICurrentUserService currentUserService)
+    public ProvisionDomainCommandHandler(MailServiceDbContext dbContext, IStalwartManagementClient stalwartClient, ICurrentUserService currentUserService)
     {
         _dbContext = dbContext;
         _stalwartClient = stalwartClient;
@@ -27,28 +29,62 @@ public class ProvisionDomainCommandHandler : IRequestHandler<ProvisionDomainComm
 
     public async Task<Domain.Entities.Domain> Handle(ProvisionDomainCommand request, CancellationToken cancellationToken)
     {
-        Guid tenantId = _currentUserService.TenantId ?? Guid.Empty;
+        var tenantId = _currentUserService.TenantId is { } id && id != Guid.Empty
+            ? id : throw new UnauthorizedAccessException("Tenant context is required to provision a mail domain.");
+        var domainName = request.DomainName.Trim().TrimEnd('.').ToLowerInvariant();
+
+        var existing = await _dbContext.Domains.IgnoreQueryFilters()
+            .SingleOrDefaultAsync(d => d.DomainName == domainName, cancellationToken);
+        if (existing != null)
+        {
+            if (existing.TenantId == tenantId) return existing;
+            throw new ConflictException($"Mail domain '{domainName}' is already registered.");
+        }
+
+        if (!await _stalwartClient.RegisterDomainAsync(domainName, cancellationToken))
+            throw new PolicyUnavailableException("Stalwart could not register the mail domain.");
+
+        const string selector = "aurora-2025";
+        var dkimTxt = await _stalwartClient.GenerateDkimKeyAsync(domainName, selector, cancellationToken);
+        if (string.IsNullOrWhiteSpace(dkimTxt))
+            throw new PolicyUnavailableException("Stalwart did not return a DKIM record.");
+
         var domain = new Domain.Entities.Domain
         {
             TenantId = tenantId,
-            DomainName = request.DomainName.Trim().ToLowerInvariant(),
-            Status = DomainStatus.Active,
+            DomainName = domainName,
+            Status = DomainStatus.Pending,
             MaxMailboxCount = request.MaxMailboxCount,
             RetentionDays = request.RetentionDays,
-            DkimSelector = "aurora-2025",
+            DkimSelector = selector,
+            DkimTxtRecord = dkimTxt,
             CreatedAt = DateTimeOffset.UtcNow
         };
-
         _dbContext.Domains.Add(domain);
-        await _dbContext.SaveChangesAsync(cancellationToken);
 
-        // Instruct Stalwart via HTTP management API
-        await _stalwartClient.RegisterDomainAsync(domain.DomainName, cancellationToken);
-        string dkimTxt = await _stalwartClient.GenerateDkimKeyAsync(domain.DomainName, "aurora-2025", cancellationToken);
+        var audit = new AuditRecord
+        {
+            TenantId = tenantId,
+            ActorId = _currentUserService.UserId ?? Guid.Empty,
+            ActorType = ActorType.TenantAdmin,
+            Action = "MailDomainProvisioned",
+            ResourceType = "MailDomain",
+            ResourceId = domain.Id,
+            Timestamp = DateTimeOffset.UtcNow,
+            Result = "Success",
+            DetailJson = JsonSerializer.Serialize(new { DomainName = domainName, Status = domain.Status.ToString(), DkimSelector = selector })
+        };
+        _dbContext.AuditRecords.Add(audit);
+        CentralAuditOutbox.Enqueue(_dbContext, audit);
 
-        domain.DkimTxtRecord = dkimTxt;
-        await _dbContext.SaveChangesAsync(cancellationToken);
-
+        try
+        {
+            await _dbContext.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateException ex) when (ex.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation })
+        {
+            throw new ConflictException($"Mail domain '{domainName}' is already registered.");
+        }
         return domain;
     }
 }

@@ -22,13 +22,28 @@ public sealed class DeterministicEmbeddingProvider : IEmbeddingProvider
             if (string.IsNullOrWhiteSpace(text))
                 throw new ArgumentException("Embedding text is required.", nameof(texts));
             var vector = new float[Model.Dimension];
-            foreach (var token in text.ToLowerInvariant().Split(
-                         [' ', '\r', '\n', '\t', '.', ',', ';', ':'],
-                         StringSplitOptions.RemoveEmptyEntries))
+            var tokens = text.ToLowerInvariant().Split(
+                         [' ', '\r', '\n', '\t', '.', ',', ';', ':', '-', '_', '/', '\\', '(', ')', '[', ']', '{', '}', '|', '*', '=', '#', '`', '~', '!', '?', '@', '$', '%', '^', '&', '+', '<', '>', '"', '\''],
+                         StringSplitOptions.RemoveEmptyEntries);
+
+            if (tokens.Length > 0)
             {
-                var hash = SHA256.HashData(Encoding.UTF8.GetBytes(token));
-                vector[BitConverter.ToUInt32(hash, 0) % vector.Length] += 1f;
+                foreach (var token in tokens)
+                {
+                    var hash = SHA256.HashData(Encoding.UTF8.GetBytes(token));
+                    vector[BitConverter.ToUInt32(hash, 0) % vector.Length] += 1f;
+                }
             }
+            else
+            {
+                // Fallback for texts consisting of symbols or characters not in word list
+                var rawHash = SHA256.HashData(Encoding.UTF8.GetBytes(text.Trim()));
+                for (var i = 0; i < rawHash.Length && i < vector.Length; i++)
+                {
+                    vector[i] = rawHash[i] + 1f;
+                }
+            }
+
             Normalize(vector);
             vectors.Add(vector);
         }
@@ -38,8 +53,14 @@ public sealed class DeterministicEmbeddingProvider : IEmbeddingProvider
     private static void Normalize(float[] vector)
     {
         var magnitude = Math.Sqrt(vector.Sum(value => value * value));
-        if (magnitude == 0)
-            throw new ArgumentException("Embedding text produced an empty vector.");
+        if (magnitude == 0 || double.IsNaN(magnitude) || double.IsInfinity(magnitude))
+        {
+            var uniform = (float)(1.0 / Math.Sqrt(vector.Length));
+            for (var index = 0; index < vector.Length; index++)
+                vector[index] = uniform;
+            return;
+        }
+
         for (var index = 0; index < vector.Length; index++)
             vector[index] = (float)(vector[index] / magnitude);
     }

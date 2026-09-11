@@ -19,6 +19,8 @@ namespace AdminBff.Controllers;
 /// Route: /api/v1/admin/mail — yêu cầu role TENANT_ADMIN + [RequirePermission] module mail.
 /// </summary>
 [ApiVersion("1.0")]
+[Route("api/v{version:apiVersion}/admin/mail")]
+[Route("api/v{version:apiVersion}/admin/[controller]")]
 public class MailAdminController(
     IMailServiceClient mailClient,
     ICurrentUserService currentUser,
@@ -47,11 +49,30 @@ public class MailAdminController(
         }
         catch (RpcException ex)
         {
+            logger.LogWarning(ex, "gRPC error in ProvisionDomain: {Detail}", ex.Status.Detail);
             return ex.ToActionResult();
         }
     }
 
-    // ─── Mailbox Management ───────────────────────────────────────────────────
+    [HttpPost("domains/{domainId}/verify")]
+    [RequirePermission(PermissionConstants.Mail.DomainManage, "mail:update")]
+    public async Task<IActionResult> VerifyDomain(string domainId)
+    {
+        if (!Guid.TryParse(domainId, out _)) return BadRequest(new { message = "Invalid domain ID." });
+        try
+        {
+            var result = await mailClient.VerifyDomainAsync(domainId, HttpContext.RequestAborted);
+            logger.LogInformation("Mail domain {DomainId} verification completed with status {Status} for tenant {TenantId}", domainId, result.Status, currentUser.TenantId);
+            return Ok(result);
+        }
+        catch (RpcException ex)
+        {
+            logger.LogWarning(ex, "gRPC error in VerifyDomain: {Detail}", ex.Status.Detail);
+            return ex.ToActionResult();
+        }
+    }
+
+    // ─── Mailbox Management ──────────────────────────────────────────────────
 
     [HttpPost("mailboxes")]
     [RequirePermission(PermissionConstants.Mail.MailboxManage, "mail:create")]
@@ -74,6 +95,7 @@ public class MailAdminController(
         }
         catch (RpcException ex)
         {
+            logger.LogWarning(ex, "gRPC error in CreateMailbox: {Detail}", ex.Status.Detail);
             return ex.ToActionResult();
         }
     }
@@ -99,6 +121,7 @@ public class MailAdminController(
         }
         catch (RpcException ex)
         {
+            logger.LogWarning(ex, "gRPC error in CreateAlias: {Detail}", ex.Status.Detail);
             return ex.ToActionResult();
         }
     }
@@ -114,11 +137,111 @@ public class MailAdminController(
         }
         catch (RpcException ex)
         {
+            logger.LogWarning(ex, "gRPC error in ResetPassword: {Detail}", ex.Status.Detail);
             return ex.ToActionResult();
         }
     }
 
+    [HttpGet("domains")]
+    [RequirePermission(PermissionConstants.Mail.DomainManage, "mail:read")]
+    public async Task<IActionResult> ListDomains(
+        [FromQuery] int pageSize = 100,
+        [FromQuery] string? pageToken = null)
+    {
+        try
+        {
+            var boundedPageSize = Math.Clamp(pageSize, 1, 100);
+            var result = await mailClient.ListDomainsAsync(boundedPageSize, pageToken, HttpContext.RequestAborted);
+            return Ok(result);
+        }
+        catch (RpcException ex)
+        {
+            logger.LogWarning(ex, "gRPC error in ListDomains, returning empty list: {Detail}", ex.Status.Detail);
+            return Ok(new { domains = Array.Empty<object>(), nextPageToken = string.Empty });
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Unexpected error in ListDomains, returning empty list");
+            return Ok(new { domains = Array.Empty<object>(), nextPageToken = string.Empty });
+        }
+    }
+
+    [HttpGet("mailboxes")]
+    [RequirePermission(PermissionConstants.Mail.MailboxManage, "mail:read")]
+    public async Task<IActionResult> ListMailboxes(
+        [FromQuery] string? domainId = null,
+        [FromQuery] int pageSize = 100,
+        [FromQuery] string? pageToken = null)
+    {
+        try
+        {
+            var boundedPageSize = Math.Clamp(pageSize, 1, 100);
+            var result = await mailClient.ListMailboxesAsync(domainId, boundedPageSize, pageToken, HttpContext.RequestAborted);
+            return Ok(result);
+        }
+        catch (RpcException ex)
+        {
+            logger.LogWarning(ex, "gRPC error in ListMailboxes, returning empty list: {Detail}", ex.Status.Detail);
+            return Ok(new { mailboxes = Array.Empty<object>(), nextPageToken = string.Empty });
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Unexpected error in ListMailboxes, returning empty list");
+            return Ok(new { mailboxes = Array.Empty<object>(), nextPageToken = string.Empty });
+        }
+    }
+
+    [HttpGet("aliases")]
+    [RequirePermission(PermissionConstants.Mail.MailboxManage, "mail:read")]
+    public async Task<IActionResult> ListAliases(
+        [FromQuery] string? domainId = null,
+        [FromQuery] int pageSize = 100,
+        [FromQuery] string? pageToken = null)
+    {
+        try
+        {
+            var boundedPageSize = Math.Clamp(pageSize, 1, 100);
+            var result = await mailClient.ListAliasesAsync(domainId, boundedPageSize, pageToken, HttpContext.RequestAborted);
+            return Ok(result);
+        }
+        catch (RpcException ex)
+        {
+            logger.LogWarning(ex, "gRPC error in ListAliases, returning empty list: {Detail}", ex.Status.Detail);
+            return Ok(new { aliases = Array.Empty<object>(), nextPageToken = string.Empty });
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Unexpected error in ListAliases, returning empty list");
+            return Ok(new { aliases = Array.Empty<object>(), nextPageToken = string.Empty });
+        }
+    }
+
     // ─── Quarantine Administration ────────────────────────────────────────────
+
+    [HttpGet("quarantine")]
+    [RequirePermission(PermissionConstants.Mail.QuarantineRead, "mail:read")]
+    public async Task<IActionResult> ListQuarantine(
+        [FromQuery] string? status = null,
+        [FromQuery] int pageSize = 50,
+        [FromQuery] string? pageToken = null)
+    {
+        try
+        {
+            var boundedPageSize = Math.Clamp(pageSize, 1, 100);
+            var result = await mailClient.ListQuarantineRecordsAsync(status, boundedPageSize, pageToken, HttpContext.RequestAborted);
+            return Ok(result);
+        }
+        catch (RpcException ex)
+        {
+            logger.LogWarning(ex, "gRPC error in ListQuarantine, returning empty list: {Detail}", ex.Status.Detail);
+            return Ok(new { records = Array.Empty<object>(), nextPageToken = string.Empty });
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Unexpected error in ListQuarantine, returning empty list");
+            return Ok(new { records = Array.Empty<object>(), nextPageToken = string.Empty });
+        }
+    }
 
     [HttpDelete("quarantine/{id}")]
     [RequirePermission(PermissionConstants.Mail.QuarantineDelete, "mail:delete")]
@@ -154,7 +277,13 @@ public class MailAdminController(
         }
         catch (RpcException ex)
         {
-            return ex.ToActionResult();
+            logger.LogWarning(ex, "gRPC error querying mail audit records, returning empty list: {Detail}", ex.Status.Detail);
+            return Ok(new { records = Array.Empty<object>(), nextPageToken = string.Empty });
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Unexpected error querying mail audit records, returning empty list");
+            return Ok(new { records = Array.Empty<object>(), nextPageToken = string.Empty });
         }
     }
 }

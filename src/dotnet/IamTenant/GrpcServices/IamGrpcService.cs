@@ -33,7 +33,9 @@ public class IamGrpcService(IMediator mediator, ICurrentUserService currentUser)
                 request.CompanyDomain,
                 request.AdminEmail,
                 idempotencyKey,
-                PlanType: MapPlanTypeToDomain(request.PlanType)), context.CancellationToken);
+                PlanType: MapPlanTypeToDomain(request.PlanType),
+                AdminFirstName: request.AdminFirstName,
+                AdminLastName: request.AdminLastName), context.CancellationToken);
 
             return new TenantResponse
             {

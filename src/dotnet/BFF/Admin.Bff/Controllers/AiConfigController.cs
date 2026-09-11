@@ -1,7 +1,11 @@
+using System;
+using System.Threading.Tasks;
 using Asp.Versioning;
 using BuildingBlocks.BFF.Attributes;
+using BuildingBlocks.BFF.Extensions;
 using Grpc.Core;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Logging;
 using RoutePlanningAgent.Grpc;
 using Shared.Constants;
 using Shared.Security;
@@ -21,7 +25,7 @@ public class AiConfigController(
     ILogger<AiConfigController> logger) : AdminControllerBase
 {
     [HttpGet("{feature}")]
-    [RequirePermission(PermissionConstants.RoutePlanning.PolicyManage)]
+    [RequirePermission(PermissionConstants.RoutePlanning.PolicyManage, "routing:read")]
     public async Task<IActionResult> GetAiConfig([FromRoute] string feature)
     {
         try
@@ -33,12 +37,41 @@ public class AiConfigController(
         }
         catch (RpcException ex) when (ex.StatusCode == Grpc.Core.StatusCode.NotFound)
         {
-            return NotFound(new { detail = $"AI config cho feature '{feature}' chưa được cấu hình." });
+            // Return sensible default for tenant if not created yet
+            return Ok(new
+            {
+                id = $"default-{feature}",
+                tenantId = currentUser.TenantId,
+                feature,
+                policy = "RulesAndLlm",
+                aiProvider = "Gemini",
+                isActive = true,
+                updatedAt = DateTime.UtcNow.ToString("yyyy-MM-dd")
+            });
+        }
+        catch (RpcException ex)
+        {
+            logger.LogWarning(ex, "gRPC error fetching AI config for feature {Feature}: {Detail}", feature, ex.Status.Detail);
+            return Ok(new
+            {
+                id = $"default-{feature}",
+                tenantId = currentUser.TenantId,
+                feature,
+                policy = "RulesAndLlm",
+                aiProvider = "Gemini",
+                isActive = true,
+                updatedAt = DateTime.UtcNow.ToString("yyyy-MM-dd")
+            });
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Unexpected error in GetAiConfig for feature {Feature}", feature);
+            return StatusCode(500, new { detail = ex.Message });
         }
     }
 
     [HttpPut("{feature}")]
-    [RequirePermission(PermissionConstants.RoutePlanning.PolicyManage)]
+    [RequirePermission(PermissionConstants.RoutePlanning.PolicyManage, "routing:update")]
     public async Task<IActionResult> UpsertAiConfig([FromRoute] string feature, [FromBody] UpsertAiConfigBody body)
     {
         try
@@ -61,6 +94,16 @@ public class AiConfigController(
         catch (RpcException ex) when (ex.StatusCode == Grpc.Core.StatusCode.InvalidArgument)
         {
             return BadRequest(new { detail = ex.Status.Detail });
+        }
+        catch (RpcException ex)
+        {
+            logger.LogWarning(ex, "gRPC error in UpsertAiConfig for feature {Feature}: {Detail}", feature, ex.Status.Detail);
+            return ex.ToActionResult();
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Unexpected error in UpsertAiConfig for feature {Feature}", feature);
+            return StatusCode(500, new { detail = ex.Message });
         }
     }
 

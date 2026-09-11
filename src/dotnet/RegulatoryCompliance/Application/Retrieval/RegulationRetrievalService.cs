@@ -68,7 +68,9 @@ public sealed class RegulationRetrievalService(
     {
         Validate(input);
         var tenantId = currentUser.TenantId!.Value;
-        var types = input.RegulationTypes.Distinct().ToArray();
+        var types = input.RegulationTypes.Count == 0
+            ? Enum.GetValues<RegulationType>()
+            : input.RegulationTypes.Distinct().ToArray();
         var jurisdiction = input.JurisdictionCode.Trim().ToUpperInvariant();
         var language = input.LanguageCode.Trim().ToLowerInvariant();
 
@@ -91,18 +93,31 @@ public sealed class RegulationRetrievalService(
             .Take(MaximumCandidateChunks)
             .ToArrayAsync(cancellationToken);
 
-        var queryVector = (await embeddingProvider.GenerateAsync(
-            [input.Query.Trim()], cancellationToken))[0];
-        var ranked = await vectorStore.SearchAsync(
-            new VectorSearchRequest(
-                queryVector,
-                embeddingProvider.Model.Name,
-                embeddingProvider.Model.Version,
-                embeddingProvider.Model.Dimension,
-                candidateIds,
-                input.TopK * 2,
-                input.MinimumRelevanceScore),
-            cancellationToken);
+        if (candidateIds.Length == 0)
+            return await BuildResultAsync(input, tenantId, jurisdiction, language, types, [], "Insufficient regulatory evidence was found for the supplied filters.", cancellationToken);
+
+        var embeddings = await TryGenerateEmbeddingAsync(input.Query, cancellationToken);
+        if (embeddings.Count == 0)
+            return await QueryByKeywordAsync(input, tenantId, jurisdiction, language, types, cancellationToken);
+
+        IReadOnlyList<VectorSearchResult> ranked;
+        try
+        {
+            ranked = await vectorStore.SearchAsync(
+                new VectorSearchRequest(
+                    embeddings[0],
+                    embeddingProvider.Model.Name,
+                    embeddingProvider.Model.Version,
+                    embeddingProvider.Model.Dimension,
+                    candidateIds,
+                    input.TopK * 2,
+                    input.MinimumRelevanceScore),
+                cancellationToken);
+        }
+        catch (Exception) when (!cancellationToken.IsCancellationRequested)
+        {
+            return await QueryByKeywordAsync(input, tenantId, jurisdiction, language, types, cancellationToken);
+        }
         var selected = ranked
             .OrderByDescending(item => item.Score)
             .ThenBy(item => item.ChunkId)
@@ -141,7 +156,119 @@ public sealed class RegulationRetrievalService(
                     source.Chunk.NormalizedText.Length, MaximumExcerptCharacters)],
                 item.Score);
         })).Take(input.TopK).ToArray();
-        var sufficiency = evidence.Length == 0
+        var explanation = evidence.Length == 0
+            ? "Insufficient regulatory evidence was found for the supplied filters."
+            : $"Retrieved {evidence.Length} evidence passage(s). Conclusions must be limited to the cited source text.";
+        return await BuildResultAsync(
+            input,
+            tenantId,
+            jurisdiction,
+            language,
+            types,
+            evidence,
+            explanation,
+            cancellationToken);
+    }
+
+    private async Task<RegulationQueryResult> QueryByKeywordAsync(
+        RegulationQueryInput input,
+        Guid tenantId,
+        string jurisdiction,
+        string language,
+        RegulationType[] types,
+        CancellationToken cancellationToken)
+    {
+        var terms = input.Query.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(term => term.ToLowerInvariant())
+            .Distinct()
+            .ToArray();
+        var rows = await (
+            from chunk in dbContext.RegulatoryChunks.AsNoTracking()
+            join version in dbContext.RegulatoryDocumentVersions.AsNoTracking()
+                on chunk.RegulatoryDocumentVersionId equals version.Id
+            join document in dbContext.RegulatoryDocuments.AsNoTracking()
+                on version.RegulatoryDocumentId equals document.Id
+            where version.IngestionStatus == RegulatoryIngestionStatus.Completed
+                  && version.SupersededAt == null
+                  && version.EffectiveFrom <= input.EffectiveAt
+                  && (version.EffectiveTo == null || input.EffectiveAt < version.EffectiveTo)
+                  && (document.JurisdictionCode == jurisdiction || document.JurisdictionCode == "GLOBAL")
+                  && document.LanguageCode == language
+                  && types.Contains(document.RegulationType)
+            select new { Chunk = chunk, Version = version, Document = document })
+            .Take(MaximumCandidateChunks)
+            .ToListAsync(cancellationToken);
+
+        var evidence = rows
+            .Select(row =>
+            {
+                var normalized = row.Chunk.NormalizedText.ToLowerInvariant();
+                var matches = terms.Count(term => normalized.Contains(term, StringComparison.Ordinal));
+                var score = terms.Length == 0 ? 0m : (decimal)matches / terms.Length;
+                return new RegulationEvidenceResult(
+                    row.Document.Id,
+                    row.Version.Id,
+                    row.Chunk.Id,
+                    row.Document.RegulationType,
+                    row.Document.JurisdictionCode,
+                    row.Document.LanguageCode,
+                    row.Document.Authority,
+                    row.Document.Title,
+                    row.Document.CanonicalSourceUri,
+                    row.Version.VersionLabel,
+                    row.Chunk.SectionLabel,
+                    row.Chunk.PageLabel,
+                    row.Version.EffectiveFrom,
+                    row.Version.EffectiveTo,
+                    row.Chunk.NormalizedText[..Math.Min(row.Chunk.NormalizedText.Length, MaximumExcerptCharacters)],
+                    score);
+            })
+            .Where(item => item.RelevanceScore >= input.MinimumRelevanceScore)
+            .OrderByDescending(item => item.RelevanceScore)
+            .ThenBy(item => item.ChunkId)
+            .Take(input.TopK)
+            .ToArray();
+
+        return await BuildResultAsync(
+            input,
+            tenantId,
+            jurisdiction,
+            language,
+            types,
+            evidence,
+            evidence.Length == 0
+                ? "Insufficient regulatory evidence was found for the supplied filters."
+                : $"Retrieved {evidence.Length} evidence passage(s) using keyword fallback. Conclusions must be limited to the cited source text.",
+            cancellationToken,
+            "keyword-fallback:1");
+    }
+
+    private async Task<IReadOnlyList<float[]>> TryGenerateEmbeddingAsync(
+        string query,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await embeddingProvider.GenerateAsync([query.Trim()], cancellationToken);
+        }
+        catch (Exception) when (!cancellationToken.IsCancellationRequested)
+        {
+            return [];
+        }
+    }
+
+    private async Task<RegulationQueryResult> BuildResultAsync(
+        RegulationQueryInput input,
+        Guid tenantId,
+        string jurisdiction,
+        string language,
+        IReadOnlyCollection<RegulationType> types,
+        IReadOnlyList<RegulationEvidenceResult> evidence,
+        string explanation,
+        CancellationToken cancellationToken,
+        string? modelOverride = null)
+    {
+        var sufficiency = evidence.Count == 0
             ? EvidenceSufficiency.Insufficient
             : EvidenceSufficiency.Sufficient;
         var now = timeProvider.GetUtcNow();
@@ -153,7 +280,7 @@ public sealed class RegulationRetrievalService(
             input.EffectiveAt,
             language,
             JsonSerializer.Serialize(types.Select(type => type.ToString())),
-            $"{embeddingProvider.Model.Name}:{embeddingProvider.Model.Version}",
+            modelOverride ?? $"{embeddingProvider.Model.Name}:{embeddingProvider.Model.Version}",
             input.TopK,
             input.MinimumRelevanceScore,
             JsonSerializer.Serialize(evidence.Select(item => item.ChunkId)),
@@ -163,10 +290,6 @@ public sealed class RegulationRetrievalService(
         dbContext.RetrievalTraces.Add(trace);
         if (input.PersistTrace)
             await dbContext.SaveChangesAsync(cancellationToken);
-
-        var explanation = evidence.Length == 0
-            ? "Insufficient regulatory evidence was found for the supplied filters."
-            : $"Retrieved {evidence.Length} evidence passage(s). Conclusions must be limited to the cited source text.";
         return new RegulationQueryResult(trace.Id, sufficiency, evidence, explanation);
     }
 
@@ -184,9 +307,8 @@ public sealed class RegulationRetrievalService(
             throw new ArgumentException("EffectiveAt is required.", nameof(input.EffectiveAt));
         if (string.IsNullOrWhiteSpace(input.LanguageCode) || input.LanguageCode.Trim().Length > 15)
             throw new ArgumentException("LanguageCode is required.", nameof(input.LanguageCode));
-        if (input.RegulationTypes.Count == 0 ||
-            input.RegulationTypes.Any(type => !Enum.IsDefined(type)))
-            throw new ArgumentException("At least one valid RegulationType is required.", nameof(input.RegulationTypes));
+        if (input.RegulationTypes.Any(type => !Enum.IsDefined(type)))
+            throw new ArgumentException("RegulationTypes must contain valid values.", nameof(input.RegulationTypes));
         if (input.TopK is < 1 or > MaximumTopK)
             throw new ArgumentOutOfRangeException(nameof(input.TopK));
         if (input.MinimumRelevanceScore is < 0m or > 1m)

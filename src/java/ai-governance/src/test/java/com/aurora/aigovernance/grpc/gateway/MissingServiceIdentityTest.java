@@ -59,4 +59,26 @@ public class MissingServiceIdentityTest {
         assertEquals(Status.Code.UNAUTHENTICATED, ex.getStatus().getCode());
         verifyNoInteractions(executeAiService);
     }
+
+    @Test
+    public void testInvalidGenerateRequest_ReturnsInvalidArgument() {
+        CurrentServiceContext serviceContext = new CurrentServiceContext();
+        serviceContext.populate("regulatory-compliance-rag");
+        CurrentServiceContext.setCurrent(serviceContext);
+
+        AiGenerateRequest request = AiGenerateRequest.newBuilder()
+                .setCapabilityCode("")
+                .setPrompt("")
+                .setEstimatedInputTokens(-1)
+                .setMaxOutputTokens(0)
+                .build();
+
+        grpcHandler.generate(request, responseObserver);
+
+        ArgumentCaptor<Throwable> captor = ArgumentCaptor.forClass(Throwable.class);
+        verify(responseObserver).onError(captor.capture());
+        StatusRuntimeException ex = (StatusRuntimeException) captor.getValue();
+        assertEquals(Status.Code.INVALID_ARGUMENT, ex.getStatus().getCode());
+        verifyNoInteractions(executeAiService);
+    }
 }

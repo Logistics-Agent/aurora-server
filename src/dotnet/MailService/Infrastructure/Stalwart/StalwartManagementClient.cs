@@ -53,7 +53,7 @@ public class StalwartManagementClient : IStalwartManagementClient
             _logger.LogWarning(ex, "Stalwart management API DKIM generation failed for {Domain}", domainName);
         }
 
-        return $"v=DKIM1; k=rsa; p=MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQC0...{domainName}";
+        return string.Empty;
     }
 
     public async Task<bool> ProvisionAccountAsync(string fullAddress, CancellationToken cancellationToken = default)

@@ -21,10 +21,6 @@ module "network" {
       address_prefix                            = var.aks_subnet_cidr
       private_endpoint_network_policies_enabled = true
     }
-    "snet-appgw" = {
-      address_prefix                            = var.appgw_subnet_cidr
-      private_endpoint_network_policies_enabled = true
-    }
   }
 
   enable_nat_gateway      = var.enable_nat_gateway

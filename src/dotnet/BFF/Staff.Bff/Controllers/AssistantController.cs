@@ -1,10 +1,12 @@
 using System.Net;
 using Asp.Versioning;
+using BuildingBlocks.BFF.Attributes;
 using Google.Protobuf.WellKnownTypes;
 using Grpc.Core;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using RegulatoryCompliance.Grpc;
+using Shared.Constants;
 
 namespace StaffBff.Controllers;
 
@@ -13,6 +15,7 @@ namespace StaffBff.Controllers;
 [Route("api/v{version:apiVersion}/assistant")]
 [Route("api/assistant")]
 [Authorize]
+[RequirePermission(PermissionConstants.Assistant.Query, PermissionConstants.Compliance.Read)]
 public sealed class AssistantController(
     RegulatoryComplianceService.RegulatoryComplianceServiceClient regulatoryClient)
     : ControllerBase
@@ -36,18 +39,51 @@ public sealed class AssistantController(
                 Status = (int)HttpStatusCode.BadRequest
             });
 
-        var mode = (request.Mode ?? "ALL").ToUpperInvariant() switch
+        var modeName = string.IsNullOrWhiteSpace(request.Mode) ? "ALL" : request.Mode.Trim().ToUpperInvariant();
+        var mode = modeName switch
         {
             "REGULATORY" => AssistantSearchMode.Regulatory,
             "KNOWLEDGE" => AssistantSearchMode.Knowledge,
-            _ => AssistantSearchMode.All
+            "ALL" => AssistantSearchMode.All,
+            _ => (AssistantSearchMode)(-1)
         };
+        if (!System.Enum.IsDefined(mode))
+            return BadRequest(new ProblemDetails
+            {
+                Title = "INVALID_MODE",
+                Detail = "Mode must be REGULATORY, KNOWLEDGE, or ALL.",
+                Status = (int)HttpStatusCode.BadRequest
+            });
+
+        if (request.Query.Trim().Length > 2_000)
+            return BadRequest(new ProblemDetails
+            {
+                Title = "INVALID_QUERY",
+                Detail = "Query must contain at most 2,000 characters.",
+                Status = (int)HttpStatusCode.BadRequest
+            });
+        if (request.TopK is < 0 or > 20)
+            return BadRequest(new ProblemDetails
+            {
+                Title = "INVALID_TOP_K",
+                Detail = "TopK must be between 1 and 20.",
+                Status = (int)HttpStatusCode.BadRequest
+            });
+        if (request.MinimumScore is < 0 or > 1)
+            return BadRequest(new ProblemDetails
+            {
+                Title = "INVALID_SCORE",
+                Detail = "MinimumScore must be between 0 and 1.",
+                Status = (int)HttpStatusCode.BadRequest
+            });
 
         var rpcRequest = new GenerateGroundedAnswerRequest
         {
             Query = request.Query.Trim(),
             Mode = mode,
-            JurisdictionCode = request.JurisdictionCode ?? string.Empty,
+            JurisdictionCode = string.IsNullOrWhiteSpace(request.JurisdictionCode)
+                ? "VN"
+                : request.JurisdictionCode.Trim(),
             EffectiveAt = request.EffectiveAt.HasValue
                 ? Timestamp.FromDateTimeOffset(request.EffectiveAt.Value)
                 : Timestamp.FromDateTimeOffset(DateTimeOffset.UtcNow),
@@ -59,6 +95,8 @@ public sealed class AssistantController(
         {
             foreach (var t in request.RegulationTypes)
             {
+                if (!System.Enum.IsDefined(typeof(RegulationType), t) || t == (int)RegulationType.Unspecified)
+                    return BadRequest(new ProblemDetails { Title = "INVALID_REGULATION_TYPE", Detail = $"Unknown regulation type: {t}." });
                 rpcRequest.RegulationTypes.Add((RegulationType)t);
             }
         }
@@ -67,6 +105,8 @@ public sealed class AssistantController(
         {
             foreach (var c in request.Categories)
             {
+                if (!System.Enum.IsDefined(typeof(KnowledgeCategory), c) || c == (int)KnowledgeCategory.Unspecified)
+                    return BadRequest(new ProblemDetails { Title = "INVALID_CATEGORY", Detail = $"Unknown knowledge category: {c}." });
                 rpcRequest.Categories.Add((KnowledgeCategory)c);
             }
         }
@@ -143,6 +183,33 @@ public sealed class AssistantController(
                 Title = "GOVERNANCE_BLOCKED",
                 Detail = ex.Status.Detail,
                 Status = (int)HttpStatusCode.PreconditionFailed
+            });
+        }
+        catch (RpcException ex) when (ex.StatusCode == Grpc.Core.StatusCode.InvalidArgument)
+        {
+            return BadRequest(new ProblemDetails
+            {
+                Title = "INVALID_REQUEST",
+                Detail = ex.Status.Detail,
+                Status = (int)HttpStatusCode.BadRequest
+            });
+        }
+        catch (RpcException ex) when (ex.StatusCode == Grpc.Core.StatusCode.ResourceExhausted)
+        {
+            return StatusCode((int)HttpStatusCode.TooManyRequests, new ProblemDetails
+            {
+                Title = "AI_QUOTA_EXCEEDED",
+                Detail = ex.Status.Detail,
+                Status = (int)HttpStatusCode.TooManyRequests
+            });
+        }
+        catch (RpcException ex) when (ex.StatusCode is Grpc.Core.StatusCode.Unavailable or Grpc.Core.StatusCode.DeadlineExceeded)
+        {
+            return StatusCode((int)HttpStatusCode.ServiceUnavailable, new ProblemDetails
+            {
+                Title = "AI_SERVICE_UNAVAILABLE",
+                Detail = ex.Status.Detail,
+                Status = (int)HttpStatusCode.ServiceUnavailable
             });
         }
     }

@@ -2,12 +2,16 @@ nameOverride: "document-ocr"
 fullnameOverride: "document-ocr"
 
 image:
-  repository: acrauroracoredemo.azurecr.io/aurora/document-ocr
+  repository: acrauroracorekhoa.azurecr.io/aurora/document-ocr
   tag: "latest"
   pullPolicy: IfNotPresent
 
 service:
-  type: ClusterIP
+  type: LoadBalancer
+  annotations:
+    service.beta.kubernetes.io/azure-load-balancer-internal: "true"
+    service.beta.kubernetes.io/azure-load-balancer-internal-subnet: "snet-aks-ai"
+  loadBalancerIP: 10.20.2.11
   port: 5000
   targetPort: 5000
 
@@ -18,8 +22,8 @@ env:
   RabbitMQ__Username: "aurora_admin"
   AzureStorage__AccountName: "stauroradatademo"
   AzureStorage__ContainerName: "ocr-docs"
-  Redis__Host: "redis-aurora-shared-demo.southeastasia.redis.azure.net:10000"
-  Redis__Ssl: "true"
+  Redis__Host: "redis-master.aurora.svc.cluster.local:6379"
+  Redis__Ssl: "false"
   Redis__AbortConnect: "false"
 
 externalSecret:
@@ -40,13 +44,41 @@ externalSecret:
 
 resources:
   requests:
-    cpu: 200m
-    memory: 256Mi
+    cpu: 25m
+    memory: 128Mi
   limits:
-    cpu: 1000m
+    cpu: 500m
     memory: 512Mi
 
 serviceMonitor:
   enabled: true
   path: /metrics
   port: http
+
+startupProbe:
+  httpGet: null
+  tcpSocket:
+    port: 5000
+  initialDelaySeconds: 10
+  periodSeconds: 5
+  timeoutSeconds: 3
+  failureThreshold: 36
+
+livenessProbe:
+  httpGet: null
+  tcpSocket:
+    port: 5000
+  initialDelaySeconds: 30
+  periodSeconds: 10
+  timeoutSeconds: 3
+  failureThreshold: 3
+
+readinessProbe:
+  httpGet: null
+  tcpSocket:
+    port: 5000
+  initialDelaySeconds: 10
+  periodSeconds: 5
+  timeoutSeconds: 3
+  failureThreshold: 6
+

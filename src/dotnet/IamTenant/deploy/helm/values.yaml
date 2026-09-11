@@ -2,7 +2,7 @@ nameOverride: "iam-tenant"
 fullnameOverride: "iam-tenant"
 
 image:
-  repository: acrauroracoredemo.azurecr.io/aurora/iam-tenant
+  repository: acrauroracorekhoa.azurecr.io/aurora/iam-tenant
   tag: "latest"
   pullPolicy: IfNotPresent
 
@@ -14,8 +14,8 @@ service:
 env:
   ASPNETCORE_ENVIRONMENT: "Production"
   AWS_REGION: "ap-southeast-1"
-  Redis__Host: "redis-aurora-shared-demo.southeastasia.redis.azure.net:10000"
-  Redis__Ssl: "true"
+  Redis__Host: "redis-master.aurora.svc.cluster.local:6379"
+  Redis__Ssl: "false"
   Redis__AbortConnect: "false"
   RabbitMQ__Host: "rabbitmq.aurora.svc.cluster.local"
   RabbitMQ__Port: "5672"
@@ -30,6 +30,12 @@ externalSecret:
     - secretKey: ConnectionStrings__DefaultConnection
       remoteRef:
         key: aurora-iam-db-connection
+    - secretKey: AWS_ACCESS_KEY_ID
+      remoteRef:
+        key: aws-access-key-id
+    - secretKey: AWS_SECRET_ACCESS_KEY
+      remoteRef:
+        key: aws-secret-access-key
     - secretKey: AWS_COGNITO_USER_POOL_ID
       remoteRef:
         key: aws-cognito-user-pool-id
@@ -51,7 +57,7 @@ externalSecret:
 
 resources:
   requests:
-    cpu: 100m
+    cpu: 25m
     memory: 128Mi
   limits:
     cpu: 500m
@@ -61,3 +67,31 @@ serviceMonitor:
   enabled: true
   path: /metrics
   port: http
+
+startupProbe:
+  httpGet: null
+  tcpSocket:
+    port: 5000
+  initialDelaySeconds: 10
+  periodSeconds: 5
+  timeoutSeconds: 3
+  failureThreshold: 36
+
+livenessProbe:
+  httpGet: null
+  tcpSocket:
+    port: 5000
+  initialDelaySeconds: 30
+  periodSeconds: 10
+  timeoutSeconds: 3
+  failureThreshold: 3
+
+readinessProbe:
+  httpGet: null
+  tcpSocket:
+    port: 5000
+  initialDelaySeconds: 10
+  periodSeconds: 5
+  timeoutSeconds: 3
+  failureThreshold: 6
+

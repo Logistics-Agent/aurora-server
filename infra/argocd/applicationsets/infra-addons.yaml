@@ -7,13 +7,6 @@ spec:
   generators:
     - list:
         elements:
-          - name: external-secrets
-            repoURL: https://charts.external-secrets.io
-            chart: external-secrets
-            targetRevision: 0.9.18
-            namespace: external-secrets
-            valuesPath: infra/external-secrets/values.yaml
-            server: https://kubernetes.default.svc
           - name: rabbitmq
             repoURL: https://charts.bitnami.com/bitnami
             chart: rabbitmq

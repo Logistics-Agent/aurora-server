@@ -12,12 +12,21 @@ public class DesignTimeDbContextFactory : IDesignTimeDbContextFactory<IamTenantD
 {
     public IamTenantDbContext CreateDbContext(string[] args)
     {
+        var config = new Microsoft.Extensions.Configuration.ConfigurationBuilder()
+            .SetBasePath(AppContext.BaseDirectory)
+            .AddJsonFile("appsettings.json", optional: true)
+            .AddJsonFile("appsettings.Development.json", optional: true)
+            .AddEnvironmentVariables()
+            .Build();
+
         var optionsBuilder = new DbContextOptionsBuilder<IamTenantDbContext>();
         string connectionString = Environment.GetEnvironmentVariable("ConnectionStrings__DefaultConnection")
-                    ?? "Host=localhost;Port=5432;Database=aurora_mail_service;Username=postgres;Password=postgres";
+            ?? config.GetConnectionString("DefaultConnection")
+            ?? "Host=localhost;Port=5432;Database=iam_tenant_db;Username=postgres;Password=postgres";
+
         optionsBuilder.UseNpgsql(connectionString, npgsql =>
         {
-        npgsql.MigrationsAssembly(typeof(IamTenantDbContext).Assembly.FullName);
+            npgsql.MigrationsAssembly(typeof(IamTenantDbContext).Assembly.FullName);
         });
 
         var mockUser = new DummyCurrentUserService();

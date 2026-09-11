@@ -12,6 +12,12 @@ public class AuthCookieOptions
     public bool Secure { get; set; } = true;
 
     /// <summary>
+    /// SameSite mode: "None", "Lax", "Strict". Mặc định là "Lax".
+    /// Có thể cấu hình "None" trong môi trường test cross-origin.
+    /// </summary>
+    public string SameSite { get; set; } = "Lax";
+
+    /// <summary>
     /// Cookie domain cho subdomain sharing.
     /// VD: ".yourdomain.vn" → cookie chia sẻ giữa app.yourdomain.vn, api.yourdomain.vn.
     /// Để null/trống thì dùng domain hiện tại.

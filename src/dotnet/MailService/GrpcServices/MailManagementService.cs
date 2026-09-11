@@ -38,8 +38,27 @@ public class MailManagementService : MailManagement.MailManagementBase
             DomainName = domain.DomainName,
             DkimSelector = domain.DkimSelector ?? "aurora-2025",
             DkimTxtRecord = domain.DkimTxtRecord ?? string.Empty,
-            ProvisionedAt = Timestamp.FromDateTimeOffset(domain.CreatedAt)
+            ProvisionedAt = Timestamp.FromDateTimeOffset(domain.CreatedAt),
+            Status = domain.Status.ToString()
         };
+    }
+
+    public override async Task<VerifyDomainResponse> VerifyDomain(VerifyDomainRequest request, ServerCallContext context)
+    {
+        if (!Guid.TryParse(request.DomainId, out var domainId))
+            throw new RpcException(new Status(StatusCode.InvalidArgument, "Invalid DomainId GUID format."));
+        var result = await _mediator.Send(new VerifyDomainCommand(domainId), context.CancellationToken);
+        var domain = result.Domain;
+        var response = new VerifyDomainResponse
+        {
+            DomainId = domain.Id.ToString(), Verified = result.Verified, Status = domain.Status.ToString(),
+            Message = result.Message, DkimSelector = domain.DkimSelector ?? "aurora-2025",
+            DkimHost = $"{domain.DkimSelector ?? "aurora-2025"}._domainkey.{domain.DomainName}",
+            ExpectedDkimTxtRecord = domain.DkimTxtRecord ?? string.Empty,
+            ObservedDkimTxtRecord = result.ObservedRecord ?? string.Empty
+        };
+        if (result.Verified) response.VerifiedAt = Timestamp.FromDateTimeOffset(DateTimeOffset.UtcNow);
+        return response;
     }
 
     public override async Task<CreateMailboxResponse> CreateMailbox(CreateMailboxRequest request, ServerCallContext context)
@@ -62,7 +81,10 @@ public class MailManagementService : MailManagement.MailManagementBase
         {
             MailboxId = mailbox.Id.ToString(),
             FullAddress = mailbox.FullAddress,
-            CreatedAt = Timestamp.FromDateTimeOffset(mailbox.CreatedAt)
+            CreatedAt = Timestamp.FromDateTimeOffset(mailbox.CreatedAt),
+            DomainId = mailbox.DomainId.ToString(),
+            LocalPart = mailbox.LocalPart,
+            Status = mailbox.Status.ToString()
         };
     }
 
@@ -98,29 +120,51 @@ public class MailManagementService : MailManagement.MailManagementBase
 
     public override async Task<GetAuditRecordsResponse> GetAuditRecords(GetAuditRecordsRequest request, ServerCallContext context)
     {
-        Guid? resourceId = null;
-        if (!string.IsNullOrEmpty(request.ResourceId) && Guid.TryParse(request.ResourceId, out var parsedId))
+        try
         {
-            resourceId = parsedId;
+            Guid? resourceId = null;
+            if (!string.IsNullOrEmpty(request.ResourceId) && Guid.TryParse(request.ResourceId, out var parsedId))
+            {
+                resourceId = parsedId;
+            }
+
+            var records = await _mediator.Send(new GetAuditRecordsQuery(request.ResourceType, resourceId, request.PageSize), context.CancellationToken);
+
+            var response = new GetAuditRecordsResponse();
+            if (records != null && records.Count > 0)
+            {
+                response.Records.AddRange(records.Select(r =>
+                {
+                    var ts = r.Timestamp != default ? r.Timestamp : (r.CreatedAt != default ? r.CreatedAt : DateTimeOffset.UtcNow);
+                    return new AuditRecordDto
+                    {
+                        AuditId = r.Id.ToString(),
+                        ActorId = r.ActorId.ToString(),
+                        ActorType = r.ActorType.ToString(),
+                        Action = r.Action ?? string.Empty,
+                        ResourceType = r.ResourceType ?? string.Empty,
+                        ResourceId = r.ResourceId.ToString(),
+                        Timestamp = Timestamp.FromDateTimeOffset(ts.ToUniversalTime()),
+                        Result = r.Result ?? string.Empty,
+                        DetailJson = r.DetailJson ?? string.Empty
+                    };
+                }));
+            }
+
+            return response;
         }
-
-        var records = await _mediator.Send(new GetAuditRecordsQuery(resourceId, request.PageSize), context.CancellationToken);
-
-        var response = new GetAuditRecordsResponse();
-        response.Records.AddRange(records.Select(r => new AuditRecordDto
+        catch (UnauthorizedAccessException ex)
         {
-            AuditId = r.Id.ToString(),
-            ActorId = r.ActorId.ToString(),
-            ActorType = r.ActorType.ToString(),
-            Action = r.Action,
-            ResourceType = r.ResourceType,
-            ResourceId = r.ResourceId.ToString(),
-            Timestamp = Timestamp.FromDateTimeOffset(r.Timestamp),
-            Result = r.Result,
-            DetailJson = r.DetailJson ?? string.Empty
-        }));
-
-        return response;
+            throw new RpcException(new Status(StatusCode.PermissionDenied, ex.Message));
+        }
+        catch (RpcException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            throw new RpcException(new Status(StatusCode.Internal, $"Failed to retrieve audit records: {ex.Message}"));
+        }
     }
 
     public override async Task<RequeueDeadLetterResponse> RequeueDeadLetter(RequeueDeadLetterRequest request, ServerCallContext context)
@@ -137,5 +181,118 @@ public class MailManagementService : MailManagement.MailManagementBase
             Success = result.Success,
             Message = result.Message
         };
+    }
+
+    public override async Task<ListDomainsResponse> ListDomains(ListDomainsRequest request, ServerCallContext context)
+    {
+        try
+        {
+            var domains = await _mediator.Send(new MailService.Application.Queries.Provisioning.ListDomainsQuery(request.PageSize), context.CancellationToken);
+            var response = new ListDomainsResponse();
+            if (domains != null)
+            {
+                response.Domains.AddRange(domains.Select(d =>
+                {
+                    var ts = d.CreatedAt != default ? d.CreatedAt : DateTimeOffset.UtcNow;
+                    return new DomainSummaryDto
+                    {
+                        DomainId = d.Id.ToString(),
+                        DomainName = d.DomainName ?? string.Empty,
+                        Status = d.Status.ToString(),
+                        MaxMailboxCount = d.MaxMailboxCount,
+                        RetentionDays = d.RetentionDays,
+                        DkimSelector = d.DkimSelector ?? "aurora-2025",
+                        DkimTxtRecord = d.DkimTxtRecord ?? string.Empty,
+                        CreatedAt = Timestamp.FromDateTimeOffset(ts.ToUniversalTime()),
+                        MailboxUsage = d.Mailboxes?.Count ?? 0
+                    };
+                }));
+            }
+            return response;
+        }
+        catch (RpcException) { throw; }
+        catch (Exception ex)
+        {
+            throw new RpcException(new Status(StatusCode.Internal, $"Failed to list domains: {ex.Message}"));
+        }
+    }
+
+    public override async Task<ListMailboxesResponse> ListMailboxes(ListMailboxesRequest request, ServerCallContext context)
+    {
+        try
+        {
+            Guid? domainId = null;
+            if (!string.IsNullOrEmpty(request.DomainId) && Guid.TryParse(request.DomainId, out var parsedId))
+            {
+                domainId = parsedId;
+            }
+
+            var mailboxes = await _mediator.Send(new MailService.Application.Queries.Provisioning.ListMailboxesQuery(domainId, request.PageSize), context.CancellationToken);
+            var response = new ListMailboxesResponse();
+            if (mailboxes != null)
+            {
+                response.Mailboxes.AddRange(mailboxes.Select(m =>
+                {
+                    var ts = m.CreatedAt != default ? m.CreatedAt : DateTimeOffset.UtcNow;
+                    return new MailboxSummaryDto
+                    {
+                        MailboxId = m.Id.ToString(),
+                        DomainId = m.DomainId.ToString(),
+                        DomainName = m.Domain?.DomainName ?? string.Empty,
+                        LocalPart = m.LocalPart ?? string.Empty,
+                        FullAddress = m.FullAddress ?? string.Empty,
+                        Status = m.Status.ToString(),
+                        CreatedAt = Timestamp.FromDateTimeOffset(ts.ToUniversalTime())
+                    };
+                }));
+            }
+            return response;
+        }
+        catch (RpcException) { throw; }
+        catch (Exception ex)
+        {
+            throw new RpcException(new Status(StatusCode.Internal, $"Failed to list mailboxes: {ex.Message}"));
+        }
+    }
+
+    public override async Task<ListAliasesResponse> ListAliases(ListAliasesRequest request, ServerCallContext context)
+    {
+        try
+        {
+            Guid? domainId = null;
+            if (!string.IsNullOrEmpty(request.DomainId) && Guid.TryParse(request.DomainId, out var parsedId))
+            {
+                domainId = parsedId;
+            }
+
+            var aliases = await _mediator.Send(new MailService.Application.Queries.Provisioning.ListAliasesQuery(domainId, request.PageSize), context.CancellationToken);
+            var response = new ListAliasesResponse();
+            if (aliases != null)
+            {
+                response.Aliases.AddRange(aliases.Select(a =>
+                {
+                    var ts = a.CreatedAt != default ? a.CreatedAt : DateTimeOffset.UtcNow;
+                    var dto = new AliasSummaryDto
+                    {
+                        AliasId = a.Id.ToString(),
+                        DomainId = a.DomainId.ToString(),
+                        DomainName = a.Domain?.DomainName ?? string.Empty,
+                        AliasAddress = a.AliasAddress ?? string.Empty,
+                        CreatedAt = Timestamp.FromDateTimeOffset(ts.ToUniversalTime())
+                    };
+                    if (a.Targets != null)
+                    {
+                        dto.TargetAddresses.AddRange(a.Targets);
+                    }
+                    return dto;
+                }));
+            }
+            return response;
+        }
+        catch (RpcException) { throw; }
+        catch (Exception ex)
+        {
+            throw new RpcException(new Status(StatusCode.Internal, $"Failed to list aliases: {ex.Message}"));
+        }
     }
 }

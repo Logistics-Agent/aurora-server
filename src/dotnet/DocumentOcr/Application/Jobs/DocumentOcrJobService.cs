@@ -260,7 +260,13 @@ public sealed class DocumentOcrJobService(
                 cancellationToken)
             ?? throw new Shared.Exceptions.NotFoundException($"Document OCR job '{jobId}' was not found.");
 
+        var wasRequiresReview = job.Status == DocumentOcrJobStatus.RequiresReview ||
+            (job.Status == DocumentOcrJobStatus.Completed && job.NeedsReview == true);
         job.ApplyReview(action, correctedJson, comment, currentUser.UserId, timeProvider.GetUtcNow());
+        if (wasRequiresReview && job.Status == DocumentOcrJobStatus.Completed)
+        {
+            AddCompletedOutbox(job, timeProvider.GetUtcNow());
+        }
         await dbContext.SaveChangesAsync(cancellationToken);
         return job;
     }
@@ -384,7 +390,10 @@ public sealed class DocumentOcrJobService(
                 completedAt,
                 fullText,
                 artifactRef);
-            AddCompletedOutbox(job, completedAt);
+            if (job.Status == DocumentOcrJobStatus.Completed)
+            {
+                AddCompletedOutbox(job, completedAt);
+            }
             await dbContext.SaveChangesAsync(cancellationToken);
         }
         catch (OcrProviderException exception) when (exception.Kind == OcrProviderFailureKind.Cancelled)

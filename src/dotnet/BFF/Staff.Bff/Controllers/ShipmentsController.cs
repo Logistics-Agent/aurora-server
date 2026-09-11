@@ -167,6 +167,10 @@ public class ShipmentsController(
         {
             return NotFound(new { detail = ex.Status.Detail });
         }
+        catch (RpcException ex) when (ex.StatusCode == Grpc.Core.StatusCode.InvalidArgument || ex.StatusCode == Grpc.Core.StatusCode.FailedPrecondition)
+        {
+            return BadRequest(new { detail = ex.Status.Detail });
+        }
     }
 
     [HttpPost("{id}/cancel")]

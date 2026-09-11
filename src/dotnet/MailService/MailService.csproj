@@ -10,6 +10,7 @@
     <Protobuf Include="../../../protos/common.proto" GrpcServices="None" />
     <Protobuf Include="../../../protos/mail_platform.proto" GrpcServices="Server" />
     <Protobuf Include="../../../protos/ai_governance.proto" GrpcServices="Client" />
+    <Protobuf Include="../../../protos/audit.proto" GrpcServices="Client" />
   </ItemGroup>
 
 
@@ -25,7 +26,7 @@
     <PackageReference Include="MimeKit" Version="4.7.1" />
     <PackageReference Include="MailKit" Version="4.7.1.1" />
     <PackageReference Include="DnsClient" Version="1.8.0" />
-    <PackageReference Include="AWSSDK.S3" Version="4.0.11.1" />
+    <PackageReference Include="AWSSDK.S3" Version="3.7.402.1" />
     <PackageReference Include="FluentValidation.DependencyInjectionExtensions" Version="11.9.2" />
     <PackageReference Include="MediatR" Version="12.4.0" />
     <PackageReference Include="Serilog.AspNetCore" Version="8.0.2" />
@@ -33,7 +34,7 @@
     <PackageReference Include="AspNetCore.HealthChecks.Npgsql" Version="9.0.0" />
     <PackageReference Include="AspNetCore.HealthChecks.Redis" Version="9.0.0" />
   </ItemGroup>
-
+ 
   <ItemGroup>
     <Compile Remove="MailService.Tests\**" />
     <Content Remove="MailService.Tests\**" />

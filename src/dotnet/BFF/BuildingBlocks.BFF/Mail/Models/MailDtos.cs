@@ -15,7 +15,12 @@ public record ProvisionDomainResponse(
     string DomainName,
     string DkimSelector,
     string DkimTxtRecord,
-    DateTimeOffset ProvisionedAt);
+    DateTimeOffset ProvisionedAt,
+    string Status = "Pending");
+
+public record VerifyDomainResponse(
+    string DomainId, bool Verified, string Status, string Message, string DkimSelector,
+    string DkimHost, string ExpectedDkimTxtRecord, string ObservedDkimTxtRecord, DateTimeOffset? VerifiedAt);
 
 public record CreateMailboxRequest(
     string DomainId,
@@ -25,7 +30,10 @@ public record CreateMailboxRequest(
 public record CreateMailboxResponse(
     string MailboxId,
     string FullAddress,
-    DateTimeOffset CreatedAt);
+    DateTimeOffset CreatedAt,
+    string DomainId = "",
+    string LocalPart = "",
+    string Status = "Active");
 
 public record CreateAliasRequest(
     string DomainId,
@@ -34,6 +42,46 @@ public record CreateAliasRequest(
 
 public record CreateAliasResponse(
     string AliasId,
+    DateTimeOffset CreatedAt);
+
+public record ListDomainsResponse(
+    List<DomainSummaryDto> Domains,
+    string NextPageToken);
+
+public record DomainSummaryDto(
+    string DomainId,
+    string DomainName,
+    string Status,
+    int MaxMailboxCount,
+    int RetentionDays,
+    string DkimSelector,
+    string DkimTxtRecord,
+    DateTimeOffset CreatedAt,
+    int MailboxUsage);
+
+public record ListMailboxesResponse(
+    List<MailboxSummaryDto> Mailboxes,
+    string NextPageToken);
+
+public record MailboxSummaryDto(
+    string MailboxId,
+    string DomainId,
+    string DomainName,
+    string LocalPart,
+    string FullAddress,
+    string Status,
+    DateTimeOffset CreatedAt);
+
+public record ListAliasesResponse(
+    List<AliasSummaryDto> Aliases,
+    string NextPageToken);
+
+public record AliasSummaryDto(
+    string AliasId,
+    string DomainId,
+    string DomainName,
+    string AliasAddress,
+    List<string> TargetAddresses,
     DateTimeOffset CreatedAt);
 
 public record ResetPasswordResponse(
@@ -269,3 +317,14 @@ public record AuditListResponse(
 public record RequeueDeadLetterResponse(
     bool Success,
     string Message);
+
+// ─── Inbound Ingestion DTOs ──────────────────────────────────────────────────
+
+public record IngestInboundMessageDto(
+    string MessageId,
+    string ThreadId,
+    string Status,
+    bool IsQuarantined,
+    string Classification,
+    string Subject,
+    string AssignedMailboxId);

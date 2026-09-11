@@ -89,7 +89,21 @@ resource "cloudflare_record" "www" {
 }
 
 # -----------------------------------------------------------------------------
-# 7. Cloudflare Zone Security & SSL Settings (Optional - Managed on Cloudflare Dashboard)
+# 7. Optional ArgoCD Subdomain: argocd.humanak.cyou
+# -----------------------------------------------------------------------------
+resource "cloudflare_record" "argocd" {
+  count   = var.enable_argocd_subdomain ? 1 : 0
+  zone_id = local.zone_id
+  name    = var.argocd_subdomain
+  value   = var.argocd_target != "" ? var.argocd_target : var.api_target
+  type    = var.argocd_record_type
+  proxied = var.argocd_proxied
+  ttl     = var.argocd_proxied ? 1 : var.ttl
+  comment = "ArgoCD Control Plane Web UI (Azure App Gateway)"
+}
+
+# -----------------------------------------------------------------------------
+# 8. Cloudflare Zone Security & SSL Settings (Optional - Managed on Cloudflare Dashboard)
 # -----------------------------------------------------------------------------
 # Note: SSL mode and HTTPS redirects can be configured directly in Cloudflare Dashboard
 # under SSL/TLS settings to avoid requiring Zone.Settings permissions in API token.

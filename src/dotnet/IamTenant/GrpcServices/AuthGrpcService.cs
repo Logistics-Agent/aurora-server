@@ -3,6 +3,7 @@ using IamTenant.Application.Commands.Auth;
 using IamTenant.Application.Queries.Auth;
 using IamTenant.Application.Interfaces;
 using MediatR;
+using Shared.Enums;
 using Auth.Grpc;
 
 namespace IamTenant.GrpcServices;
@@ -21,7 +22,11 @@ public class AuthGrpcService(
             {
                 Exists = result.Exists,
                 TenantCode = result.TenantCode ?? "",
-                UserType = result.UserType ?? ""
+                UserType = result.UserType ?? "",
+                UserId = result.UserId?.ToString() ?? "",
+                TenantId = result.TenantId?.ToString() ?? "",
+                PermissionVersion = result.PermissionVersion ?? 0,
+                Role = result.Role ?? ""
             };
         }
         catch (Exception ex)
@@ -49,6 +54,11 @@ public class AuthGrpcService(
             response.Permissions.AddRange(result.Permissions);
 
             return response;
+        }
+        catch (Shared.Exceptions.ForbiddenException ex) when (ex.Message.StartsWith("NEW_PASSWORD_REQUIRED"))
+        {
+            var session = ex.Message.Contains(':') ? ex.Message.Split(':', 2)[1] : "";
+            throw new RpcException(new Status(StatusCode.FailedPrecondition, session));
         }
         catch (Exception ex)
         {
@@ -86,8 +96,7 @@ public class AuthGrpcService(
     {
         try
         {
-            var authResult = string.Equals(request.TenantCode, "SYSTEM", StringComparison.OrdinalIgnoreCase)
-                || string.Equals(request.UserType, "SystemAdmin", StringComparison.OrdinalIgnoreCase)
+            var authResult = IsSystemUser(request.TenantCode, request.UserType)
                 ? await cognitoService.RefreshTokenAsync(string.Empty, request.RefreshToken, context.CancellationToken)
                 : await cognitoService.RefreshTokenAsync(
                     await mediator.Send(
@@ -121,8 +130,7 @@ public class AuthGrpcService(
             if (!identity.Exists)
                 throw new RpcException(new Status(StatusCode.NotFound, "User not found."));
 
-            if (string.Equals(identity.TenantCode, "SYSTEM", StringComparison.OrdinalIgnoreCase)
-                || string.Equals(identity.UserType, "SystemAdmin", StringComparison.OrdinalIgnoreCase))
+            if (IsSystemUser(identity.TenantCode, identity.UserType))
             {
                 await cognitoService.ForgotPasswordAsync(request.Email, context.CancellationToken);
             }
@@ -135,6 +143,14 @@ public class AuthGrpcService(
                 await cognitoService.ForgotPasswordAsync(clientId, request.Email, context.CancellationToken);
             }
             return new EmptyResponse();
+        }
+        catch (RpcException)
+        {
+            throw;
+        }
+        catch (Amazon.CognitoIdentityProvider.Model.UserNotFoundException)
+        {
+            throw new RpcException(new Status(StatusCode.NotFound, "User not found in authentication provider."));
         }
         catch (Exception ex)
         {
@@ -150,8 +166,7 @@ public class AuthGrpcService(
             if (!identity.Exists)
                 throw new RpcException(new Status(StatusCode.NotFound, "User not found."));
 
-            if (string.Equals(identity.TenantCode, "SYSTEM", StringComparison.OrdinalIgnoreCase)
-                || string.Equals(identity.UserType, "SystemAdmin", StringComparison.OrdinalIgnoreCase))
+            if (IsSystemUser(identity.TenantCode, identity.UserType))
             {
                 await cognitoService.ConfirmForgotPasswordAsync(request.Email, request.NewPassword, request.ConfirmationCode, context.CancellationToken);
             }
@@ -165,9 +180,84 @@ public class AuthGrpcService(
             }
             return new EmptyResponse();
         }
+        catch (RpcException)
+        {
+            throw;
+        }
+        catch (Amazon.CognitoIdentityProvider.Model.UserNotFoundException)
+        {
+            throw new RpcException(new Status(StatusCode.NotFound, "User not found in authentication provider."));
+        }
         catch (Exception ex)
         {
             throw new RpcException(new Status(StatusCode.InvalidArgument, ex.Message));
         }
+    }
+
+    public override async Task<EmptyResponse> ChangePassword(ChangePasswordRequest request, ServerCallContext context)
+    {
+        try
+        {
+            var identity = await mediator.Send(new IdentifyUserQuery(request.Email), context.CancellationToken);
+            if (!identity.Exists)
+                throw new RpcException(new Status(StatusCode.NotFound, "User not found."));
+
+            var tenantCode = !string.IsNullOrWhiteSpace(request.TenantCode) ? request.TenantCode : identity.TenantCode;
+            var userType = !string.IsNullOrWhiteSpace(request.UserType) ? request.UserType : identity.UserType;
+
+            if (IsSystemUser(tenantCode, userType))
+            {
+                await cognitoService.ChangePasswordAsync(request.Email, request.CurrentPassword, request.NewPassword, context.CancellationToken);
+            }
+            else
+            {
+                var clientId = await mediator.Send(
+                    new ResolveTenantAuthClientQuery(tenantCode ?? string.Empty, userType ?? string.Empty),
+                    context.CancellationToken);
+
+                await cognitoService.ChangePasswordAsync(clientId, request.Email, request.CurrentPassword, request.NewPassword, context.CancellationToken);
+            }
+            return new EmptyResponse();
+        }
+        catch (RpcException)
+        {
+            throw;
+        }
+        catch (Amazon.CognitoIdentityProvider.Model.UserNotFoundException)
+        {
+            throw new RpcException(new Status(StatusCode.NotFound, "User not found in authentication provider."));
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            throw new RpcException(new Status(StatusCode.Unauthenticated, ex.Message));
+        }
+        catch (Exception ex)
+        {
+            throw new RpcException(new Status(StatusCode.InvalidArgument, ex.Message));
+        }
+    }
+
+    private static bool IsSystemUser(string? tenantCode, string? userType)
+    {
+        if (!string.IsNullOrWhiteSpace(userType))
+        {
+            if (string.Equals(userType, "SYSTEM_ADMIN", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(userType, "SYSTEMADMIN", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(userType, "SystemAdmin", StringComparison.OrdinalIgnoreCase))
+                return true;
+
+            if (BaseRoleExtensions.TryParseRole(userType, out var role) && role == BaseRole.SystemAdmin)
+                return true;
+        }
+
+        if (!string.IsNullOrWhiteSpace(tenantCode))
+        {
+            if (string.Equals(tenantCode, "SYSTEM", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(tenantCode, "SYSTEM_ADMIN", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(tenantCode, "SYSTEMADMIN", StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+
+        return false;
     }
 }

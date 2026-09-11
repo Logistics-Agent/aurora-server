@@ -2,8 +2,8 @@ nameOverride: "staff-bff"
 fullnameOverride: "staff-bff"
 
 image:
-  repository: acrauroracoredemo.azurecr.io/aurora/staff-bff
-  tag: "latest"
+  repository: acrauroracorekhoa.azurecr.io/aurora/staff-bff
+  tag: ""
   pullPolicy: IfNotPresent
 
 service:
@@ -13,20 +13,21 @@ service:
 
 env:
   ASPNETCORE_ENVIRONMENT: "Production"
-  Redis__Host: "redis-aurora-shared-demo.southeastasia.redis.azure.net:10000"
-  Redis__Ssl: "true"
+  Redis__Host: "redis-master.aurora.svc.cluster.local:6379"
+  Redis__Ssl: "false"
   Redis__AbortConnect: "false"
   Grpc__IamTenant__Url: "http://iam-tenant:5000"
   Grpc__ShipmentWorkflow__Url: "http://shipment-workflow:5000"
-  Grpc__RoutePlanning__Url: "http://route-planning-agent.aurora-ai.svc.cluster.local:5000"
+  Grpc__RoutePlanning__Url: "http://10.20.2.13:5000"
   Grpc__GpsTracking__Url: "http://gps-tracking:5000"
-  Grpc__DocumentOcr__Url: "http://document-ocr.aurora-ai.svc.cluster.local:5000"
-  Grpc__RegulatoryCompliance__Url: "http://regulatory-compliance.aurora-ai.svc.cluster.local:5000"
+  Grpc__DocumentOcr__Url: "http://10.20.2.11:5000"
+  Grpc__RegulatoryCompliance__Url: "http://10.20.2.12:5000"
   Grpc__Notification__Url: "http://notification:5000"
   Grpc__MailService__Url: "http://mail-service:5003"
-  Grpc__AiGovernance__Url: "http://ai-governance.aurora-ai.svc.cluster.local:9090"
-  Grpc__CustomerAssistant__Url: "http://customer-assistant-service.aurora-ai.svc.cluster.local:5007"
-  Grpc__NegotiationAgent__Url: "http://negotiation-agent-service.aurora-ai.svc.cluster.local:5006"
+  Grpc__AiGovernance__Url: "http://10.20.2.10:9090"
+  Grpc__CustomerAssistant__Url: "http://10.20.2.14:8080"
+  Services__CustomerAssistant__Url: "http://10.20.2.14:8080"
+  Grpc__NegotiationAgent__Url: "http://10.20.2.15:8080"
   Grpc__FinancialService__Url: "http://financial-service:5003"
   Grpc__BillingService__Url: "http://billing-service:5004"
 
@@ -63,7 +64,7 @@ externalSecret:
 
 resources:
   requests:
-    cpu: 100m
+    cpu: 25m
     memory: 128Mi
   limits:
     cpu: 500m

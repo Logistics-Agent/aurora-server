@@ -32,7 +32,37 @@ builder.Services.AddHostedService<IamTenant.Infrastructure.BackgroundJobs.SoftDe
 builder.Services.AddScoped<IAuditTrailService, AuditTrailService>();
 
 // ── AWS Cognito ───────────────────────────────────────────────────────────────
-builder.Services.Configure<CognitoOptions>(builder.Configuration.GetSection("Cognito"));
+builder.Services.Configure<CognitoOptions>(options =>
+{
+    builder.Configuration.GetSection("Cognito").Bind(options);
+
+    if (string.IsNullOrWhiteSpace(options.ClientId))
+    {
+        options.ClientId = builder.Configuration["AWS_COGNITO_CLIENT_ID"]
+            ?? builder.Configuration["AWS_COGNITO_APP_CLIENT_ID"]
+            ?? builder.Configuration["COGNITO_APP_CLIENT_ID"]
+            ?? builder.Configuration["COGNITO_CLIENT_ID"]
+            ?? builder.Configuration["Cognito__ClientId"]
+            ?? builder.Configuration["Cognito:ClientId"]
+            ?? string.Empty;
+    }
+    if (string.IsNullOrWhiteSpace(options.UserPoolId))
+    {
+        options.UserPoolId = builder.Configuration["AWS_COGNITO_USER_POOL_ID"]
+            ?? builder.Configuration["COGNITO_USER_POOL_ID"]
+            ?? builder.Configuration["Cognito__UserPoolId"]
+            ?? builder.Configuration["Cognito:UserPoolId"]
+            ?? string.Empty;
+    }
+    if (string.IsNullOrWhiteSpace(options.ClientSecret))
+    {
+        options.ClientSecret = builder.Configuration["AWS_COGNITO_CLIENT_SECRET"]
+            ?? builder.Configuration["AWS_COGNITO_APP_CLIENT_SECRET"]
+            ?? builder.Configuration["COGNITO_APP_CLIENT_SECRET"]
+            ?? builder.Configuration["Cognito__ClientSecret"]
+            ?? string.Empty;
+    }
+});
 builder.Services.AddAWSService<IAmazonCognitoIdentityProvider>();
 builder.Services.AddScoped<ICognitoAuthService, CognitoAuthService>();
 

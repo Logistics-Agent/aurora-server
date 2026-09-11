@@ -3,8 +3,9 @@ using Shared.Enums;
 
 namespace IamTenant.Domain;
 
-public class User : TenantAuditableEntity
+public class User : AuditableEntity
 {
+    public Guid? TenantId { get; set; } // Nullable cho SYSTEM_ADMIN
     public string? CognitoSub { get; set; }
     public string Email { get; set; } = string.Empty;
 

@@ -5,6 +5,7 @@ using Npgsql;
 using RegulatoryCompliance.Domain.Entities;
 using RegulatoryCompliance.Domain.Enums;
 using RegulatoryCompliance.Infrastructure.Persistences;
+using Shared.Constants;
 using Shared.Security;
 
 namespace RegulatoryCompliance.Application.Ingestion;
@@ -16,8 +17,8 @@ public sealed class RegulatoryIngestionService(
     TimeProvider timeProvider) : IRegulatoryIngestionService
 {
     public const int MaximumContentBytes = 1_048_576;
-    public const string TenantIngestionPermission = "regulatory-compliance.sources.ingest";
-    public const string PlatformIngestionPermission = "regulatory-compliance.sources.ingest-platform";
+    public const string TenantIngestionPermission = PermissionConstants.Documents.Ingest;
+    public const string PlatformIngestionPermission = PermissionConstants.Compliance.PlatformIngest;
     private static readonly UTF8Encoding StrictUtf8 = new(false, true);
     private static readonly HashSet<string> AllowedMimeTypes = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -143,11 +144,24 @@ public sealed class RegulatoryIngestionService(
     {
         if (!Enum.IsDefined(visibility))
             throw new ArgumentOutOfRangeException(nameof(visibility));
+
+        if (currentUser.IsSystemAdmin() || currentUser.HasPermission(PlatformIngestionPermission))
+            return;
+
+        if (visibility == SourceVisibility.Tenant && currentUser.IsTenantAdmin())
+            return;
+
         var permission = visibility == SourceVisibility.Platform
             ? PlatformIngestionPermission
             : TenantIngestionPermission;
-        if (!currentUser.Permissions.Contains(permission, StringComparer.OrdinalIgnoreCase))
+
+        if (!currentUser.HasPermission(permission) &&
+            !currentUser.HasPermission(PermissionConstants.Documents.Manage) &&
+            !currentUser.HasPermission(PermissionConstants.Documents.Ingest))
+        {
             throw new UnauthorizedAccessException("Regulatory source ingestion permission is required.");
+        }
+
         if (visibility == SourceVisibility.Tenant &&
             (!currentUser.TenantId.HasValue || currentUser.TenantId == Guid.Empty))
             throw new InvalidOperationException("Tenant context is required for tenant source ingestion.");

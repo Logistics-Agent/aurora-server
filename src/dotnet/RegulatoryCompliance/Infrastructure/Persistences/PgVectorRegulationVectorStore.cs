@@ -64,50 +64,6 @@ public sealed class PgVectorRegulationVectorStore(RegulatoryComplianceDbContext 
         ValidateVector(request.QueryVector, request.Dimension);
         var candidateIds = request.CandidateChunkIds.Distinct().ToArray();
 
-        if (dbContext.Database.ProviderName == "Microsoft.EntityFrameworkCore.InMemory")
-        {
-            var inMemoryChunks = await dbContext.RegulatoryChunks
-                .AsNoTracking()
-                .Where(chunk =>
-                    candidateIds.Contains(chunk.Id) &&
-                    chunk.EmbeddingStatus == ChunkEmbeddingStatus.Completed &&
-                    chunk.EmbeddingModel == request.ModelName &&
-                    chunk.EmbeddingModelVersion == request.ModelVersion &&
-                    chunk.Embedding != null)
-                .Select(chunk => new
-                {
-                    chunk.Id,
-                    chunk.RegulatoryDocumentVersionId,
-                    chunk.Sequence,
-                    chunk.Embedding
-                })
-                .ToListAsync(cancellationToken);
-
-            return inMemoryChunks
-                .Select(item =>
-                {
-                    double distance = ComputeCosineDistance(item.Embedding!, request.QueryVector);
-                    return new
-                    {
-                        item.Id,
-                        item.RegulatoryDocumentVersionId,
-                        item.Sequence,
-                        Distance = distance,
-                        Score = Math.Max(0.0, 1.0 - distance)
-                    };
-                })
-                .Where(item => item.Score >= (double)request.MinimumScore)
-                .OrderBy(item => item.Distance)
-                .ThenBy(item => item.Id)
-                .Take(request.TopK)
-                .Select(item => new VectorSearchResult(
-                    item.Id,
-                    item.RegulatoryDocumentVersionId,
-                    item.Sequence,
-                    Convert.ToDecimal(item.Score)))
-                .ToArray();
-        }
-
         var candidates = await dbContext.RegulatoryChunks
             .AsNoTracking()
             .Where(chunk =>
@@ -121,20 +77,32 @@ public sealed class PgVectorRegulationVectorStore(RegulatoryComplianceDbContext 
                 chunk.Id,
                 chunk.RegulatoryDocumentVersionId,
                 chunk.Sequence,
-                Distance = chunk.Embedding!.CosineDistance(request.QueryVector)
+                chunk.Embedding
             })
-            .Where(item => (1.0 - item.Distance) >= (double)request.MinimumScore)
-            .OrderBy(item => item.Distance)
-            .ThenBy(item => item.Id)
-            .Take(request.TopK)
             .ToListAsync(cancellationToken);
 
         return candidates
+            .Select(item =>
+            {
+                double distance = ComputeCosineDistance(item.Embedding!, request.QueryVector);
+                return new
+                {
+                    item.Id,
+                    item.RegulatoryDocumentVersionId,
+                    item.Sequence,
+                    Distance = distance,
+                    Score = Math.Max(0.0, 1.0 - distance)
+                };
+            })
+            .Where(item => item.Score >= (double)request.MinimumScore)
+            .OrderBy(item => item.Distance)
+            .ThenBy(item => item.Id)
+            .Take(request.TopK)
             .Select(item => new VectorSearchResult(
                 item.Id,
                 item.RegulatoryDocumentVersionId,
                 item.Sequence,
-                Convert.ToDecimal(Math.Max(0.0, 1.0 - item.Distance))))
+                Convert.ToDecimal(item.Score)))
             .ToArray();
     }
 

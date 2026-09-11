@@ -16,21 +16,137 @@ public class CurrentUserContextMiddleware(RequestDelegate next)
         // Chỉ populate khi user đã được authenticate
         if (context.User.Identity?.IsAuthenticated == true)
         {
-            // Custom claims (user_id, tenant_id) — được thêm bởi OnTokenValidated
-            // hoặc bởi một middleware riêng resolve từ gRPC IdentifyUser
-            var userId      = GetClaimGuid(context.User, JwtClaims.UserId);
-            var tenantId    = GetClaimGuid(context.User, JwtClaims.TenantId);
-            var permVersion = GetClaimInt(context.User, JwtClaims.PermissionVersion);
-            var traceId     = context.TraceIdentifier;
+            var explicitUserId = GetClaimGuid(context.User, "user_id") 
+                              ?? GetClaimGuid(context.User, Shared.Security.JwtClaims.UserId)
+                              ?? GetClaimGuid(context.User, "custom:user_id");
+            var userId = explicitUserId ?? GetClaimGuid(context.User, ClaimTypes.NameIdentifier);
+            var tenantId = GetClaimGuid(context.User, "tenant_id") 
+                        ?? GetClaimGuid(context.User, Shared.Security.JwtClaims.TenantId)
+                        ?? GetClaimGuid(context.User, "custom:tenant_id");
 
-            var role = context.User.FindFirstValue(JwtClaims.Role)
-                ?? context.User.FindFirstValue(ClaimTypes.Role);
+            if (!tenantId.HasValue && context.Request.Headers.TryGetValue("x-tenant-id", out var headerTenantIdStr) && Guid.TryParse(headerTenantIdStr, out var headerTenantId))
+            {
+                tenantId = headerTenantId;
+            }
+
+            if (!tenantId.HasValue && context.Request.Query.TryGetValue("tenantId", out var queryTenantIdStr) && Guid.TryParse(queryTenantIdStr, out var queryTenantId))
+            {
+                tenantId = queryTenantId;
+            }
+
+            var traceId = context.TraceIdentifier;
+            var permVersion = GetClaimInt(context.User, "permission_version") 
+                           ?? GetClaimInt(context.User, Shared.Security.JwtClaims.PermissionVersion);
+            var groupClaims = context.User.FindAll("cognito:groups").Select(c => c.Value).ToList();
+            var role = context.User.FindFirstValue(ClaimTypes.Role)
+                    ?? context.User.FindFirstValue("role")
+                    ?? context.User.FindFirstValue("custom:role")
+                    ?? context.User.FindFirstValue(Shared.Security.JwtClaims.Role)
+                    ?? groupClaims.FirstOrDefault();
+
+            // Custom claims (user_id, tenant_id, permission_version)
+            // Nếu thiếu userId thực tế trong DB hoặc thiếu tenantId / permVersion (vd: khi xác thực bằng raw Cognito access_token), fallback resolve từ AuthService
+            if (!explicitUserId.HasValue || !tenantId.HasValue || !permVersion.HasValue || string.IsNullOrWhiteSpace(role))
+            {
+                var email = context.User.FindFirstValue(ClaimTypes.Email)
+                         ?? context.User.FindFirstValue("email")
+                         ?? context.User.FindFirstValue("username")
+                         ?? context.User.FindFirstValue("cognito:username")
+                         ?? context.User.FindFirstValue("sub")
+                         ?? context.User.FindFirstValue(ClaimTypes.NameIdentifier);
+
+                if (!string.IsNullOrWhiteSpace(email))
+                {
+                    try
+                    {
+                        var authClient = context.RequestServices.GetService<Auth.Grpc.AuthService.AuthServiceClient>();
+                        if (authClient != null)
+                        {
+                            var identity = await authClient.IdentifyUserAsync(
+                                new Auth.Grpc.IdentifyUserRequest { Email = email },
+                                cancellationToken: context.RequestAborted);
+
+                            if (identity != null && identity.Exists && Guid.TryParse(identity.UserId, out var resolvedUserId))
+                            {
+                                userId = resolvedUserId;
+                                permVersion = identity.PermissionVersion;
+                                if (Guid.TryParse(identity.TenantId, out var resolvedTenantId))
+                                    tenantId = resolvedTenantId;
+                                if (!string.IsNullOrWhiteSpace(identity.Role))
+                                    role = identity.Role;
+                            }
+                        }
+                    }
+                    catch
+                    {
+                        // Proceed with available claims if service unreachable
+                    }
+                }
+            }
+
+            // Đồng bộ role và claims vào ClaimsIdentity để ASP.NET Core [Authorize(Roles = "...")] nhận diện được
+            if (context.User.Identity is ClaimsIdentity claimsIdentity)
+            {
+                if (!string.IsNullOrWhiteSpace(role))
+                {
+                    var canonicalRole = role.Trim().ToUpperInvariant() switch
+                    {
+                        "SYSTEMADMIN" or "SYSTEM_ADMIN" => Shared.Constants.RoleConstants.SystemAdmin,
+                        "TENANTADMIN" or "TENANT_ADMIN" => Shared.Constants.RoleConstants.TenantAdmin,
+                        "MANAGER" => Shared.Constants.RoleConstants.Manager,
+                        _ => role
+                    };
+
+                    role = canonicalRole;
+
+                    EnsureClaim(claimsIdentity, ClaimTypes.Role, canonicalRole);
+                    EnsureClaim(claimsIdentity, "role", canonicalRole);
+                    EnsureClaim(claimsIdentity, "cognito:groups", canonicalRole);
+                    EnsureClaim(claimsIdentity, Shared.Security.JwtClaims.Role, canonicalRole);
+                    if (!string.IsNullOrWhiteSpace(claimsIdentity.RoleClaimType) && claimsIdentity.RoleClaimType != ClaimTypes.Role)
+                    {
+                        EnsureClaim(claimsIdentity, claimsIdentity.RoleClaimType, canonicalRole);
+                    }
+                }
+
+                if (userId.HasValue)
+                {
+                    EnsureClaim(claimsIdentity, "user_id", userId.Value.ToString());
+                    EnsureClaim(claimsIdentity, Shared.Security.JwtClaims.UserId, userId.Value.ToString());
+                    EnsureClaim(claimsIdentity, ClaimTypes.NameIdentifier, userId.Value.ToString());
+                }
+
+                if (tenantId.HasValue)
+                {
+                    EnsureClaim(claimsIdentity, "tenant_id", tenantId.Value.ToString());
+                    EnsureClaim(claimsIdentity, Shared.Security.JwtClaims.TenantId, tenantId.Value.ToString());
+                }
+
+                if (permVersion.HasValue)
+                {
+                    EnsureClaim(claimsIdentity, "permission_version", permVersion.Value.ToString());
+                    EnsureClaim(claimsIdentity, Shared.Security.JwtClaims.PermissionVersion, permVersion.Value.ToString());
+                }
+            }
 
             // Permissions sẽ được load từ Redis bởi PermissionVersionMiddleware (bước tiếp theo)
             currentUser.Populate(userId, tenantId, traceId, permVersion, role, []);
         }
 
         await next(context);
+    }
+
+    private static void EnsureClaim(ClaimsIdentity identity, string claimType, string claimValue)
+    {
+        var existing = identity.FindAll(c => string.Equals(c.Type, claimType, StringComparison.OrdinalIgnoreCase)).ToList();
+        if (existing.Count == 0 || existing.All(c => !string.Equals(c.Value, claimValue, StringComparison.OrdinalIgnoreCase)))
+        {
+            foreach (var c in existing)
+            {
+                identity.RemoveClaim(c);
+            }
+            identity.AddClaim(new Claim(claimType, claimValue));
+        }
     }
 
     private static Guid? GetClaimGuid(ClaimsPrincipal principal, string claimType)
@@ -45,3 +161,4 @@ public class CurrentUserContextMiddleware(RequestDelegate next)
         return int.TryParse(value, out var result) ? result : null;
     }
 }
+

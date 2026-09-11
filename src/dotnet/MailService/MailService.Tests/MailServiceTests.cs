@@ -933,7 +933,7 @@ public class MailServiceTests
         mockCurrentUser.Setup(u => u.TenantId).Returns(tenantId);
 
         var mockCognito = new Mock<IamTenant.Application.Interfaces.ICognitoAuthService>();
-        mockCognito.Setup(c => c.AdminCreateUserInPoolAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+        mockCognito.Setup(c => c.AdminCreateUserInPoolAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync("cognito-sub-12345");
 
         // Seed tenant
@@ -1435,6 +1435,202 @@ public class MailServiceTests
         Assert.Equal("Inbound message 1", result.Messages[0].BodyText);
         Assert.Equal("Outbound reply 1", result.Messages[1].BodyText);
         Assert.Equal("Pending staff review", result.Drafts[0].Body);
+    }
+
+    [Fact]
+    public async Task ProvisionDomain_SameTenant_ReturnsExistingIdempotently()
+    {
+        var tenantId = Guid.NewGuid();
+        var mockUser = new Mock<ICurrentUserService>();
+        mockUser.Setup(u => u.TenantId).Returns(tenantId);
+        mockUser.Setup(u => u.UserId).Returns(Guid.NewGuid());
+        using var dbContext = CreateInMemoryDbContext("DomainIdempotentDb", mockUser.Object);
+
+        var existingDomain = new MailService.Domain.Entities.Domain
+        {
+            Id = Guid.NewGuid(),
+            TenantId = tenantId,
+            DomainName = "logistics.vn",
+            Status = DomainStatus.Active,
+            CreatedAt = DateTimeOffset.UtcNow,
+            DkimSelector = "aurora-2025"
+        };
+        dbContext.Domains.Add(existingDomain);
+        await dbContext.SaveChangesAsync();
+
+        var mockStalwart = new Mock<IStalwartManagementClient>();
+        var handler = new MailService.Application.Commands.Provisioning.ProvisionDomainCommandHandler(dbContext, mockStalwart.Object, mockUser.Object);
+
+        var result = await handler.Handle(new MailService.Application.Commands.Provisioning.ProvisionDomainCommand("logistics.vn"), CancellationToken.None);
+
+        Assert.NotNull(result);
+        Assert.Equal(existingDomain.Id, result.Id);
+        mockStalwart.Verify(s => s.RegisterDomainAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task ProvisionDomain_DifferentTenant_ThrowsConflict()
+    {
+        var tenant1 = Guid.NewGuid();
+        var tenant2 = Guid.NewGuid();
+        var mockUser1 = new Mock<ICurrentUserService>();
+        mockUser1.Setup(u => u.TenantId).Returns(tenant1);
+        using var dbContext = CreateInMemoryDbContext("DomainConflictDb", mockUser1.Object);
+
+        dbContext.Domains.Add(new MailService.Domain.Entities.Domain
+        {
+            Id = Guid.NewGuid(),
+            TenantId = tenant1,
+            DomainName = "shared-carrier.com",
+            Status = DomainStatus.Active,
+            CreatedAt = DateTimeOffset.UtcNow,
+            DkimSelector = "aurora-2025"
+        });
+        await dbContext.SaveChangesAsync();
+
+        var mockUser2 = new Mock<ICurrentUserService>();
+        mockUser2.Setup(u => u.TenantId).Returns(tenant2);
+        var mockStalwart = new Mock<IStalwartManagementClient>();
+        var handler = new MailService.Application.Commands.Provisioning.ProvisionDomainCommandHandler(dbContext, mockStalwart.Object, mockUser2.Object);
+
+        await Assert.ThrowsAsync<Shared.Exceptions.ConflictException>(async () =>
+        {
+            await handler.Handle(new MailService.Application.Commands.Provisioning.ProvisionDomainCommand("shared-carrier.com"), CancellationToken.None);
+        });
+    }
+
+    [Fact]
+    public async Task ProvisionDomain_NewDomain_StartsAsPendingWithAuditAndOutbox()
+    {
+        var tenantId = Guid.NewGuid();
+        var mockUser = new Mock<ICurrentUserService>();
+        mockUser.Setup(u => u.TenantId).Returns(tenantId);
+        mockUser.Setup(u => u.UserId).Returns(Guid.NewGuid());
+        using var dbContext = CreateInMemoryDbContext("DomainNewDb", mockUser.Object);
+
+        var mockStalwart = new Mock<IStalwartManagementClient>();
+        mockStalwart.Setup(s => s.RegisterDomainAsync("newdomain.com", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+        mockStalwart.Setup(s => s.GenerateDkimKeyAsync("newdomain.com", "aurora-2025", It.IsAny<CancellationToken>()))
+            .ReturnsAsync("v=DKIM1; k=rsa; p=MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQC3");
+
+        var handler = new MailService.Application.Commands.Provisioning.ProvisionDomainCommandHandler(dbContext, mockStalwart.Object, mockUser.Object);
+        var result = await handler.Handle(new MailService.Application.Commands.Provisioning.ProvisionDomainCommand("newdomain.com"), CancellationToken.None);
+
+        Assert.NotNull(result);
+        Assert.Equal(DomainStatus.Pending, result.Status);
+        Assert.Equal("aurora-2025", result.DkimSelector);
+
+        // Check local audit record
+        var audit = await dbContext.AuditRecords.FirstOrDefaultAsync(a => a.Action == "MailDomainProvisioned");
+        Assert.NotNull(audit);
+        Assert.Equal("MailDomain", audit.ResourceType);
+
+        // Check central outbox
+        var outbox = await dbContext.OutboxMessages.FirstOrDefaultAsync(o => o.EventType == nameof(CentralAuditEvent) && o.Payload.Contains("MailDomainProvisioned"));
+        Assert.NotNull(outbox);
+    }
+
+    [Fact]
+    public async Task VerifyDomain_DkimMatch_ActivatesDomain()
+    {
+        var tenantId = Guid.NewGuid();
+        var mockUser = new Mock<ICurrentUserService>();
+        mockUser.Setup(u => u.TenantId).Returns(tenantId);
+        mockUser.Setup(u => u.UserId).Returns(Guid.NewGuid());
+        using var dbContext = CreateInMemoryDbContext("VerifySuccessDb", mockUser.Object);
+
+        var domainId = Guid.NewGuid();
+        var expectedDkim = "v=DKIM1; k=rsa; p=MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQC3";
+        var domain = new MailService.Domain.Entities.Domain
+        {
+            Id = domainId,
+            TenantId = tenantId,
+            DomainName = "verify-test.com",
+            Status = DomainStatus.Pending,
+            DkimSelector = "aurora-2025",
+            DkimTxtRecord = expectedDkim,
+            CreatedAt = DateTimeOffset.UtcNow
+        };
+        dbContext.Domains.Add(domain);
+        await dbContext.SaveChangesAsync();
+
+        var mockDns = new Mock<MailService.Application.Interfaces.Security.IDnsLookupService>();
+        mockDns.Setup(d => d.GetDkimRecordAsync("verify-test.com", "aurora-2025", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(expectedDkim);
+
+        var handler = new MailService.Application.Commands.Provisioning.VerifyDomainCommandHandler(dbContext, mockDns.Object, mockUser.Object);
+        var result = await handler.Handle(new MailService.Application.Commands.Provisioning.VerifyDomainCommand(domainId), CancellationToken.None);
+
+        Assert.True(result.Verified);
+        var updatedDomain = await dbContext.Domains.FindAsync(domainId);
+        Assert.Equal(DomainStatus.Active, updatedDomain!.Status);
+
+        var audit = await dbContext.AuditRecords.FirstOrDefaultAsync(a => a.Action == "MailDomainVerified");
+        Assert.NotNull(audit);
+    }
+
+    [Fact]
+    public async Task CreateMailbox_UnverifiedDomain_ThrowsInvalidOperationException()
+    {
+        var tenantId = Guid.NewGuid();
+        var mockUser = new Mock<ICurrentUserService>();
+        mockUser.Setup(u => u.TenantId).Returns(tenantId);
+        using var dbContext = CreateInMemoryDbContext("MailboxUnverifiedDb", mockUser.Object);
+
+        var domainId = Guid.NewGuid();
+        dbContext.Domains.Add(new MailService.Domain.Entities.Domain
+        {
+            Id = domainId,
+            TenantId = tenantId,
+            DomainName = "pending-domain.com",
+            Status = DomainStatus.Pending,
+            CreatedAt = DateTimeOffset.UtcNow
+        });
+        await dbContext.SaveChangesAsync();
+
+        var mockStalwart = new Mock<IStalwartManagementClient>();
+        var handler = new MailService.Application.Commands.Provisioning.CreateMailboxCommandHandler(dbContext, mockStalwart.Object, mockUser.Object);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+        {
+            await handler.Handle(new MailService.Application.Commands.Provisioning.CreateMailboxCommand(domainId, "support", null), CancellationToken.None);
+        });
+    }
+
+    [Fact]
+    public async Task CreateMailbox_VerifiedDomain_SucceedsAndEnqueuesOutbox()
+    {
+        var tenantId = Guid.NewGuid();
+        var mockUser = new Mock<ICurrentUserService>();
+        mockUser.Setup(u => u.TenantId).Returns(tenantId);
+        mockUser.Setup(u => u.UserId).Returns(Guid.NewGuid());
+        using var dbContext = CreateInMemoryDbContext("MailboxSuccessDb", mockUser.Object);
+
+        var domainId = Guid.NewGuid();
+        dbContext.Domains.Add(new MailService.Domain.Entities.Domain
+        {
+            Id = domainId,
+            TenantId = tenantId,
+            DomainName = "active-domain.com",
+            Status = DomainStatus.Active,
+            CreatedAt = DateTimeOffset.UtcNow
+        });
+        await dbContext.SaveChangesAsync();
+
+        var mockStalwart = new Mock<IStalwartManagementClient>();
+        mockStalwart.Setup(s => s.ProvisionAccountAsync("support@active-domain.com", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+
+        var handler = new MailService.Application.Commands.Provisioning.CreateMailboxCommandHandler(dbContext, mockStalwart.Object, mockUser.Object);
+        var mailbox = await handler.Handle(new MailService.Application.Commands.Provisioning.CreateMailboxCommand(domainId, "support", null), CancellationToken.None);
+
+        Assert.NotNull(mailbox);
+        Assert.Equal("support@active-domain.com", mailbox.FullAddress);
+        Assert.Equal(MailboxStatus.Active, mailbox.Status);
+
+        var outbox = await dbContext.OutboxMessages.FirstOrDefaultAsync(o => o.EventType == nameof(CentralAuditEvent) && o.Payload.Contains("SharedMailboxCreated"));
+        Assert.NotNull(outbox);
     }
 }
 

@@ -1,4 +1,6 @@
 using System.Net;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using Asp.Versioning;
 using BuildingBlocks.BFF.Attributes;
@@ -194,10 +196,13 @@ public sealed class DocumentsController(
                 try
                 {
                     using var doc = JsonDocument.Parse(job.NormalizedJson);
+                    var fieldConfidences = ParseFieldConfidences(job.FieldConfidenceJson);
                     foreach (var prop in doc.RootElement.EnumerateObject())
                     {
                         var fieldVal = prop.Value.ToString();
-                        var fieldConf = job.Confidence > 0 ? job.Confidence : 0.85;
+                        var fieldConf = fieldConfidences.TryGetValue(prop.Name, out var confidence)
+                            ? confidence
+                            : job.Confidence;
                         var fieldNeedsReview = fieldConf < 0.80 || string.IsNullOrWhiteSpace(fieldVal);
 
                         fields.Add(new OcrFieldReviewItem(
@@ -257,9 +262,17 @@ public sealed class DocumentsController(
         if (string.IsNullOrWhiteSpace(request.Action))
             return BadRequest(new ProblemDetails { Title = "INVALID_REQUEST", Detail = "Action (CONFIRM, CORRECT, REJECT) is required." });
 
+        var action = request.Action.Trim().ToUpperInvariant();
+        if (action is not ("CONFIRM" or "CORRECT" or "REJECT"))
+            return BadRequest(new ProblemDetails { Title = "INVALID_REQUEST", Detail = "Action must be CONFIRM, CORRECT, or REJECT." });
+        if (action == "CORRECT" && (request.Fields is null || request.Fields.Count == 0))
+            return BadRequest(new ProblemDetails { Title = "INVALID_REQUEST", Detail = "Fields are required for CORRECT." });
+
         string? correctedJson = null;
-        if (request.Action.Equals("CORRECT", StringComparison.OrdinalIgnoreCase) && request.Fields != null)
+        if (action == "CORRECT" && request.Fields != null)
         {
+            if (request.Fields.Any(field => string.IsNullOrWhiteSpace(field.Name)))
+                return BadRequest(new ProblemDetails { Title = "INVALID_REQUEST", Detail = "Every corrected field must have a name." });
             var dict = request.Fields.ToDictionary(f => f.Name, f => (object)f.Value);
             correctedJson = JsonSerializer.Serialize(dict);
         }
@@ -269,7 +282,7 @@ public sealed class DocumentsController(
             var updatedJob = await documentOcrClient.ReviewDocumentJobAsync(new ReviewDocumentJobRequest
             {
                 JobId = id,
-                Action = request.Action.ToUpperInvariant(),
+                Action = action,
                 CorrectedJson = correctedJson ?? string.Empty,
                 Comment = request.Comment ?? string.Empty
             }, cancellationToken: cancellationToken);
@@ -304,6 +317,15 @@ public sealed class DocumentsController(
                 Title = "DOCUMENT_NOT_FOUND",
                 Detail = $"Shipment document with ID '{id}' was not found.",
                 Status = (int)HttpStatusCode.NotFound
+            });
+        }
+        catch (RpcException ex) when (ex.StatusCode == Grpc.Core.StatusCode.InvalidArgument)
+        {
+            return BadRequest(new ProblemDetails
+            {
+                Title = "INVALID_REQUEST",
+                Detail = ex.Status.Detail,
+                Status = (int)HttpStatusCode.BadRequest
             });
         }
     }
@@ -427,6 +449,32 @@ public sealed class DocumentsController(
                 Detail = "Title and Authority are required.",
                 Status = (int)HttpStatusCode.BadRequest
             });
+        if (string.IsNullOrWhiteSpace(request.RawText))
+            return BadRequest(new ProblemDetails
+            {
+                Title = "INVALID_CONTENT",
+                Detail = "RawText is required for regulatory corpus ingestion. Submit binary documents through OCR first.",
+                Status = (int)HttpStatusCode.BadRequest
+            });
+        if (!Uri.TryCreate(request.CanonicalSourceUri, UriKind.Absolute, out var canonicalUri) ||
+            canonicalUri.Scheme != Uri.UriSchemeHttps || !string.IsNullOrEmpty(canonicalUri.UserInfo))
+            return BadRequest(new ProblemDetails
+            {
+                Title = "INVALID_SOURCE_URI",
+                Detail = "CanonicalSourceUri must be an HTTPS provenance URI.",
+                Status = (int)HttpStatusCode.BadRequest
+            });
+        if (string.IsNullOrWhiteSpace(request.ContentReference) ||
+            !request.ContentReference.StartsWith("regulatory/", StringComparison.Ordinal) ||
+            request.ContentReference.Contains("..", StringComparison.Ordinal))
+            return BadRequest(new ProblemDetails
+            {
+                Title = "INVALID_CONTENT_REFERENCE",
+                Detail = "ContentReference must be a regulatory/{path} storage key.",
+                Status = (int)HttpStatusCode.BadRequest
+            });
+
+        var regulatoryBytes = Encoding.UTF8.GetBytes(request.RawText);
 
         var ingestRequest = new IngestRegulatorySourceRequest
         {
@@ -435,21 +483,19 @@ public sealed class DocumentsController(
                 : Guid.NewGuid().ToString(),
             Authority = request.Authority,
             Title = request.Title,
-            CanonicalSourceUri = request.CanonicalSourceUri ?? $"urn:tenant:law:{Guid.NewGuid()}",
+            CanonicalSourceUri = request.CanonicalSourceUri,
             JurisdictionCode = request.JurisdictionCode ?? "VN",
             RegulationType = (RegulationType)(int)request.RegulationType,
             LanguageCode = request.LanguageCode ?? "vi",
             VersionLabel = request.VersionLabel ?? "1.0",
             PublishedAt = Timestamp.FromDateTimeOffset(request.PublishedAt ?? DateTimeOffset.UtcNow),
             EffectiveFrom = Timestamp.FromDateTimeOffset(request.EffectiveFrom ?? DateTimeOffset.UtcNow),
-            ContentReference = request.ContentReference ?? request.StorageReference ?? string.Empty,
-            FileName = request.FileName ?? "regulatory-doc.pdf",
-            MimeType = request.MimeType ?? "application/pdf",
-            SizeBytes = request.SizeBytes > 0 ? request.SizeBytes : 1024,
-            ContentSha256 = request.ContentSha256 ?? new string('0', 64),
-            Content = !string.IsNullOrEmpty(request.RawText)
-                ? ByteString.CopyFromUtf8(request.RawText)
-                : ByteString.Empty,
+            ContentReference = request.ContentReference,
+            FileName = request.FileName ?? "regulatory-doc.md",
+            MimeType = request.MimeType ?? "text/markdown",
+            SizeBytes = regulatoryBytes.Length,
+            ContentSha256 = Convert.ToHexString(SHA256.HashData(regulatoryBytes)).ToLowerInvariant(),
+            Content = ByteString.CopyFrom(regulatoryBytes),
             Visibility = RegulatorySourceVisibility.Tenant // Staff can only create TENANT scope
         };
 
@@ -477,6 +523,7 @@ public sealed class DocumentsController(
     /// Evidence-first response with citations and relevance scores.
     /// </summary>
     [HttpPost("regulatory/query")]
+    [RequirePermission(PermissionConstants.Documents.Read, PermissionConstants.Compliance.Read)]
     [ProducesResponseType(typeof(RegulatoryQueryResponse), 200)]
     public async Task<IActionResult> QueryRegulations(
         [FromBody] RegulatoryQueryRequest request,
@@ -489,6 +536,7 @@ public sealed class DocumentsController(
         {
             Query = request.Query,
             JurisdictionCode = request.JurisdictionCode ?? string.Empty,
+            LanguageCode = "vi",
             EffectiveAt = request.EffectiveAt.HasValue ? Timestamp.FromDateTimeOffset(request.EffectiveAt.Value) : Timestamp.FromDateTimeOffset(DateTimeOffset.UtcNow),
             TopK = request.TopK > 0 ? request.TopK : 10,
             MinimumRelevanceScore = (double)(request.MinimumRelevanceScore > 0 ? request.MinimumRelevanceScore : 0.4m)
@@ -550,6 +598,24 @@ public sealed class DocumentsController(
                 Detail = "Title is required.",
                 Status = (int)HttpStatusCode.BadRequest
             });
+        if (string.IsNullOrWhiteSpace(request.RawText))
+            return BadRequest(new ProblemDetails
+            {
+                Title = "INVALID_CONTENT",
+                Detail = "RawText is required for knowledge corpus ingestion. Submit binary documents through OCR first.",
+                Status = (int)HttpStatusCode.BadRequest
+            });
+        if (string.IsNullOrWhiteSpace(request.ContentReference) ||
+            !request.ContentReference.StartsWith("knowledge/", StringComparison.Ordinal) ||
+            request.ContentReference.Contains("..", StringComparison.Ordinal))
+            return BadRequest(new ProblemDetails
+            {
+                Title = "INVALID_CONTENT_REFERENCE",
+                Detail = "ContentReference must be a knowledge/{path} storage key.",
+                Status = (int)HttpStatusCode.BadRequest
+            });
+
+        var knowledgeBytes = Encoding.UTF8.GetBytes(request.RawText);
 
         var ingestRequest = new IngestKnowledgeSourceRequest
         {
@@ -561,14 +627,12 @@ public sealed class DocumentsController(
             SourceReference = request.SourceReference ?? $"sop://tenant/{Guid.NewGuid()}",
             LanguageCode = request.LanguageCode ?? "vi",
             VersionLabel = request.VersionLabel ?? "1.0",
-            ContentReference = request.ContentReference ?? request.StorageReference ?? string.Empty,
-            FileName = request.FileName ?? "knowledge.pdf",
-            MimeType = request.MimeType ?? "application/pdf",
-            SizeBytes = request.SizeBytes > 0 ? request.SizeBytes : 1024,
-            ContentSha256 = request.ContentSha256 ?? new string('0', 64),
-            Content = !string.IsNullOrEmpty(request.RawText)
-                ? ByteString.CopyFromUtf8(request.RawText)
-                : ByteString.Empty,
+            ContentReference = request.ContentReference,
+            FileName = request.FileName ?? "knowledge.md",
+            MimeType = request.MimeType ?? "text/markdown",
+            SizeBytes = knowledgeBytes.Length,
+            ContentSha256 = Convert.ToHexString(SHA256.HashData(knowledgeBytes)).ToLowerInvariant(),
+            Content = ByteString.CopyFrom(knowledgeBytes),
             Visibility = RegulatorySourceVisibility.Tenant
         };
 
@@ -595,6 +659,7 @@ public sealed class DocumentsController(
     /// Box 3: Query knowledge corpus (SOPs, Guides, Contracts for PLATFORM + TENANT).
     /// </summary>
     [HttpPost("knowledge/query")]
+    [RequirePermission(PermissionConstants.Documents.Read, PermissionConstants.Compliance.Read)]
     [ProducesResponseType(typeof(KnowledgeQueryResponse), 200)]
     public async Task<IActionResult> QueryKnowledge(
         [FromBody] KnowledgeQueryRequest request,
@@ -744,6 +809,7 @@ public sealed class DocumentsController(
     {
         DocumentOcrJobStatus.Queued => "PROCESSING",
         DocumentOcrJobStatus.Processing => "PROCESSING",
+        DocumentOcrJobStatus.RequiresReview => "NEEDS_REVIEW",
         DocumentOcrJobStatus.Completed => needsReview ? "NEEDS_REVIEW" : "READY",
         DocumentOcrJobStatus.Rejected => "REJECTED",
         DocumentOcrJobStatus.Failed => "FAILED",
@@ -755,9 +821,34 @@ public sealed class DocumentsController(
     {
         DocumentOcrJobStatus.Queued => "EXTRACTING",
         DocumentOcrJobStatus.Processing => "OCR",
+        DocumentOcrJobStatus.RequiresReview => "REVIEW",
         DocumentOcrJobStatus.Completed => "READY",
         _ => null
     };
+
+    private static Dictionary<string, double> ParseFieldConfidences(string? fieldConfidenceJson)
+    {
+        if (string.IsNullOrWhiteSpace(fieldConfidenceJson))
+            return new(StringComparer.OrdinalIgnoreCase);
+
+        try
+        {
+            using var document = JsonDocument.Parse(fieldConfidenceJson);
+            if (document.RootElement.ValueKind != JsonValueKind.Object)
+                return new(StringComparer.OrdinalIgnoreCase);
+
+            return document.RootElement.EnumerateObject()
+                .Where(property => property.Value.ValueKind == JsonValueKind.Number && property.Value.TryGetDouble(out _))
+                .ToDictionary(
+                    property => property.Name,
+                    property => property.Value.GetDouble(),
+                    StringComparer.OrdinalIgnoreCase);
+        }
+        catch (JsonException)
+        {
+            return new(StringComparer.OrdinalIgnoreCase);
+        }
+    }
 
     private static (string status, string? stage) MapIngestionStatus(RegulatoryIngestionStatus status) => status switch
     {
