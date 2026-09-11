@@ -1,6 +1,5 @@
 using System.Security.Cryptography;
 using System.Text;
-using System.Text.Json;
 using DocumentOcr.Application.Providers;
 using DocumentOcr.Application.Storage;
 using DocumentOcr.Domain.Entities;
@@ -70,7 +69,7 @@ public sealed class DocumentUploadService(
             session => session.TenantId == tenantId && session.IdempotencyKey == idempotencyKey,
             cancellationToken);
         if (existing is not null)
-            return ReplayOrConflict(existing, fingerprint);
+            return await ReplayOrConflictAsync(existing, fingerprint, cancellationToken);
 
         var uploadId = Guid.CreateVersion7();
         var objectKey = $"objects/{tenantId}/{uploadId}/{fileName}";
@@ -89,23 +88,11 @@ public sealed class DocumentUploadService(
             createdAt.Add(options.SessionExpiry),
             createdAt);
 
-        var target = await inputStorage.CreateSignedWriteTargetAsync(
-            tenantId,
-            uploadId,
-            objectKey,
-            fileName,
-            mimeType,
-            maximumSizeBytes,
-            session.ExpiresAt,
-            contentSha256,
-            cancellationToken);
-        session.SetWriteTarget(target, JsonSerializer.Serialize(target.RequiredHeaders));
         dbContext.UploadSessions.Add(session);
 
         try
         {
             await dbContext.SaveChangesAsync(cancellationToken);
-            return ToReceipt(session);
         }
         catch (DbUpdateException exception) when (IsUniqueViolation(exception))
         {
@@ -113,8 +100,10 @@ public sealed class DocumentUploadService(
             existing = await dbContext.UploadSessions.SingleAsync(
                 item => item.TenantId == tenantId && item.IdempotencyKey == idempotencyKey,
                 cancellationToken);
-            return ReplayOrConflict(existing, fingerprint);
+            return await ReplayOrConflictAsync(existing, fingerprint, cancellationToken);
         }
+
+        return await CreateReceiptWithFreshTargetAsync(session, cancellationToken);
     }
 
     public async Task<DocumentUploadReceipt> VerifyAsync(
@@ -133,6 +122,9 @@ public sealed class DocumentUploadService(
             return ToReceipt(session);
         if (session.Status == DocumentUploadStatus.Expired)
             throw new DocumentUploadValidationException("UPLOAD_EXPIRED", "The upload session has expired.");
+        if (session.Status == DocumentUploadStatus.Verifying)
+            throw new DocumentUploadValidationException(
+                "UPLOAD_VERIFICATION_IN_PROGRESS", "The upload session is being verified.");
 
         var now = timeProvider.GetUtcNow();
         if (session.ExpiresAt <= now)
@@ -150,26 +142,39 @@ public sealed class DocumentUploadService(
                 "UPLOAD_TENANT_MISMATCH", "The upload object is not owned by the current tenant.");
         }
 
+        session.BeginVerification(now);
+        try
+        {
+            await dbContext.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            throw new DocumentUploadValidationException("UPLOAD_EXPIRED", "The upload session has expired.");
+        }
+
         var metadata = await inputStorage.HeadAsync(tenantId, session.ObjectKey, cancellationToken)
-            ?? throw new DocumentUploadValidationException(
-                "UPLOAD_OBJECT_NOT_FOUND", "The upload object was not found.");
+            ?? throw await RestorePendingAndCreateFailureAsync(
+                session, "UPLOAD_OBJECT_NOT_FOUND", "The upload object was not found.", cancellationToken);
         if (!string.Equals(metadata.ObjectKey, session.ObjectKey, StringComparison.Ordinal))
-            throw new DocumentUploadValidationException(
-                "UPLOAD_TENANT_MISMATCH", "The upload object key does not match the session.");
-        if (!string.Equals(metadata.ContentType, session.DeclaredMimeType, StringComparison.OrdinalIgnoreCase))
-            throw new DocumentUploadValidationException(
-                "UPLOAD_MIME_MISMATCH", "The uploaded MIME type does not match the declaration.");
+            throw await RestorePendingAndCreateFailureAsync(
+                session, "UPLOAD_TENANT_MISMATCH", "The upload object key does not match the session.", cancellationToken);
         if (metadata.SizeBytes > session.MaximumSizeBytes)
-            throw new DocumentUploadValidationException(
-                "UPLOAD_SIZE_EXCEEDED", "The uploaded object exceeds the maximum size.");
+            throw await RestorePendingAndCreateFailureAsync(
+                session, "UPLOAD_SIZE_EXCEEDED", "The uploaded object exceeds the maximum size.", cancellationToken);
         if (metadata.SizeBytes != session.DeclaredSizeBytes)
-            throw new DocumentUploadValidationException(
-                "UPLOAD_SIZE_MISMATCH", "The uploaded size does not match the declaration.");
+            throw await RestorePendingAndCreateFailureAsync(
+                session, "UPLOAD_SIZE_MISMATCH", "The uploaded size does not match the declaration.", cancellationToken);
+        if (!string.Equals(metadata.ContentType, session.DeclaredMimeType, StringComparison.OrdinalIgnoreCase))
+            throw await RestorePendingAndCreateFailureAsync(
+                session, "UPLOAD_MIME_MISMATCH", "The uploaded MIME type does not match the declaration.", cancellationToken);
+        if (!inputPolicy.IsMimeCompatibleWithFileName(session.FileName, metadata.ContentType))
+            throw await RestorePendingAndCreateFailureAsync(
+                session, "UPLOAD_MIME_MISMATCH", "The uploaded MIME type does not match the file extension.", cancellationToken);
         if (session.DeclaredContentSha256 is not null &&
             !string.Equals(session.DeclaredContentSha256, metadata.ContentSha256, StringComparison.Ordinal))
         {
-            throw new DocumentUploadValidationException(
-                "UPLOAD_HASH_MISMATCH", "The uploaded SHA-256 does not match the declaration.");
+            throw await RestorePendingAndCreateFailureAsync(
+                session, "UPLOAD_HASH_MISMATCH", "The uploaded SHA-256 does not match the declaration.", cancellationToken);
         }
 
         session.MarkUploaded(
@@ -177,7 +182,14 @@ public sealed class DocumentUploadService(
             metadata.SizeBytes,
             metadata.ContentSha256,
             now);
-        await dbContext.SaveChangesAsync(cancellationToken);
+        try
+        {
+            await dbContext.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            throw new DocumentUploadValidationException("UPLOAD_EXPIRED", "The upload session has expired.");
+        }
         return ToReceipt(session);
     }
 
@@ -209,15 +221,15 @@ public sealed class DocumentUploadService(
         return ToReceipt(session);
     }
 
-    internal static DocumentUploadReceipt ToReceipt(DocumentUploadSession session)
+    internal static DocumentUploadReceipt ToReceipt(
+        DocumentUploadSession session,
+        SignedWriteTarget? target = null)
     {
-        var headers = JsonSerializer.Deserialize<Dictionary<string, string>>(
-            session.RequiredHeadersJson) ?? new Dictionary<string, string>();
         return new DocumentUploadReceipt(
             session.Id,
             session.ObjectKey,
-            session.WriteUrl ?? string.Empty,
-            headers,
+            target?.Url ?? string.Empty,
+            target?.RequiredHeaders ?? new Dictionary<string, string>(),
             session.ExpiresAt,
             session.MaximumSizeBytes,
             session.Status,
@@ -230,13 +242,56 @@ public sealed class DocumentUploadService(
             session.VerifiedContentSha256);
     }
 
-    private DocumentUploadReceipt ReplayOrConflict(
+    private async Task<DocumentUploadReceipt> ReplayOrConflictAsync(
         DocumentUploadSession existing,
-        string requestFingerprint)
+        string requestFingerprint,
+        CancellationToken cancellationToken)
     {
         if (!string.Equals(existing.RequestFingerprint, requestFingerprint, StringComparison.Ordinal))
             throw new UploadSessionConflictException("The idempotency key was already used with a different request.");
+        if (existing.Status == DocumentUploadStatus.Pending)
+        {
+            if (existing.ExpiresAt <= timeProvider.GetUtcNow())
+                throw new DocumentUploadValidationException("UPLOAD_EXPIRED", "The upload session has expired.");
+            return await CreateReceiptWithFreshTargetAsync(existing, cancellationToken);
+        }
+
         return ToReceipt(existing);
+    }
+
+    private async Task<DocumentUploadReceipt> CreateReceiptWithFreshTargetAsync(
+        DocumentUploadSession session,
+        CancellationToken cancellationToken)
+    {
+        var target = await inputStorage.CreateSignedWriteTargetAsync(
+            session.TenantId,
+            session.Id,
+            session.ObjectKey,
+            session.FileName,
+            session.DeclaredMimeType,
+            session.MaximumSizeBytes,
+            session.ExpiresAt,
+            session.DeclaredContentSha256,
+            cancellationToken);
+        return ToReceipt(session, target);
+    }
+
+    private async Task<DocumentUploadValidationException> RestorePendingAndCreateFailureAsync(
+        DocumentUploadSession session,
+        string code,
+        string message,
+        CancellationToken cancellationToken)
+    {
+        session.ReturnToPending(timeProvider.GetUtcNow());
+        try
+        {
+            await dbContext.SaveChangesAsync(cancellationToken);
+            return new DocumentUploadValidationException(code, message);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            return new DocumentUploadValidationException("UPLOAD_EXPIRED", "The upload session has expired.");
+        }
     }
 
     private long GetMaximumSizeBytes() => inputPolicy.MaximumSizeBytes;

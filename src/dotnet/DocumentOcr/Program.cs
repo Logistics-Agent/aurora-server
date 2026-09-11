@@ -63,23 +63,37 @@ builder.Services.AddGrpcClient<AiGovernance.Grpc.AiExecutionService.AiExecutionS
 
 builder.Services.AddScoped<DocumentOcr.Application.Storage.IArtifactStorageService, DocumentOcr.Infrastructure.Storage.FileSystemArtifactStorageService>();
 var inputStorageProvider = builder.Configuration["Storage:InputProvider"] ?? "FileSystem";
-if (inputStorageProvider.Equals("S3", StringComparison.OrdinalIgnoreCase))
+var usesFileSystemInputStorage = inputStorageProvider.Equals("FileSystem", StringComparison.OrdinalIgnoreCase);
+if (usesFileSystemInputStorage)
 {
+    var bridgeOptions = DocumentUploadBridgeOptions.FromConfiguration(builder.Configuration);
+    bridgeOptions.GetPublicBaseUri();
+    bridgeOptions.GetSigningKey();
+    builder.Services.AddSingleton(bridgeOptions);
+    builder.Services.AddSingleton<DocumentUploadBridgeTokenService>();
+    builder.Services.AddScoped<IDocumentInputStorage, FileSystemDocumentInputStorage>();
+    builder.Services.AddScoped<DocumentUploadHttpBridge>();
+}
+else if (inputStorageProvider.Equals("S3", StringComparison.OrdinalIgnoreCase))
+{
+    var serviceUrl = RequiredStorageSetting(builder.Configuration, "Storage:S3:ServiceUrl");
+    if (!Uri.TryCreate(serviceUrl, UriKind.Absolute, out _))
+        throw new InvalidOperationException("Storage:S3:ServiceUrl must be an absolute URL.");
     var s3Config = new AmazonS3Config
     {
-        ServiceURL = builder.Configuration["Storage:S3:ServiceUrl"],
+        ServiceURL = serviceUrl,
         ForcePathStyle = builder.Configuration.GetValue("Storage:S3:ForcePathStyle", true),
-        AuthenticationRegion = builder.Configuration["Storage:S3:Region"] ?? "us-east-1"
+        AuthenticationRegion = RequiredStorageSetting(builder.Configuration, "Storage:S3:Region")
     };
     builder.Services.AddSingleton<IAmazonS3>(_ => new AmazonS3Client(
-        builder.Configuration["Storage:S3:AccessKey"],
-        builder.Configuration["Storage:S3:SecretKey"],
+        RequiredStorageSetting(builder.Configuration, "Storage:S3:AccessKey"),
+        RequiredStorageSetting(builder.Configuration, "Storage:S3:SecretKey"),
         s3Config));
     builder.Services.AddScoped<IDocumentInputStorage, S3DocumentInputStorage>();
 }
 else
 {
-    builder.Services.AddScoped<IDocumentInputStorage, FileSystemDocumentInputStorage>();
+    throw new InvalidOperationException("Storage:InputProvider must be either 'FileSystem' or 'S3'.");
 }
 builder.Services.AddScoped<DocumentInputPolicy>();
 builder.Services.AddScoped<DocumentUploadService>();
@@ -106,7 +120,19 @@ builder.Services.AddHostedService<DocumentOcrOutboxPublisherBackgroundService>()
 var app = builder.Build();
 
 app.MapGrpcService<DocumentOcrGrpcService>();
+if (usesFileSystemInputStorage)
+{
+    app.MapPut("/api/internal/document-uploads/{tenantId:guid}/{uploadId:guid}",
+        (Guid tenantId, Guid uploadId, string? token, HttpRequest request,
+            DocumentUploadHttpBridge bridge, CancellationToken cancellationToken) =>
+            bridge.PutAsync(tenantId, uploadId, token, request, cancellationToken));
+}
 app.MapGet("/", () => "Document OCR gRPC Service");
 app.MapGet("/healthz", () => Results.Ok("Healthy"));
 
 app.Run();
+
+static string RequiredStorageSetting(IConfiguration configuration, string key) =>
+    configuration[key] is { Length: > 0 } value
+        ? value
+        : throw new InvalidOperationException($"{key} is required for S3 input storage.");

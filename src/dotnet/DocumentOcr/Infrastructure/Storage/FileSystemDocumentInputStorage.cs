@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using DocumentOcr.Application.Storage;
+using DocumentOcr.Application.Uploads;
 using Microsoft.Extensions.Configuration;
 
 namespace DocumentOcr.Infrastructure.Storage;
@@ -7,6 +8,8 @@ namespace DocumentOcr.Infrastructure.Storage;
 public sealed class FileSystemDocumentInputStorage : IDocumentInputStorage
 {
     private readonly string _baseDirectory;
+    private readonly Uri _publicBaseUri;
+    private readonly DocumentUploadBridgeTokenService _tokenService;
 
     public FileSystemDocumentInputStorage(IConfiguration configuration)
     {
@@ -14,6 +17,9 @@ public sealed class FileSystemDocumentInputStorage : IDocumentInputStorage
         _baseDirectory = Path.GetFullPath(!string.IsNullOrWhiteSpace(configuredPath)
             ? configuredPath
             : Path.Combine(AppContext.BaseDirectory, "storage", "inputs"));
+        var bridgeOptions = DocumentUploadBridgeOptions.FromConfiguration(configuration);
+        _publicBaseUri = bridgeOptions.GetPublicBaseUri();
+        _tokenService = new DocumentUploadBridgeTokenService(bridgeOptions);
         Directory.CreateDirectory(_baseDirectory);
     }
 
@@ -29,20 +35,13 @@ public sealed class FileSystemDocumentInputStorage : IDocumentInputStorage
         CancellationToken cancellationToken = default)
     {
         ValidateKey(tenantId, uploadId, objectKey);
-        var path = GetPath(tenantId, objectKey);
-        var directory = Path.GetDirectoryName(path);
-        if (directory is not null)
-            Directory.CreateDirectory(directory);
-
         var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         {
             ["Content-Type"] = mimeType
         };
-        if (contentSha256 is not null)
-            headers["x-content-sha256"] = contentSha256;
 
         return Task.FromResult(new SignedWriteTarget(
-            new Uri(path).AbsoluteUri,
+            CreateBridgeTargetUrl(tenantId, uploadId, objectKey, expiresAt),
             headers,
             expiresAt,
             maximumSizeBytes));
@@ -58,12 +57,48 @@ public sealed class FileSystemDocumentInputStorage : IDocumentInputStorage
         if (!File.Exists(path))
             return Task.FromResult<DocumentObjectMetadata?>(null);
 
-        var info = new FileInfo(path);
-        return Task.FromResult<DocumentObjectMetadata?>(new DocumentObjectMetadata(
-            objectKey,
-            ContentTypeFor(Path.GetExtension(info.Name)),
-            info.Length,
-            Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(path))).ToLowerInvariant()));
+        return InspectAsync(path, objectKey, cancellationToken);
+    }
+
+    public async Task WriteAsync(
+        Guid tenantId,
+        string objectKey,
+        Stream content,
+        long maximumSizeBytes,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(content);
+        ValidateKeyPrefix(tenantId, objectKey);
+        var path = GetPath(tenantId, objectKey);
+        var directory = Path.GetDirectoryName(path)!;
+        Directory.CreateDirectory(directory);
+        var temporaryPath = Path.Combine(directory, $".{Guid.NewGuid():N}.upload");
+
+        try
+        {
+            await using var destination = new FileStream(
+                temporaryPath, FileMode.CreateNew, FileAccess.Write, FileShare.None, 81_920, useAsync: true);
+            var buffer = new byte[81_920];
+            long written = 0;
+            while (true)
+            {
+                var read = await content.ReadAsync(buffer, cancellationToken);
+                if (read == 0)
+                    break;
+                written += read;
+                if (written > maximumSizeBytes)
+                    throw new DocumentInputTooLargeException();
+                await destination.WriteAsync(buffer.AsMemory(0, read), cancellationToken);
+            }
+
+            await destination.FlushAsync(cancellationToken);
+            File.Move(temporaryPath, path, overwrite: true);
+        }
+        finally
+        {
+            if (File.Exists(temporaryPath))
+                File.Delete(temporaryPath);
+        }
     }
 
     public Task DeleteAsync(
@@ -112,12 +147,24 @@ public sealed class FileSystemDocumentInputStorage : IDocumentInputStorage
             throw new ArgumentException("Object key is not tenant safe.", nameof(objectKey));
     }
 
-    private static string ContentTypeFor(string extension) => extension.ToLowerInvariant() switch
+    private static async Task<DocumentObjectMetadata?> InspectAsync(
+        string path,
+        string objectKey,
+        CancellationToken cancellationToken)
     {
-        ".pdf" => "application/pdf",
-        ".jpg" or ".jpeg" => "image/jpeg",
-        ".png" => "image/png",
-        ".tif" or ".tiff" => "image/tiff",
-        _ => "application/octet-stream"
-    };
+        await using var content = new FileStream(
+            path, FileMode.Open, FileAccess.Read, FileShare.Read, 81_920, useAsync: true);
+        return await DocumentObjectInspector.InspectAsync(objectKey, content, cancellationToken);
+    }
+
+    private string CreateBridgeTargetUrl(
+        Guid tenantId,
+        Guid uploadId,
+        string objectKey,
+        DateTimeOffset expiresAt)
+    {
+        var token = _tokenService.CreateToken(tenantId, uploadId, objectKey, expiresAt);
+        var relativePath = $"api/internal/document-uploads/{tenantId:N}/{uploadId:N}?token={Uri.EscapeDataString(token)}";
+        return new Uri(_publicBaseUri, relativePath).AbsoluteUri;
+    }
 }

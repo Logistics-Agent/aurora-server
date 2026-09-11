@@ -53,19 +53,27 @@ public sealed class S3DocumentInputStorage(IAmazonS3 client, IConfiguration conf
         ValidateKeyPrefix(tenantId, objectKey);
         try
         {
-            var response = await client.GetObjectMetadataAsync(new GetObjectMetadataRequest
+            using var response = await client.GetObjectAsync(new GetObjectRequest
             {
                 BucketName = _bucketName,
                 Key = objectKey
             }, cancellationToken);
-            var sha = response.Metadata["x-amz-meta-content-sha256"];
-            return new DocumentObjectMetadata(objectKey, response.Headers.ContentType, response.ContentLength, sha);
+            return await DocumentObjectInspector.InspectAsync(
+                objectKey, response.ResponseStream, cancellationToken);
         }
         catch (AmazonS3Exception exception) when (exception.StatusCode == System.Net.HttpStatusCode.NotFound)
         {
             return null;
         }
     }
+
+    public Task WriteAsync(
+        Guid tenantId,
+        string objectKey,
+        Stream content,
+        long maximumSizeBytes,
+        CancellationToken cancellationToken = default) =>
+        throw new NotSupportedException("The HTTP upload bridge is available only with FileSystem input storage.");
 
     public async Task DeleteAsync(
         Guid tenantId,

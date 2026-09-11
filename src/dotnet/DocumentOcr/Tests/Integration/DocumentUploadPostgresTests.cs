@@ -58,6 +58,13 @@ public sealed class DocumentUploadPostgresTests(DocumentOcrPostgresFixture datab
             Guid tenantId, string objectKey, CancellationToken cancellationToken = default) =>
             Task.FromResult<DocumentObjectMetadata?>(null);
 
+        public Task WriteAsync(
+            Guid tenantId,
+            string objectKey,
+            Stream content,
+            long maximumSizeBytes,
+            CancellationToken cancellationToken = default) => Task.CompletedTask;
+
         public Task DeleteAsync(Guid tenantId, string objectKey, CancellationToken cancellationToken = default) =>
             Task.CompletedTask;
     }

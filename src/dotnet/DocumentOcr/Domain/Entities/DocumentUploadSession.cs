@@ -1,4 +1,3 @@
-using DocumentOcr.Application.Storage;
 using Shared.Entity;
 
 namespace DocumentOcr.Domain.Entities;
@@ -16,11 +15,11 @@ public sealed class DocumentUploadSession : TenantAuditableEntity
     public string DeclaredMimeType { get; private set; } = string.Empty;
     public long DeclaredSizeBytes { get; private set; }
     public string? DeclaredContentSha256 { get; private set; }
-    public string? WriteUrl { get; private set; }
-    public string RequiredHeadersJson { get; private set; } = "{}";
     public long MaximumSizeBytes { get; private set; }
     public DateTimeOffset ExpiresAt { get; private set; }
     public Domain.Enums.DocumentUploadStatus Status { get; private set; }
+    public Domain.Enums.DocumentUploadCleanupStatus CleanupStatus { get; private set; }
+    public int StateVersion { get; private set; }
     public string? VerifiedMimeType { get; private set; }
     public long? VerifiedSizeBytes { get; private set; }
     public string? VerifiedContentSha256 { get; private set; }
@@ -75,22 +74,13 @@ public sealed class DocumentUploadSession : TenantAuditableEntity
         };
     }
 
-    public void SetWriteTarget(SignedWriteTarget target, string headersJson)
-    {
-        ArgumentNullException.ThrowIfNull(target);
-        if (Status != Domain.Enums.DocumentUploadStatus.Pending)
-            throw new InvalidOperationException("Only pending upload sessions can receive a write target.");
-        WriteUrl = target.Url;
-        RequiredHeadersJson = headersJson;
-    }
-
     public void MarkUploaded(
         string verifiedMimeType,
         long verifiedSizeBytes,
         string? verifiedContentSha256,
         DateTimeOffset verifiedAt)
     {
-        if (Status != Domain.Enums.DocumentUploadStatus.Pending)
+        if (Status != Domain.Enums.DocumentUploadStatus.Verifying)
             throw new InvalidOperationException("Only pending upload sessions can be verified.");
         VerifiedMimeType = verifiedMimeType;
         VerifiedSizeBytes = verifiedSizeBytes;
@@ -98,6 +88,25 @@ public sealed class DocumentUploadSession : TenantAuditableEntity
         VerifiedAt = verifiedAt;
         Status = Domain.Enums.DocumentUploadStatus.Uploaded;
         UpdatedAt = verifiedAt;
+        AdvanceState();
+    }
+
+    public void BeginVerification(DateTimeOffset now)
+    {
+        if (Status != Domain.Enums.DocumentUploadStatus.Pending)
+            throw new InvalidOperationException("Only pending upload sessions can begin verification.");
+        Status = Domain.Enums.DocumentUploadStatus.Verifying;
+        UpdatedAt = now;
+        AdvanceState();
+    }
+
+    public void ReturnToPending(DateTimeOffset now)
+    {
+        if (Status != Domain.Enums.DocumentUploadStatus.Verifying)
+            return;
+        Status = Domain.Enums.DocumentUploadStatus.Pending;
+        UpdatedAt = now;
+        AdvanceState();
     }
 
     public void MarkConsumed(DateTimeOffset consumedAt)
@@ -107,6 +116,7 @@ public sealed class DocumentUploadSession : TenantAuditableEntity
         Status = Domain.Enums.DocumentUploadStatus.Consumed;
         ConsumedAt = consumedAt;
         UpdatedAt = consumedAt;
+        AdvanceState();
     }
 
     public void MarkExpired(DateTimeOffset expiredAt)
@@ -115,7 +125,24 @@ public sealed class DocumentUploadSession : TenantAuditableEntity
             Status == Domain.Enums.DocumentUploadStatus.Expired)
             return;
         Status = Domain.Enums.DocumentUploadStatus.Expired;
+        CleanupStatus = Domain.Enums.DocumentUploadCleanupStatus.DeletePending;
         ExpiredAt = expiredAt;
         UpdatedAt = expiredAt;
+        AdvanceState();
     }
+
+    public void MarkCleanupCompleted(DateTimeOffset completedAt)
+    {
+        if (Status != Domain.Enums.DocumentUploadStatus.Expired ||
+            CleanupStatus != Domain.Enums.DocumentUploadCleanupStatus.DeletePending)
+        {
+            throw new InvalidOperationException("Only claimed expired sessions can complete cleanup.");
+        }
+
+        CleanupStatus = Domain.Enums.DocumentUploadCleanupStatus.Deleted;
+        UpdatedAt = completedAt;
+        AdvanceState();
+    }
+
+    private void AdvanceState() => StateVersion++;
 }

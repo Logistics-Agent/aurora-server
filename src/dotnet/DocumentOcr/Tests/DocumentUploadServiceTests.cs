@@ -89,6 +89,23 @@ public sealed class DocumentUploadServiceTests
     }
 
     [Fact]
+    public async Task VerifyRejectsStoredMimeThatDoesNotMatchTheFileExtension()
+    {
+        await using var context = CreateContext(TenantId);
+        var storage = new FakeDocumentInputStorage();
+        var service = CreateService(context, TenantId, storage);
+        var receipt = await service.CreateAsync(
+            new CreateDocumentUploadInput("upload-extension", "invoice.pdf", "image/png", 1_024, null));
+        storage.HeadResult = ValidHead(receipt.StorageReference) with { ContentType = "image/png" };
+
+        var exception = await Assert.ThrowsAsync<DocumentUploadValidationException>(() =>
+            service.VerifyAsync(receipt.UploadId));
+
+        Assert.Equal("UPLOAD_MIME_MISMATCH", exception.Code);
+        Assert.Equal(DocumentUploadStatus.Pending, (await context.UploadSessions.SingleAsync()).Status);
+    }
+
+    [Fact]
     public async Task VerifyExpiresSessionAtTheFifteenMinuteBoundary()
     {
         await using var context = CreateContext(TenantId);
@@ -114,7 +131,9 @@ public sealed class DocumentUploadServiceTests
         var replay = await service.CreateAsync(Input());
 
         Assert.Equal(first.UploadId, replay.UploadId);
-        Assert.Equal(first.WriteUrl, replay.WriteUrl);
+        Assert.NotEmpty(first.WriteUrl);
+        Assert.NotEmpty(replay.WriteUrl);
+        Assert.NotEqual(first.WriteUrl, replay.WriteUrl);
         Assert.Equal(1, await context.UploadSessions.CountAsync());
 
         await Assert.ThrowsAsync<UploadSessionConflictException>(() => service.CreateAsync(
@@ -178,7 +197,9 @@ public sealed class DocumentUploadServiceTests
             var configuration = new ConfigurationBuilder()
                 .AddInMemoryCollection(new Dictionary<string, string?>
                 {
-                    ["Storage:InputPath"] = root
+                    ["Storage:InputPath"] = root,
+                    ["Storage:InputBridge:PublicBaseUrl"] = "https://ocr.test",
+                    ["Storage:InputBridge:SigningKey"] = "test-only-signing-key-with-at-least-32-bytes"
                 })
                 .Build();
             var storage = new global::DocumentOcr.Infrastructure.Storage.FileSystemDocumentInputStorage(configuration);
@@ -188,8 +209,15 @@ public sealed class DocumentUploadServiceTests
             var target = await storage.CreateSignedWriteTargetAsync(
                 tenantId, uploadId, key, "invoice.pdf", "application/pdf", 1_024,
                 Now.AddMinutes(15), null);
-            var path = new Uri(target.Url).LocalPath;
-            await File.WriteAllBytesAsync(path, new byte[1_024]);
+            var path = Path.Combine(root, key.Replace('/', Path.DirectorySeparatorChar));
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            var pdfBytes = new byte[1_024];
+            pdfBytes[0] = 0x25;
+            pdfBytes[1] = 0x50;
+            pdfBytes[2] = 0x44;
+            pdfBytes[3] = 0x46;
+            pdfBytes[4] = 0x2D;
+            await File.WriteAllBytesAsync(path, pdfBytes);
 
             var head = await storage.HeadAsync(tenantId, key);
 
@@ -198,6 +226,77 @@ public sealed class DocumentUploadServiceTests
             Assert.Equal(1_024, head.SizeBytes);
             await storage.DeleteAsync(tenantId, key);
             Assert.Null(await storage.HeadAsync(tenantId, key));
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task FilesystemAdapterCreatesSignedHttpPutTargetInsteadOfExposingAFilePath()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "document-input-tests", Guid.CreateVersion7().ToString());
+        Directory.CreateDirectory(root);
+        try
+        {
+            var configuration = new ConfigurationBuilder()
+                .AddInMemoryCollection(new Dictionary<string, string?>
+                {
+                    ["Storage:InputPath"] = root,
+                    ["Storage:InputBridge:PublicBaseUrl"] = "https://ocr.test",
+                    ["Storage:InputBridge:SigningKey"] = "test-only-signing-key-with-at-least-32-bytes"
+                })
+                .Build();
+            var storage = new global::DocumentOcr.Infrastructure.Storage.FileSystemDocumentInputStorage(configuration);
+            var tenantId = Guid.CreateVersion7();
+            var uploadId = Guid.CreateVersion7();
+            var key = $"objects/{tenantId}/{uploadId}/invoice.pdf";
+
+            var target = await storage.CreateSignedWriteTargetAsync(
+                tenantId, uploadId, key, "invoice.pdf", "application/pdf", 1_024,
+                Now.AddMinutes(15), null);
+
+            var targetUri = new Uri(target.Url);
+            Assert.Equal("https", targetUri.Scheme);
+            Assert.Equal("ocr.test", targetUri.Host);
+            Assert.DoesNotContain(root, target.Url, StringComparison.Ordinal);
+            Assert.NotEmpty(targetUri.Query);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task FilesystemAdapterDetectsMimeFromStoredBytesInsteadOfTheFileExtension()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "document-input-tests", Guid.CreateVersion7().ToString());
+        Directory.CreateDirectory(root);
+        try
+        {
+            var configuration = new ConfigurationBuilder()
+                .AddInMemoryCollection(new Dictionary<string, string?>
+                {
+                    ["Storage:InputPath"] = root,
+                    ["Storage:InputBridge:PublicBaseUrl"] = "https://ocr.test",
+                    ["Storage:InputBridge:SigningKey"] = "test-only-signing-key-with-at-least-32-bytes"
+                })
+                .Build();
+            var storage = new global::DocumentOcr.Infrastructure.Storage.FileSystemDocumentInputStorage(configuration);
+            var tenantId = Guid.CreateVersion7();
+            var uploadId = Guid.CreateVersion7();
+            var key = $"objects/{tenantId}/{uploadId}/invoice.pdf";
+            var path = Path.Combine(root, key.Replace('/', Path.DirectorySeparatorChar));
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            await File.WriteAllBytesAsync(path, [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]);
+
+            var metadata = await storage.HeadAsync(tenantId, key);
+
+            Assert.Equal("image/png", metadata!.ContentType);
         }
         finally
         {
@@ -255,7 +354,7 @@ public sealed class DocumentUploadServiceTests
             string mimeType, long maximumSizeBytes, DateTimeOffset expiresAt,
             string? contentSha256, CancellationToken cancellationToken = default) =>
             Task.FromResult(new SignedWriteTarget(
-                $"https://upload.test/{objectKey}",
+                $"https://upload.test/{objectKey}?target={Guid.NewGuid():N}",
                 new Dictionary<string, string> { ["Content-Type"] = mimeType },
                 expiresAt,
                 maximumSizeBytes));
@@ -266,6 +365,13 @@ public sealed class DocumentUploadServiceTests
             HeadCalls++;
             return Task.FromResult(HeadResult);
         }
+
+        public Task WriteAsync(
+            Guid tenantId,
+            string objectKey,
+            Stream content,
+            long maximumSizeBytes,
+            CancellationToken cancellationToken = default) => Task.CompletedTask;
 
         public Task DeleteAsync(Guid tenantId, string objectKey, CancellationToken cancellationToken = default)
         {

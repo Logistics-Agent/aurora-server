@@ -24,19 +24,27 @@ public sealed class ExpiredUploadCleanupService(
         var sessions = await dbContext.UploadSessions
             .IgnoreQueryFilters()
             .Where(session => session.Status != DocumentUploadStatus.Consumed &&
-                              session.Status != DocumentUploadStatus.Expired &&
-                              session.ExpiresAt <= now)
+                              ((session.Status != DocumentUploadStatus.Expired && session.ExpiresAt <= now) ||
+                               (session.Status == DocumentUploadStatus.Expired &&
+                                session.CleanupStatus == DocumentUploadCleanupStatus.DeletePending)))
             .ToListAsync(cancellationToken);
 
         foreach (var session in sessions)
-        {
-            await inputStorage.DeleteAsync(session.TenantId, session.ObjectKey, cancellationToken);
             session.MarkExpired(now);
-        }
 
         if (sessions.Count > 0)
             await dbContext.SaveChangesAsync(cancellationToken);
-        return sessions.Count;
+
+        var deleted = 0;
+        foreach (var session in sessions)
+        {
+            await inputStorage.DeleteAsync(session.TenantId, session.ObjectKey, cancellationToken);
+            session.MarkCleanupCompleted(now);
+            await dbContext.SaveChangesAsync(cancellationToken);
+            deleted++;
+        }
+
+        return deleted;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)

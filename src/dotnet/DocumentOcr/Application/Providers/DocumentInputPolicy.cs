@@ -44,6 +44,18 @@ public sealed class DocumentInputPolicy
             throw new ArgumentException("Document content MIME type is not supported.", nameof(content));
     }
 
+    public bool IsMimeCompatibleWithFileName(string fileName, string mimeType) =>
+        (Path.GetExtension(fileName).ToLowerInvariant(), mimeType.ToLowerInvariant()) switch
+        {
+            (".pdf", "application/pdf") => true,
+            (".jpg", "image/jpeg") => true,
+            (".jpeg", "image/jpeg") => true,
+            (".png", "image/png") => true,
+            (".tif", "image/tiff") => true,
+            (".tiff", "image/tiff") => true,
+            _ => false
+        };
+
     private static void ValidateStorageReference(string storageReference)
     {
         var value = RequiredText(storageReference, nameof(storageReference), 1_000);

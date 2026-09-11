@@ -141,9 +141,9 @@ public sealed class DocumentOcrDbContext(
             entity.Property(session => session.FileName).HasMaxLength(255).IsRequired();
             entity.Property(session => session.DeclaredMimeType).HasMaxLength(150).IsRequired();
             entity.Property(session => session.DeclaredContentSha256).HasMaxLength(64);
-            entity.Property(session => session.WriteUrl).HasMaxLength(4_000);
-            entity.Property(session => session.RequiredHeadersJson).HasColumnType("jsonb").IsRequired();
             entity.Property(session => session.Status).HasConversion<string>().HasMaxLength(20).IsRequired();
+            entity.Property(session => session.CleanupStatus).HasConversion<string>().HasMaxLength(20).IsRequired();
+            entity.Property(session => session.StateVersion).IsConcurrencyToken();
             entity.Property(session => session.VerifiedMimeType).HasMaxLength(150);
             entity.Property(session => session.VerifiedContentSha256).HasMaxLength(64);
             ConfigureAudit(entity);

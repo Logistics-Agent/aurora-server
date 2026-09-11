@@ -235,11 +235,11 @@ public sealed class DocumentOcrGrpcService(
         }
         catch (DocumentUploadValidationException exception) when (exception.Code == "UPLOAD_EXPIRED")
         {
-            throw new RpcException(new Status(StatusCode.FailedPrecondition, exception.Message));
+            throw UploadValidationFailure(StatusCode.FailedPrecondition, exception);
         }
         catch (DocumentUploadValidationException exception)
         {
-            throw InvalidArgument(exception.Message);
+            throw UploadValidationFailure(StatusCode.InvalidArgument, exception);
         }
         catch (Shared.Exceptions.NotFoundException exception)
         {
@@ -373,4 +373,12 @@ public sealed class DocumentOcrGrpcService(
 
     private static RpcException InvalidArgument(string message) =>
         new(new Status(StatusCode.InvalidArgument, message));
+
+    private static RpcException UploadValidationFailure(
+        StatusCode statusCode,
+        DocumentUploadValidationException exception)
+    {
+        var trailers = new Metadata { { "document-upload-validation-code", exception.Code } };
+        return new RpcException(new Status(statusCode, "Document upload validation failed."), trailers);
+    }
 }
