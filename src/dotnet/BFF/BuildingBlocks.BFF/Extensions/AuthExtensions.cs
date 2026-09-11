@@ -274,7 +274,7 @@ public static class AuthExtensions
 
                         // Map Cognito Groups / Role claim to canonical Role
                         var groupClaims = context.Principal?.FindAll("cognito:groups").Select(c => c.Value).ToList() ?? [];
-                        var rawRole = context.Principal?.FindFirstValue("role") 
+                        var rawRole = context.Principal?.FindFirstValue("role")
                                    ?? context.Principal?.FindFirstValue("custom:role")
                                    ?? groupClaims.FirstOrDefault();
 

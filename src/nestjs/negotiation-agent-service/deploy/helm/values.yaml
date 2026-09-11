@@ -7,7 +7,11 @@ image:
   pullPolicy: IfNotPresent
 
 service:
-  type: ClusterIP
+  type: LoadBalancer
+  annotations:
+    service.beta.kubernetes.io/azure-load-balancer-internal: "true"
+    service.beta.kubernetes.io/azure-load-balancer-internal-subnet: "snet-aks-ai"
+  loadBalancerIP: 10.20.2.15
   port: 8080
   targetPort: 8080
   name: grpc

@@ -10,7 +10,7 @@ public class Shipment : TenantAuditableEntity
         {
             [ShipmentStatus.Draft] = [ShipmentStatus.Submitted, ShipmentStatus.Cancelled],
             [ShipmentStatus.Submitted] = [ShipmentStatus.Planning, ShipmentStatus.Cancelled],
-            [ShipmentStatus.Planning] = [ShipmentStatus.Negotiating, ShipmentStatus.Cancelled],
+            [ShipmentStatus.Planning] = [ShipmentStatus.Confirmed, ShipmentStatus.Negotiating, ShipmentStatus.Cancelled],
             [ShipmentStatus.Negotiating] = [ShipmentStatus.Confirmed, ShipmentStatus.Cancelled],
             [ShipmentStatus.Confirmed] = [ShipmentStatus.PickedUp, ShipmentStatus.Cancelled],
             [ShipmentStatus.PickedUp] = [ShipmentStatus.InTransit, ShipmentStatus.Cancelled],

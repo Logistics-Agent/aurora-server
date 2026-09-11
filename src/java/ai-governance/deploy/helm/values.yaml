@@ -54,7 +54,11 @@ serviceMonitor:
   port: http
 
 service:
-  type: ClusterIP
+  type: LoadBalancer
+  annotations:
+    service.beta.kubernetes.io/azure-load-balancer-internal: "true"
+    service.beta.kubernetes.io/azure-load-balancer-internal-subnet: "snet-aks-ai"
+  loadBalancerIP: 10.20.2.10
   port: 9090
   targetPort: 9090
   name: grpc

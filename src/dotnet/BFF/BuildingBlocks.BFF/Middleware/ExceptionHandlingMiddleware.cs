@@ -34,19 +34,45 @@ public class ExceptionHandlingMiddleware(RequestDelegate next, ILogger<Exception
 
     private static async Task HandleExceptionAsync(HttpContext context, Exception exception)
     {
-        var (status, title) = exception switch
-        {
-            UnauthorizedAccessException => (HttpStatusCode.Unauthorized, "Unauthorized"),
-            Shared.Exceptions.NotFoundException => (HttpStatusCode.NotFound, "Not Found"),
-            Shared.Exceptions.ForbiddenException => (HttpStatusCode.Forbidden, "Forbidden"),
-            Shared.Exceptions.ConflictException => (HttpStatusCode.Conflict, "Conflict"),
-            Shared.Exceptions.DomainException => (HttpStatusCode.BadRequest, "Bad Request"),
-            _ => (HttpStatusCode.InternalServerError, "An unexpected error occurred")
-        };
+        HttpStatusCode status;
+        string title;
+        string detail;
 
-        var detail = exception.InnerException != null
-            ? $"{exception.Message} ---> {exception.InnerException.Message}"
-            : exception.Message;
+        if (exception is Grpc.Core.RpcException rpcEx)
+        {
+            (status, title) = rpcEx.StatusCode switch
+            {
+                Grpc.Core.StatusCode.InvalidArgument => (HttpStatusCode.BadRequest, "Bad Request"),
+                Grpc.Core.StatusCode.NotFound => (HttpStatusCode.NotFound, "Not Found"),
+                Grpc.Core.StatusCode.AlreadyExists => (HttpStatusCode.Conflict, "Conflict"),
+                Grpc.Core.StatusCode.PermissionDenied => (HttpStatusCode.Forbidden, "Forbidden"),
+                Grpc.Core.StatusCode.Unauthenticated => (HttpStatusCode.Unauthorized, "Unauthorized"),
+                Grpc.Core.StatusCode.FailedPrecondition => (HttpStatusCode.UnprocessableEntity, "Unprocessable Entity"),
+                Grpc.Core.StatusCode.ResourceExhausted => (HttpStatusCode.TooManyRequests, "Too Many Requests"),
+                Grpc.Core.StatusCode.DeadlineExceeded => (HttpStatusCode.GatewayTimeout, "Gateway Timeout"),
+                Grpc.Core.StatusCode.Unavailable => (HttpStatusCode.ServiceUnavailable, "Service Unavailable"),
+                _ => (HttpStatusCode.InternalServerError, "Internal Server Error")
+            };
+            detail = !string.IsNullOrWhiteSpace(rpcEx.Status.Detail)
+                ? rpcEx.Status.Detail
+                : rpcEx.Message;
+        }
+        else
+        {
+            (status, title) = exception switch
+            {
+                UnauthorizedAccessException => (HttpStatusCode.Unauthorized, "Unauthorized"),
+                Shared.Exceptions.NotFoundException => (HttpStatusCode.NotFound, "Not Found"),
+                Shared.Exceptions.ForbiddenException => (HttpStatusCode.Forbidden, "Forbidden"),
+                Shared.Exceptions.ConflictException => (HttpStatusCode.Conflict, "Conflict"),
+                Shared.Exceptions.DomainException => (HttpStatusCode.BadRequest, "Bad Request"),
+                _ => (HttpStatusCode.InternalServerError, "An unexpected error occurred")
+            };
+
+            detail = exception.InnerException != null
+                ? $"{exception.Message} ---> {exception.InnerException.Message}"
+                : exception.Message;
+        }
 
         var problemDetails = new
         {
