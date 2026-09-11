@@ -60,10 +60,12 @@ public class RequirePermissionAttribute : Attribute, IAsyncAuthorizationFilter
         }
 
         // 4. Capability Permission Check (Pure Capability-Based Authorization: ZERO role bypasses)
-        bool hasPermission = currentUser.HasPermission(RequiredPermission);
+        bool hasPermission = currentUser.Permissions.Contains(RequiredPermission, StringComparer.OrdinalIgnoreCase);
 
         // Optional legacy fallback with audit logging
-        if (!hasPermission && !string.IsNullOrWhiteSpace(LegacyFallbackPermission) && currentUser.HasPermission(LegacyFallbackPermission))
+        if (!hasPermission
+            && !string.IsNullOrWhiteSpace(LegacyFallbackPermission)
+            && currentUser.Permissions.Contains(LegacyFallbackPermission, StringComparer.OrdinalIgnoreCase))
         {
             var logger = context.HttpContext.RequestServices.GetService<ILogger<RequirePermissionAttribute>>();
             logger?.LogWarning(
