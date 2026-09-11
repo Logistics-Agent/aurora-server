@@ -12,7 +12,8 @@ public sealed class DocumentOcrPersistenceModelTests
 {
     private static readonly Type[] TenantEntityTypes =
     [
-        typeof(DocumentOcrJob), typeof(OcrProviderAttempt), typeof(InboxMessage), typeof(OutboxMessage)
+        typeof(DocumentOcrJob), typeof(OcrProviderAttempt), typeof(InboxMessage), typeof(OutboxMessage),
+        typeof(DocumentUploadSession)
     ];
 
     [Fact]
@@ -25,6 +26,8 @@ public sealed class DocumentOcrPersistenceModelTests
 
         AssertIndex(context, typeof(DocumentOcrJob), true, "TenantId", "IdempotencyKey");
         AssertIndex(context, typeof(DocumentOcrJob), false, "Status", "NextAttemptAt", "CreatedAt");
+        AssertIndex(context, typeof(DocumentUploadSession), true, "TenantId", "IdempotencyKey");
+        AssertIndex(context, typeof(DocumentUploadSession), false, "TenantId", "Status", "ExpiresAt");
         AssertIndex(context, typeof(InboxMessage), true, "SourceEventType", "SourceEventId");
         AssertIndex(context, typeof(OutboxMessage), true, "EventId");
         AssertIndex(context, typeof(OutboxMessage), false, "ProcessedAt", "RetryCount", "OccurredAt");

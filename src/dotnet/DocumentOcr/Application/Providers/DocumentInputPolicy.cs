@@ -14,6 +14,8 @@ public sealed class DocumentInputPolicy
         _extensions = options.SupportedExtensions.ToHashSet(StringComparer.OrdinalIgnoreCase);
     }
 
+    public long MaximumSizeBytes => _options.MaxDocumentBytes;
+
     public void ValidateMetadata(
         string storageReference,
         string fileName,

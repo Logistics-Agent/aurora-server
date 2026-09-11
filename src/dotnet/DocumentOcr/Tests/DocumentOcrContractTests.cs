@@ -28,8 +28,25 @@ public sealed class DocumentOcrContractTests
             .ToArray();
 
         Assert.Equal(
-            ["SubmitDocumentJob", "SubmitOcrJob", "GetDocumentJob", "ListDocumentJobs", "CancelDocumentJob", "RetryDocumentJob", "ReviewDocumentJob"],
+            ["SubmitDocumentJob", "SubmitOcrJob", "GetDocumentJob", "ListDocumentJobs", "CancelDocumentJob", "RetryDocumentJob", "ReviewDocumentJob", "CreateUploadSession", "VerifyUploadSession", "GetUploadSession"],
             methods);
+    }
+
+    [Fact]
+    public void UploadReceiptCarriesWriteTargetAndLifecycleMetadata()
+    {
+        var fields = DocumentUploadReceipt.Descriptor.Fields.InDeclarationOrder()
+            .Select(field => field.Name)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        Assert.Contains("storage_reference", fields);
+        Assert.Contains("write_url", fields);
+        Assert.Contains("required_headers", fields);
+        Assert.Contains("expires_at", fields);
+        Assert.Contains("maximum_size_bytes", fields);
+        Assert.Contains("verified_content_sha256", fields);
+        Assert.Equal("google.protobuf.Timestamp",
+            DocumentUploadReceipt.Descriptor.FindFieldByName("expires_at")!.MessageType.FullName);
     }
 
     [Fact]

@@ -1,4 +1,5 @@
 using DocumentOcr.Application.Jobs;
+using DocumentOcr.Application.Uploads;
 using DocumentOcr.Domain.Entities;
 using Google.Protobuf.WellKnownTypes;
 using Grpc.Core;
@@ -12,7 +13,8 @@ namespace DocumentOcr.GrpcServices;
 
 public sealed class DocumentOcrGrpcService(
     IDocumentOcrJobService jobService,
-    ICurrentUserService currentUser)
+    ICurrentUserService currentUser,
+    DocumentUploadService? uploadService = null)
     : OcrGrpc.DocumentOcrService.DocumentOcrServiceBase
 {
     public override async Task<OcrGrpc.DocumentOcrJobResponse> SubmitDocumentJob(
@@ -192,6 +194,76 @@ public sealed class DocumentOcrGrpcService(
         }
     }
 
+    public override async Task<OcrGrpc.DocumentUploadReceipt> CreateUploadSession(
+        OcrGrpc.CreateUploadSessionRequest request,
+        ServerCallContext context)
+    {
+        RequireTenant();
+        var service = RequireUploadService();
+        try
+        {
+            return MapUpload(await service.CreateAsync(
+                new CreateDocumentUploadInput(
+                    request.IdempotencyKey,
+                    request.FileName,
+                    request.MimeType,
+                    request.SizeBytes,
+                    string.IsNullOrWhiteSpace(request.ContentSha256) ? null : request.ContentSha256),
+                context.CancellationToken));
+        }
+        catch (UploadSessionConflictException exception)
+        {
+            throw new RpcException(new Status(StatusCode.AlreadyExists, exception.Message));
+        }
+        catch (ArgumentException exception)
+        {
+            throw InvalidArgument(exception.Message);
+        }
+    }
+
+    public override async Task<OcrGrpc.DocumentUploadReceipt> VerifyUploadSession(
+        OcrGrpc.VerifyUploadSessionRequest request,
+        ServerCallContext context)
+    {
+        RequireTenant();
+        var service = RequireUploadService();
+        try
+        {
+            return MapUpload(await service.VerifyAsync(
+                ParseRequiredId(request.UploadId, "UploadId"),
+                context.CancellationToken));
+        }
+        catch (DocumentUploadValidationException exception) when (exception.Code == "UPLOAD_EXPIRED")
+        {
+            throw new RpcException(new Status(StatusCode.FailedPrecondition, exception.Message));
+        }
+        catch (DocumentUploadValidationException exception)
+        {
+            throw InvalidArgument(exception.Message);
+        }
+        catch (Shared.Exceptions.NotFoundException exception)
+        {
+            throw new RpcException(new Status(StatusCode.NotFound, exception.Message));
+        }
+    }
+
+    public override async Task<OcrGrpc.DocumentUploadReceipt> GetUploadSession(
+        OcrGrpc.GetUploadSessionRequest request,
+        ServerCallContext context)
+    {
+        RequireTenant();
+        try
+        {
+            return MapUpload(await RequireUploadService().GetAsync(
+                ParseRequiredId(request.UploadId, "UploadId"),
+                context.CancellationToken));
+        }
+        catch (Shared.Exceptions.NotFoundException exception)
+        {
+            throw new RpcException(new Status(StatusCode.NotFound, exception.Message));
+        }
+    }
+
     internal static OcrGrpc.DocumentOcrJobResponse MapJob(DocumentOcrJob job)
     {
         var response = new OcrGrpc.DocumentOcrJobResponse
@@ -230,6 +302,32 @@ public sealed class DocumentOcrGrpcService(
         response.ExtractionMode = (OcrGrpc.OcrExtractionMode)(int)job.ExtractionMode;
         return response;
     }
+
+    internal static OcrGrpc.DocumentUploadReceipt MapUpload(DocumentUploadReceipt receipt)
+    {
+        var response = new OcrGrpc.DocumentUploadReceipt
+        {
+            UploadId = receipt.UploadId.ToString(),
+            StorageReference = receipt.StorageReference,
+            WriteUrl = receipt.WriteUrl,
+            ExpiresAt = Timestamp.FromDateTimeOffset(receipt.ExpiresAt),
+            MaximumSizeBytes = receipt.MaximumSizeBytes,
+            Status = (OcrGrpc.DocumentUploadStatus)(int)receipt.Status,
+            FileName = receipt.FileName,
+            MimeType = receipt.MimeType,
+            SizeBytes = receipt.SizeBytes,
+            ContentSha256 = receipt.ContentSha256 ?? string.Empty,
+            VerifiedMimeType = receipt.VerifiedMimeType ?? string.Empty,
+            VerifiedSizeBytes = receipt.VerifiedSizeBytes ?? 0,
+            VerifiedContentSha256 = receipt.VerifiedContentSha256 ?? string.Empty
+        };
+        foreach (var header in receipt.RequiredHeaders)
+            response.RequiredHeaders[header.Key] = header.Value;
+        return response;
+    }
+
+    private DocumentUploadService RequireUploadService() =>
+        uploadService ?? throw new InvalidOperationException("Document upload service is not configured.");
 
     private void RequireTenant()
     {

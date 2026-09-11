@@ -1,9 +1,13 @@
+using Amazon.S3;
 using DocumentOcr.Application.Jobs;
 using DocumentOcr.Application.Providers;
+using DocumentOcr.Application.Storage;
+using DocumentOcr.Application.Uploads;
 using DocumentOcr.GrpcServices;
 using DocumentOcr.Infrastructure.BackgroundJobs;
 using DocumentOcr.Infrastructure.Persistences;
 using DocumentOcr.Infrastructure.Providers;
+using DocumentOcr.Infrastructure.Storage;
 using Microsoft.EntityFrameworkCore;
 using Shared.Extensions;
 using Shared.Interceptors;
@@ -26,6 +30,12 @@ builder.Services.AddDbContext<DocumentOcrDbContext>(options =>
 
 builder.Services.AddSharedMassTransit(builder.Configuration);
 builder.Services.AddSingleton(TimeProvider.System);
+
+var uploadOptions = builder.Configuration
+    .GetSection(DocumentUploadOptions.SectionName)
+    .Get<DocumentUploadOptions>() ?? new DocumentUploadOptions();
+uploadOptions.Validate();
+builder.Services.AddSingleton(uploadOptions);
 
 var processingOptions = builder.Configuration
     .GetSection(DocumentProcessingOptions.SectionName)
@@ -52,7 +62,28 @@ builder.Services.AddGrpcClient<AiGovernance.Grpc.AiExecutionService.AiExecutionS
 });
 
 builder.Services.AddScoped<DocumentOcr.Application.Storage.IArtifactStorageService, DocumentOcr.Infrastructure.Storage.FileSystemArtifactStorageService>();
+var inputStorageProvider = builder.Configuration["Storage:InputProvider"] ?? "FileSystem";
+if (inputStorageProvider.Equals("S3", StringComparison.OrdinalIgnoreCase))
+{
+    var s3Config = new AmazonS3Config
+    {
+        ServiceURL = builder.Configuration["Storage:S3:ServiceUrl"],
+        ForcePathStyle = builder.Configuration.GetValue("Storage:S3:ForcePathStyle", true),
+        AuthenticationRegion = builder.Configuration["Storage:S3:Region"] ?? "us-east-1"
+    };
+    builder.Services.AddSingleton<IAmazonS3>(_ => new AmazonS3Client(
+        builder.Configuration["Storage:S3:AccessKey"],
+        builder.Configuration["Storage:S3:SecretKey"],
+        s3Config));
+    builder.Services.AddScoped<IDocumentInputStorage, S3DocumentInputStorage>();
+}
+else
+{
+    builder.Services.AddScoped<IDocumentInputStorage, FileSystemDocumentInputStorage>();
+}
 builder.Services.AddScoped<DocumentInputPolicy>();
+builder.Services.AddScoped<DocumentUploadService>();
+builder.Services.AddHostedService<ExpiredUploadCleanupService>();
 builder.Services.AddScoped<IDocumentContentReader, DeterministicDocumentContentReader>();
 builder.Services.AddScoped<IOcrProvider>(services =>
     processingOptions.Provider.Equals("AiGovernance", StringComparison.OrdinalIgnoreCase)
