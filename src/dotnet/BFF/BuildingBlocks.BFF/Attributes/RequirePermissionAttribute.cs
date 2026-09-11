@@ -78,23 +78,12 @@ public class RequirePermissionAttribute : Attribute, IAsyncAuthorizationFilter
         }
 
         // 4. Capability Permission Check (Pure Capability-Based Authorization: ZERO role bypasses)
-        bool hasPermission = currentUser.HasPermission(RequiredPermission);
+        bool hasPermission = currentUser.Permissions.Contains(RequiredPermission, StringComparer.OrdinalIgnoreCase);
 
         // Optional legacy fallback with audit logging
-        if (!hasPermission && FallbackPermissions.Count > 0)
-        {
-            var matchedFallback = FallbackPermissions.FirstOrDefault(fb => !string.IsNullOrWhiteSpace(fb) && currentUser.HasPermission(fb));
-            if (matchedFallback != null)
-            {
-                var logger = context.HttpContext.RequestServices.GetService<ILogger<RequirePermissionAttribute>>();
-                logger?.LogWarning(
-                    "Legacy authorization fallback: User {UserId} accessed {Path} using deprecated permission '{Legacy}' instead of capability '{Required}'.",
-                    currentUser.UserId, context.HttpContext.Request.Path, matchedFallback, RequiredPermission);
-
-                hasPermission = true;
-            }
-        }
-        else if (!hasPermission && !string.IsNullOrWhiteSpace(LegacyFallbackPermission) && currentUser.HasPermission(LegacyFallbackPermission))
+        if (!hasPermission
+            && !string.IsNullOrWhiteSpace(LegacyFallbackPermission)
+            && currentUser.Permissions.Contains(LegacyFallbackPermission, StringComparer.OrdinalIgnoreCase))
         {
             var logger = context.HttpContext.RequestServices.GetService<ILogger<RequirePermissionAttribute>>();
             logger?.LogWarning(
