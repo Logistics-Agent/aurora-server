@@ -321,26 +321,42 @@ public class GrpcMailServiceClient : IMailServiceClient
 
         var protoReq = new GrpcModels.SubmitOutboundMessageRequest
         {
-            SenderAddress = request.SenderAddress,
-            Subject = request.Subject,
+            SenderAddress = request.SenderAddress ?? string.Empty,
+            Subject = request.Subject ?? string.Empty,
             BodyText = bodyText,
             BodyHtml = bodyHtml,
             IdempotencyKey = request.IdempotencyKey ?? string.Empty,
-            DraftRootId = request.DraftRootId,
-            ThreadId = request.ThreadId,
-            ReplyToMessageId = request.ReplyToMessageId
         };
 
-        protoReq.RecipientAddresses.AddRange(request.RecipientAddresses);
+        if (!string.IsNullOrWhiteSpace(request.DraftRootId))
+        {
+            protoReq.DraftRootId = request.DraftRootId;
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.ThreadId))
+        {
+            protoReq.ThreadId = request.ThreadId;
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.ReplyToMessageId))
+        {
+            protoReq.ReplyToMessageId = request.ReplyToMessageId;
+        }
+
+        if (request.RecipientAddresses != null)
+        {
+            protoReq.RecipientAddresses.AddRange(request.RecipientAddresses.Where(r => !string.IsNullOrWhiteSpace(r)));
+        }
 
         if (request.Attachments != null)
         {
             foreach (var att in request.Attachments)
             {
+                if (string.IsNullOrWhiteSpace(att.ContentBase64)) continue;
                 var attDto = new GrpcModels.AttachmentDto
                 {
-                    Filename = att.Filename,
-                    ContentType = att.ContentType,
+                    Filename = att.Filename ?? "attachment",
+                    ContentType = att.ContentType ?? "application/octet-stream",
                     Content = ByteString.CopyFrom(Convert.FromBase64String(att.ContentBase64))
                 };
                 protoReq.Attachments.Add(attDto);
