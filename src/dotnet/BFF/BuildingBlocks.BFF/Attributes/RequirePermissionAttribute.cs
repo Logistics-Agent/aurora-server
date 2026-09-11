@@ -104,6 +104,25 @@ public class RequirePermissionAttribute : Attribute, IAsyncAuthorizationFilter
             hasPermission = true;
         }
 
+        // Admin role capability fallback: Ensure SystemAdmin and TenantAdmin roles are never locked out of their standard capabilities
+        if (!hasPermission && !string.IsNullOrWhiteSpace(currentUser.Role))
+        {
+            var roleUpper = currentUser.Role.Trim().ToUpperInvariant();
+            if (roleUpper is RoleConstants.SystemAdmin or "SYSTEMADMIN" or "SYSTEM_ADMIN")
+            {
+                hasPermission = true;
+            }
+            else if (roleUpper is RoleConstants.TenantAdmin or "TENANTADMIN" or "TENANT_ADMIN")
+            {
+                if (PermissionConstants.GetTenantAdminPermissions().Contains(RequiredPermission, StringComparer.OrdinalIgnoreCase)
+                    || FallbackPermissions.Any(fb => PermissionConstants.GetTenantAdminPermissions().Contains(fb, StringComparer.OrdinalIgnoreCase))
+                    || (!string.IsNullOrWhiteSpace(LegacyFallbackPermission) && PermissionConstants.GetTenantAdminPermissions().Contains(LegacyFallbackPermission, StringComparer.OrdinalIgnoreCase)))
+                {
+                    hasPermission = true;
+                }
+            }
+        }
+
         if (!hasPermission)
         {
             context.Result = new ObjectResult(new { detail = $"Missing required permission: {RequiredPermission}" })
