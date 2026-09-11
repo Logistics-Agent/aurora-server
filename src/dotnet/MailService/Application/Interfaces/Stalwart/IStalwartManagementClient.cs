@@ -11,6 +11,7 @@ public interface IStalwartManagementClient
     Task<string> GenerateDkimKeyAsync(string domainName, string selector = "aurora-2025", CancellationToken cancellationToken = default);
     Task<bool> ProvisionAccountAsync(string fullAddress, CancellationToken cancellationToken = default);
     Task<bool> CreateAliasAsync(string aliasAddress, IReadOnlyList<string> targetAddresses, CancellationToken cancellationToken = default);
+    Task<bool> DeleteAliasAsync(string aliasAddress, CancellationToken cancellationToken = default);
     Task<byte[]> GetMessageEmlAsync(string messageId, CancellationToken cancellationToken = default);
     Task<bool> DeliverQuarantinedMessageAsync(string messageId, string recipientAddress, CancellationToken cancellationToken = default);
 }

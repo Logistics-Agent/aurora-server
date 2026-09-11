@@ -185,6 +185,20 @@ public class GrpcMailServiceClient : IMailServiceClient
             response.NextPageToken);
     }
 
+    public async Task<BffModels.DeleteAliasResponse> DeleteAliasAsync(string aliasId, CancellationToken cancellationToken = default)
+    {
+        var protoReq = new GrpcModels.DeleteAliasRequest
+        {
+            AliasId = aliasId
+        };
+
+        var response = await _managementClient.DeleteAliasAsync(protoReq, cancellationToken: cancellationToken);
+
+        return new BffModels.DeleteAliasResponse(
+            response.Success,
+            response.AliasId);
+    }
+
     public async Task<BffModels.ResetPasswordResponse> ResetPasswordAsync(string mailboxId, CancellationToken cancellationToken = default)
     {
         var protoReq = new GrpcModels.ResetPasswordRequest

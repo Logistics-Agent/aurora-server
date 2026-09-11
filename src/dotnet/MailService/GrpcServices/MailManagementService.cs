@@ -51,8 +51,11 @@ public class MailManagementService : MailManagement.MailManagementBase
         var domain = result.Domain;
         var response = new VerifyDomainResponse
         {
-            DomainId = domain.Id.ToString(), Verified = result.Verified, Status = domain.Status.ToString(),
-            Message = result.Message, DkimSelector = domain.DkimSelector ?? "aurora-2025",
+            DomainId = domain.Id.ToString(),
+            Verified = result.Verified,
+            Status = domain.Status.ToString(),
+            Message = result.Message,
+            DkimSelector = domain.DkimSelector ?? "aurora-2025",
             DkimHost = $"{domain.DkimSelector ?? "aurora-2025"}._domainkey.{domain.DomainName}",
             ExpectedDkimTxtRecord = domain.DkimTxtRecord ?? string.Empty,
             ObservedDkimTxtRecord = result.ObservedRecord ?? string.Empty
@@ -107,6 +110,36 @@ public class MailManagementService : MailManagement.MailManagementBase
             AliasId = alias.Id.ToString(),
             CreatedAt = Timestamp.FromDateTimeOffset(alias.CreatedAt)
         };
+    }
+
+    public override async Task<DeleteAliasResponse> DeleteAlias(DeleteAliasRequest request, ServerCallContext context)
+    {
+        if (!Guid.TryParse(request.AliasId, out var aliasId))
+        {
+            throw new RpcException(new Status(StatusCode.InvalidArgument, "Invalid AliasId GUID format."));
+        }
+
+        try
+        {
+            var success = await _mediator.Send(new MailService.Application.Commands.Provisioning.DeleteAliasCommand(aliasId), context.CancellationToken);
+            return new DeleteAliasResponse
+            {
+                Success = success,
+                AliasId = request.AliasId
+            };
+        }
+        catch (KeyNotFoundException ex)
+        {
+            throw new RpcException(new Status(StatusCode.NotFound, ex.Message));
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            throw new RpcException(new Status(StatusCode.PermissionDenied, ex.Message));
+        }
+        catch (Exception ex)
+        {
+            throw new RpcException(new Status(StatusCode.Internal, $"Failed to delete alias: {ex.Message}"));
+        }
     }
 
     public override Task<ResetPasswordResponse> ResetPassword(ResetPasswordRequest request, ServerCallContext context)

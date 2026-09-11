@@ -30,6 +30,7 @@ service MailManagement {
   rpc ListDomains          (ListDomainsRequest)          returns (ListDomainsResponse);
   rpc ListMailboxes        (ListMailboxesRequest)        returns (ListMailboxesResponse);
   rpc ListAliases          (ListAliasesRequest)          returns (ListAliasesResponse);
+  rpc DeleteAlias          (DeleteAliasRequest)          returns (DeleteAliasResponse);
 }
 
 // ─── Security / Pipeline Service ──────────────────────────────────────────
@@ -111,6 +112,15 @@ message CreateAliasRequest {
 message CreateAliasResponse {
   string alias_id = 1;
   google.protobuf.Timestamp created_at = 2;
+}
+
+message DeleteAliasRequest {
+  string alias_id = 1;
+}
+
+message DeleteAliasResponse {
+  bool success = 1;
+  string alias_id = 2;
 }
 
 message ResetPasswordRequest {

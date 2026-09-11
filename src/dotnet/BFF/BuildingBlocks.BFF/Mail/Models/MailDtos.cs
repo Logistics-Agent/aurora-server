@@ -88,6 +88,10 @@ public record ResetPasswordResponse(
     bool Acknowledged,
     string Message);
 
+public record DeleteAliasResponse(
+    bool Success,
+    string AliasId);
+
 // ─── Draft Management DTOs ──────────────────────────────────────────────────
 
 public record CreateDraftRequest(

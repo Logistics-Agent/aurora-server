@@ -14,6 +14,7 @@ public interface IMailServiceClient
     Task<ListDomainsResponse> ListDomainsAsync(int pageSize = 100, string? nextPageToken = null, CancellationToken cancellationToken = default);
     Task<ListMailboxesResponse> ListMailboxesAsync(string? domainId = null, int pageSize = 100, string? nextPageToken = null, CancellationToken cancellationToken = default);
     Task<ListAliasesResponse> ListAliasesAsync(string? domainId = null, int pageSize = 100, string? nextPageToken = null, CancellationToken cancellationToken = default);
+    Task<DeleteAliasResponse> DeleteAliasAsync(string aliasId, CancellationToken cancellationToken = default);
     Task<ResetPasswordResponse> ResetPasswordAsync(string mailboxId, CancellationToken cancellationToken = default);
     Task<AuditListResponse> GetAuditRecordsAsync(string? resourceType, string? resourceId, int pageSize, string? nextPageToken, CancellationToken cancellationToken = default);
     Task<RequeueDeadLetterResponse> RequeueDeadLetterAsync(string processedMessageId, CancellationToken cancellationToken = default);
