@@ -213,6 +213,8 @@ public class RuleConfigController(
     // --- DTOs ---
     public class RuleConfigPayload
     {
+        public string? Id { get; set; }
+        public string? TenantId { get; set; }
         public string? RuleName { get; set; }
         public bool? IsEnabled { get; set; }
         public Dictionary<string, double>? Thresholds { get; set; }

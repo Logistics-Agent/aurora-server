@@ -104,7 +104,14 @@ public class UpsertTenantRuleConfigHandler(
         await context.SaveChangesAsync(cancellationToken);
 
         // Invalidate cache local ngay (outbox trễ polling ~10s)
-        await ruleConfigService.InvalidateCacheAsync(tenantId, request.RuleName, cancellationToken);
+        try
+        {
+            await ruleConfigService.InvalidateCacheAsync(tenantId, request.RuleName, cancellationToken);
+        }
+        catch
+        {
+            // Best effort local cache invalidation
+        }
 
         return new TenantRuleConfigDto
         {

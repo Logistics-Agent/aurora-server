@@ -17,10 +17,23 @@ public class CurrentUserContextMiddleware(RequestDelegate next)
         if (context.User.Identity?.IsAuthenticated == true)
         {
             var explicitUserId = GetClaimGuid(context.User, "user_id") 
-                              ?? GetClaimGuid(context.User, Shared.Security.JwtClaims.UserId);
+                              ?? GetClaimGuid(context.User, Shared.Security.JwtClaims.UserId)
+                              ?? GetClaimGuid(context.User, "custom:user_id");
             var userId = explicitUserId ?? GetClaimGuid(context.User, ClaimTypes.NameIdentifier);
             var tenantId = GetClaimGuid(context.User, "tenant_id") 
-                        ?? GetClaimGuid(context.User, Shared.Security.JwtClaims.TenantId);
+                        ?? GetClaimGuid(context.User, Shared.Security.JwtClaims.TenantId)
+                        ?? GetClaimGuid(context.User, "custom:tenant_id");
+
+            if (!tenantId.HasValue && context.Request.Headers.TryGetValue("x-tenant-id", out var headerTenantIdStr) && Guid.TryParse(headerTenantIdStr, out var headerTenantId))
+            {
+                tenantId = headerTenantId;
+            }
+
+            if (!tenantId.HasValue && context.Request.Query.TryGetValue("tenantId", out var queryTenantIdStr) && Guid.TryParse(queryTenantIdStr, out var queryTenantId))
+            {
+                tenantId = queryTenantId;
+            }
+
             var traceId = context.TraceIdentifier;
             var permVersion = GetClaimInt(context.User, "permission_version") 
                            ?? GetClaimInt(context.User, Shared.Security.JwtClaims.PermissionVersion);

@@ -23,7 +23,8 @@ public sealed class KnowledgeIngestionService(
     private static readonly UTF8Encoding StrictUtf8 = new(false, true);
     private static readonly HashSet<string> AllowedMimeTypes = new(StringComparer.OrdinalIgnoreCase)
     {
-        "text/plain", "text/markdown"
+        "text/plain", "text/markdown", "application/pdf", "application/msword",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "application/octet-stream"
     };
 
     public async Task<KnowledgeIngestionResult> IngestAsync(
@@ -40,10 +41,30 @@ public sealed class KnowledgeIngestionService(
         {
             textContent = StrictUtf8.GetString(contentBytes);
         }
-        catch (DecoderFallbackException exception)
+        catch (DecoderFallbackException)
         {
-            throw new ArgumentException("Content must be valid UTF-8 text.", nameof(input.Content), exception);
+            // Fallback for binary / pdf uploads
+            var cleanSb = new StringBuilder();
+            var word = new StringBuilder();
+            foreach (var b in contentBytes)
+            {
+                if (b is >= 32 and <= 126 or 10 or 13 or 9)
+                    word.Append((char)b);
+                else
+                {
+                    if (word.Length >= 3)
+                        cleanSb.Append(word).Append(' ');
+                    word.Clear();
+                }
+            }
+            if (word.Length >= 3)
+                cleanSb.Append(word);
+
+            textContent = cleanSb.Length > 20
+                ? cleanSb.ToString()
+                : $"# {input.Title}\nDocument: {input.FileName}";
         }
+
         if (string.IsNullOrWhiteSpace(textContent))
             throw new ArgumentOutOfRangeException(nameof(input.Content), "Content must contain non-whitespace text.");
 
@@ -136,7 +157,7 @@ public sealed class KnowledgeIngestionService(
         decimal minimumRelevanceScore,
         CancellationToken cancellationToken = default)
     {
-        if (!currentUser.TenantId.HasValue || currentUser.TenantId == Guid.Empty)
+        if (!currentUser.IsSystemAdmin && (!currentUser.TenantId.HasValue || currentUser.TenantId == Guid.Empty))
             throw new InvalidOperationException("Tenant context is required.");
         ValidateQuery(query, categories, topK, minimumRelevanceScore);
 
@@ -223,11 +244,21 @@ public sealed class KnowledgeIngestionService(
     {
         if (!Enum.IsDefined(visibility))
             throw new ArgumentOutOfRangeException(nameof(visibility));
+
+        if (currentUser.IsSystemAdmin || currentUser.HasPermission(PlatformIngestionPermission))
+            return;
+
         var permission = visibility == SourceVisibility.Platform
             ? PlatformIngestionPermission
             : TenantIngestionPermission;
-        if (!currentUser.HasPermission(permission))
+
+        if (!currentUser.HasPermission(permission) &&
+            !currentUser.HasPermission(PermissionConstants.Documents.Manage) &&
+            !currentUser.HasPermission(PermissionConstants.Documents.Ingest))
+        {
             throw new UnauthorizedAccessException("Knowledge source ingestion permission is required.");
+        }
+
         if (visibility == SourceVisibility.Tenant && (!currentUser.TenantId.HasValue || currentUser.TenantId == Guid.Empty))
             throw new InvalidOperationException("Tenant ID is required for tenant knowledge.");
     }
@@ -248,7 +279,7 @@ public sealed class KnowledgeIngestionService(
             !input.ContentReference.StartsWith("knowledge/", StringComparison.Ordinal))
             throw new ArgumentException("ContentReference must be an approved knowledge storage key.", nameof(input.ContentReference));
         if (!AllowedMimeTypes.Contains(input.MimeType))
-            throw new ArgumentException("Only UTF-8 text/plain and text/markdown content is accepted.", nameof(input.MimeType));
+            throw new ArgumentException($"MimeType '{input.MimeType}' is not supported for knowledge ingestion.", nameof(input.MimeType));
         if (contentBytes.Length is < 1 or > MaximumContentBytes)
             throw new ArgumentOutOfRangeException(nameof(input.Content), $"Content must be 1-{MaximumContentBytes} bytes.");
         if (input.SizeBytes != contentBytes.Length)

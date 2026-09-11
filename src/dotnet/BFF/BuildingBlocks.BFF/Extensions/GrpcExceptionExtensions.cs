@@ -18,7 +18,7 @@ public static class GrpcExceptionExtensions
             StatusCode.ResourceExhausted => new ObjectResult(new { detail = ex.Status.Detail }) { StatusCode = 429 },
             StatusCode.DeadlineExceeded => new ObjectResult(new { detail = "The request timed out." }) { StatusCode = 504 },
             StatusCode.Unavailable => new ObjectResult(new { detail = "Service is temporarily unavailable." }) { StatusCode = 503 },
-            _ => new ObjectResult(new { detail = "An internal server error occurred." }) { StatusCode = 500 }
+            _ => new ObjectResult(new { detail = !string.IsNullOrWhiteSpace(ex.Status.Detail) ? ex.Status.Detail : "An internal server error occurred." }) { StatusCode = 500 }
         };
     }
 }

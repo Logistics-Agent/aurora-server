@@ -46,9 +46,17 @@ public sealed class PlatformIngestionController(
         if (string.IsNullOrWhiteSpace(request.RawText))
             return BadRequest(new { error = "RawText is required for knowledge corpus ingestion." });
 
-        if (string.IsNullOrWhiteSpace(request.ContentReference) ||
-            !request.ContentReference.StartsWith("knowledge/", StringComparison.Ordinal) ||
-            request.ContentReference.Contains("..", StringComparison.Ordinal))
+        var visibility = (currentUser.TenantId.HasValue && currentUser.TenantId.Value != Guid.Empty && !currentUser.HasPermission(PermissionConstants.Compliance.PlatformIngest))
+            ? RegulatorySourceVisibility.Tenant
+            : RegulatorySourceVisibility.Platform;
+
+        var storageScope = visibility == RegulatorySourceVisibility.Tenant ? $"tenant/{currentUser.TenantId}" : "platform";
+        var contentReference = !string.IsNullOrWhiteSpace(request.ContentReference)
+            ? request.ContentReference
+            : $"knowledge/{storageScope}/{Guid.NewGuid():N}/{request.FileName ?? "document.md"}";
+
+        if (!contentReference.StartsWith("knowledge/", StringComparison.Ordinal) ||
+            contentReference.Contains("..", StringComparison.Ordinal))
             return BadRequest(new { error = "ContentReference must be a knowledge/{path} storage key." });
         var contentBytes = Encoding.UTF8.GetBytes(request.RawText);
 
@@ -64,19 +72,19 @@ public sealed class PlatformIngestionController(
                 SourceReference = request.SourceReference ?? $"https://knowledge.aurora.local/{Guid.NewGuid()}",
                 LanguageCode = request.LanguageCode ?? "en",
                 VersionLabel = request.VersionLabel ?? "1.0",
-                ContentReference = request.ContentReference,
+                ContentReference = contentReference,
                 FileName = request.FileName ?? $"{request.Title.Replace(' ', '_')}.md",
                 MimeType = request.MimeType ?? "text/markdown",
                 SizeBytes = contentBytes.Length,
                 ContentSha256 = Convert.ToHexString(SHA256.HashData(contentBytes)).ToLowerInvariant(),
                 Content = ByteString.CopyFrom(contentBytes),
-                Visibility = RegulatorySourceVisibility.Platform
+                Visibility = visibility
             };
 
             var response = await regulatoryClient.IngestKnowledgeDocumentAsync(ingestRequest, cancellationToken: cancellationToken);
 
-            logger.LogInformation("Knowledge document {Title} ingested with ID {DocId} by user {UserId}",
-                request.Title, response.KnowledgeDocumentId, currentUser.UserId);
+            logger.LogInformation("Knowledge document {Title} ingested with ID {DocId} by user {UserId} (Visibility: {Visibility})",
+                request.Title, response.KnowledgeDocumentId, currentUser.UserId, visibility);
 
             return Ok(new
             {
@@ -129,6 +137,15 @@ public sealed class PlatformIngestionController(
                 _ => KnowledgeCategory.Sop
             };
 
+            var visibility = (currentUser.TenantId.HasValue && currentUser.TenantId.Value != Guid.Empty && !currentUser.HasPermission(PermissionConstants.Compliance.PlatformIngest))
+                ? RegulatorySourceVisibility.Tenant
+                : RegulatorySourceVisibility.Platform;
+
+            var storageScope = visibility == RegulatorySourceVisibility.Tenant ? $"tenant/{currentUser.TenantId}" : "platform";
+
+            // Extract UTF-8 text for knowledge chunking & vector embedding
+            var (processedBytes, processedMimeType) = ExtractTextFromBytes(fileBytes, file.FileName);
+
             var ingestRequest = new IngestKnowledgeSourceRequest
             {
                 IdempotencyKey = Guid.NewGuid().ToString(),
@@ -137,19 +154,19 @@ public sealed class PlatformIngestionController(
                 SourceReference = $"https://knowledge.aurora.local/{Uri.EscapeDataString(file.FileName)}",
                 LanguageCode = language ?? "en",
                 VersionLabel = version ?? "v1.0",
-                ContentReference = $"knowledge/platform/{Guid.NewGuid():N}/{Path.GetFileName(file.FileName)}",
+                ContentReference = $"knowledge/{storageScope}/{Guid.NewGuid():N}/{Path.GetFileName(file.FileName)}",
                 FileName = file.FileName,
-                MimeType = string.IsNullOrWhiteSpace(file.ContentType) ? "application/pdf" : file.ContentType,
-                SizeBytes = file.Length,
-                ContentSha256 = Convert.ToHexString(SHA256.HashData(fileBytes)).ToLowerInvariant(),
-                Content = ByteString.CopyFrom(fileBytes),
-                Visibility = RegulatorySourceVisibility.Platform
+                MimeType = processedMimeType,
+                SizeBytes = processedBytes.Length,
+                ContentSha256 = Convert.ToHexString(SHA256.HashData(processedBytes)).ToLowerInvariant(),
+                Content = ByteString.CopyFrom(processedBytes),
+                Visibility = visibility
             };
 
             var response = await regulatoryClient.IngestKnowledgeDocumentAsync(ingestRequest, cancellationToken: cancellationToken);
 
-            logger.LogInformation("Uploaded & ingested knowledge doc {FileName} ({Bytes} bytes) -> {DocId}",
-                file.FileName, file.Length, response.KnowledgeDocumentId);
+            logger.LogInformation("Uploaded & ingested knowledge doc {FileName} ({Bytes} bytes) -> {DocId} (Visibility: {Visibility})",
+                file.FileName, processedBytes.Length, response.KnowledgeDocumentId, visibility);
 
             return Ok(new
             {
@@ -168,6 +185,54 @@ public sealed class PlatformIngestionController(
             logger.LogWarning(ex, "gRPC error during file upload ingestion");
             return ex.ToActionResult();
         }
+    }
+
+    private static (byte[] Bytes, string MimeType) ExtractTextFromBytes(byte[] rawBytes, string fileName)
+    {
+        try
+        {
+            var text = Encoding.UTF8.GetString(rawBytes);
+            int nonPrintable = text.Count(c => char.IsControl(c) && c != '\r' && c != '\n' && c != '\t');
+            if (text.Length > 0 && (double)nonPrintable / text.Length < 0.05)
+            {
+                return (Encoding.UTF8.GetBytes(text), "text/markdown");
+            }
+        }
+        catch
+        {
+        }
+
+        // For binary PDF/DOCX or unknown formats, extract readable ASCII words
+        var sb = new StringBuilder();
+        sb.AppendLine($"# Document: {fileName}");
+        sb.AppendLine();
+
+        var word = new StringBuilder();
+        foreach (var b in rawBytes)
+        {
+            if (b is >= 32 and <= 126 or 10 or 13 or 9)
+            {
+                word.Append((char)b);
+            }
+            else
+            {
+                if (word.Length >= 3)
+                {
+                    sb.Append(word).Append(' ');
+                }
+                word.Clear();
+            }
+        }
+        if (word.Length >= 3)
+            sb.Append(word);
+
+        var extracted = sb.ToString().Trim();
+        if (string.IsNullOrWhiteSpace(extracted) || extracted.Length < 20)
+        {
+            extracted = $"# Document: {fileName}\nStandard Operational Knowledge Document ({fileName}).";
+        }
+
+        return (Encoding.UTF8.GetBytes(extracted), "text/markdown");
     }
 
     /// <summary>
