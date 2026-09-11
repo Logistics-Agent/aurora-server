@@ -84,6 +84,33 @@ public class MailController(
         }
     }
 
+    // ─── Mailboxes ────────────────────────────────────────────────────────────
+
+    [HttpGet("mailboxes")]
+    [RequirePermission(PermissionConstants.Mail.Read)]
+    public async Task<IActionResult> ListMailboxes(
+        [FromQuery] string? domainId = null,
+        [FromQuery] int pageSize = 100,
+        [FromQuery] string? pageToken = null)
+    {
+        try
+        {
+            var boundedPageSize = Math.Clamp(pageSize, 1, 100);
+            var result = await mailClient.ListMailboxesAsync(domainId, boundedPageSize, pageToken, HttpContext.RequestAborted);
+            return Ok(result);
+        }
+        catch (RpcException ex)
+        {
+            logger.LogWarning(ex, "gRPC error in ListMailboxes, returning empty list: {Detail}", ex.Status.Detail);
+            return Ok(new { mailboxes = Array.Empty<object>(), nextPageToken = string.Empty });
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Unexpected error in ListMailboxes, returning empty list");
+            return Ok(new { mailboxes = Array.Empty<object>(), nextPageToken = string.Empty });
+        }
+    }
+
     // ─── Threads (Gmail-Like Threading & Responsibility) ────────────────────
 
     [HttpGet("threads")]
