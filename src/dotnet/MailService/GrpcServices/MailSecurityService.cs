@@ -86,21 +86,21 @@ public class MailSecurityService : MailSecurity.MailSecurityBase
 
     public override async Task<SubmitOutboundMessageResponse> SubmitOutboundMessage(SubmitOutboundMessageRequest request, ServerCallContext context)
     {
-        Guid? draftRootId = string.IsNullOrEmpty(request.DraftRootId) ? null : Guid.Parse(request.DraftRootId);
-        Guid? threadId = string.IsNullOrEmpty(request.ThreadId) ? null : Guid.Parse(request.ThreadId);
-        string? replyToMessageId = string.IsNullOrEmpty(request.ReplyToMessageId) ? null : request.ReplyToMessageId;
-        var attachments = request.Attachments.Select(a => (a.Filename, a.ContentType, a.Content.ToByteArray())).ToList();
+        Guid? draftRootId = Guid.TryParse(request.DraftRootId, out var parsedDraftId) ? parsedDraftId : null;
+        Guid? threadId = Guid.TryParse(request.ThreadId, out var parsedThreadId) ? parsedThreadId : null;
+        string? replyToMessageId = string.IsNullOrWhiteSpace(request.ReplyToMessageId) ? null : request.ReplyToMessageId;
+        var attachments = request.Attachments?.Select(a => (a.Filename ?? "attachment", a.ContentType ?? "application/octet-stream", a.Content?.ToByteArray() ?? Array.Empty<byte>())).ToList() ?? new();
 
         try
         {
             var result = await _mediator.Send(new SubmitOutboundMessageCommand(
-                request.SenderAddress,
-                request.RecipientAddresses.ToList(),
-                request.Subject,
-                request.BodyText,
-                request.BodyHtml,
+                request.SenderAddress ?? string.Empty,
+                request.RecipientAddresses?.ToList() ?? new(),
+                request.Subject ?? string.Empty,
+                request.BodyText ?? string.Empty,
+                request.BodyHtml ?? string.Empty,
                 attachments,
-                request.IdempotencyKey,
+                request.IdempotencyKey ?? string.Empty,
                 draftRootId,
                 threadId,
                 replyToMessageId), context.CancellationToken);
