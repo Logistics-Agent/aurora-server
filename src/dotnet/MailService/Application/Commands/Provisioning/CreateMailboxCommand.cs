@@ -1,4 +1,4 @@
-﻿using System.Text.Json;
+using System.Text.Json;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Shared.Security;
@@ -7,6 +7,9 @@ using MailService.Domain.Entities;
 using MailService.Domain.Enums;
 using MailService.Infrastructure.Messaging;
 using MailService.Infrastructure.Persistence;
+
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 
 namespace MailService.Application.Commands.Provisioning;
 
@@ -17,12 +20,21 @@ public class CreateMailboxCommandHandler : IRequestHandler<CreateMailboxCommand,
     private readonly MailServiceDbContext _dbContext;
     private readonly IStalwartManagementClient _stalwartClient;
     private readonly ICurrentUserService _currentUserService;
+    private readonly IHostEnvironment? _environment;
+    private readonly ILogger<CreateMailboxCommandHandler>? _logger;
 
-    public CreateMailboxCommandHandler(MailServiceDbContext dbContext, IStalwartManagementClient stalwartClient, ICurrentUserService currentUserService)
+    public CreateMailboxCommandHandler(
+        MailServiceDbContext dbContext,
+        IStalwartManagementClient stalwartClient,
+        ICurrentUserService currentUserService,
+        IHostEnvironment? environment = null,
+        ILogger<CreateMailboxCommandHandler>? logger = null)
     {
         _dbContext = dbContext;
         _stalwartClient = stalwartClient;
         _currentUserService = currentUserService;
+        _environment = environment;
+        _logger = logger;
     }
 
     public async Task<Mailbox> Handle(CreateMailboxCommand request, CancellationToken cancellationToken)
@@ -39,8 +51,18 @@ public class CreateMailboxCommandHandler : IRequestHandler<CreateMailboxCommand,
         var existing = await _dbContext.Mailboxes.FirstOrDefaultAsync(m => m.FullAddress == fullAddress, cancellationToken);
         if (existing != null) return existing;
 
-        if (!await _stalwartClient.ProvisionAccountAsync(fullAddress, cancellationToken))
-            throw new InvalidOperationException("Stalwart could not provision the mailbox; no local mailbox was created.");
+        var provisioned = await _stalwartClient.ProvisionAccountAsync(fullAddress, cancellationToken);
+        if (!provisioned)
+        {
+            if (_environment != null && _environment.IsDevelopment())
+            {
+                _logger?.LogWarning("Stalwart could not provision account for {Address} (server may be offline). Proceeding with local DB mailbox creation for Development.", fullAddress);
+            }
+            else
+            {
+                throw new InvalidOperationException("Stalwart could not provision the mailbox; no local mailbox was created.");
+            }
+        }
 
         var mailbox = new Mailbox
         {

@@ -23,6 +23,7 @@ env:
   Redis__Host: "redis-master.aurora.svc.cluster.local:6379"
   Redis__Ssl: "false"
   Redis__AbortConnect: "false"
+  Grpc__AiGovernance__Url: "http://ai-governance:9090"
 
 externalSecret:
   enabled: true

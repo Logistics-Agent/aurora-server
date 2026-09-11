@@ -30,6 +30,7 @@ env:
   REDIS_HOST: "redis-master.aurora.svc.cluster.local"
   REDIS_PORT: "6379"
   REDIS_TLS: "false"
+  AI_GOVERNANCE_GRPC_URL: "ai-governance:9090"
 
 externalSecret:
   enabled: true

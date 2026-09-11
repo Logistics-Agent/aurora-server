@@ -27,7 +27,7 @@ env:
   Vroom__BaseUrl: "http://vroom:3000"
   Optimization__VroomUrl: "http://vroom:3000"
   Optimization__OsrmUrl: "http://osrm:5000"
-  AiGovernance__ServiceUrl: "http://ai-governance.aurora-ai.svc.cluster.local:9090"
+  AiGovernance__ServiceUrl: "http://ai-governance:9090"
   ComplianceRag__ServiceUrl: "http://regulatory-compliance:5000"
 
 externalSecret:

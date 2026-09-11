@@ -1,0 +1,234 @@
+# =============================================================================
+# Aurora Core Infrastructure Stack: RabbitMQ, Redis, and Stalwart Mail Server
+# Namespace: aurora
+# =============================================================================
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 1. RABBITMQ
+# ─────────────────────────────────────────────────────────────────────────────
+apiVersion: v1
+kind: Secret
+metadata:
+  name: rabbitmq-secret
+  namespace: aurora
+type: Opaque
+stringData:
+  password: "aurora_dev_password_2026"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rabbitmq
+  namespace: aurora
+  labels:
+    app.kubernetes.io/name: rabbitmq
+    app: rabbitmq
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: rabbitmq
+  template:
+    metadata:
+      labels:
+        app: rabbitmq
+    spec:
+      containers:
+        - name: rabbitmq
+          image: rabbitmq:3-management
+          ports:
+            - name: amqp
+              containerPort: 5672
+            - name: management
+              containerPort: 15672
+          env:
+            - name: RABBITMQ_DEFAULT_USER
+              value: aurora_admin
+            - name: RABBITMQ_DEFAULT_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: rabbitmq-secret
+                  key: password
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: rabbitmq
+  namespace: aurora
+  labels:
+    app: rabbitmq
+spec:
+  type: ClusterIP
+  selector:
+    app: rabbitmq
+  ports:
+    - name: amqp
+      port: 5672
+      targetPort: 5672
+    - name: management
+      port: 15672
+      targetPort: 15672
+
+---
+# ─────────────────────────────────────────────────────────────────────────────
+# 2. REDIS
+# ─────────────────────────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis
+  namespace: aurora
+  labels:
+    app.kubernetes.io/name: redis
+    app: redis
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redis
+  template:
+    metadata:
+      labels:
+        app: redis
+    spec:
+      containers:
+        - name: redis
+          image: redis:7.2-alpine
+          command: ["redis-server", "--appendonly", "yes"]
+          ports:
+            - name: redis
+              containerPort: 6379
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 300m
+              memory: 256Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  namespace: aurora
+  labels:
+    app: redis
+spec:
+  type: ClusterIP
+  selector:
+    app: redis
+  ports:
+    - name: redis
+      port: 6379
+      targetPort: 6379
+
+---
+# ─────────────────────────────────────────────────────────────────────────────
+# 3. STALWART MAIL SERVER
+# ─────────────────────────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: stalwart
+  namespace: aurora
+  labels:
+    app.kubernetes.io/name: stalwart
+    app: stalwart
+spec:
+  serviceName: stalwart
+  replicas: 1
+  selector:
+    matchLabels:
+      app: stalwart
+  template:
+    metadata:
+      labels:
+        app: stalwart
+    spec:
+      containers:
+        - name: mail-server
+          image: stalwartlabs/stalwart:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: smtp
+              containerPort: 25
+              protocol: TCP
+            - name: submission
+              containerPort: 587
+              protocol: TCP
+            - name: imaps
+              containerPort: 993
+              protocol: TCP
+            - name: admin
+              containerPort: 8080
+              protocol: TCP
+          volumeMounts:
+            - name: stalwart-data
+              mountPath: /opt/stalwart-mail
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+  volumeClaimTemplates:
+    - metadata:
+        name: stalwart-data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: "managed-csi"
+        resources:
+          requests:
+            storage: 5Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: stalwart
+  namespace: aurora
+  labels:
+    app: stalwart
+spec:
+  type: ClusterIP
+  selector:
+    app: stalwart
+  ports:
+    - name: admin
+      port: 8080
+      targetPort: 8080
+    - name: smtp
+      port: 25
+      targetPort: 25
+    - name: submission
+      port: 587
+      targetPort: 587
+    - name: imaps
+      port: 993
+      targetPort: 993
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: stalwart-ingress
+  namespace: aurora
+  labels:
+    app: stalwart
+spec:
+  type: ClusterIP
+  selector:
+    app: stalwart
+  ports:
+    - name: admin
+      port: 8080
+      targetPort: 8080
+    - name: smtp
+      port: 25
+      targetPort: 25
