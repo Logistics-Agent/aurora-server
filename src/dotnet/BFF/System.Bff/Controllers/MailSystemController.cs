@@ -17,11 +17,35 @@ namespace SystemBff.Controllers;
 /// Route: /api/v1/system/mail — chỉ dành cho SYSTEM_ADMIN (role gate ở SystemControllerBase).
 /// </summary>
 [ApiVersion("1.0")]
+[Route("api/v{version:apiVersion}/system/mail")]
 public class MailSystemController(
     IMailServiceClient mailClient,
     ICurrentUserService currentUser,
     ILogger<MailSystemController> logger) : SystemControllerBase
 {
+    [HttpGet("dead-letter")]
+    public async Task<IActionResult> ListDeadLetters(
+        [FromQuery] int pageSize = 50,
+        [FromQuery] string? pageToken = null)
+    {
+        try
+        {
+            var boundedPageSize = Math.Clamp(pageSize, 1, 100);
+            var result = await mailClient.ListProcessedMessagesAsync(
+                direction: null,
+                emailCategory: null,
+                pipelineStatus: "DEAD_LETTER",
+                pageSize: boundedPageSize,
+                nextPageToken: pageToken,
+                cancellationToken: HttpContext.RequestAborted);
+            return Ok(result);
+        }
+        catch (RpcException ex)
+        {
+            return ex.ToActionResult();
+        }
+    }
+
     [HttpPost("dead-letter/{id}/requeue")]
     [RequirePermission(PermissionConstants.Mail.SystemManage)]
     public async Task<IActionResult> RequeueDeadLetter([FromRoute] string id)
