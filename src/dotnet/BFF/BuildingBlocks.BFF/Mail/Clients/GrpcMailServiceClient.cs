@@ -520,6 +520,28 @@ public class GrpcMailServiceClient : IMailServiceClient
         return new BffModels.ThreadAssignmentHistoryListResponse(response.ThreadId, histories);
     }
 
+    public async Task<BffModels.IngestInboundMessageDto> IngestInboundMessageAsync(byte[] rawEml, string? senderAddress = null, string? recipientAddress = null, string? source = null, CancellationToken cancellationToken = default)
+    {
+        var protoReq = new GrpcModels.IngestInboundMessageRequest
+        {
+            RawEml = Google.Protobuf.ByteString.CopyFrom(rawEml),
+            SenderAddress = senderAddress ?? string.Empty,
+            RecipientAddress = recipientAddress ?? string.Empty,
+            Source = source ?? "CloudflareWorker"
+        };
+
+        var response = await _securityClient.IngestInboundMessageAsync(protoReq, cancellationToken: cancellationToken);
+
+        return new BffModels.IngestInboundMessageDto(
+            response.MessageId,
+            response.ThreadId,
+            response.Status,
+            response.IsQuarantined,
+            response.Classification,
+            response.Subject,
+            response.AssignedMailboxId);
+    }
+
     private static BffModels.DraftResponse MapDraftResponse(GrpcModels.DraftDto draft)
     {
         return new BffModels.DraftResponse(

@@ -51,6 +51,7 @@ service MailSecurity {
   rpc ReassignThread         (ReassignThreadRequest)          returns (ReassignThreadResponse);
   rpc UnassignThread         (UnassignThreadRequest)          returns (UnassignThreadResponse);
   rpc GetThreadAssignmentHistory (GetThreadAssignmentHistoryRequest) returns (GetThreadAssignmentHistoryResponse);
+  rpc IngestInboundMessage   (IngestInboundMessageRequest)    returns (IngestInboundMessageResponse);
 }
 
 // ─── Management Messages ──────────────────────────────────────────────────
@@ -519,6 +520,23 @@ message ThreadAssignmentHistoryDto {
   string actor_user_id = 6;
   string reason        = 7;
   google.protobuf.Timestamp created_at = 8;
+}
+
+message IngestInboundMessageRequest {
+  bytes raw_eml = 1;
+  string sender_address = 2;
+  string recipient_address = 3;
+  string source = 4;
+}
+
+message IngestInboundMessageResponse {
+  string message_id = 1;
+  string thread_id = 2;
+  string status = 3;
+  bool is_quarantined = 4;
+  string classification = 5;
+  string subject = 6;
+  string assigned_mailbox_id = 7;
 }
 
 

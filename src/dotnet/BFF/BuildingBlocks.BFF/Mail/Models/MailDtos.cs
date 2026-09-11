@@ -317,3 +317,14 @@ public record AuditListResponse(
 public record RequeueDeadLetterResponse(
     bool Success,
     string Message);
+
+// ─── Inbound Ingestion DTOs ──────────────────────────────────────────────────
+
+public record IngestInboundMessageDto(
+    string MessageId,
+    string ThreadId,
+    string Status,
+    bool IsQuarantined,
+    string Classification,
+    string Subject,
+    string AssignedMailboxId);

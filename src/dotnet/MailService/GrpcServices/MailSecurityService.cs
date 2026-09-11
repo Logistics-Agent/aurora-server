@@ -516,6 +516,49 @@ public class MailSecurityService : MailSecurity.MailSecurityBase
         return dto;
     }
 
+    public override async Task<IngestInboundMessageResponse> IngestInboundMessage(IngestInboundMessageRequest request, ServerCallContext context)
+    {
+        if (request.RawEml == null || request.RawEml.Length == 0)
+        {
+            throw new RpcException(new Status(StatusCode.InvalidArgument, "RawEml byte content is required."));
+        }
+
+        try
+        {
+            var command = new MailService.Application.Commands.Inbound.ProcessInboundEmailCommand(
+                request.RawEml.ToByteArray(),
+                string.IsNullOrWhiteSpace(request.SenderAddress) ? null : request.SenderAddress,
+                string.IsNullOrWhiteSpace(request.RecipientAddress) ? null : request.RecipientAddress,
+                string.IsNullOrWhiteSpace(request.Source) ? "CloudflareWorker" : request.Source
+            );
+
+            var result = await _mediator.Send(command, context.CancellationToken);
+
+            return new IngestInboundMessageResponse
+            {
+                MessageId = result.MessageId,
+                ThreadId = result.ThreadId,
+                Status = result.Status,
+                IsQuarantined = result.IsQuarantined,
+                Classification = result.Classification,
+                Subject = result.Subject,
+                AssignedMailboxId = result.MailboxId
+            };
+        }
+        catch (KeyNotFoundException ex)
+        {
+            throw new RpcException(new Status(StatusCode.NotFound, ex.Message));
+        }
+        catch (ArgumentException ex)
+        {
+            throw new RpcException(new Status(StatusCode.InvalidArgument, ex.Message));
+        }
+        catch (Exception ex)
+        {
+            throw new RpcException(new Status(StatusCode.Internal, $"Error ingesting inbound message: {ex.Message}"));
+        }
+    }
+
     private static QuarantineRecordDto MapQuarantineRecordDto(Domain.Entities.QuarantineRecord rec)
     {
         var quarantinedAt = rec.QuarantinedAt != default ? rec.QuarantinedAt : DateTimeOffset.UtcNow;

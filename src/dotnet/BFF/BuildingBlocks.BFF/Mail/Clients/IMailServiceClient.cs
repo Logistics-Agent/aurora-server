@@ -37,4 +37,7 @@ public interface IMailServiceClient
     Task<ReassignThreadResponse> ReassignThreadAsync(string threadId, ReassignThreadRequest request, CancellationToken cancellationToken = default);
     Task<UnassignThreadResponse> UnassignThreadAsync(string threadId, UnassignThreadRequest request, CancellationToken cancellationToken = default);
     Task<ThreadAssignmentHistoryListResponse> GetThreadAssignmentHistoryAsync(string threadId, CancellationToken cancellationToken = default);
+
+    // Inbound Ingestion (Cloudflare Email Worker / SMTP Webhook)
+    Task<IngestInboundMessageDto> IngestInboundMessageAsync(byte[] rawEml, string? senderAddress = null, string? recipientAddress = null, string? source = null, CancellationToken cancellationToken = default);
 }

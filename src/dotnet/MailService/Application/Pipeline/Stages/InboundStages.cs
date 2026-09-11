@@ -60,10 +60,13 @@ public class HeaderParsingStage : IInboundPipelineStage
             using var ms = new MemoryStream(context.RawEmlBytes);
             context.ParsedMimeMessage = await MimeMessage.LoadAsync(ms, cancellationToken);
 
-            context.SenderAddress = context.ParsedMimeMessage.From.Mailboxes.FirstOrDefault()?.Address ?? "unknown@external.com";
-            context.RecipientAddresses.Clear();
-            context.RecipientAddresses.AddRange(context.ParsedMimeMessage.To.Mailboxes.Select(m => m.Address));
-            context.Subject = context.ParsedMimeMessage.Subject ?? string.Empty;
+            context.SenderAddress = context.ParsedMimeMessage.From.Mailboxes.FirstOrDefault()?.Address ?? context.SenderAddress;
+            if (context.ParsedMimeMessage.To.Mailboxes.Any())
+            {
+                context.RecipientAddresses.Clear();
+                context.RecipientAddresses.AddRange(context.ParsedMimeMessage.To.Mailboxes.Select(m => m.Address));
+            }
+            context.Subject = context.ParsedMimeMessage.Subject ?? context.Subject;
 
             string messageId = context.ParsedMimeMessage.MessageId ?? Guid.NewGuid().ToString();
 
