@@ -127,6 +127,17 @@ public static class GrpcClientExtensions
             .AddInterceptor<ClientMetadataInterceptor>(InterceptorScope.Client)
             .AddStandardResilienceHandler(ConfigureBusinessResilience);
 
+        var aiGovernanceUrl = ResolveUrl(config, "AiGovernance", "http://localhost:9090")!;
+        services.AddGrpcClient<AiGovernance.Grpc.AiGovernanceService.AiGovernanceServiceClient>(
+                o => o.Address = new Uri(aiGovernanceUrl))
+            .AddInterceptor<ClientMetadataInterceptor>(InterceptorScope.Client)
+            .AddStandardResilienceHandler(ConfigureBusinessResilience);
+
+        services.AddGrpcClient<AiGovernance.Grpc.AiExecutionService.AiExecutionServiceClient>(
+                o => o.Address = new Uri(aiGovernanceUrl))
+            .AddInterceptor<ClientMetadataInterceptor>(InterceptorScope.Client)
+            .AddStandardResilienceHandler(ConfigureBusinessResilience);
+
         return services;
     }
 

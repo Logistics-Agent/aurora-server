@@ -22,7 +22,8 @@ namespace StaffBff.Controllers;
 [Authorize]
 public sealed class DocumentsController(
     DocumentOcrService.DocumentOcrServiceClient documentOcrClient,
-    RegulatoryComplianceService.RegulatoryComplianceServiceClient regulatoryClient)
+    RegulatoryComplianceService.RegulatoryComplianceServiceClient regulatoryClient,
+    ILogger<DocumentsController> logger)
     : ControllerBase
 {
     // ──────────────────────────────────────────────────────────────────────────
@@ -154,24 +155,37 @@ public sealed class DocumentsController(
             rpcRequest.Status = parsedStatus;
         }
 
-        var response = await documentOcrClient.ListDocumentJobsAsync(rpcRequest, cancellationToken: cancellationToken);
+        try
+        {
+            var response = await documentOcrClient.ListDocumentJobsAsync(rpcRequest, cancellationToken: cancellationToken);
 
-        var items = response.Jobs.Select(job => new UnifiedDocumentStatusResponse(
-            job.JobId,
-            "SHIPMENT",
-            MapOcrStatus(job.Status, job.NeedsReview),
-            MapOcrStage(job.Status),
-            job.FileName,
-            job.NeedsReview,
-            job.Confidence,
-            job.NormalizedJson,
-            job.ErrorCode,
-            job.ErrorMessage,
-            job.CreatedAt?.ToDateTimeOffset(),
-            job.CompletedAt?.ToDateTimeOffset()
-        )).ToList();
+            var items = response.Jobs.Select(job => new UnifiedDocumentStatusResponse(
+                job.JobId,
+                "SHIPMENT",
+                MapOcrStatus(job.Status, job.NeedsReview),
+                MapOcrStage(job.Status),
+                job.FileName,
+                job.NeedsReview,
+                job.Confidence,
+                job.NormalizedJson,
+                job.ErrorCode,
+                job.ErrorMessage,
+                job.CreatedAt?.ToDateTimeOffset(),
+                job.CompletedAt?.ToDateTimeOffset()
+            )).ToList();
 
-        return Ok(new ListShipmentDocumentsResponse(items, response.Page, response.PageSize, response.TotalItems, response.TotalPages));
+            return Ok(new ListShipmentDocumentsResponse(items, response.Page, response.PageSize, response.TotalItems, response.TotalPages));
+        }
+        catch (RpcException ex)
+        {
+            logger.LogWarning(ex, "DocumentOcr service returned RPC error {StatusCode} for ListShipmentDocuments. Returning empty list.", ex.StatusCode);
+            return Ok(new ListShipmentDocumentsResponse([], rpcRequest.Page, rpcRequest.PageSize, 0, 0));
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Failed to list shipment documents. Returning empty list.");
+            return Ok(new ListShipmentDocumentsResponse([], rpcRequest.Page, rpcRequest.PageSize, 0, 0));
+        }
     }
 
     /// <summary>
