@@ -23,6 +23,34 @@ public class GrpcMailServiceClient : IMailServiceClient
         _securityClient = securityClient;
     }
 
+    private static DateTimeOffset SafeToDateTimeOffset(Timestamp? ts)
+    {
+        if (ts == null || (ts.Seconds == 0 && ts.Nanos == 0))
+            return DateTimeOffset.UtcNow;
+        try
+        {
+            return ts.ToDateTimeOffset();
+        }
+        catch
+        {
+            return DateTimeOffset.UtcNow;
+        }
+    }
+
+    private static DateTimeOffset? SafeToNullableDateTimeOffset(Timestamp? ts)
+    {
+        if (ts == null || (ts.Seconds == 0 && ts.Nanos == 0))
+            return null;
+        try
+        {
+            return ts.ToDateTimeOffset();
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     public async Task<BffModels.ProvisionDomainResponse> ProvisionDomainAsync(BffModels.ProvisionDomainRequest request, CancellationToken cancellationToken = default)
     {
         var protoReq = new GrpcModels.ProvisionDomainRequest
@@ -39,7 +67,17 @@ public class GrpcMailServiceClient : IMailServiceClient
             response.DomainName,
             response.DkimSelector,
             response.DkimTxtRecord,
-            response.ProvisionedAt.ToDateTimeOffset());
+            SafeToDateTimeOffset(response.ProvisionedAt),
+            response.Status);
+    }
+
+    public async Task<BffModels.VerifyDomainResponse> VerifyDomainAsync(string domainId, CancellationToken cancellationToken = default)
+    {
+        var response = await _managementClient.VerifyDomainAsync(
+            new GrpcModels.VerifyDomainRequest { DomainId = domainId }, cancellationToken: cancellationToken);
+        return new BffModels.VerifyDomainResponse(response.DomainId, response.Verified, response.Status, response.Message,
+            response.DkimSelector, response.DkimHost, response.ExpectedDkimTxtRecord, response.ObservedDkimTxtRecord,
+            SafeToNullableDateTimeOffset(response.VerifiedAt));
     }
 
     public async Task<BffModels.CreateMailboxResponse> CreateMailboxAsync(BffModels.CreateMailboxRequest request, CancellationToken cancellationToken = default)
@@ -56,7 +94,10 @@ public class GrpcMailServiceClient : IMailServiceClient
         return new BffModels.CreateMailboxResponse(
             response.MailboxId,
             response.FullAddress,
-            response.CreatedAt.ToDateTimeOffset());
+            SafeToDateTimeOffset(response.CreatedAt),
+            response.DomainId,
+            response.LocalPart,
+            response.Status);
     }
 
     public async Task<BffModels.CreateAliasResponse> CreateAliasAsync(BffModels.CreateAliasRequest request, CancellationToken cancellationToken = default)
@@ -72,7 +113,76 @@ public class GrpcMailServiceClient : IMailServiceClient
 
         return new BffModels.CreateAliasResponse(
             response.AliasId,
-            response.CreatedAt.ToDateTimeOffset());
+            SafeToDateTimeOffset(response.CreatedAt));
+    }
+
+    public async Task<BffModels.ListDomainsResponse> ListDomainsAsync(int pageSize = 100, string? nextPageToken = null, CancellationToken cancellationToken = default)
+    {
+        var protoReq = new GrpcModels.ListDomainsRequest
+        {
+            PageSize = pageSize,
+            NextPageToken = nextPageToken ?? string.Empty
+        };
+
+        var response = await _managementClient.ListDomainsAsync(protoReq, cancellationToken: cancellationToken);
+
+        return new BffModels.ListDomainsResponse(
+            response.Domains.Select(d => new BffModels.DomainSummaryDto(
+                d.DomainId,
+                d.DomainName,
+                d.Status,
+                d.MaxMailboxCount,
+                d.RetentionDays,
+                d.DkimSelector,
+                d.DkimTxtRecord,
+                SafeToDateTimeOffset(d.CreatedAt),
+                d.MailboxUsage)).ToList(),
+            response.NextPageToken);
+    }
+
+    public async Task<BffModels.ListMailboxesResponse> ListMailboxesAsync(string? domainId = null, int pageSize = 100, string? nextPageToken = null, CancellationToken cancellationToken = default)
+    {
+        var protoReq = new GrpcModels.ListMailboxesRequest
+        {
+            DomainId = domainId ?? string.Empty,
+            PageSize = pageSize,
+            NextPageToken = nextPageToken ?? string.Empty
+        };
+
+        var response = await _managementClient.ListMailboxesAsync(protoReq, cancellationToken: cancellationToken);
+
+        return new BffModels.ListMailboxesResponse(
+            response.Mailboxes.Select(m => new BffModels.MailboxSummaryDto(
+                m.MailboxId,
+                m.DomainId,
+                m.DomainName,
+                m.LocalPart,
+                m.FullAddress,
+                m.Status,
+                SafeToDateTimeOffset(m.CreatedAt))).ToList(),
+            response.NextPageToken);
+    }
+
+    public async Task<BffModels.ListAliasesResponse> ListAliasesAsync(string? domainId = null, int pageSize = 100, string? nextPageToken = null, CancellationToken cancellationToken = default)
+    {
+        var protoReq = new GrpcModels.ListAliasesRequest
+        {
+            DomainId = domainId ?? string.Empty,
+            PageSize = pageSize,
+            NextPageToken = nextPageToken ?? string.Empty
+        };
+
+        var response = await _managementClient.ListAliasesAsync(protoReq, cancellationToken: cancellationToken);
+
+        return new BffModels.ListAliasesResponse(
+            response.Aliases.Select(a => new BffModels.AliasSummaryDto(
+                a.AliasId,
+                a.DomainId,
+                a.DomainName,
+                a.AliasAddress,
+                a.TargetAddresses.ToList(),
+                SafeToDateTimeOffset(a.CreatedAt))).ToList(),
+            response.NextPageToken);
     }
 
     public async Task<BffModels.ResetPasswordResponse> ResetPasswordAsync(string mailboxId, CancellationToken cancellationToken = default)
@@ -108,7 +218,7 @@ public class GrpcMailServiceClient : IMailServiceClient
             r.Action,
             r.ResourceType,
             r.ResourceId,
-            r.Timestamp.ToDateTimeOffset(),
+            SafeToDateTimeOffset(r.Timestamp),
             r.Result,
             r.DetailJson)).ToList();
 
@@ -215,7 +325,7 @@ public class GrpcMailServiceClient : IMailServiceClient
         return new BffModels.SubmitOutboundMessageResponse(
             response.ProcessedMessageId,
             response.StalwartQueueId,
-            response.SubmittedAt.ToDateTimeOffset());
+            SafeToDateTimeOffset(response.SubmittedAt));
     }
 
     public async Task<BffModels.ProcessedMessageResponse> GetProcessedMessageAsync(string processedMessageId, CancellationToken cancellationToken = default)
@@ -267,7 +377,7 @@ public class GrpcMailServiceClient : IMailServiceClient
     {
         var protoReq = new GrpcModels.ReleaseQuarantineRequest { QuarantineId = quarantineId };
         var response = await _securityClient.ReleaseQuarantineAsync(protoReq, cancellationToken: cancellationToken);
-        return new BffModels.ReleaseQuarantineResponse(response.Success, response.ReleasedAt.ToDateTimeOffset());
+        return new BffModels.ReleaseQuarantineResponse(response.Success, SafeToDateTimeOffset(response.ReleasedAt));
     }
 
     public async Task<BffModels.DeleteQuarantineResponse> DeleteQuarantineAsync(string quarantineId, CancellationToken cancellationToken = default)
@@ -291,8 +401,8 @@ public class GrpcMailServiceClient : IMailServiceClient
             m.BodyText,
             m.BodyPreview,
             m.ReplyToMessageId,
-            m.ReceivedAt.ToDateTimeOffset(),
-            m.SentAt.ToDateTimeOffset())).ToList();
+            SafeToDateTimeOffset(m.ReceivedAt),
+            SafeToDateTimeOffset(m.SentAt))).ToList();
 
         var drafts = thread.Drafts.Select(MapDraftResponse).ToList();
         var histories = thread.AssignmentHistory.Select(h => new BffModels.ThreadAssignmentHistoryResponse(
@@ -303,7 +413,7 @@ public class GrpcMailServiceClient : IMailServiceClient
             h.Action,
             h.ActorUserId,
             h.Reason,
-            h.CreatedAt.ToDateTimeOffset())).ToList();
+            SafeToDateTimeOffset(h.CreatedAt))).ToList();
 
         return new BffModels.ThreadResponse(
             thread.ThreadId,
@@ -312,10 +422,10 @@ public class GrpcMailServiceClient : IMailServiceClient
             thread.Participants.ToList(),
             messages,
             drafts,
-            thread.CreatedAt.ToDateTimeOffset(),
-            thread.UpdatedAt.ToDateTimeOffset(),
+            SafeToDateTimeOffset(thread.CreatedAt),
+            SafeToDateTimeOffset(thread.UpdatedAt),
             string.IsNullOrEmpty(thread.PrimaryAssigneeUserId) ? null : thread.PrimaryAssigneeUserId,
-            thread.AssignedAt?.ToDateTimeOffset(),
+            SafeToNullableDateTimeOffset(thread.AssignedAt),
             thread.Status,
             thread.Priority,
             histories);
@@ -340,13 +450,13 @@ public class GrpcMailServiceClient : IMailServiceClient
             t.MailboxId,
             t.Subject,
             t.Participants.ToList(),
-            t.LastMessageAt.ToDateTimeOffset(),
+            SafeToDateTimeOffset(t.LastMessageAt),
             t.MessageCount,
             t.DraftCount,
             t.HasUnread,
             t.Snippet,
             string.IsNullOrEmpty(t.PrimaryAssigneeUserId) ? null : t.PrimaryAssigneeUserId,
-            t.AssignedAt?.ToDateTimeOffset(),
+            SafeToNullableDateTimeOffset(t.AssignedAt),
             t.Status,
             t.Priority)).ToList();
 
@@ -361,7 +471,7 @@ public class GrpcMailServiceClient : IMailServiceClient
             response.Success,
             response.ThreadId,
             response.PrimaryAssigneeUserId,
-            response.AssignedAt.ToDateTimeOffset(),
+            SafeToDateTimeOffset(response.AssignedAt),
             response.Status);
     }
 
@@ -378,7 +488,7 @@ public class GrpcMailServiceClient : IMailServiceClient
             response.Success,
             response.ThreadId,
             response.PrimaryAssigneeUserId,
-            response.AssignedAt.ToDateTimeOffset(),
+            SafeToDateTimeOffset(response.AssignedAt),
             response.Status);
     }
 
@@ -405,9 +515,31 @@ public class GrpcMailServiceClient : IMailServiceClient
             h.Action,
             h.ActorUserId,
             h.Reason,
-            h.CreatedAt.ToDateTimeOffset())).ToList();
+            SafeToDateTimeOffset(h.CreatedAt))).ToList();
 
         return new BffModels.ThreadAssignmentHistoryListResponse(response.ThreadId, histories);
+    }
+
+    public async Task<BffModels.IngestInboundMessageDto> IngestInboundMessageAsync(byte[] rawEml, string? senderAddress = null, string? recipientAddress = null, string? source = null, CancellationToken cancellationToken = default)
+    {
+        var protoReq = new GrpcModels.IngestInboundMessageRequest
+        {
+            RawEml = Google.Protobuf.ByteString.CopyFrom(rawEml),
+            SenderAddress = senderAddress ?? string.Empty,
+            RecipientAddress = recipientAddress ?? string.Empty,
+            Source = source ?? "CloudflareWorker"
+        };
+
+        var response = await _securityClient.IngestInboundMessageAsync(protoReq, cancellationToken: cancellationToken);
+
+        return new BffModels.IngestInboundMessageDto(
+            response.MessageId,
+            response.ThreadId,
+            response.Status,
+            response.IsQuarantined,
+            response.Classification,
+            response.Subject,
+            response.AssignedMailboxId);
     }
 
     private static BffModels.DraftResponse MapDraftResponse(GrpcModels.DraftDto draft)
@@ -424,7 +556,7 @@ public class GrpcMailServiceClient : IMailServiceClient
             draft.Subject,
             draft.Body,
             draft.ContentHash,
-            draft.CreatedAt.ToDateTimeOffset(),
+            SafeToDateTimeOffset(draft.CreatedAt),
             string.IsNullOrEmpty(draft.SourceType) ? "MANUAL" : draft.SourceType,
             string.IsNullOrEmpty(draft.SourceId) ? null : draft.SourceId,
             draft.ToRecipients?.ToList(),
@@ -447,8 +579,8 @@ public class GrpcMailServiceClient : IMailServiceClient
             msg.SenderAddress,
             msg.RecipientAddresses,
             msg.Subject,
-            msg.ReceivedAt.ToDateTimeOffset(),
-            msg.ProcessedAt.ToDateTimeOffset(),
+            SafeToDateTimeOffset(msg.ReceivedAt),
+            SafeToDateTimeOffset(msg.ProcessedAt),
             msg.EmailCategory,
             msg.PipelineStatus,
             msg.SpamScore,
@@ -465,9 +597,9 @@ public class GrpcMailServiceClient : IMailServiceClient
             rec.ProcessedMessageId,
             rec.MessageId,
             rec.QuarantineReason,
-            rec.QuarantinedAt.ToDateTimeOffset(),
+            SafeToDateTimeOffset(rec.QuarantinedAt),
             rec.Status,
             string.IsNullOrEmpty(rec.ReviewedBy) ? null : rec.ReviewedBy,
-            rec.ReviewedAt?.ToDateTimeOffset());
+            SafeToNullableDateTimeOffset(rec.ReviewedAt));
     }
 }

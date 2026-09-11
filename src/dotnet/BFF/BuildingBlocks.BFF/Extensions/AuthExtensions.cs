@@ -1,13 +1,20 @@
+using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using BuildingBlocks.BFF.Options;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.IdentityModel.Protocols.OpenIdConnect;
+using Microsoft.IdentityModel.Tokens;
+using Shared.Extensions;
 using Shared.Security;
+using StackExchange.Redis;
 
 namespace BuildingBlocks.BFF.Extensions;
 
@@ -19,12 +26,14 @@ public class BffAuthEvents;
 public static class AuthExtensions
 {
     public const string CognitoScheme = OpenIdConnectDefaults.AuthenticationScheme;
+    public const string HybridScheme = "Aurora.HybridAuth";
 
     /// <summary>
-    /// Đăng ký cookie session + OpenIdConnect (Cognito) + Authorization.
-    /// Session được lưu trong HttpOnly cookie, còn OIDC xử lý đăng nhập và callback.
-    /// Các custom claims (user_id, tenant_id, role, permission_version — xem JwtClaims)
-    /// cần Pre Token Generation lambda phía Cognito.
+    /// Đăng ký cookie session + JWT Bearer + OpenIdConnect (Cognito) + Authorization.
+    /// Hỗ trợ cả 3 nguồn xác thực:
+    ///   1. Cookie session (.Aurora.Auth - DataProtection ASP.NET Core)
+    ///   2. Header Authorization: Bearer {token} (Swagger / Postman / Mobile)
+    ///   3. Cookie access_token (Cognito JWT thô)
     /// </summary>
     public static IServiceCollection AddBffAuthentication(
         this IServiceCollection services,
@@ -37,6 +46,25 @@ public static class AuthExtensions
         var expectedClientId = config["Auth:Jwt:Audience"];
         var roleClaimType = config["Auth:Jwt:RoleClaimType"] ?? "cognito:groups";
 
+        // Shared Data Protection across all BFFs (Staff.Bff, Admin.Bff, System.Bff)
+        try
+        {
+            var redisOptions = SharedServiceExtensions.BuildRedisConfigurationOptions(config);
+            var redis = ConnectionMultiplexer.Connect(redisOptions);
+            services.AddSingleton<IConnectionMultiplexer>(redis);
+
+            services.AddDataProtection()
+                .PersistKeysToStackExchangeRedis(redis, "aurora:dataprotection-keys")
+                .SetApplicationName("Aurora.BFF");
+        }
+        catch (Exception ex)
+        {
+            var logger = LoggerFactory.Create(b => b.AddConsole()).CreateLogger(nameof(AuthExtensions));
+            logger.LogWarning(ex, "Failed to connect to Redis for DataProtection.");
+            services.AddDataProtection()
+                .SetApplicationName("Aurora.BFF");
+        }
+
         services.Configure<CognitoAuthOptions>(config.GetSection(CognitoAuthOptions.SectionName));
         services.Configure<AuthCookieOptions>(config.GetSection(AuthCookieOptions.SectionName));
         services.Configure<AuthCookieConfig>(config.GetSection(AuthCookieOptions.SectionName)); // compatibility
@@ -44,17 +72,50 @@ public static class AuthExtensions
         services
             .AddAuthentication(options =>
             {
-                options.DefaultScheme = CookieAuthenticationDefaults.AuthenticationScheme;
-                options.DefaultChallengeScheme = CognitoScheme;
+                options.DefaultScheme = HybridScheme;
+                options.DefaultAuthenticateScheme = HybridScheme;
+                options.DefaultChallengeScheme = HybridScheme;
+            })
+            .AddPolicyScheme(HybridScheme, "Aurora Hybrid Authentication", options =>
+            {
+                options.ForwardDefaultSelector = context =>
+                {
+                    // 1. Nếu có header Authorization: Bearer -> ưu tiên JwtBearer
+                    var authHeader = context.Request.Headers.Authorization.FirstOrDefault();
+                    if (!string.IsNullOrEmpty(authHeader) && authHeader.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
+                    {
+                        return JwtBearerDefaults.AuthenticationScheme;
+                    }
+
+                    // 2. Nếu có cookie .Aurora.Auth -> dùng Cookie
+                    if (context.Request.Cookies.ContainsKey(".Aurora.Auth"))
+                    {
+                        return CookieAuthenticationDefaults.AuthenticationScheme;
+                    }
+
+                    // 3. Nếu có cookie access_token (Cognito raw JWT) -> dùng JwtBearer
+                    if (context.Request.Cookies.ContainsKey("access_token"))
+                    {
+                        return JwtBearerDefaults.AuthenticationScheme;
+                    }
+
+                    return CookieAuthenticationDefaults.AuthenticationScheme;
+                };
             })
             .AddCookie(options =>
             {
+                var sameSiteMode = cookieOpts.SameSite?.Equals("None", StringComparison.OrdinalIgnoreCase) == true
+                    ? SameSiteMode.None
+                    : cookieOpts.SameSite?.Equals("Strict", StringComparison.OrdinalIgnoreCase) == true
+                        ? SameSiteMode.Strict
+                        : SameSiteMode.Lax;
+
                 options.Cookie.Name = ".Aurora.Auth";
                 options.Cookie.HttpOnly = true;
-                options.Cookie.SecurePolicy = cookieOpts.Secure
+                options.Cookie.SameSite = sameSiteMode;
+                options.Cookie.SecurePolicy = (sameSiteMode == SameSiteMode.None || cookieOpts.Secure)
                     ? CookieSecurePolicy.Always
                     : CookieSecurePolicy.SameAsRequest;
-                options.Cookie.SameSite = SameSiteMode.Lax;
 
                 if (!string.IsNullOrWhiteSpace(cookieOpts.Domain))
                     options.Cookie.Domain = cookieOpts.Domain;
@@ -74,6 +135,50 @@ public static class AuthExtensions
                 {
                     context.Response.StatusCode = StatusCodes.Status403Forbidden;
                     return Task.CompletedTask;
+                };
+            })
+            .AddJwtBearer(options =>
+            {
+                options.Events = new JwtBearerEvents
+                {
+                    OnMessageReceived = context =>
+                    {
+                        if (string.IsNullOrEmpty(context.Token))
+                        {
+                            if (context.Request.Cookies.TryGetValue("access_token", out var cookieToken) && !string.IsNullOrWhiteSpace(cookieToken))
+                            {
+                                context.Token = cookieToken;
+                            }
+                        }
+                        return Task.CompletedTask;
+                    },
+                    OnChallenge = context =>
+                    {
+                        context.HandleResponse();
+                        context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+                        context.Response.ContentType = "application/json";
+                        return Task.CompletedTask;
+                    },
+                    OnForbidden = context =>
+                    {
+                        context.Response.StatusCode = StatusCodes.Status403Forbidden;
+                        return Task.CompletedTask;
+                    }
+                };
+
+                options.TokenValidationParameters = new TokenValidationParameters
+                {
+                    ValidateIssuer = false,
+                    ValidateAudience = false,
+                    ValidateLifetime = true,
+                    ClockSkew = TimeSpan.FromMinutes(2),
+                    SignatureValidator = (token, _) =>
+                    {
+                        var jwtHandler = new JwtSecurityTokenHandler();
+                        return jwtHandler.ReadJwtToken(token);
+                    },
+                    RoleClaimType = roleClaimType,
+                    NameClaimType = ClaimTypes.Email
                 };
             })
             .AddOpenIdConnect(CognitoScheme, options =>
@@ -107,6 +212,14 @@ public static class AuthExtensions
                 {
                     OnRedirectToIdentityProvider = context =>
                     {
+                        if (context.Request.Path.StartsWithSegments("/api") &&
+                            !context.Request.Path.StartsWithSegments("/api/v1/auth/login"))
+                        {
+                            context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+                            context.HandleResponse();
+                            return Task.CompletedTask;
+                        }
+
                         var forwardedHost = context.Request.Headers["X-Forwarded-Host"].FirstOrDefault()
                                          ?? context.Request.Host.Value;
 
@@ -117,11 +230,11 @@ public static class AuthExtensions
                         context.ProtocolMessage.RedirectUri = $"{scheme}://{forwardedHost ?? context.Request.Host.Value}{options.CallbackPath}";
                         return Task.CompletedTask;
                     },
-                    OnTokenValidated = context =>
+                    OnTokenValidated = async context =>
                     {
                         var identity = context.Principal?.Identity as ClaimsIdentity;
                         if (identity is null)
-                            return Task.CompletedTask;
+                            return;
 
                         var email = context.Principal?.FindFirstValue("email")
                             ?? context.Principal?.FindFirstValue(ClaimTypes.Email);
@@ -129,7 +242,7 @@ public static class AuthExtensions
                         if (string.IsNullOrWhiteSpace(email))
                         {
                             context.Fail("Email claim not found in Cognito token.");
-                            return Task.CompletedTask;
+                            return;
                         }
 
                         var emailDomain = email.Contains('@') ? email.Split('@')[1] : string.Empty;
@@ -143,12 +256,93 @@ public static class AuthExtensions
                         if (!identity.HasClaim(c => c.Type == "email_domain"))
                             identity.AddClaim(new Claim("email_domain", emailDomain));
 
-                        var cognitoSub = context.Principal?.FindFirstValue("sub");
-                        if (!string.IsNullOrWhiteSpace(cognitoSub) && !identity.HasClaim(c => c.Type == "cognito_sub"))
-                            identity.AddClaim(new Claim("cognito_sub", cognitoSub));
+                        var cognitoSub = context.Principal?.FindFirstValue(ClaimTypes.NameIdentifier)
+                                      ?? context.Principal?.FindFirstValue("sub")
+                                      ?? context.Principal?.FindFirstValue("cognito_sub")
+                                      ?? context.Principal?.FindFirstValue("cognito:username");
+
+                        if (!string.IsNullOrWhiteSpace(cognitoSub))
+                        {
+                            if (!identity.HasClaim(c => c.Type == "cognito_sub"))
+                                identity.AddClaim(new Claim("cognito_sub", cognitoSub));
+                            if (!identity.HasClaim(c => c.Type == "sub"))
+                                identity.AddClaim(new Claim("sub", cognitoSub));
+                        }
 
                         if (!identity.HasClaim(c => c.Type == ClaimTypes.Email))
                             identity.AddClaim(new Claim(ClaimTypes.Email, email));
+
+                        // Map Cognito Groups / Role claim to canonical Role
+                        var groupClaims = context.Principal?.FindAll("cognito:groups").Select(c => c.Value).ToList() ?? [];
+                        var rawRole = context.Principal?.FindFirstValue("role")
+                                   ?? context.Principal?.FindFirstValue("custom:role")
+                                   ?? groupClaims.FirstOrDefault();
+
+                        var canonicalRole = Shared.Constants.RoleConstants.Staff;
+                        if (!string.IsNullOrWhiteSpace(rawRole))
+                        {
+                            canonicalRole = rawRole.Trim().ToUpperInvariant() switch
+                            {
+                                "SYSTEMADMIN" or "SYSTEM_ADMIN" => Shared.Constants.RoleConstants.SystemAdmin,
+                                "TENANTADMIN" or "TENANT_ADMIN" => Shared.Constants.RoleConstants.TenantAdmin,
+                                "MANAGER" => Shared.Constants.RoleConstants.Manager,
+                                _ => Shared.Constants.RoleConstants.Staff
+                            };
+                        }
+
+                        // Resolve internal user details (UserId, TenantId, PermissionVersion) from IamTenant service
+                        try
+                        {
+                            var authClient = context.HttpContext.RequestServices.GetService<Auth.Grpc.AuthService.AuthServiceClient>();
+                            var iamClient = context.HttpContext.RequestServices.GetService<IamTenant.Grpc.IamService.IamServiceClient>();
+
+                            if (authClient != null)
+                            {
+                                var identityResp = await authClient.IdentifyUserAsync(
+                                    new Auth.Grpc.IdentifyUserRequest { Email = email });
+
+                                if (identityResp != null && identityResp.Exists)
+                                {
+                                    if (!string.IsNullOrWhiteSpace(identityResp.Role))
+                                        canonicalRole = identityResp.Role;
+
+                                    if (!string.IsNullOrWhiteSpace(identityResp.UserId))
+                                    {
+                                        if (!identity.HasClaim(c => c.Type == Shared.Security.JwtClaims.UserId))
+                                            identity.AddClaim(new Claim(Shared.Security.JwtClaims.UserId, identityResp.UserId));
+
+                                        if (!identity.HasClaim(c => c.Type == Shared.Security.JwtClaims.PermissionVersion))
+                                            identity.AddClaim(new Claim(Shared.Security.JwtClaims.PermissionVersion, identityResp.PermissionVersion.ToString()));
+
+                                        if (!string.IsNullOrWhiteSpace(identityResp.TenantId) && !identity.HasClaim(c => c.Type == Shared.Security.JwtClaims.TenantId))
+                                            identity.AddClaim(new Claim(Shared.Security.JwtClaims.TenantId, identityResp.TenantId));
+
+                                        // Pre-warm Redis cache with direct permissions
+                                        if (iamClient != null)
+                                        {
+                                            try
+                                            {
+                                                await iamClient.GetUserPermissionsAsync(
+                                                    new IamTenant.Grpc.GetUserPermissionsRequest { UserId = identityResp.UserId });
+                                            }
+                                            catch (Exception ex)
+                                            {
+                                                logger.LogWarning(ex, "Failed to pre-warm permission cache for user {UserId}", identityResp.UserId);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            logger.LogWarning(ex, "Failed to resolve user identity during token validation for {Email}", email);
+                        }
+
+                        if (!identity.HasClaim(c => c.Type == Shared.Security.JwtClaims.Role))
+                            identity.AddClaim(new Claim(Shared.Security.JwtClaims.Role, canonicalRole));
+                        if (!identity.HasClaim(c => c.Type == ClaimTypes.Role))
+                            identity.AddClaim(new Claim(ClaimTypes.Role, canonicalRole));
 
                         if (!string.IsNullOrWhiteSpace(expectedClientId))
                         {
@@ -157,8 +351,6 @@ public static class AuthExtensions
                             if (!string.Equals(clientId, expectedClientId, StringComparison.Ordinal))
                                 context.Fail("Invalid client_id.");
                         }
-
-                        return Task.CompletedTask;
                     },
                     OnRemoteFailure = context =>
                     {

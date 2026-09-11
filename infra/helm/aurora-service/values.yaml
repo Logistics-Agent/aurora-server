@@ -13,7 +13,7 @@ strategy:
     maxUnavailable: 1
 
 image:
-  repository: acrauroracoredemo.azurecr.io/aurora/service-placeholder
+  repository: acrauroracorekhoa.azurecr.io/aurora/service-placeholder
   pullPolicy: IfNotPresent
   tag: "latest"
 
@@ -63,7 +63,7 @@ resources:
     cpu: 500m
     memory: 512Mi
   requests:
-    cpu: 100m
+    cpu: 25m
     memory: 128Mi
 
 autoscaling:

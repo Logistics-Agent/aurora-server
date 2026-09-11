@@ -2,12 +2,16 @@ nameOverride: "negotiation-agent-service"
 fullnameOverride: "negotiation-agent-service"
 
 image:
-  repository: acrauroracoredemo.azurecr.io/aurora/negotiation-agent-service
+  repository: acrauroracorekhoa.azurecr.io/aurora/negotiation-agent-service
   tag: "latest"
   pullPolicy: IfNotPresent
 
 service:
-  type: ClusterIP
+  type: LoadBalancer
+  annotations:
+    service.beta.kubernetes.io/azure-load-balancer-internal: "true"
+    service.beta.kubernetes.io/azure-load-balancer-internal-subnet: "snet-aks-ai"
+  loadBalancerIP: 10.20.2.15
   port: 8080
   targetPort: 8080
   name: grpc
@@ -23,9 +27,10 @@ env:
   PORT: "8080"
   HTTP_PORT: "3006"
   GRPC_PORT: "8080"
-  REDIS_HOST: "redis-aurora-shared-demo.southeastasia.redis.azure.net"
-  REDIS_PORT: "10000"
-  REDIS_TLS: "true"
+  REDIS_HOST: "redis-master.aurora.svc.cluster.local"
+  REDIS_PORT: "6379"
+  REDIS_TLS: "false"
+  AI_GOVERNANCE_GRPC_URL: "ai-governance:9090"
 
 externalSecret:
   enabled: true
@@ -45,7 +50,7 @@ externalSecret:
 
 resources:
   requests:
-    cpu: 100m
+    cpu: 25m
     memory: 128Mi
   limits:
     cpu: 500m

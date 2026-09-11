@@ -308,4 +308,116 @@ public class MailController(
             return ex.ToActionResult();
         }
     }
+
+    // ─── Inbound Ingestion (Cloudflare Email Worker / SMTP Webhook) ───────────────
+
+    [HttpPost("inbound")]
+    [HttpPost("webhook/inbound")]
+    [Microsoft.AspNetCore.Authorization.AllowAnonymous]
+    public async Task<IActionResult> IngestInboundMessage()
+    {
+        try
+        {
+            byte[] rawEmlBytes;
+            string? senderAddress = Request.Headers["X-Mail-From"].FirstOrDefault() ?? Request.Headers["X-Sender"].FirstOrDefault();
+            string? recipientAddress = Request.Headers["X-Mail-To"].FirstOrDefault() ?? Request.Headers["X-Recipient"].FirstOrDefault();
+            string? source = Request.Headers["X-Source"].FirstOrDefault() ?? "CloudflareWorker";
+
+            if (Request.HasFormContentType && Request.Form.Files.Count > 0)
+            {
+                var file = Request.Form.Files[0];
+                using var ms = new MemoryStream();
+                await file.CopyToAsync(ms, HttpContext.RequestAborted);
+                rawEmlBytes = ms.ToArray();
+                senderAddress ??= Request.Form["from"].FirstOrDefault() ?? Request.Form["sender"].FirstOrDefault();
+                recipientAddress ??= Request.Form["to"].FirstOrDefault() ?? Request.Form["recipient"].FirstOrDefault();
+            }
+            else
+            {
+                using var ms = new MemoryStream();
+                await Request.Body.CopyToAsync(ms, HttpContext.RequestAborted);
+                var bodyBytes = ms.ToArray();
+
+                if (bodyBytes.Length == 0)
+                {
+                    return BadRequest(new { error = "Empty inbound email payload." });
+                }
+
+                // Check if JSON payload with rawEml base64/string
+                if (Request.ContentType?.Contains("application/json", StringComparison.OrdinalIgnoreCase) == true)
+                {
+                    try
+                    {
+                        var jsonDoc = System.Text.Json.JsonDocument.Parse(bodyBytes);
+                        var root = jsonDoc.RootElement;
+                        if (root.TryGetProperty("rawEml", out var rawProp))
+                        {
+                            var rawStr = rawProp.GetString();
+                            if (!string.IsNullOrEmpty(rawStr))
+                            {
+                                rawEmlBytes = rawStr.StartsWith("data:", StringComparison.OrdinalIgnoreCase) || rawStr.Length % 4 == 0 && !rawStr.Contains('\n')
+                                    ? Convert.FromBase64String(rawStr.Contains(',') ? rawStr.Split(',')[1] : rawStr)
+                                    : System.Text.Encoding.UTF8.GetBytes(rawStr);
+                            }
+                            else
+                            {
+                                rawEmlBytes = bodyBytes;
+                            }
+                        }
+                        else
+                        {
+                            rawEmlBytes = bodyBytes;
+                        }
+
+                        if (root.TryGetProperty("from", out var fromProp)) senderAddress ??= fromProp.GetString();
+                        if (root.TryGetProperty("to", out var toProp)) recipientAddress ??= toProp.GetString();
+                    }
+                    catch
+                    {
+                        rawEmlBytes = bodyBytes;
+                    }
+                }
+                else
+                {
+                    rawEmlBytes = bodyBytes;
+                }
+            }
+
+            if (rawEmlBytes.Length == 0)
+            {
+                return BadRequest(new { error = "No raw EML content received." });
+            }
+
+            var result = await mailClient.IngestInboundMessageAsync(
+                rawEmlBytes,
+                senderAddress,
+                recipientAddress,
+                source,
+                HttpContext.RequestAborted);
+
+            logger.LogInformation("Inbound email successfully ingested: {MessageId} -> Thread {ThreadId} (Status: {Status})",
+                result.MessageId, result.ThreadId, result.Status);
+
+            return Ok(new
+            {
+                status = result.Status,
+                messageId = result.MessageId,
+                threadId = result.ThreadId,
+                isQuarantined = result.IsQuarantined,
+                classification = result.Classification,
+                subject = result.Subject,
+                mailboxId = result.AssignedMailboxId
+            });
+        }
+        catch (RpcException ex)
+        {
+            logger.LogWarning(ex, "gRPC error ingesting inbound email: {Detail}", ex.Status.Detail);
+            return ex.ToActionResult();
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Unexpected error ingesting inbound email");
+            return StatusCode(500, new { error = ex.Message });
+        }
+    }
 }

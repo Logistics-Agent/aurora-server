@@ -73,7 +73,7 @@ public class IamAuthorizationTests
         mockCurrentUser.Setup(u => u.Role).Returns(RoleConstants.TenantAdmin);
 
         var mockCognito = new Mock<ICognitoAuthService>();
-        mockCognito.Setup(c => c.AdminCreateUserInPoolAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+        mockCognito.Setup(c => c.AdminCreateUserInPoolAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync("cognito-sub-alice");
 
         using var context = CreateTestDbContext(dbName, mockCurrentUser.Object);
@@ -168,7 +168,7 @@ public class IamAuthorizationTests
         mockCurrentUser.Setup(u => u.UserId).Returns(Guid.NewGuid());
 
         var mockCognito = new Mock<ICognitoAuthService>();
-        mockCognito.Setup(c => c.AdminCreateUserInPoolAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+        mockCognito.Setup(c => c.AdminCreateUserInPoolAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync("cognito-sub-charlie");
 
         var mockCache = new Mock<IPermissionCacheService>();
@@ -204,7 +204,7 @@ public class IamAuthorizationTests
         mockCurrentUser.Setup(u => u.UserId).Returns(Guid.NewGuid());
 
         var mockCognito = new Mock<ICognitoAuthService>();
-        mockCognito.Setup(c => c.AdminCreateUserInPoolAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+        mockCognito.Setup(c => c.AdminCreateUserInPoolAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync("cognito-sub-david");
 
         var mockCache = new Mock<IPermissionCacheService>();
@@ -240,7 +240,7 @@ public class IamAuthorizationTests
         mockCurrentUser.Setup(u => u.UserId).Returns(Guid.NewGuid());
 
         var mockCognito = new Mock<ICognitoAuthService>();
-        mockCognito.Setup(c => c.AdminCreateUserInPoolAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+        mockCognito.Setup(c => c.AdminCreateUserInPoolAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync("cognito-sub-eve");
 
         var mockCache = new Mock<IPermissionCacheService>();
@@ -280,7 +280,7 @@ public class IamAuthorizationTests
         mockCurrentUser.Setup(u => u.UserId).Returns(Guid.NewGuid());
 
         var mockCognito = new Mock<ICognitoAuthService>();
-        mockCognito.Setup(c => c.AdminCreateUserInPoolAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+        mockCognito.Setup(c => c.AdminCreateUserInPoolAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync("cognito-sub-test");
 
         var mockCache = new Mock<IPermissionCacheService>();

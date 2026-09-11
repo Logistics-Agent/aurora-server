@@ -29,8 +29,8 @@ public static class SharedServiceExtensions
         services.AddScoped<ICurrentUserContext>(sp => sp.GetRequiredService<CurrentUserService>());
 
         // Redis Permission Cache
-        var redisConn = BuildRedisConnectionString(configuration);
-        services.AddStackExchangeRedisCache(opts => opts.Configuration = redisConn);
+        var redisOpts = BuildRedisConfigurationOptions(configuration);
+        services.AddStackExchangeRedisCache(opts => opts.ConfigurationOptions = redisOpts);
         services.AddScoped<IPermissionCacheService, PermissionCacheService>();
 
         // gRPC Interceptors
@@ -83,22 +83,63 @@ public static class SharedServiceExtensions
 
         return services;
     }
-    /// <summary>
-    /// Build StackExchange.Redis connection string từ Redis:Host + Redis:Password.
-    /// Nếu có password (Redis Cloud) → thêm password + ssl=true.
-    /// Nếu không có password (local) → chỉ dùng host.
-    /// </summary>
-    public static string BuildRedisConnectionString(IConfiguration configuration)
+
+    public static StackExchange.Redis.ConfigurationOptions BuildRedisConfigurationOptions(IConfiguration configuration)
     {
-        var host = configuration["Redis:Host"]
-            ?? throw new InvalidOperationException("Redis:Host is required (e.g. localhost:6379)");
+        var rawHost = configuration["Redis:Host"];
+        if (string.IsNullOrWhiteSpace(rawHost))
+            rawHost = configuration["Redis:ConnectionString"];
+        if (string.IsNullOrWhiteSpace(rawHost))
+            rawHost = configuration.GetConnectionString("Redis");
+        if (string.IsNullOrWhiteSpace(rawHost))
+            rawHost = "localhost:6379";
+
+        var host = rawHost.Trim();
 
         var password = configuration["Redis:Password"];
+        var ssl = configuration.GetValue<bool?>("Redis:Ssl") 
+               ?? configuration.GetValue<bool?>("Redis:UseSsl") 
+               ?? (!string.IsNullOrWhiteSpace(password));
+        var abortConnect = configuration.GetValue<bool?>("Redis:AbortConnect") ?? false;
 
-        if (string.IsNullOrWhiteSpace(password))
-            return host; // Local Redis, không cần password
+        var options = new StackExchange.Redis.ConfigurationOptions
+        {
+            AbortOnConnectFail = abortConnect,
+            Ssl = ssl,
+            ConnectTimeout = 15000,
+            SyncTimeout = 15000,
+            CheckCertificateRevocation = false,
+            SslProtocols = System.Security.Authentication.SslProtocols.Tls12 | System.Security.Authentication.SslProtocols.Tls13
+        };
 
-        // Redis Cloud: host:port,password=xxx,ssl=true,abortConnect=false
-        return $"{host},password={password},ssl=true,abortConnect=false";
+        if (host.Contains(','))
+        {
+            var parsed = StackExchange.Redis.ConfigurationOptions.Parse(host);
+            foreach (var ep in parsed.EndPoints)
+            {
+                options.EndPoints.Add(ep);
+            }
+        }
+        else
+        {
+            options.EndPoints.Add(host);
+        }
+
+        if (!string.IsNullOrWhiteSpace(password))
+        {
+            options.Password = password;
+        }
+
+        if (options.EndPoints.Count > 0 && options.EndPoints[0] is System.Net.DnsEndPoint dns)
+        {
+            options.SslHost = dns.Host;
+        }
+
+        return options;
+    }
+
+    public static string BuildRedisConnectionString(IConfiguration configuration)
+    {
+        return BuildRedisConfigurationOptions(configuration).ToString();
     }
 }

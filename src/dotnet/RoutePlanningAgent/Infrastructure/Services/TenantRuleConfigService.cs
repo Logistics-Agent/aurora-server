@@ -32,13 +32,20 @@ public class TenantRuleConfigService(
     public async Task<TenantRuleThresholds> GetThresholdsAsync(
         Guid tenantId, string ruleName, CancellationToken ct = default)
     {
-        var gen = await GetGenerationAsync(tenantId, ct);
-        var key = DataKey(tenantId, gen, ruleName);
+        try
+        {
+            var gen = await GetGenerationAsync(tenantId, ct);
+            var key = DataKey(tenantId, gen, ruleName);
 
-        // 1. Cache Aside — Check Redis
-        var cached = await cache.GetStringAsync(key, ct);
-        if (cached is not null)
-            return JsonSerializer.Deserialize<TenantRuleThresholds>(cached)!;
+            // 1. Cache Aside — Check Redis
+            var cached = await cache.GetStringAsync(key, ct);
+            if (cached is not null)
+                return JsonSerializer.Deserialize<TenantRuleThresholds>(cached)!;
+        }
+        catch
+        {
+            // Redis error fallback to DB
+        }
 
         // 2. Cache miss — Load from DB
         var config = await context.TenantRuleConfigs
@@ -68,28 +75,51 @@ public class TenantRuleConfigService(
         }
 
         // 3. Set Redis — TTL 1 hour
-        await cache.SetStringAsync(key, JsonSerializer.Serialize(thresholds), CacheOptions, ct);
+        try
+        {
+            var gen = await GetGenerationAsync(tenantId, ct);
+            var key = DataKey(tenantId, gen, ruleName);
+            await cache.SetStringAsync(key, JsonSerializer.Serialize(thresholds), CacheOptions, ct);
+        }
+        catch
+        {
+            // Best effort cache write
+        }
 
         return thresholds;
     }
 
     public async Task InvalidateCacheAsync(Guid tenantId, string ruleName, CancellationToken ct = default)
     {
-        if (string.IsNullOrEmpty(ruleName))
+        try
         {
-            // Wildcard: tăng generation → mọi key cũ của tenant bị bỏ qua, TTL 1h tự dọn
-            var gen = await GetGenerationAsync(tenantId, ct);
-            await cache.SetStringAsync(GenKey(tenantId), (gen + 1).ToString(), ct);
-            return;
-        }
+            if (string.IsNullOrEmpty(ruleName))
+            {
+                // Wildcard: tăng generation → mọi key cũ của tenant bị bỏ qua, TTL 1h tự dọn
+                var gen = await GetGenerationAsync(tenantId, ct);
+                await cache.SetStringAsync(GenKey(tenantId), (gen + 1).ToString(), ct);
+                return;
+            }
 
-        var currentGen = await GetGenerationAsync(tenantId, ct);
-        await cache.RemoveAsync(DataKey(tenantId, currentGen, ruleName), ct);
+            var currentGen = await GetGenerationAsync(tenantId, ct);
+            await cache.RemoveAsync(DataKey(tenantId, currentGen, ruleName), ct);
+        }
+        catch
+        {
+            // Best effort cache invalidation
+        }
     }
 
     private async Task<long> GetGenerationAsync(Guid tenantId, CancellationToken ct)
     {
-        var raw = await cache.GetStringAsync(GenKey(tenantId), ct);
-        return long.TryParse(raw, out var gen) ? gen : 1;
+        try
+        {
+            var raw = await cache.GetStringAsync(GenKey(tenantId), ct);
+            return long.TryParse(raw, out var gen) ? gen : 1;
+        }
+        catch
+        {
+            return 1;
+        }
     }
 }

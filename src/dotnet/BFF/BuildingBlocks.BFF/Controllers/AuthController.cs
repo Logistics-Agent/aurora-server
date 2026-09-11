@@ -117,19 +117,37 @@ public class AuthController(
         var email = User.FindFirstValue("email")
                  ?? User.FindFirstValue(ClaimTypes.Email);
 
+        var cognitoSub = User.FindFirstValue("cognito_sub")
+                      ?? User.FindFirstValue(ClaimTypes.NameIdentifier)
+                      ?? User.FindFirstValue("sub")
+                      ?? User.FindFirstValue("cognito:username");
+
+        var role = _currentUser.Role ?? User.FindFirstValue(JwtClaims.Role) ?? User.FindFirstValue(ClaimTypes.Role) ?? RoleConstants.Staff;
+        var directPermissions = _currentUser.Permissions ?? [];
+        var permissions = directPermissions.Count > 0
+            ? directPermissions
+            : role.Trim().ToUpperInvariant() switch
+            {
+                "MANAGER" => PermissionConstants.GetDefaultManagerPermissions(),
+                "TENANT_ADMIN" or "TENANTADMIN" => PermissionConstants.GetTenantAdminPermissions(),
+                "SYSTEM_ADMIN" or "SYSTEMADMIN" => PermissionConstants.GetAllPermissions(),
+                _ => PermissionConstants.GetDefaultStaffPermissions()
+            };
+
         return Ok(new
         {
             Email = email,
-            EmailDomain = User.FindFirstValue("email_domain"),
-            CognitoSub = User.FindFirstValue("sub")
-                       ?? User.FindFirstValue("cognito_sub"),
-            UserId = _currentUser.UserId?.ToString() ?? User.FindFirstValue("user_id"),
-            TenantId = _currentUser.TenantId?.ToString() ?? User.FindFirstValue("tenant_id"),
-            Role = _currentUser.Role ?? User.FindFirstValue(JwtClaims.Role) ?? User.FindFirstValue(ClaimTypes.Role) ?? RoleConstants.Staff,
-            Permissions = _currentUser.Permissions ?? [],
-            Name = User.FindFirstValue(ClaimTypes.Name)
-                ?? User.FindFirstValue("name")
-                ?? User.FindFirstValue("cognito:username"),
+            EmailDomain = User.FindFirstValue("email_domain")
+                       ?? (email != null && email.Contains('@') ? email.Split('@')[1] : null),
+            CognitoSub = cognitoSub,
+            UserId = _currentUser.UserId?.ToString() ?? User.FindFirstValue(JwtClaims.UserId) ?? User.FindFirstValue("user_id"),
+            TenantId = _currentUser.TenantId?.ToString() ?? User.FindFirstValue(JwtClaims.TenantId) ?? User.FindFirstValue("tenant_id"),
+            Role = role,
+            Permissions = permissions,
+            Name = User.FindFirstValue("name")
+                ?? User.FindFirstValue(ClaimTypes.Name)
+                ?? (email != null && email.Contains('@') ? email.Split('@')[0] : null)
+                ?? cognitoSub,
             IsAuthenticated = User.Identity?.IsAuthenticated ?? false
         });
     }

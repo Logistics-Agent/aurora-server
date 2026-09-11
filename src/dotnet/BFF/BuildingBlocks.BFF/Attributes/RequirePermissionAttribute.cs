@@ -20,11 +20,13 @@ public class RequirePermissionAttribute : Attribute, IAsyncAuthorizationFilter
 {
     public string RequiredPermission { get; }
     public string? LegacyFallbackPermission { get; }
+    public IReadOnlyList<string> FallbackPermissions { get; }
 
     public RequirePermissionAttribute(string permission)
     {
         RequiredPermission = permission;
         LegacyFallbackPermission = null;
+        FallbackPermissions = Array.Empty<string>();
     }
 
     public RequirePermissionAttribute(string permissionOrModule, string legacyFallbackOrAction)
@@ -33,12 +35,28 @@ public class RequirePermissionAttribute : Attribute, IAsyncAuthorizationFilter
         {
             RequiredPermission = permissionOrModule;
             LegacyFallbackPermission = legacyFallbackOrAction;
+            FallbackPermissions = new[] { legacyFallbackOrAction };
         }
         else
         {
             RequiredPermission = $"{permissionOrModule}:{legacyFallbackOrAction}";
             LegacyFallbackPermission = null;
+            FallbackPermissions = Array.Empty<string>();
         }
+    }
+
+    public RequirePermissionAttribute(string permission, string fallback1, string fallback2)
+    {
+        RequiredPermission = permission;
+        LegacyFallbackPermission = fallback1;
+        FallbackPermissions = new[] { fallback1, fallback2 };
+    }
+
+    public RequirePermissionAttribute(string permission, params string[] fallbacks)
+    {
+        RequiredPermission = permission;
+        LegacyFallbackPermission = fallbacks.FirstOrDefault();
+        FallbackPermissions = fallbacks;
     }
 
     public Task OnAuthorizationAsync(AuthorizationFilterContext context)

@@ -2,7 +2,7 @@ nameOverride: "mail-service"
 fullnameOverride: "mail-service"
 
 image:
-  repository: acrauroracoredemo.azurecr.io/aurora/mail-service
+  repository: acrauroracorekhoa.azurecr.io/aurora/mail-service
   tag: "latest"
   pullPolicy: IfNotPresent
 
@@ -47,15 +47,15 @@ startupProbe:
 
 env:
   ASPNETCORE_ENVIRONMENT: "Production"
-  Redis__Host: "redis-aurora-shared-demo.southeastasia.redis.azure.net:10000"
-  Redis__Ssl: "true"
+  Redis__Host: "redis-master.aurora.svc.cluster.local:6379"
+  Redis__Ssl: "false"
   Redis__AbortConnect: "false"
   Stalwart__BaseUrl: "http://stalwart.aurora.svc.cluster.local:8080"
   Stalwart__AdminUrl: "http://stalwart.aurora.svc.cluster.local:8080"
   Stalwart__SmtpHost: "stalwart.aurora.svc.cluster.local"
   Stalwart__SmtpPort: "25"
-  AiGovernance__GrpcEndpoint: "http://ai-governance.aurora-ai.svc.cluster.local:9090"
-  Grpc__AiGovernance__Url: "http://ai-governance.aurora-ai.svc.cluster.local:9090"
+  AiGovernance__GrpcEndpoint: "http://10.20.2.10:9090"
+  Grpc__AiGovernance__Url: "http://10.20.2.10:9090"
   ClamAV__Host: "clamav.aurora.svc.cluster.local"
   ClamAV__Port: "3310"
   SpamAssassin__Host: "spamassassin.aurora.svc.cluster.local"
@@ -86,10 +86,10 @@ externalSecret:
 
 resources:
   requests:
-    cpu: 200m
-    memory: 256Mi
+    cpu: 50m
+    memory: 128Mi
   limits:
-    cpu: 1000m
+    cpu: 500m
     memory: 512Mi
 
 serviceMonitor:

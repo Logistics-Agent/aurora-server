@@ -90,11 +90,11 @@ jobs:
         run: |
           ACR_REGISTRY_NAME="${{ secrets.ACR_NAME }}"
           [ -z "$ACR_REGISTRY_NAME" ] && ACR_REGISTRY_NAME="${{ vars.ACR_NAME }}"
-          [ -z "$ACR_REGISTRY_NAME" ] && ACR_REGISTRY_NAME="acrauroracoredemo"
+          [ -z "$ACR_REGISTRY_NAME" ] && ACR_REGISTRY_NAME="acrauroracorekhoa"
 
           ACR_SERVER="${{ secrets.ACR_LOGIN_SERVER }}"
           [ -z "$ACR_SERVER" ] && ACR_SERVER="${{ vars.ACR_LOGIN_SERVER }}"
-          [ -z "$ACR_SERVER" ] && ACR_SERVER="acrauroracoredemo.azurecr.io"
+          [ -z "$ACR_SERVER" ] && ACR_SERVER="acrauroracorekhoa.azurecr.io"
 
           echo "RESOLVED_ACR_NAME=$ACR_REGISTRY_NAME" >> $GITHUB_ENV
           echo "RESOLVED_ACR_SERVER=$ACR_SERVER" >> $GITHUB_ENV

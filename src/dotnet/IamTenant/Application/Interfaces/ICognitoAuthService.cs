@@ -3,8 +3,8 @@ namespace IamTenant.Application.Interfaces;
 public interface ICognitoAuthService
 {
     Task<TenantCognitoPoolsResult> CreateTenantUserPoolsAsync(string tenantCode, CancellationToken ct = default);
-    Task<string> AdminCreateUserInPoolAsync(string userPoolId, string email, string tempPassword, CancellationToken ct = default);
-    Task<string> AdminCreateUserAsync(string email, string tempPassword, CancellationToken ct = default);
+    Task<string> AdminCreateUserInPoolAsync(string userPoolId, string email, string tempPassword, string? firstName = null, string? lastName = null, string? role = null, CancellationToken ct = default);
+    Task<string> AdminCreateUserAsync(string email, string tempPassword, string? firstName = null, string? lastName = null, string? role = null, CancellationToken ct = default);
     Task<AuthResult> InitiateAuthAsync(string email, string password, CancellationToken ct = default);
     Task<AuthResult> InitiateAuthAsync(string clientId, string email, string password, CancellationToken ct = default);
     Task<AuthResult> CompleteNewPasswordChallengeAsync(string email, string newPassword, string session, CancellationToken ct = default);
@@ -15,6 +15,8 @@ public interface ICognitoAuthService
     Task ForgotPasswordAsync(string clientId, string email, CancellationToken ct = default);
     Task ConfirmForgotPasswordAsync(string email, string newPassword, string confirmationCode, CancellationToken ct = default);
     Task ConfirmForgotPasswordAsync(string clientId, string email, string newPassword, string confirmationCode, CancellationToken ct = default);
+    Task ChangePasswordAsync(string email, string currentPassword, string newPassword, CancellationToken ct = default);
+    Task ChangePasswordAsync(string clientId, string email, string currentPassword, string newPassword, CancellationToken ct = default);
 }
 
 

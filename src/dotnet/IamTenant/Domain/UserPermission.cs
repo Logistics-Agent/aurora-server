@@ -10,7 +10,7 @@ public class UserPermission
     public Guid PermissionId { get; set; }
     public Permission? Permission { get; set; }
 
-    public Guid TenantId { get; set; }
+    public Guid? TenantId { get; set; }
     public Guid? GrantedByUserId { get; set; }
     public DateTimeOffset GrantedAt { get; set; } = DateTimeOffset.UtcNow;
 }

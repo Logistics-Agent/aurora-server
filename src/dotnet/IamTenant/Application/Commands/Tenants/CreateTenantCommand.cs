@@ -11,7 +11,15 @@ using IamTenant.Domain.Enums;
 
 namespace IamTenant.Application.Commands.Tenants;
 
-public record CreateTenantCommand(string Name, string CompanyDomain, string AdminEmail, Guid IdempotencyKey, string? TaxCode = null, PlanType PlanType = PlanType.Standard) : IRequest<TenantDto>;
+public record CreateTenantCommand(
+    string Name,
+    string CompanyDomain,
+    string AdminEmail,
+    Guid IdempotencyKey,
+    string? TaxCode = null,
+    PlanType PlanType = PlanType.Standard,
+    string? AdminFirstName = null,
+    string? AdminLastName = null) : IRequest<TenantDto>;
 
 public class CreateTenantHandler(
     IamTenantDbContext context,
@@ -69,19 +77,37 @@ public class CreateTenantHandler(
         {
             TenantId = tenant.Id,
             Email = request.AdminEmail,
+            FirstName = request.AdminFirstName ?? string.Empty,
+            LastName = request.AdminLastName ?? string.Empty,
             Role = Shared.Enums.BaseRole.TenantAdmin,
             Status = UserStatus.Invited,
             PermissionVersion = 1
         };
 
-        // Attach Tenant Admin direct permissions
+        // Attach Tenant Admin direct permissions (auto-create catalog records if not already present)
         var adminPermCodes = Shared.Constants.PermissionConstants.GetTenantAdminPermissions();
-        var adminPerms = await context.Permissions
+        var existingPerms = await context.Permissions
             .Where(p => adminPermCodes.Contains(p.Code))
             .ToListAsync(cancellationToken);
 
-        foreach (var perm in adminPerms)
+        var existingCodeMap = existingPerms.ToDictionary(p => p.Code, p => p, StringComparer.OrdinalIgnoreCase);
+
+        foreach (var code in adminPermCodes)
         {
+            if (!existingCodeMap.TryGetValue(code, out var perm))
+            {
+                var parts = code.Split(':');
+                perm = new Domain.Permission
+                {
+                    Id = IamTenantDbContext.DeterministicPermissionId(code),
+                    Code = code,
+                    Module = parts[0],
+                    Description = $"Allows {code}"
+                };
+                context.Permissions.Add(perm);
+                existingCodeMap[code] = perm;
+            }
+
             adminUser.UserPermissions.Add(new UserPermission
             {
                 UserId = adminUser.Id,
@@ -92,7 +118,14 @@ public class CreateTenantHandler(
         }
 
         // Cognito AdminCreateUser in the newly provisioned Admin User Pool
-        var cognitoSub = await cognitoService.AdminCreateUserInPoolAsync(tenant.AdminUserPoolId, request.AdminEmail, tempPassword, cancellationToken);
+        var cognitoSub = await cognitoService.AdminCreateUserInPoolAsync(
+            tenant.AdminUserPoolId,
+            request.AdminEmail,
+            tempPassword,
+            request.AdminFirstName,
+            request.AdminLastName,
+            role: "TENANT_ADMIN",
+            ct: cancellationToken);
         adminUser.CognitoSub = cognitoSub;
 
         context.Users.Add(adminUser);
@@ -103,7 +136,9 @@ public class CreateTenantHandler(
             TenantId = tenant.Id,
             TenantName = tenant.Name,
             UserId = adminUser.Id,
-            Email = adminUser.Email
+            Email = adminUser.Email,
+            FirstName = adminUser.FirstName,
+            LastName = adminUser.LastName
         };
 
         var outboxMessage = new OutboxMessage

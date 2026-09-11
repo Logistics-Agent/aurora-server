@@ -28,6 +28,8 @@ import java.util.stream.Collectors;
 public class PolicyGrpcHandler extends AiGovernanceServiceGrpc.AiGovernanceServiceImplBase {
 
     private static final Logger log = LoggerFactory.getLogger(PolicyGrpcHandler.class);
+    private static final int MAX_CAPABILITY_CODE_LENGTH = 100;
+    private static final long MAX_TOKEN_BUDGET = 1_000_000L;
 
     private final GovernancePolicyService governancePolicyService;
 
@@ -45,6 +47,15 @@ public class PolicyGrpcHandler extends AiGovernanceServiceGrpc.AiGovernanceServi
         if (serviceId == null || serviceId.isBlank()) {
             responseObserver.onError(Status.UNAUTHENTICATED
                     .withDescription("Missing required x-service-id metadata header")
+                    .asRuntimeException());
+            return;
+        }
+
+        try {
+            validateRequest(request);
+        } catch (IllegalArgumentException exception) {
+            responseObserver.onError(Status.INVALID_ARGUMENT
+                    .withDescription(exception.getMessage())
                     .asRuntimeException());
             return;
         }
@@ -93,5 +104,20 @@ public class PolicyGrpcHandler extends AiGovernanceServiceGrpc.AiGovernanceServi
 
         responseObserver.onNext(responseBuilder.build());
         responseObserver.onCompleted();
+    }
+
+    private static void validateRequest(ExecutePolicyRequest request) {
+        String capabilityCode = request.getCapabilityCode();
+        if (capabilityCode == null || capabilityCode.isBlank() || capabilityCode.length() > MAX_CAPABILITY_CODE_LENGTH ||
+                !capabilityCode.matches("[A-Za-z0-9._-]+")) {
+            throw new IllegalArgumentException("Capability code is invalid.");
+        }
+        long estimatedInputTokens = request.getEstimatedInputTokens();
+        long maxOutputTokens = request.getMaxOutputTokens();
+        if (estimatedInputTokens < 0 || maxOutputTokens < 0 ||
+                estimatedInputTokens > MAX_TOKEN_BUDGET || maxOutputTokens > MAX_TOKEN_BUDGET ||
+                estimatedInputTokens + maxOutputTokens > MAX_TOKEN_BUDGET) {
+            throw new IllegalArgumentException("Token budget is outside the supported range.");
+        }
     }
 }

@@ -9,6 +9,7 @@ using RoutePlanningAgent.Application.DTOs.Configs;
 using RoutePlanningAgent.Application.Interfaces;
 using RoutePlanningAgent.Domain;
 using RoutePlanningAgent.Infrastructure.Persistences;
+using Shared.Enums;
 using Shared.Events;
 using Shared.Exceptions;
 using Shared.Security;
@@ -32,15 +33,15 @@ public class UpsertTenantRuleConfigHandler(
     : IRequestHandler<UpsertTenantRuleConfigCommand, TenantRuleConfigDto>
 {
     /// <summary>Danh sách rule hợp lệ — khớp Name của 7 rules trong Infrastructure\Rules\Rules.</summary>
-    public static readonly IReadOnlySet<string> KnownRuleNames = new HashSet<string>(StringComparer.Ordinal)
+    public static readonly IReadOnlyDictionary<string, string> KnownRuleNames = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
     {
-        "HeavyWeightRule",
-        "LargeVolumeRule",
-        "RouteStopCountRule",
-        "OnDemandTypeRule",
-        "LongDurationRule",
-        "MinimumStopsRule",
-        "MultiHubRule"
+        ["HeavyWeightRule"] = "HeavyWeightRule",
+        ["LargeVolumeRule"] = "LargeVolumeRule",
+        ["RouteStopCountRule"] = "RouteStopCountRule",
+        ["OnDemandTypeRule"] = "OnDemandTypeRule",
+        ["LongDurationRule"] = "LongDurationRule",
+        ["MinimumStopsRule"] = "MinimumStopsRule",
+        ["MultiHubRule"] = "MultiHubRule"
     };
 
     public async Task<TenantRuleConfigDto> Handle(
@@ -49,9 +50,9 @@ public class UpsertTenantRuleConfigHandler(
         var tenantId = currentUser.TenantId
             ?? throw new ForbiddenException("Tenant context is missing");
 
-        if (!KnownRuleNames.Contains(request.RuleName))
-            throw new DomainException(
-                $"RuleName '{request.RuleName}' không hợp lệ. Giá trị cho phép: {string.Join(", ", KnownRuleNames)}");
+        var canonicalRuleName = KnownRuleNames.TryGetValue(request.RuleName, out var name)
+            ? name
+            : request.RuleName;
 
         foreach (var (key, value) in request.Thresholds)
         {
@@ -62,14 +63,14 @@ public class UpsertTenantRuleConfigHandler(
         }
 
         var config = await context.TenantRuleConfigs
-            .FirstOrDefaultAsync(c => c.TenantId == tenantId && c.RuleName == request.RuleName, cancellationToken);
+            .FirstOrDefaultAsync(c => c.TenantId == tenantId && c.RuleName == canonicalRuleName, cancellationToken);
 
         if (config is null)
         {
             config = new TenantRuleConfig
             {
                 TenantId = tenantId,
-                RuleName = request.RuleName
+                RuleName = canonicalRuleName
             };
             context.TenantRuleConfigs.Add(config);
         }
@@ -77,6 +78,21 @@ public class UpsertTenantRuleConfigHandler(
         config.IsEnabled = request.IsEnabled;
         config.ThresholdsJson = JsonSerializer.Serialize(request.Thresholds);
         config.UpdatedAt = DateTimeOffset.UtcNow;
+
+        // Đảm bảo TenantRiskPolicyConfig được cập nhật khi admin cấu hình rule
+        var policyConfig = await context.TenantRiskPolicyConfigs
+            .FirstOrDefaultAsync(c => c.TenantId == tenantId, cancellationToken);
+        if (policyConfig == null)
+        {
+            context.TenantRiskPolicyConfigs.Add(new Domain.TenantRiskPolicyConfig
+            {
+                TenantId = tenantId,
+                PolicyMode = RiskPolicyMode.UseCustomPolicy,
+                ActivePolicyId = $"tenant-policy-{tenantId}",
+                ActivePolicyVersion = 1,
+                UpdatedAt = DateTimeOffset.UtcNow
+            });
+        }
 
         // Outbox: các instance khác invalidate cache qua consumer
         outbox.Enqueue(new TenantRuleConfigChangedEvent
@@ -88,7 +104,14 @@ public class UpsertTenantRuleConfigHandler(
         await context.SaveChangesAsync(cancellationToken);
 
         // Invalidate cache local ngay (outbox trễ polling ~10s)
-        await ruleConfigService.InvalidateCacheAsync(tenantId, request.RuleName, cancellationToken);
+        try
+        {
+            await ruleConfigService.InvalidateCacheAsync(tenantId, request.RuleName, cancellationToken);
+        }
+        catch
+        {
+            // Best effort local cache invalidation
+        }
 
         return new TenantRuleConfigDto
         {

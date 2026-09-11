@@ -13,6 +13,8 @@ using Amazon.S3;
 using Serilog;
 using StackExchange.Redis;
 using AiGovernance.Grpc;
+using Audit.Grpc;
+using System.Net.Http.Headers;
 using Shared.Extensions;
 using Shared.Interceptors;
 using Shared.Security;
@@ -117,8 +119,13 @@ builder.Services.AddDbContext<MailServiceDbContext>(options =>
         npgsql.EnableRetryOnFailure(3);
     }));
 
-// Register Scoped Identity & Repositories & Outbox
-builder.Services.AddScoped<ICurrentUserService, CurrentUserService>();
+// Register one scoped identity instance behind both interfaces. AuthInterceptor
+// populates ICurrentUserContext and downstream handlers read ICurrentUserService,
+// so resolving separate CurrentUserService instances would lose the propagated
+// tenant/user identity.
+builder.Services.AddScoped<CurrentUserService>();
+builder.Services.AddScoped<ICurrentUserService>(sp => sp.GetRequiredService<CurrentUserService>());
+builder.Services.AddScoped<ICurrentUserContext>(sp => sp.GetRequiredService<CurrentUserService>());
 builder.Services.AddScoped<IEmailDraftRepository, EmailDraftRepository>();
 builder.Services.AddScoped<IOutboxWriter, OutboxWriter>();
 builder.Services.AddHostedService<OutboxProcessorBackgroundService>();
@@ -132,6 +139,9 @@ builder.Services.AddHttpClient();
 builder.Services.AddHttpClient<IStalwartManagementClient, StalwartManagementClient>(client =>
 {
     client.BaseAddress = new Uri(stalwartBaseUrl);
+    var adminApiKey = builder.Configuration["Stalwart:AdminApiKey"];
+    if (!string.IsNullOrWhiteSpace(adminApiKey))
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", adminApiKey);
 });
 
 builder.Services.AddSingleton<IAmazonS3>(sp => new AmazonS3Client(
@@ -195,6 +205,9 @@ builder.Services.AddGrpcClient<AiExecutionService.AiExecutionServiceClient>(o =>
 {
     o.Address = new Uri(aiGovernanceUrl);
 });
+
+var auditServiceUrl = builder.Configuration["Grpc:AuditService:Url"] ?? "http://audit-service:9086";
+builder.Services.AddGrpcClient<AuditLogService.AuditLogServiceClient>(o => o.Address = new Uri(auditServiceUrl));
 
 builder.Services.AddScoped<IAiGovernanceClient, AiGovernanceGrpcClient>();
 builder.Services.AddScoped<IPhishingDetectionService, GovernedPhishingDetectionService>();

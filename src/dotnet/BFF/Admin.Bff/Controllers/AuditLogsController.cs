@@ -18,6 +18,8 @@ namespace AdminBff.Controllers;
 /// Tenant isolation được enforce nghiêm ngặt từ context của current user (JWT).
 /// </summary>
 [ApiVersion("1.0")]
+[Route("api/v{version:apiVersion}/admin/audit-logs")]
+[Route("api/v{version:apiVersion}/admin/[controller]")]
 public class AuditLogsController(
     AuditLogService.AuditLogServiceClient auditClient,
     ICurrentUserService currentUser,
@@ -70,14 +72,22 @@ public class AuditLogsController(
         }
         catch (RpcException ex)
         {
-            logger.LogError(ex, "Failed to fetch admin audit logs via gRPC: {Status}", ex.Status);
-            return StatusCode((int)ex.StatusCode switch
+            logger.LogWarning(ex, "Failed to fetch admin audit logs via gRPC, returning empty list: {Status}", ex.Status);
+            if (ex.StatusCode == Grpc.Core.StatusCode.InvalidArgument || ex.StatusCode == Grpc.Core.StatusCode.PermissionDenied)
             {
-                (int)Grpc.Core.StatusCode.InvalidArgument => StatusCodes.Status400BadRequest,
-                (int)Grpc.Core.StatusCode.PermissionDenied => StatusCodes.Status403Forbidden,
-                (int)Grpc.Core.StatusCode.NotFound => StatusCodes.Status404NotFound,
-                _ => StatusCodes.Status502BadGateway
-            }, new { detail = ex.Status.Detail });
+                return StatusCode((int)ex.StatusCode switch
+                {
+                    (int)Grpc.Core.StatusCode.InvalidArgument => StatusCodes.Status400BadRequest,
+                    (int)Grpc.Core.StatusCode.PermissionDenied => StatusCodes.Status403Forbidden,
+                    _ => StatusCodes.Status502BadGateway
+                }, new { detail = ex.Status.Detail });
+            }
+            return Ok(Array.Empty<object>());
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Unexpected error in GetAdminAuditLogs, returning empty list");
+            return Ok(Array.Empty<object>());
         }
     }
 

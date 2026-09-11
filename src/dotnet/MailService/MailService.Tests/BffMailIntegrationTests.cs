@@ -239,6 +239,29 @@ public class BffMailIntegrationTests
     }
 
     [Fact]
+    public async Task AdminBff_VerifyDomain_Valid_ReturnsOk()
+    {
+        var controller = new MailAdminController(_mockMailClient.Object, _mockCurrentUser.Object, _mockAdminLogger.Object);
+        SetupControllerContext(controller);
+
+        var domainId = Guid.NewGuid().ToString();
+        var expectedResponse = new VerifyDomainResponse(
+            domainId, true, "Active", "DKIM DNS record verified.", "aurora-2025",
+            "aurora-2025._domainkey.aurora.vn", "v=DKIM1; k=rsa; p=...", "v=DKIM1; k=rsa; p=...", DateTimeOffset.UtcNow);
+
+        _mockMailClient.Setup(c => c.VerifyDomainAsync(domainId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(expectedResponse);
+
+        var result = await controller.VerifyDomain(domainId);
+
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        Assert.Equal(200, okResult.StatusCode);
+        var response = Assert.IsType<VerifyDomainResponse>(okResult.Value);
+        Assert.True(response.Verified);
+        Assert.Equal("Active", response.Status);
+    }
+
+    [Fact]
     public async Task AdminBff_ProvisionDomain_InvalidFqdn_ReturnsBadRequest()
     {
         var controller = new MailAdminController(_mockMailClient.Object, _mockCurrentUser.Object, _mockAdminLogger.Object);

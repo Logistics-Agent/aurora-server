@@ -2,7 +2,7 @@ nameOverride: "audit-service"
 fullnameOverride: "audit-service"
 
 image:
-  repository: acrauroracoredemo.azurecr.io/aurora/audit-service
+  repository: acrauroracorekhoa.azurecr.io/aurora/audit-service
   tag: "latest"
   pullPolicy: IfNotPresent
 
@@ -10,6 +10,11 @@ service:
   type: ClusterIP
   port: 8080
   targetPort: 8080
+
+additionalPorts:
+  - name: grpc
+    port: 9086
+    targetPort: 9086
 
 env:
   SPRING_PROFILES_ACTIVE: "prod"
@@ -39,7 +44,7 @@ externalSecret:
 
 resources:
   requests:
-    cpu: 150m
+    cpu: 50m
     memory: 256Mi
   limits:
     cpu: 500m

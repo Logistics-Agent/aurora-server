@@ -52,6 +52,24 @@ public sealed class DocumentOcrGrpcServiceTests
     }
 
     [Fact]
+    public async Task ReviewRequiresOcrReviewPermission()
+    {
+        var tenantId = Guid.CreateVersion7();
+        var currentUser = CreateCurrentUser(tenantId);
+        var service = new DocumentOcrGrpcService(new FakeJobService(tenantId), currentUser);
+
+        var exception = await Assert.ThrowsAsync<RpcException>(() => service.ReviewDocumentJob(
+            new OcrGrpc.ReviewDocumentJobRequest
+            {
+                JobId = Guid.CreateVersion7().ToString(),
+                Action = "CONFIRM"
+            },
+            TestServerCallContext.Create()));
+
+        Assert.Equal(StatusCode.PermissionDenied, exception.StatusCode);
+    }
+
+    [Fact]
     public async Task InvalidExternalIdIsInvalidArgument()
     {
         var tenantId = Guid.CreateVersion7();

@@ -172,14 +172,35 @@ public class RoutePlanningGrpcService(IMediator mediator)
 
     // ===== Tenant AI / Rule configuration =====
 
-    public override Task<TenantAiConfigResponse> GetTenantAiConfig(GetTenantAiConfigRequest request, ServerCallContext context)
+    public override async Task<TenantAiConfigResponse> GetTenantAiConfig(GetTenantAiConfigRequest request, ServerCallContext context)
     {
-        throw new RpcException(new Status(StatusCode.Unimplemented, "AI configuration is centrally managed by AiGovernance service. RoutePlanningAgent does not own AI configuration."));
+        var dto = await mediator.Send(new GetTenantAiConfigQuery(request.Feature), context.CancellationToken);
+        return new TenantAiConfigResponse
+        {
+            Id = dto.Id.ToString(),
+            TenantId = dto.TenantId.ToString(),
+            Feature = dto.Feature,
+            Policy = dto.Policy,
+            AiProvider = dto.AiProvider,
+            IsActive = dto.IsActive,
+            UpdatedAt = dto.UpdatedAt.ToString("yyyy-MM-ddTHH:mm:ssZ")
+        };
     }
 
-    public override Task<TenantAiConfigResponse> UpsertTenantAiConfig(UpsertTenantAiConfigRequest request, ServerCallContext context)
+    public override async Task<TenantAiConfigResponse> UpsertTenantAiConfig(UpsertTenantAiConfigRequest request, ServerCallContext context)
     {
-        throw new RpcException(new Status(StatusCode.Unimplemented, "AI configuration is centrally managed by AiGovernance service. RoutePlanningAgent does not own AI configuration."));
+        var command = new UpsertTenantAiConfigCommand(request.Feature, request.Policy, request.AiProvider, request.IsActive);
+        var dto = await mediator.Send(command, context.CancellationToken);
+        return new TenantAiConfigResponse
+        {
+            Id = dto.Id.ToString(),
+            TenantId = dto.TenantId.ToString(),
+            Feature = dto.Feature,
+            Policy = dto.Policy,
+            AiProvider = dto.AiProvider,
+            IsActive = dto.IsActive,
+            UpdatedAt = dto.UpdatedAt.ToString("yyyy-MM-ddTHH:mm:ssZ")
+        };
     }
 
     public override async Task<TenantRuleConfigResponse> UpsertTenantRuleConfig(UpsertTenantRuleConfigRequest request, ServerCallContext context)

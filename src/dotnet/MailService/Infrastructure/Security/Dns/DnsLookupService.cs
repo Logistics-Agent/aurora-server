@@ -20,7 +20,7 @@ public class DnsLookupService : IDnsLookupService
             var txtRecord = result.Answers.TxtRecords()
                 .FirstOrDefault(r => r.Text.Any(t => t.StartsWith("v=spf1", StringComparison.OrdinalIgnoreCase)));
 
-            return txtRecord?.Text.FirstOrDefault();
+            return txtRecord == null ? null : string.Concat(txtRecord.Text);
         }
         catch
         {
@@ -35,7 +35,7 @@ public class DnsLookupService : IDnsLookupService
             string fqdn = $"{selector}._domainkey.{domain}";
             var result = await _dnsClient.QueryAsync(fqdn, QueryType.TXT, cancellationToken: cancellationToken);
             var txtRecord = result.Answers.TxtRecords().FirstOrDefault();
-            return txtRecord?.Text.FirstOrDefault();
+            return txtRecord == null ? null : string.Concat(txtRecord.Text);
         }
         catch
         {
@@ -52,7 +52,7 @@ public class DnsLookupService : IDnsLookupService
             var txtRecord = result.Answers.TxtRecords()
                 .FirstOrDefault(r => r.Text.Any(t => t.StartsWith("v=DMARC1", StringComparison.OrdinalIgnoreCase)));
 
-            return txtRecord?.Text.FirstOrDefault();
+            return txtRecord == null ? null : string.Concat(txtRecord.Text);
         }
         catch
         {

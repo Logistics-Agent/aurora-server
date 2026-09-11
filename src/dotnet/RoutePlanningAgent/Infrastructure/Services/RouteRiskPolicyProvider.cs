@@ -41,12 +41,38 @@ public class RouteRiskPolicyProvider(
                 $"Truy xuất cấu hình chính sách rủi ro của Tenant '{tenantId}' thất bại: {ex.Message}");
         }
 
-        // 1. UNCONFIGURED -> Chặn tuyệt đối (Block), ném RiskPolicyNotConfiguredException
+        // 1. UNCONFIGURED -> Kiểm tra nếu có TenantRuleConfigs tùy chỉnh thì dùng, ngược lại Fail-Closed ném RiskPolicyNotConfiguredException
         if (config == null)
         {
-            throw new RiskPolicyNotConfiguredException(
-                $"Tenant '{tenantId}' chưa thiết lập cấu hình chính sách rủi ro (Risk Policy). " +
-                $"Vui lòng cấu hình tường minh 'UsePlatformDefault' hoặc 'UseCustomPolicy' trước khi thực hiện vận hành.");
+            var ruleConfigs = await context.TenantRuleConfigs
+                .IgnoreQueryFilters()
+                .AsNoTracking()
+                .Where(r => r.TenantId == tenantId)
+                .ToListAsync(ct);
+
+            if (ruleConfigs.Count == 0)
+            {
+                throw new RiskPolicyNotConfiguredException(
+                    $"Tenant '{tenantId}' chưa thiết lập cấu hình chính sách rủi ro (Risk Policy). " +
+                    $"Vui lòng cấu hình tường minh 'UsePlatformDefault' hoặc 'UseCustomPolicy' trước khi thực hiện vận hành.");
+            }
+
+            var ruleThresholdsMap = new Dictionary<string, TenantRuleThresholds>();
+            foreach (var rc in ruleConfigs)
+            {
+                var thresholds = await ruleConfigService.GetThresholdsAsync(tenantId, rc.RuleName, ct);
+                ruleThresholdsMap[rc.RuleName] = thresholds;
+            }
+
+            return new EffectiveRiskPolicy
+            {
+                PolicyId = $"tenant-policy-{tenantId}",
+                Version = 1,
+                Source = RiskPolicySource.Tenant,
+                Scope = scope,
+                TenantId = tenantId,
+                RuleThresholds = ruleThresholdsMap
+            };
         }
 
         // 2. USE_PLATFORM_DEFAULT -> Áp dụng Platform Default Policy v1

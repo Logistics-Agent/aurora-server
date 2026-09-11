@@ -11,6 +11,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using MailService.Infrastructure.Persistence;
 using Shared.Events;
+using Audit.Grpc;
 
 namespace MailService.Infrastructure.Messaging;
 
@@ -46,6 +47,7 @@ public class OutboxProcessorBackgroundService(
         using var scope = serviceProvider.CreateScope();
         var context = scope.ServiceProvider.GetRequiredService<MailServiceDbContext>();
         var publishEndpoint = scope.ServiceProvider.GetRequiredService<IPublishEndpoint>();
+        var auditClient = scope.ServiceProvider.GetRequiredService<AuditLogService.AuditLogServiceClient>();
 
         var messages = await context.OutboxMessages
             .Where(m => m.ProcessedAt == null && m.RetryCount < _maxRetry)
@@ -57,18 +59,25 @@ public class OutboxProcessorBackgroundService(
         {
             try
             {
-                var eventType = GetEventType(message.EventType);
-                if (eventType != null)
+                if (message.EventType == nameof(CentralAuditEvent))
                 {
-                    var eventObject = JsonSerializer.Deserialize(message.Payload, eventType);
-                    if (eventObject != null)
+                    var auditEvent = JsonSerializer.Deserialize<CentralAuditEvent>(message.Payload)
+                        ?? throw new InvalidOperationException("Invalid central audit outbox payload.");
+                    await auditClient.IngestAuditEventAsync(new IngestAuditEventRequest
                     {
-                        await publishEndpoint.Publish(eventObject, eventType, stoppingToken);
-                    }
+                        EventId = auditEvent.EventId.ToString(), ServiceName = auditEvent.ServiceName,
+                        EventType = auditEvent.EventType, TenantId = auditEvent.TenantId.ToString(),
+                        UserId = auditEvent.UserId.ToString(), UserRole = auditEvent.UserRole,
+                        ResourceId = auditEvent.ResourceId.ToString(), PayloadJson = auditEvent.PayloadJson,
+                        IpAddress = auditEvent.IpAddress ?? string.Empty
+                    }, cancellationToken: stoppingToken);
                 }
                 else
                 {
-                    logger.LogWarning("Unknown outbox event type: {EventType}", message.EventType);
+                    var eventType = GetEventType(message.EventType)
+                        ?? throw new InvalidOperationException($"Unknown outbox event type: {message.EventType}");
+                    var eventObject = JsonSerializer.Deserialize(message.Payload, eventType);
+                    if (eventObject != null) await publishEndpoint.Publish(eventObject, eventType, stoppingToken);
                 }
 
                 message.ProcessedAt = DateTimeOffset.UtcNow;

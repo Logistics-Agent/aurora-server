@@ -17,18 +17,48 @@ public class PermissionVersionMiddleware(
     // không được inject qua constructor (middleware là singleton).
     public async Task InvokeAsync(HttpContext context, ICurrentUserContext currentUser, IPermissionCacheService permissionCache)
     {
-        // Chỉ kiểm tra với các request authenticated và có UserId + PermissionVersion
-        if (context.User.Identity?.IsAuthenticated == true
-            && currentUser.UserId.HasValue
-            && currentUser.PermissionVersion.HasValue)
+        // Kiểm tra với các request authenticated và có UserId
+        if (context.User.Identity?.IsAuthenticated == true && currentUser.UserId.HasValue)
         {
             var cached = await permissionCache.GetAsync(currentUser.UserId.Value);
 
-            // Không có cache entry — yêu cầu login lại để repopulate Redis
+            // Nếu không có cache entry — cố gắng warm-up từ IamService trước khi reject
             if (cached is null)
             {
+                logger.LogInformation(
+                    "No permission cache entry for User {UserId}. Fetching from IamService to warm up cache...",
+                    currentUser.UserId);
+
+                try
+                {
+                    var iamClient = context.RequestServices.GetService<IamTenant.Grpc.IamService.IamServiceClient>();
+                    if (iamClient != null)
+                    {
+                        var permsResp = await iamClient.GetUserPermissionsAsync(
+                            new IamTenant.Grpc.GetUserPermissionsRequest { UserId = currentUser.UserId.Value.ToString() },
+                            cancellationToken: context.RequestAborted);
+
+                        if (permsResp != null)
+                        {
+                            var permissions = permsResp.Permissions.ToList();
+                            currentUser.PopulatePermissions(permissions, permsResp.Role);
+
+                            logger.LogInformation(
+                                "Permissions lazily populated for User {UserId}: {PermissionCount} permissions, role {Role}.",
+                                currentUser.UserId, permissions.Count, permsResp.Role);
+
+                            await next(context);
+                            return;
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    logger.LogWarning(ex, "Failed to lazily load permissions for User {UserId}", currentUser.UserId);
+                }
+
                 logger.LogWarning(
-                    "No permission cache entry for User {UserId}. Forcing re-authentication. Path: {Path}",
+                    "Could not load permissions for User {UserId}. Forcing re-authentication. Path: {Path}",
                     currentUser.UserId, context.Request.Path);
 
                 context.Response.StatusCode = StatusCodes.Status401Unauthorized;
@@ -43,8 +73,8 @@ public class PermissionVersionMiddleware(
                 return;
             }
 
-            // Version lệch — admin đã thay đổi quyền
-            if (cached.Version != currentUser.PermissionVersion.Value)
+            // Version lệch — admin đã thay đổi quyền (chỉ reject khi currentUser có version cụ thể và khác với cache)
+            if (currentUser.PermissionVersion.HasValue && cached.Version != currentUser.PermissionVersion.Value)
             {
                 logger.LogWarning(
                     "PermissionVersion mismatch for User {UserId}. JWT={JwtVersion}, Cache={CacheVersion}. Rejecting.",
@@ -62,7 +92,7 @@ public class PermissionVersionMiddleware(
                 return;
             }
 
-            // ✅ Version khớp — load permissions từ Redis vào user context
+            // ✅ Version khớp (hoặc session JWT không có version nhưng cache có) — load permissions từ Redis vào user context
             currentUser.PopulatePermissions(cached.Permissions, cached.Role);
 
             logger.LogDebug(

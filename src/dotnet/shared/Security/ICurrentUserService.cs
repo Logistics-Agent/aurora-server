@@ -23,10 +23,26 @@ public static class CurrentUserServiceExtensions
 {
     public static bool HasPermission(this ICurrentUserService? user, string permission)
     {
-        if (user == null || user.Permissions == null || string.IsNullOrWhiteSpace(permission))
+        if (user == null || string.IsNullOrWhiteSpace(permission))
             return false;
 
-        return user.Permissions.Contains(permission, StringComparer.OrdinalIgnoreCase);
+        if (user.Permissions != null && user.Permissions.Contains(permission, StringComparer.OrdinalIgnoreCase))
+            return true;
+
+        if (!string.IsNullOrWhiteSpace(user.Role))
+        {
+            var roleUpper = user.Role.Trim().ToUpperInvariant();
+            if (roleUpper is Shared.Constants.RoleConstants.SystemAdmin or "SYSTEMADMIN" or "SYSTEM_ADMIN")
+                return true;
+
+            if (roleUpper is Shared.Constants.RoleConstants.TenantAdmin or "TENANTADMIN" or "TENANT_ADMIN")
+            {
+                if (Shared.Constants.PermissionConstants.GetTenantAdminPermissions().Contains(permission, StringComparer.OrdinalIgnoreCase))
+                    return true;
+            }
+        }
+
+        return false;
     }
 }
 

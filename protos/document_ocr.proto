@@ -24,6 +24,7 @@ enum DocumentOcrJobStatus {
   DOCUMENT_OCR_JOB_STATUS_FAILED = 4;
   DOCUMENT_OCR_JOB_STATUS_CANCELLED = 5;
   DOCUMENT_OCR_JOB_STATUS_REJECTED = 6;
+  DOCUMENT_OCR_JOB_STATUS_REQUIRES_REVIEW = 7;
 }
 
 enum OcrDocumentType {
@@ -101,6 +102,7 @@ message DocumentOcrJobResponse {
   string full_text_content = 19;
   string artifact_reference = 20;
   OcrExtractionMode extraction_mode = 21;
+  string field_confidence_json = 22;
 }
 
 message ListDocumentJobsResponse {

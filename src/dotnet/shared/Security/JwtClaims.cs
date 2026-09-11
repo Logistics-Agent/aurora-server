@@ -22,6 +22,7 @@ public static class GrpcMetadataKeys
     public const string UserId = "x-user-id";
     public const string TenantId = "x-tenant-id";
     public const string Role = "x-role";
+    public const string Permissions = "x-permissions";
     public const string PermissionVersion = "x-permission-version";
     public const string AccessToken = "x-access-token";
     public const string TraceId = "x-trace-id";

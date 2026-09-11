@@ -74,7 +74,31 @@ public sealed class DocumentOcrJobServiceTests
         var processed = await service.ProcessAsync(tenantId, job.Id);
 
         Assert.True(processed!.NeedsReview);
+        Assert.Equal(DocumentOcrJobStatus.RequiresReview, processed.Status);
         Assert.Equal(0.99m, processed.Confidence);
+        Assert.Empty(await context.OutboxMessages.ToListAsync());
+    }
+
+    [Fact]
+    public async Task ReviewConfirmationPublishesCompletedEventAfterHumanApproval()
+    {
+        var tenantId = Guid.CreateVersion7();
+        var currentUser = CreateCurrentUser(tenantId);
+        await using var context = CreateContext(currentUser);
+        var service = CreateService(context, currentUser, new MissingRequiredFieldProvider());
+        var job = await service.SubmitAsync(CreateInput("request-001"));
+
+        await service.ProcessAsync(tenantId, job.Id);
+        var reviewed = await service.ReviewAsync(
+            job.Id,
+            "CONFIRM",
+            null,
+            "verified",
+            CancellationToken.None);
+
+        Assert.Equal(DocumentOcrJobStatus.Completed, reviewed.Status);
+        var outbox = Assert.Single(await context.OutboxMessages.ToListAsync());
+        Assert.Equal("DocumentOcrCompletedEvent", outbox.EventType);
     }
 
     [Fact]

@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using Grpc.Core;
 using Grpc.Core.Interceptors;
 using Microsoft.Extensions.Logging;
+using Shared.Exceptions;
 
 namespace MailService.Infrastructure.Interceptors;
 
@@ -29,6 +30,16 @@ public class GrpcExceptionInterceptor : Interceptor
         {
             // Already an RPC exception with appropriate StatusCode; pass through directly
             throw;
+        }
+        catch (ConflictException ex)
+        {
+            _logger.LogWarning(ex, "gRPC AlreadyExists on {Method}: {Message}", context.Method, ex.Message);
+            throw new RpcException(new Status(StatusCode.AlreadyExists, ex.Message));
+        }
+        catch (PolicyUnavailableException ex)
+        {
+            _logger.LogWarning(ex, "gRPC Unavailable on {Method}: {Message}", context.Method, ex.Message);
+            throw new RpcException(new Status(StatusCode.Unavailable, ex.Message));
         }
         catch (ArgumentException ex)
         {

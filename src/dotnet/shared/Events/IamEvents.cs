@@ -9,6 +9,8 @@ public record TenantAdminCreatedEvent
     public string TenantName { get; init; } = string.Empty;
     public Guid UserId { get; init; }
     public string Email { get; init; } = string.Empty;
+    public string FirstName { get; init; } = string.Empty;
+    public string LastName { get; init; } = string.Empty;
 }
 
 [EntityName("tenant_staff_created_event")]

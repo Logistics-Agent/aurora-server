@@ -28,7 +28,7 @@ public class ResetStaffPasswordHandler(IamTenantDbContext context)
 
         var resetEvent = new TenantStaffPasswordResetEvent
         {
-            TenantId = staffUser.TenantId,
+            TenantId = staffUser.TenantId!.Value,
             UserId = staffUser.Id,
             Email = staffUser.Email,
         };

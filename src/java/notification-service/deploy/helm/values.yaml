@@ -2,7 +2,7 @@ nameOverride: "notification"
 fullnameOverride: "notification"
 
 image:
-  repository: acrauroracoredemo.azurecr.io/aurora/notification-service
+  repository: acrauroracorekhoa.azurecr.io/aurora/notification-service
   tag: "latest"
   pullPolicy: IfNotPresent
 
@@ -17,9 +17,9 @@ env:
   SPRING_RABBITMQ_HOST: "rabbitmq.aurora.svc.cluster.local"
   SPRING_RABBITMQ_PORT: "5672"
   SPRING_RABBITMQ_USERNAME: "aurora_admin"
-  SPRING_REDIS_HOST: "redis-aurora-shared-demo.southeastasia.redis.azure.net"
-  SPRING_REDIS_PORT: "10000"
-  SPRING_REDIS_SSL: "true"
+  SPRING_REDIS_HOST: "redis-master.aurora.svc.cluster.local"
+  SPRING_REDIS_PORT: "6379"
+  SPRING_REDIS_SSL: "false"
 
 externalSecret:
   enabled: true
@@ -48,7 +48,7 @@ externalSecret:
 
 resources:
   requests:
-    cpu: 100m
+    cpu: 50m
     memory: 256Mi
   limits:
     cpu: 500m
