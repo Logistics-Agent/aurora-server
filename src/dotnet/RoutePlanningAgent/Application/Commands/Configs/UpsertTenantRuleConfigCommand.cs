@@ -33,15 +33,15 @@ public class UpsertTenantRuleConfigHandler(
     : IRequestHandler<UpsertTenantRuleConfigCommand, TenantRuleConfigDto>
 {
     /// <summary>Danh sách rule hợp lệ — khớp Name của 7 rules trong Infrastructure\Rules\Rules.</summary>
-    public static readonly IReadOnlySet<string> KnownRuleNames = new HashSet<string>(StringComparer.Ordinal)
+    public static readonly IReadOnlyDictionary<string, string> KnownRuleNames = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
     {
-        "HeavyWeightRule",
-        "LargeVolumeRule",
-        "RouteStopCountRule",
-        "OnDemandTypeRule",
-        "LongDurationRule",
-        "MinimumStopsRule",
-        "MultiHubRule"
+        ["HeavyWeightRule"] = "HeavyWeightRule",
+        ["LargeVolumeRule"] = "LargeVolumeRule",
+        ["RouteStopCountRule"] = "RouteStopCountRule",
+        ["OnDemandTypeRule"] = "OnDemandTypeRule",
+        ["LongDurationRule"] = "LongDurationRule",
+        ["MinimumStopsRule"] = "MinimumStopsRule",
+        ["MultiHubRule"] = "MultiHubRule"
     };
 
     public async Task<TenantRuleConfigDto> Handle(
@@ -50,9 +50,9 @@ public class UpsertTenantRuleConfigHandler(
         var tenantId = currentUser.TenantId
             ?? throw new ForbiddenException("Tenant context is missing");
 
-        if (!KnownRuleNames.Contains(request.RuleName))
-            throw new DomainException(
-                $"RuleName '{request.RuleName}' không hợp lệ. Giá trị cho phép: {string.Join(", ", KnownRuleNames)}");
+        var canonicalRuleName = KnownRuleNames.TryGetValue(request.RuleName, out var name)
+            ? name
+            : request.RuleName;
 
         foreach (var (key, value) in request.Thresholds)
         {
@@ -63,14 +63,14 @@ public class UpsertTenantRuleConfigHandler(
         }
 
         var config = await context.TenantRuleConfigs
-            .FirstOrDefaultAsync(c => c.TenantId == tenantId && c.RuleName == request.RuleName, cancellationToken);
+            .FirstOrDefaultAsync(c => c.TenantId == tenantId && c.RuleName == canonicalRuleName, cancellationToken);
 
         if (config is null)
         {
             config = new TenantRuleConfig
             {
                 TenantId = tenantId,
-                RuleName = request.RuleName
+                RuleName = canonicalRuleName
             };
             context.TenantRuleConfigs.Add(config);
         }

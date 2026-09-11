@@ -45,44 +45,58 @@ public class RuleConfigController(
         try
         {
             var response = await routeClient.ListTenantRuleConfigsAsync(
-                new ListTenantRuleConfigsRequest { Page = page, Limit = limit });
+                new ListTenantRuleConfigsRequest { Page = 1, Limit = 100 });
 
-            if (response.Configs.Count == 0)
+            var dbConfigsMap = response.Configs
+                .GroupBy(c => c.RuleName, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
+
+            var items = new List<object>();
+
+            // 1. Merge default rules with DB configs
+            foreach (var def in DefaultRules)
             {
-                return Ok(new
+                if (dbConfigsMap.TryGetValue(def.Name, out var dbConfig))
                 {
-                    Items = DefaultRules.Select(d => new
+                    items.Add(MapRuleConfigResponse(dbConfig));
+                    dbConfigsMap.Remove(def.Name);
+                }
+                else
+                {
+                    items.Add(new
                     {
-                        id = d.Name,
+                        id = def.Name,
                         tenantId = currentUser.TenantId,
-                        ruleName = d.Name,
-                        ruleCode = d.Code,
-                        label = d.Label,
-                        description = d.Description,
-                        unit = d.Unit,
-                        value = d.DefaultValue,
-                        min = d.Min,
-                        max = d.Max,
-                        step = d.Step,
-                        type = d.Type,
-                        thresholdKey = d.ThresholdKey,
-                        isEnabled = d.DefaultEnabled,
-                        thresholds = new Dictionary<string, double> { { d.ThresholdKey, d.DefaultValue } },
-                        updatedAt = DateTime.UtcNow.ToString("yyyy-MM-dd")
-                    }),
-                    Page = 1,
-                    Limit = DefaultRules.Count,
-                    TotalItems = DefaultRules.Count
-                });
+                        ruleName = def.Name,
+                        ruleCode = def.Code,
+                        label = def.Label,
+                        description = def.Description,
+                        unit = def.Unit,
+                        value = def.DefaultValue,
+                        min = def.Min,
+                        max = def.Max,
+                        step = def.Step,
+                        type = def.Type,
+                        thresholdKey = def.ThresholdKey,
+                        isEnabled = def.DefaultEnabled,
+                        thresholds = new Dictionary<string, double> { { def.ThresholdKey, def.DefaultValue } },
+                        updatedAt = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ")
+                    });
+                }
             }
 
-            var merged = response.Configs.Select(MapRuleConfigResponse).ToList();
+            // 2. Append any extra custom rules from DB that are not in DefaultRules
+            foreach (var extra in dbConfigsMap.Values)
+            {
+                items.Add(MapRuleConfigResponse(extra));
+            }
+
             return Ok(new
             {
-                Items = merged,
-                response.Page,
-                response.Limit,
-                response.TotalItems
+                Items = items,
+                Page = 1,
+                Limit = items.Count,
+                TotalItems = items.Count
             });
         }
         catch (RpcException ex)
@@ -90,25 +104,7 @@ public class RuleConfigController(
             logger.LogWarning(ex, "gRPC error fetching tenant rule configs, falling back to default rules catalog: {Detail}", ex.Status.Detail);
             return Ok(new
             {
-                Items = DefaultRules.Select(d => new
-                {
-                    id = d.Name,
-                    tenantId = currentUser.TenantId,
-                    ruleName = d.Name,
-                    ruleCode = d.Code,
-                    label = d.Label,
-                    description = d.Description,
-                    unit = d.Unit,
-                    value = d.DefaultValue,
-                    min = d.Min,
-                    max = d.Max,
-                    step = d.Step,
-                    type = d.Type,
-                    thresholdKey = d.ThresholdKey,
-                    isEnabled = d.DefaultEnabled,
-                    thresholds = new Dictionary<string, double> { { d.ThresholdKey, d.DefaultValue } },
-                    updatedAt = DateTime.UtcNow.ToString("yyyy-MM-dd")
-                }),
+                Items = GetDefaultRuleResponses(),
                 Page = 1,
                 Limit = DefaultRules.Count,
                 TotalItems = DefaultRules.Count
@@ -121,48 +117,108 @@ public class RuleConfigController(
         }
     }
 
+    [HttpPost]
+    [RequirePermission(PermissionConstants.RoutePlanning.PolicyManage, "routing:create", "routing:update")]
+    public async Task<IActionResult> CreateRuleConfig([FromBody] RuleConfigPayload body)
+    {
+        if (string.IsNullOrWhiteSpace(body.RuleName))
+        {
+            return BadRequest(new { detail = "ruleName is required." });
+        }
+
+        return await ProcessUpsertRuleConfig(body.RuleName, body);
+    }
+
+    [HttpPost("{ruleName}")]
+    [RequirePermission(PermissionConstants.RoutePlanning.PolicyManage, "routing:create", "routing:update")]
+    public async Task<IActionResult> CreateOrUpdateRuleConfigByRoute([FromRoute] string ruleName, [FromBody] RuleConfigPayload body)
+    {
+        return await ProcessUpsertRuleConfig(ruleName, body);
+    }
+
     [HttpPut("{ruleName}")]
     [RequirePermission(PermissionConstants.RoutePlanning.PolicyManage, "routing:update")]
-    public async Task<IActionResult> UpsertRuleConfig([FromRoute] string ruleName, [FromBody] UpsertRuleConfigBody body)
+    public async Task<IActionResult> UpsertRuleConfig([FromRoute] string ruleName, [FromBody] RuleConfigPayload body)
+    {
+        return await ProcessUpsertRuleConfig(ruleName, body);
+    }
+
+    [HttpPatch("{ruleName}")]
+    [HttpPatch("{ruleName}/status")]
+    [RequirePermission(PermissionConstants.RoutePlanning.PolicyManage, "routing:update")]
+    public async Task<IActionResult> PatchRuleStatus([FromRoute] string ruleName, [FromBody] RuleConfigPayload body)
+    {
+        return await ProcessUpsertRuleConfig(ruleName, body);
+    }
+
+    private async Task<IActionResult> ProcessUpsertRuleConfig(string ruleName, RuleConfigPayload body)
     {
         try
         {
+            var def = DefaultRules.FirstOrDefault(d => string.Equals(d.Name, ruleName, StringComparison.OrdinalIgnoreCase));
+
+            var isEnabled = body.IsEnabled ?? def?.DefaultEnabled ?? true;
             var request = new UpsertTenantRuleConfigRequest
             {
-                RuleName  = ruleName,
-                IsEnabled = body.IsEnabled
+                RuleName = def?.Name ?? ruleName,
+                IsEnabled = isEnabled
             };
-            foreach (var (key, value) in body.Thresholds ?? [])
+
+            // Populate thresholds
+            if (body.Thresholds != null && body.Thresholds.Count > 0)
             {
-                if (value < 0)
+                foreach (var (key, value) in body.Thresholds)
                 {
-                    return BadRequest(new { detail = $"Threshold '{key}' cannot be negative ({value})." });
+                    if (value < 0)
+                    {
+                        return BadRequest(new { detail = $"Threshold '{key}' cannot be negative ({value})." });
+                    }
+                    request.Thresholds[key] = value;
                 }
-                request.Thresholds[key] = value;
+            }
+            else if (body.Value.HasValue)
+            {
+                if (body.Value.Value < 0)
+                {
+                    return BadRequest(new { detail = $"Threshold value cannot be negative ({body.Value.Value})." });
+                }
+                var key = !string.IsNullOrWhiteSpace(body.ThresholdKey) ? body.ThresholdKey : (def?.ThresholdKey ?? "threshold");
+                request.Thresholds[key] = body.Value.Value;
+            }
+            else if (def != null)
+            {
+                request.Thresholds[def.ThresholdKey] = def.DefaultValue;
             }
 
             var response = await routeClient.UpsertTenantRuleConfigAsync(request);
 
             logger.LogInformation(
-                "TenantRuleConfig ({RuleName}) upserted: enabled={IsEnabled} by {AdminId} (tenant {TenantId})",
-                ruleName, body.IsEnabled, currentUser.UserId, currentUser.TenantId);
+                "TenantRuleConfig ({RuleName}) saved: enabled={IsEnabled} by {AdminId} (tenant {TenantId})",
+                request.RuleName, request.IsEnabled, currentUser.UserId, currentUser.TenantId);
 
             return Ok(MapRuleConfigResponse(response));
         }
         catch (RpcException ex)
         {
-            logger.LogWarning(ex, "gRPC error in UpsertRuleConfig: {Detail}", ex.Status.Detail);
+            logger.LogWarning(ex, "gRPC error in UpsertRuleConfig for {RuleName}: {Detail}", ruleName, ex.Status.Detail);
             return ex.ToActionResult();
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "Unexpected error in UpsertRuleConfig");
+            logger.LogError(ex, "Unexpected error in UpsertRuleConfig for {RuleName}", ruleName);
             return StatusCode(500, new { detail = ex.Message });
         }
     }
 
     // --- DTOs ---
-    public record UpsertRuleConfigBody(bool IsEnabled, Dictionary<string, double>? Thresholds);
+    public class RuleConfigPayload
+    {
+        public string? RuleName { get; set; }
+        public bool? IsEnabled { get; set; }
+        public Dictionary<string, double>? Thresholds { get; set; }
+        public double? Value { get; set; }
+        public string? ThresholdKey { get; set; }
+    }
 
     private record DefaultRuleDefinition(
         string Name,
@@ -178,18 +234,48 @@ public class RuleConfigController(
         string Type,
         string ThresholdKey);
 
+    private IEnumerable<object> GetDefaultRuleResponses()
+    {
+        return DefaultRules.Select(d => new
+        {
+            id = d.Name,
+            tenantId = currentUser.TenantId,
+            ruleName = d.Name,
+            ruleCode = d.Code,
+            label = d.Label,
+            description = d.Description,
+            unit = d.Unit,
+            value = d.DefaultValue,
+            min = d.Min,
+            max = d.Max,
+            step = d.Step,
+            type = d.Type,
+            thresholdKey = d.ThresholdKey,
+            isEnabled = d.DefaultEnabled,
+            thresholds = new Dictionary<string, double> { { d.ThresholdKey, d.DefaultValue } },
+            updatedAt = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ")
+        });
+    }
+
     private static object MapRuleConfigResponse(TenantRuleConfigResponse r)
     {
         var def = DefaultRules.FirstOrDefault(d => string.Equals(d.Name, r.RuleName, StringComparison.OrdinalIgnoreCase));
         var thresholdVal = def != null && r.Thresholds.TryGetValue(def.ThresholdKey, out var val)
             ? val
-            : r.Thresholds.Values.FirstOrDefault();
+            : (r.Thresholds.Count > 0 ? r.Thresholds.Values.FirstOrDefault() : (def?.DefaultValue ?? 0));
+
+        var thresholds = r.Thresholds.ToDictionary(kv => kv.Key, kv => kv.Value);
+        if (thresholds.Count == 0 && def != null)
+        {
+            thresholds[def.ThresholdKey] = def.DefaultValue;
+        }
 
         return new
         {
             id = r.Id,
             tenantId = r.TenantId,
             ruleName = r.RuleName,
+            ruleCode = def?.Code ?? r.RuleName,
             label = def?.Label ?? r.RuleName,
             description = def?.Description ?? string.Empty,
             unit = def?.Unit ?? string.Empty,
@@ -200,7 +286,7 @@ public class RuleConfigController(
             type = def?.Type ?? "threshold",
             thresholdKey = def?.ThresholdKey ?? "threshold",
             isEnabled = r.IsEnabled,
-            thresholds = r.Thresholds.ToDictionary(kv => kv.Key, kv => kv.Value),
+            thresholds,
             updatedAt = r.UpdatedAt
         };
     }

@@ -36,7 +36,7 @@ public sealed class PlatformIngestionController(
     /// Ingest Knowledge Document (JSON payload)
     /// </summary>
     [HttpPost("knowledge-documents")]
-    [RequirePermission(PermissionConstants.Compliance.PlatformIngest)]
+    [RequirePermission(PermissionConstants.Documents.Ingest, PermissionConstants.Compliance.PlatformIngest, PermissionConstants.Documents.Manage)]
     public async Task<IActionResult> IngestKnowledgeDocument(
         [FromBody] AdminPlatformKnowledgeRequest request,
         CancellationToken cancellationToken)
@@ -99,7 +99,7 @@ public sealed class PlatformIngestionController(
     /// Upload & Ingest Knowledge Document File (Multipart Form)
     /// </summary>
     [HttpPost("knowledge-documents/upload")]
-    [RequirePermission(PermissionConstants.Compliance.PlatformIngest)]
+    [RequirePermission(PermissionConstants.Documents.Ingest, PermissionConstants.Compliance.PlatformIngest, PermissionConstants.Documents.Manage)]
     public async Task<IActionResult> UploadKnowledgeDocument(
         [FromForm] string title,
         [FromForm] string? category,
@@ -113,9 +113,6 @@ public sealed class PlatformIngestionController(
 
         if (string.IsNullOrWhiteSpace(title))
             title = Path.GetFileNameWithoutExtension(file.FileName);
-
-        if (file.ContentType is not ("text/plain" or "text/markdown"))
-            return BadRequest(new { error = "Only text/plain and text/markdown files can be indexed. Run PDF files through OCR first." });
 
         try
         {
@@ -142,7 +139,7 @@ public sealed class PlatformIngestionController(
                 VersionLabel = version ?? "v1.0",
                 ContentReference = $"knowledge/platform/{Guid.NewGuid():N}/{Path.GetFileName(file.FileName)}",
                 FileName = file.FileName,
-                MimeType = file.ContentType ?? "application/pdf",
+                MimeType = string.IsNullOrWhiteSpace(file.ContentType) ? "application/pdf" : file.ContentType,
                 SizeBytes = file.Length,
                 ContentSha256 = Convert.ToHexString(SHA256.HashData(fileBytes)).ToLowerInvariant(),
                 Content = ByteString.CopyFrom(fileBytes),
@@ -178,7 +175,7 @@ public sealed class PlatformIngestionController(
     /// </summary>
     [HttpGet("knowledge-documents")]
     [HttpPost("knowledge/query")]
-    [RequirePermission(PermissionConstants.Documents.Read, PermissionConstants.Compliance.Read)]
+    [RequirePermission(PermissionConstants.Documents.Read, PermissionConstants.Compliance.Read, PermissionConstants.Compliance.PlatformIngest)]
     public async Task<IActionResult> QueryKnowledgeDocuments(
         [FromQuery] string? query = null,
         CancellationToken cancellationToken = default)
@@ -189,7 +186,7 @@ public sealed class PlatformIngestionController(
             var rpcRequest = new QueryKnowledgeRequest
             {
                 Query = searchTerms,
-                TopK = 50,
+                TopK = 20,
                 MinimumRelevanceScore = 0.01
             };
 
