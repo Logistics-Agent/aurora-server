@@ -150,7 +150,9 @@ builder.Services.AddSingleton<IAmazonS3>(sp => new AmazonS3Client(
     new AmazonS3Config
     {
         ServiceURL = $"https://{builder.Configuration["R2:AccountId"] ?? "dev"}.r2.cloudflarestorage.com",
-        ForcePathStyle = true
+        ForcePathStyle = true,
+        Timeout = TimeSpan.FromSeconds(3),
+        MaxErrorRetry = 0
     }));
 
 // Register Redis Connection Multiplexer

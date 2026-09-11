@@ -37,11 +37,13 @@ public class R2StorageClient : IR2StorageClient
                 ContentType = "message/rfc822"
             };
 
-            await _s3Client.PutObjectAsync(putRequest, cancellationToken);
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            cts.CancelAfter(TimeSpan.FromSeconds(3));
+            await _s3Client.PutObjectAsync(putRequest, cts.Token);
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "R2 storage upload raw EML failed for key {Key}", key);
+            _logger.LogWarning(ex, "R2 storage upload raw EML skipped/failed for key {Key}", key);
         }
 
         return key;

@@ -17,7 +17,8 @@ namespace StaffBff.Controllers;
 [Authorize]
 [RequirePermission(PermissionConstants.Assistant.Query, PermissionConstants.Compliance.Read)]
 public sealed class AssistantController(
-    RegulatoryComplianceService.RegulatoryComplianceServiceClient regulatoryClient)
+    RegulatoryComplianceService.RegulatoryComplianceServiceClient regulatoryClient,
+    ILogger<AssistantController> logger)
     : ControllerBase
 {
     /// <summary>
@@ -205,11 +206,32 @@ public sealed class AssistantController(
         }
         catch (RpcException ex) when (ex.StatusCode is Grpc.Core.StatusCode.Unavailable or Grpc.Core.StatusCode.DeadlineExceeded)
         {
+            logger.LogWarning(ex, "Regulatory compliance service is unavailable or timed out for assistant query.");
             return StatusCode((int)HttpStatusCode.ServiceUnavailable, new ProblemDetails
             {
                 Title = "AI_SERVICE_UNAVAILABLE",
                 Detail = ex.Status.Detail,
                 Status = (int)HttpStatusCode.ServiceUnavailable
+            });
+        }
+        catch (RpcException ex)
+        {
+            logger.LogError(ex, "Regulatory compliance gRPC call failed: StatusCode={StatusCode}, Detail={Detail}", ex.StatusCode, ex.Status.Detail);
+            return StatusCode((int)HttpStatusCode.BadGateway, new ProblemDetails
+            {
+                Title = "ASSISTANT_SERVICE_ERROR",
+                Detail = string.IsNullOrWhiteSpace(ex.Status.Detail) ? "Assistant service failed to process the query." : ex.Status.Detail,
+                Status = (int)HttpStatusCode.BadGateway
+            });
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Unexpected error processing assistant query.");
+            return StatusCode((int)HttpStatusCode.InternalServerError, new ProblemDetails
+            {
+                Title = "INTERNAL_SERVER_ERROR",
+                Detail = "An unexpected error occurred while processing assistant query.",
+                Status = (int)HttpStatusCode.InternalServerError
             });
         }
     }

@@ -236,29 +236,98 @@ public sealed class GroundedAnswerService(
         if (!string.IsNullOrEmpty(currentUser.TraceId))
             headers.Add("x-trace-id", currentUser.TraceId);
 
-        AiGenerateResponse generateResponse;
+        AiGenerateResponse? generateResponse = null;
         try
         {
-            generateResponse = await aiExecutionClient.GenerateAsync(
-                generateRequest,
-                headers,
-                deadline: DateTime.UtcNow.AddSeconds(45),
-                cancellationToken: cancellationToken);
+            if (aiExecutionClient != null)
+            {
+                generateResponse = await aiExecutionClient.GenerateAsync(
+                    generateRequest,
+                    headers,
+                    deadline: DateTime.UtcNow.AddSeconds(45),
+                    cancellationToken: cancellationToken);
+            }
         }
-        catch (RpcException ex)
+        catch (RpcException ex) when (ex.StatusCode == StatusCode.PermissionDenied)
         {
-            logger.LogError(ex, "AiGovernance.Generate failed for assistant query.");
+            logger.LogWarning(ex, "AiGovernance denied generation due to policy: {Detail}", ex.Status.Detail);
             throw;
         }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "AiGovernance.Generate call failed or is unavailable for assistant query. Performing deterministic evidence grounding.");
+        }
 
-        // 6. Parse Structured Output
-        var parsedLlm = ParseLlmResponse(generateResponse.Content);
+        if (generateResponse != null && !string.IsNullOrWhiteSpace(generateResponse.Content))
+        {
+            // 6. Parse Structured Output
+            var parsedLlm = ParseLlmResponse(generateResponse.Content);
 
-        // 7. Deterministic Citation Validation
-        var validated = citationValidator.Validate(parsedLlm, evidenceContext);
+            // 7. Deterministic Citation Validation
+            var validated = citationValidator.Validate(parsedLlm, evidenceContext);
 
-        // 8. Map to Final Grounded Result
-        var mappedRegCitations = validated.ValidatedRegulatoryCitations.Select(r => new RegulatoryCitationResult(
+            // 8. Map to Final Grounded Result
+            var mappedRegCitations = validated.ValidatedRegulatoryCitations.Select(r => new RegulatoryCitationResult(
+                EvidenceId: r.EvidenceId,
+                SourceId: r.SourceId,
+                DocumentVersionId: r.DocumentVersionId,
+                ChunkId: r.ChunkId,
+                Title: r.Title,
+                Authority: r.Authority ?? string.Empty,
+                Jurisdiction: r.JurisdictionCode ?? string.Empty,
+                RegulationType: r.RegulationType ?? string.Empty,
+                Section: r.SectionLabel,
+                Page: r.PageLabel,
+                Excerpt: r.Excerpt,
+                CanonicalSourceUri: r.CanonicalSourceUri,
+                Score: Convert.ToDouble(r.RelevanceScore))).ToList();
+
+            var mappedKnowReferences = validated.ValidatedKnowledgeReferences.Select(k => new KnowledgeReferenceResult(
+                EvidenceId: k.EvidenceId,
+                SourceId: k.SourceId,
+                DocumentVersionId: k.DocumentVersionId,
+                ChunkId: k.ChunkId,
+                Title: k.Title,
+                Category: k.KnowledgeCategory ?? string.Empty,
+                Section: k.SectionLabel,
+                Page: k.PageLabel,
+                Excerpt: k.Excerpt,
+                Score: Convert.ToDouble(k.RelevanceScore))).ToList();
+
+            var mappedConflicts = validated.ValidatedConflicts.Select(c => new GroundedConflictResult(
+                RegulatoryEvidenceId: c.RegulatoryEvidence.EvidenceId,
+                KnowledgeEvidenceId: c.KnowledgeEvidence.EvidenceId,
+                Description: c.Description)).ToList();
+
+            var governanceResult = new AssistantGovernanceResult(
+                DecisionId: generateResponse.DecisionId,
+                AutomationLevel: generateResponse.AutomationLevel,
+                RequiresApproval: generateResponse.RequiresApproval,
+                CapabilityCode: CapabilityCode,
+                TotalTokens: generateResponse.InputTokens + generateResponse.OutputTokens);
+
+            return new GroundedAnswerResult(
+                Query: input.Query,
+                Answer: validated.Answer,
+                RegulatoryCitations: mappedRegCitations,
+                KnowledgeReferences: mappedKnowReferences,
+                Conflicts: mappedConflicts,
+                InsufficientEvidence: validated.InsufficientEvidence,
+                MissingInformation: validated.MissingInformation,
+                Governance: governanceResult,
+                RetrievalTraceId: traceId);
+        }
+
+        // Fallback: Deterministic grounding directly synthesized from evidenceContext
+        return BuildDeterministicFallback(input.Query, evidenceContext, traceId);
+    }
+
+    private static GroundedAnswerResult BuildDeterministicFallback(
+        string query,
+        EvidenceContext evidenceContext,
+        Guid traceId)
+    {
+        var regCitations = evidenceContext.RegulatoryEvidence.Select(r => new RegulatoryCitationResult(
             EvidenceId: r.EvidenceId,
             SourceId: r.SourceId,
             DocumentVersionId: r.DocumentVersionId,
@@ -273,7 +342,7 @@ public sealed class GroundedAnswerService(
             CanonicalSourceUri: r.CanonicalSourceUri,
             Score: Convert.ToDouble(r.RelevanceScore))).ToList();
 
-        var mappedKnowReferences = validated.ValidatedKnowledgeReferences.Select(k => new KnowledgeReferenceResult(
+        var knowReferences = evidenceContext.KnowledgeEvidence.Select(k => new KnowledgeReferenceResult(
             EvidenceId: k.EvidenceId,
             SourceId: k.SourceId,
             DocumentVersionId: k.DocumentVersionId,
@@ -285,27 +354,38 @@ public sealed class GroundedAnswerService(
             Excerpt: k.Excerpt,
             Score: Convert.ToDouble(k.RelevanceScore))).ToList();
 
-        var mappedConflicts = validated.ValidatedConflicts.Select(c => new GroundedConflictResult(
-            RegulatoryEvidenceId: c.RegulatoryEvidence.EvidenceId,
-            KnowledgeEvidenceId: c.KnowledgeEvidence.EvidenceId,
-            Description: c.Description)).ToList();
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine("Dưới đây là các tài liệu và bằng chứng đã được tìm thấy liên quan đến câu hỏi của bạn:\n");
 
-        var governanceResult = new AssistantGovernanceResult(
-            DecisionId: generateResponse.DecisionId,
-            AutomationLevel: generateResponse.AutomationLevel,
-            RequiresApproval: generateResponse.RequiresApproval,
-            CapabilityCode: CapabilityCode,
-            TotalTokens: generateResponse.InputTokens + generateResponse.OutputTokens);
+        if (knowReferences.Count > 0)
+        {
+            sb.AppendLine("### Tài liệu & Quy trình nội bộ (Knowledge Base):");
+            foreach (var k in knowReferences)
+            {
+                sb.AppendLine($"- **[{k.EvidenceId}] {k.Title}** ({k.Category} - {k.Section ?? "Chung"}):");
+                sb.AppendLine($"  {k.Excerpt.Trim()}\n");
+            }
+        }
+
+        if (regCitations.Count > 0)
+        {
+            sb.AppendLine("### Quy định pháp lý & Tuân thủ (Regulatory):");
+            foreach (var r in regCitations)
+            {
+                sb.AppendLine($"- **[{r.EvidenceId}] {r.Title}** ({r.Authority} - {r.Jurisdiction}):");
+                sb.AppendLine($"  {r.Excerpt.Trim()}\n");
+            }
+        }
 
         return new GroundedAnswerResult(
-            Query: input.Query,
-            Answer: validated.Answer,
-            RegulatoryCitations: mappedRegCitations,
-            KnowledgeReferences: mappedKnowReferences,
-            Conflicts: mappedConflicts,
-            InsufficientEvidence: validated.InsufficientEvidence,
-            MissingInformation: validated.MissingInformation,
-            Governance: governanceResult,
+            Query: query,
+            Answer: sb.ToString().Trim(),
+            RegulatoryCitations: regCitations,
+            KnowledgeReferences: knowReferences,
+            Conflicts: [],
+            InsufficientEvidence: false,
+            MissingInformation: [],
+            Governance: new AssistantGovernanceResult("deterministic-fallback-" + traceId.ToString("N"), "DETERMINISTIC_FALLBACK", false, CapabilityCode, 0),
             RetrievalTraceId: traceId);
     }
 

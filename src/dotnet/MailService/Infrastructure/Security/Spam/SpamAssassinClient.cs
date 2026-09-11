@@ -32,7 +32,7 @@ public class SpamAssassinClient : ISpamAssassinClient
         {
             using var client = new TcpClient();
             using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            cts.CancelAfter(TimeSpan.FromSeconds(10)); // 10s timeout
+            cts.CancelAfter(TimeSpan.FromSeconds(2)); // 2s timeout
 
             await client.ConnectAsync(_host, _port, cts.Token);
             using var stream = client.GetStream();

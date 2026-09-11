@@ -199,6 +199,58 @@ public sealed class GroundedAssistantTests
         Assert.Empty(result.KnowledgeReferences);
     }
 
+    [Fact]
+    public async Task GroundedAnswerService_WhenAiGovernanceUnavailable_FallsBackToDeterministicGrounding()
+    {
+        var fakeRetrieval = new FakeRegulationRetrievalService();
+        var fakeKnowledge = new FakeKnowledgeWithEvidenceService();
+        var fakeCurrentUser = new FakeCurrentUserService(TenantId, UserId);
+
+        var service = new GroundedAnswerService(
+            fakeRetrieval,
+            fakeKnowledge,
+            null!, // AiExecutionClient is null to simulate unavailable AI service
+            new GroundedAnswerPromptBuilder(),
+            new DeterministicCitationValidator(),
+            fakeCurrentUser,
+            NullLogger<GroundedAnswerService>.Instance);
+
+        var result = await service.GenerateAnswerAsync(new GroundedAnswerInput(
+            Query: "Tóm tắt Test-Upload",
+            Mode: AssistantSearchMode.Knowledge,
+            JurisdictionCode: "VN",
+            EffectiveAt: DateTimeOffset.UtcNow,
+            RegulationTypes: null,
+            KnowledgeCategories: null));
+
+        Assert.False(result.InsufficientEvidence);
+        Assert.NotEmpty(result.Answer);
+        Assert.Single(result.KnowledgeReferences);
+        Assert.Equal("K1", result.KnowledgeReferences[0].EvidenceId);
+        Assert.Equal("Test-Upload", result.KnowledgeReferences[0].Title);
+        Assert.Equal("DETERMINISTIC_FALLBACK", result.Governance.AutomationLevel);
+    }
+
+    private sealed class FakeKnowledgeWithEvidenceService : IKnowledgeIngestionService
+    {
+        public Task<KnowledgeIngestionResult> IngestAsync(KnowledgeIngestionInput input, CancellationToken cancellationToken = default) =>
+            throw new NotImplementedException();
+
+        public Task<IReadOnlyList<KnowledgeEvidenceResult>> QueryAsync(string query, IReadOnlyList<KnowledgeCategory> categories, int topK, decimal minimumRelevanceScore, CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<KnowledgeEvidenceResult>>([
+                new KnowledgeEvidenceResult(
+                    Guid.NewGuid(),
+                    Guid.NewGuid(),
+                    Guid.NewGuid(),
+                    "Test-Upload",
+                    KnowledgeCategory.Sop,
+                    "Summary",
+                    "1",
+                    "Software Engineer with 5 years experience.",
+                    0.95m)
+            ]);
+    }
+
     private sealed class FakeRegulationRetrievalService : IRegulationRetrievalService
     {
         public Task<RegulationQueryResult> QueryAsync(RegulationQueryInput input, CancellationToken cancellationToken = default) =>
