@@ -76,15 +76,20 @@ public class ProcessInboundEmailCommandHandler : IRequestHandler<ProcessInboundE
 
         string recipientDomain = recipient.Split('@').Last().Trim().ToLowerInvariant();
 
-        // 2. Resolve Domain & Tenant
+        // 2. Resolve Domain & Tenant (Must IgnoreQueryFilters because webhook runs anonymously before TenantId is resolved)
         var domain = await _dbContext.Domains
+            .IgnoreQueryFilters()
             .FirstOrDefaultAsync(d => d.DomainName.ToLower() == recipientDomain && d.Status == DomainStatus.Active, cancellationToken)
-            ?? await _dbContext.Domains.FirstOrDefaultAsync(d => d.DomainName.ToLower() == recipientDomain, cancellationToken);
+            ?? await _dbContext.Domains
+                .IgnoreQueryFilters()
+                .FirstOrDefaultAsync(d => d.DomainName.ToLower() == recipientDomain, cancellationToken);
 
         if (domain == null)
         {
             _logger.LogWarning("Inbound email recipient domain '{Domain}' is not registered in system.", recipientDomain);
-            domain = await _dbContext.Domains.FirstOrDefaultAsync(d => d.Status == DomainStatus.Active, cancellationToken)
+            domain = await _dbContext.Domains
+                .IgnoreQueryFilters()
+                .FirstOrDefaultAsync(d => d.Status == DomainStatus.Active, cancellationToken)
                 ?? throw new KeyNotFoundException($"Domain '{recipientDomain}' is not recognized for any tenant.");
         }
 
@@ -92,25 +97,30 @@ public class ProcessInboundEmailCommandHandler : IRequestHandler<ProcessInboundE
 
         // 3. Resolve Mailbox
         var mailbox = await _dbContext.Mailboxes
+            .IgnoreQueryFilters()
             .FirstOrDefaultAsync(m => m.TenantId == tenantId && m.FullAddress.ToLower() == recipient, cancellationToken);
 
         if (mailbox == null)
         {
             // Check if recipient is an alias
             var alias = await _dbContext.Aliases
+                .IgnoreQueryFilters()
                 .FirstOrDefaultAsync(a => a.TenantId == tenantId && a.AliasAddress.ToLower() == recipient, cancellationToken);
 
             if (alias != null && alias.Targets.Count > 0)
             {
                 var targetAddress = alias.Targets.First().ToLower();
                 mailbox = await _dbContext.Mailboxes
+                    .IgnoreQueryFilters()
                     .FirstOrDefaultAsync(m => m.TenantId == tenantId && m.FullAddress.ToLower() == targetAddress, cancellationToken);
             }
 
             // Fallback to any active mailbox for the domain/tenant
             mailbox ??= await _dbContext.Mailboxes
+                .IgnoreQueryFilters()
                 .FirstOrDefaultAsync(m => m.DomainId == domain.Id, cancellationToken)
                 ?? await _dbContext.Mailboxes
+                    .IgnoreQueryFilters()
                     .FirstOrDefaultAsync(m => m.TenantId == tenantId, cancellationToken);
 
             if (mailbox == null)
@@ -139,10 +149,12 @@ public class ProcessInboundEmailCommandHandler : IRequestHandler<ProcessInboundE
         if (!string.IsNullOrEmpty(mimeMessage.InReplyTo))
         {
             var parentMessage = await _dbContext.ProcessedMessages
+                .IgnoreQueryFilters()
                 .FirstOrDefaultAsync(m => m.TenantId == tenantId && m.MessageId == mimeMessage.InReplyTo, cancellationToken);
             if (parentMessage?.ThreadId != null)
             {
                 thread = await _dbContext.EmailThreads
+                    .IgnoreQueryFilters()
                     .FirstOrDefaultAsync(t => t.Id == parentMessage.ThreadId && t.TenantId == tenantId, cancellationToken);
             }
         }
@@ -150,6 +162,7 @@ public class ProcessInboundEmailCommandHandler : IRequestHandler<ProcessInboundE
         if (thread == null)
         {
             thread = await _dbContext.EmailThreads
+                .IgnoreQueryFilters()
                 .Where(t => t.TenantId == tenantId && t.MailboxId == mailbox.Id && t.Status != ThreadStatus.Resolved)
                 .OrderByDescending(t => t.LastMessageAt)
                 .FirstOrDefaultAsync(t => t.Subject == subject || t.Subject == cleanSubject, cancellationToken);
