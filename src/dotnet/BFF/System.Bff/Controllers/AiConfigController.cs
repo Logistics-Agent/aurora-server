@@ -19,6 +19,8 @@ namespace SystemBff.Controllers;
 /// Quyền: Chỉ dành cho SYSTEM_ADMIN (bảo vệ qua SystemControllerBase).
 /// </summary>
 [ApiVersion("1.0")]
+[Route("api/v{version:apiVersion}/system/ai-configs")]
+[Route("api/system/ai-configs")]
 public class AiConfigController(
     RoutePlanningService.RoutePlanningServiceClient? routeClient,
     ICurrentUserService currentUser,
