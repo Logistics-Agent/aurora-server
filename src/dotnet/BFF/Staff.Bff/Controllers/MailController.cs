@@ -2,6 +2,7 @@ using System.Threading.Tasks;
 using Asp.Versioning;
 using Grpc.Core;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Caching.Distributed;
 using BuildingBlocks.BFF.Attributes;
 using BuildingBlocks.BFF.Extensions;
 using BuildingBlocks.BFF.Mail.Clients;
@@ -20,6 +21,7 @@ namespace StaffBff.Controllers;
 public class MailController(
     IMailServiceClient mailClient,
     ICurrentUserService currentUser,
+    IDistributedCache distributedCache,
     ILogger<MailController> logger) : StaffControllerBase
 {
     // ─── Drafts ───────────────────────────────────────────────────────────────
@@ -81,6 +83,72 @@ public class MailController(
         catch (RpcException ex)
         {
             return ex.ToActionResult();
+        }
+    }
+
+    // ─── Mailboxes ────────────────────────────────────────────────────────────
+
+    [HttpGet("mailboxes")]
+    [RequirePermission(PermissionConstants.Mail.Read)]
+    public async Task<IActionResult> ListMailboxes(
+        [FromQuery] string? domainId = null,
+        [FromQuery] int pageSize = 100,
+        [FromQuery] string? pageToken = null)
+    {
+        var cacheKey = $"mail:mailboxes:{currentUser.TenantId?.ToString() ?? "default"}:{domainId ?? "all"}:{pageSize}";
+        if (string.IsNullOrEmpty(pageToken))
+        {
+            try
+            {
+                var cached = await distributedCache.GetStringAsync(cacheKey, HttpContext.RequestAborted);
+                if (!string.IsNullOrEmpty(cached))
+                {
+                    var cachedResult = System.Text.Json.JsonSerializer.Deserialize<ListMailboxesResponse>(cached);
+                    if (cachedResult != null)
+                    {
+                        return Ok(cachedResult);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.LogDebug(ex, "Redis cache read error for key {CacheKey}", cacheKey);
+            }
+        }
+
+        try
+        {
+            var boundedPageSize = Math.Clamp(pageSize, 1, 100);
+            var result = await mailClient.ListMailboxesAsync(domainId, boundedPageSize, pageToken, HttpContext.RequestAborted);
+
+            if (string.IsNullOrEmpty(pageToken) && result != null)
+            {
+                try
+                {
+                    var serialized = System.Text.Json.JsonSerializer.Serialize(result);
+                    await distributedCache.SetStringAsync(
+                        cacheKey,
+                        serialized,
+                        new DistributedCacheEntryOptions { AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(10) },
+                        HttpContext.RequestAborted);
+                }
+                catch (Exception ex)
+                {
+                    logger.LogDebug(ex, "Redis cache write error for key {CacheKey}", cacheKey);
+                }
+            }
+
+            return Ok(result);
+        }
+        catch (RpcException ex)
+        {
+            logger.LogWarning(ex, "gRPC error in ListMailboxes, returning empty list: {Detail}", ex.Status.Detail);
+            return Ok(new { mailboxes = Array.Empty<object>(), nextPageToken = string.Empty });
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Unexpected error in ListMailboxes, returning empty list");
+            return Ok(new { mailboxes = Array.Empty<object>(), nextPageToken = string.Empty });
         }
     }
 

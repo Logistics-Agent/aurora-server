@@ -27,10 +27,14 @@ public class ComplianceController(
     {
         try
         {
+            var shipmentIdStr = Guid.TryParse(body.ExternalShipmentId, out var parsedShipmentGuid) && parsedShipmentGuid != Guid.Empty
+                ? parsedShipmentGuid.ToString()
+                : Guid.NewGuid().ToString();
+
             var req = new EvaluateComplianceRequest
             {
                 IdempotencyKey = body.IdempotencyKey ?? Guid.NewGuid().ToString(),
-                ExternalShipmentId = body.ExternalShipmentId ?? string.Empty,
+                ExternalShipmentId = shipmentIdStr,
                 OriginCountryCode = body.OriginCountryCode ?? string.Empty,
                 DestinationCountryCode = body.DestinationCountryCode ?? string.Empty,
                 TransportMode = body.TransportMode ?? string.Empty,
@@ -60,13 +64,20 @@ public class ComplianceController(
 
             if (body.Documents != null)
             {
-                req.Documents.AddRange(body.Documents.Select(d => new OcrDocumentSnapshot
+                req.Documents.AddRange(body.Documents.Select(d =>
                 {
-                    ExternalDocumentId = d.ExternalDocumentId ?? string.Empty,
-                    DocumentType = d.DocumentType ?? string.Empty,
-                    NormalizedJson = d.NormalizedJson ?? "{}",
-                    ExtractionConfidence = d.ExtractionConfidence,
-                    NeedsReview = d.NeedsReview
+                    var docIdStr = Guid.TryParse(d.ExternalDocumentId, out var parsedDocGuid) && parsedDocGuid != Guid.Empty
+                        ? parsedDocGuid.ToString()
+                        : Guid.NewGuid().ToString();
+
+                    return new OcrDocumentSnapshot
+                    {
+                        ExternalDocumentId = docIdStr,
+                        DocumentType = d.DocumentType ?? string.Empty,
+                        NormalizedJson = d.NormalizedJson ?? "{}",
+                        ExtractionConfidence = d.ExtractionConfidence,
+                        NeedsReview = d.NeedsReview
+                    };
                 }));
             }
 

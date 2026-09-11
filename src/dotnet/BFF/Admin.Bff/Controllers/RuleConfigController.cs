@@ -151,6 +151,30 @@ public class RuleConfigController(
         return await ProcessUpsertRuleConfig(ruleName, body);
     }
 
+    [HttpDelete("{ruleName}")]
+    [RequirePermission(PermissionConstants.RoutePlanning.PolicyManage, "routing:delete", "routing:update")]
+    public async Task<IActionResult> DeleteRuleConfig([FromRoute] string ruleName)
+    {
+        // Deactivate rule for tenant
+        return await ProcessUpsertRuleConfig(ruleName, new RuleConfigPayload
+        {
+            RuleName = ruleName,
+            IsEnabled = false
+        });
+    }
+
+    [HttpPost("{ruleName}/toggle")]
+    [RequirePermission(PermissionConstants.RoutePlanning.PolicyManage, "routing:update")]
+    public async Task<IActionResult> ToggleRuleStatus([FromRoute] string ruleName, [FromBody] ToggleRulePayload? body)
+    {
+        var targetEnabled = body?.IsEnabled;
+        return await ProcessUpsertRuleConfig(ruleName, new RuleConfigPayload
+        {
+            RuleName = ruleName,
+            IsEnabled = targetEnabled
+        });
+    }
+
     private async Task<IActionResult> ProcessUpsertRuleConfig(string ruleName, RuleConfigPayload body)
     {
         try
@@ -220,6 +244,11 @@ public class RuleConfigController(
         public Dictionary<string, double>? Thresholds { get; set; }
         public double? Value { get; set; }
         public string? ThresholdKey { get; set; }
+    }
+
+    public class ToggleRulePayload
+    {
+        public bool? IsEnabled { get; set; }
     }
 
     private record DefaultRuleDefinition(
