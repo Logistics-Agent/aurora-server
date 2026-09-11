@@ -34,7 +34,7 @@
     <PackageReference Include="AspNetCore.HealthChecks.Npgsql" Version="9.0.0" />
     <PackageReference Include="AspNetCore.HealthChecks.Redis" Version="9.0.0" />
   </ItemGroup>
-
+ 
   <ItemGroup>
     <Compile Remove="MailService.Tests\**" />
     <Content Remove="MailService.Tests\**" />
