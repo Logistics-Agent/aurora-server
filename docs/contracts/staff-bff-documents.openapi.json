@@ -1,0 +1,991 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Aurora Staff BFF — Documents/OCR contract",
+    "version": "v1",
+    "description": "Deterministic FE contract fixture for the source-backed Documents/OCR upload and intake workflow. It is intentionally sanitized: signed URL values, tenant IDs, storage credentials and authentication cookies are never included. The fixture is source-derived because runtime Swagger serialization was unavailable in the isolated finalization clone; Staff.Bff.Tests validates the paths, permissions, DTO shapes and response metadata against the controllers."
+  },
+  "servers": [
+    {
+      "url": "/"
+    }
+  ],
+  "security": [
+    {
+      "cookieAuth": []
+    }
+  ],
+  "paths": {
+    "/api/v1/documents/uploads": {
+      "post": {
+        "tags": [
+          "Documents"
+        ],
+        "operationId": "CreateUploadSession",
+        "description": "Creates a tenant-scoped upload session. The response writeUrl is a short-lived, write-only object-storage URL; the BFF does not receive file bytes.",
+        "x-required-permission": "documents:ingest",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Staff_CreateDocumentUploadSessionRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Upload session created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Staff_DocumentUploadSessionResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem400"
+          },
+          "404": {
+            "$ref": "#/components/responses/Problem404"
+          },
+          "409": {
+            "$ref": "#/components/responses/Problem409"
+          },
+          "422": {
+            "$ref": "#/components/responses/Problem422"
+          },
+          "503": {
+            "$ref": "#/components/responses/Problem503"
+          }
+        }
+      }
+    },
+    "/api/v1/shipments/{id}/document-intakes": {
+      "post": {
+        "tags": [
+          "Shipments"
+        ],
+        "operationId": "CreateDocumentIntake",
+        "description": "Verifies the upload, creates or replays one attachment, consumes the upload session and submits one idempotent OCR job.",
+        "x-required-permission": "documents:ingest",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ShipmentId"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Staff_CreateDocumentIntakeBody"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Document intake accepted or replayed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Staff_DocumentIntakeHttpResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem400"
+          },
+          "404": {
+            "$ref": "#/components/responses/Problem404"
+          },
+          "409": {
+            "$ref": "#/components/responses/Problem409"
+          },
+          "422": {
+            "$ref": "#/components/responses/Problem422"
+          },
+          "503": {
+            "$ref": "#/components/responses/Problem503"
+          }
+        }
+      }
+    },
+    "/api/v1/documents/shipment-documents": {
+      "get": {
+        "tags": [
+          "Documents"
+        ],
+        "operationId": "ListShipmentDocuments",
+        "x-required-permission": "documents:read",
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": 1,
+              "minimum": 1
+            }
+          },
+          {
+            "name": "pageSize",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": 20,
+              "minimum": 1,
+              "maximum": 100
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "nullable": true
+            }
+          },
+          {
+            "name": "shipmentId",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "nullable": true
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Tenant-scoped OCR job page",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Staff_ListShipmentDocumentsResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "$ref": "#/components/responses/Problem503"
+          }
+        }
+      },
+      "post": {
+        "deprecated": true,
+        "tags": [
+          "Documents (legacy)"
+        ],
+        "operationId": "SubmitShipmentDocumentLegacyAlias",
+        "description": "Retained storageReference-based submission. New FE code must use uploads and document-intakes.",
+        "x-required-permission": "documents:ingest",
+        "x-contract-status": "CURRENT_LEGACY",
+        "responses": {
+          "200": {
+            "description": "Legacy OCR job status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Staff_UnifiedDocumentStatusResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem400"
+          },
+          "503": {
+            "$ref": "#/components/responses/Problem503"
+          }
+        }
+      }
+    },
+    "/api/v1/documents/shipment/{id}": {
+      "get": {
+        "tags": [
+          "Documents"
+        ],
+        "operationId": "GetShipmentDocumentStatus",
+        "x-required-permission": "documents:read",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/DocumentId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OCR status and extraction summary",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Staff_UnifiedDocumentStatusResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/Problem404"
+          },
+          "503": {
+            "$ref": "#/components/responses/Problem503"
+          }
+        }
+      }
+    },
+    "/api/v1/documents/shipment-documents/{id}": {
+      "get": {
+        "tags": [
+          "Documents"
+        ],
+        "operationId": "GetShipmentDocumentStatusAlias",
+        "x-required-permission": "documents:read",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/DocumentId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OCR status and extraction summary",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Staff_UnifiedDocumentStatusResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/Problem404"
+          },
+          "503": {
+            "$ref": "#/components/responses/Problem503"
+          }
+        }
+      }
+    },
+    "/api/v1/documents/shipment-documents/{id}/review": {
+      "get": {
+        "tags": [
+          "Documents"
+        ],
+        "operationId": "GetShipmentDocumentReview",
+        "x-required-permission": "ocr:review",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/DocumentId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Field-level review payload",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Staff_OcrReviewDetailsResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/Problem404"
+          },
+          "503": {
+            "$ref": "#/components/responses/Problem503"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Documents"
+        ],
+        "operationId": "SubmitShipmentDocumentReview",
+        "x-required-permission": "ocr:review",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/DocumentId"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Staff_SubmitOcrReviewRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated OCR status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Staff_UnifiedDocumentStatusResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem400"
+          },
+          "404": {
+            "$ref": "#/components/responses/Problem404"
+          },
+          "409": {
+            "$ref": "#/components/responses/Problem409"
+          },
+          "503": {
+            "$ref": "#/components/responses/Problem503"
+          }
+        }
+      }
+    },
+    "/api/v1/documents/shipment-documents/{id}/cancel": {
+      "post": {
+        "tags": [
+          "Documents"
+        ],
+        "operationId": "CancelShipmentDocument",
+        "x-required-permission": "documents:manage",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/DocumentId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Cancelled OCR status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Staff_UnifiedDocumentStatusResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/Problem404"
+          },
+          "409": {
+            "$ref": "#/components/responses/Problem409"
+          },
+          "503": {
+            "$ref": "#/components/responses/Problem503"
+          }
+        }
+      }
+    },
+    "/api/v1/documents/shipment-documents/{id}/retry": {
+      "post": {
+        "tags": [
+          "Documents"
+        ],
+        "operationId": "RetryShipmentDocument",
+        "x-required-permission": "documents:manage",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/DocumentId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Retried OCR status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Staff_UnifiedDocumentStatusResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/Problem404"
+          },
+          "409": {
+            "$ref": "#/components/responses/Problem409"
+          },
+          "503": {
+            "$ref": "#/components/responses/Problem503"
+          }
+        }
+      }
+    },
+    "/api/v1/documents/shipment": {
+      "post": {
+        "deprecated": true,
+        "tags": [
+          "Documents (legacy)"
+        ],
+        "operationId": "SubmitShipmentDocumentLegacy",
+        "description": "Retained storageReference-based submission. New FE code must use uploads and document-intakes.",
+        "x-required-permission": "documents:ingest",
+        "x-contract-status": "CURRENT_LEGACY",
+        "responses": {
+          "200": {
+            "description": "Legacy OCR job status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Staff_UnifiedDocumentStatusResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem400"
+          },
+          "503": {
+            "$ref": "#/components/responses/Problem503"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "cookieAuth": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": ".Aurora.Auth"
+      }
+    },
+    "parameters": {
+      "ShipmentId": {
+        "name": "id",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string"
+        }
+      },
+      "DocumentId": {
+        "name": "id",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string"
+        }
+      }
+    },
+    "responses": {
+      "Problem400": {
+        "description": "Invalid request",
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/ProblemDetails"
+            }
+          }
+        }
+      },
+      "Problem404": {
+        "description": "Resource not found or hidden by tenant anti-enumeration policy",
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/ProblemDetails"
+            }
+          }
+        }
+      },
+      "Problem409": {
+        "description": "Conflict or invalid state transition",
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/ProblemDetails"
+            }
+          }
+        }
+      },
+      "Problem422": {
+        "description": "Upload content or metadata does not satisfy the contract",
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/ProblemDetails"
+            }
+          }
+        }
+      },
+      "Problem503": {
+        "description": "Downstream DocumentOcr or ShipmentWorkflow is unavailable",
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/ProblemDetails"
+            }
+          }
+        }
+      }
+    },
+    "schemas": {
+      "Staff_CreateDocumentUploadSessionRequest": {
+        "type": "object",
+        "required": [
+          "fileName",
+          "mimeType",
+          "sizeBytes"
+        ],
+        "properties": {
+          "idempotencyKey": {
+            "type": "string",
+            "nullable": true
+          },
+          "fileName": {
+            "type": "string"
+          },
+          "mimeType": {
+            "type": "string"
+          },
+          "sizeBytes": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1
+          },
+          "contentSha256": {
+            "type": "string",
+            "nullable": true,
+            "description": "Optional lowercase SHA-256 hex digest."
+          }
+        }
+      },
+      "Staff_DocumentUploadSessionResponse": {
+        "type": "object",
+        "required": [
+          "uploadId",
+          "storageReference",
+          "writeUrl",
+          "requiredHeaders",
+          "expiresAt",
+          "maximumSizeBytes",
+          "fileName",
+          "mimeType",
+          "sizeBytes",
+          "status"
+        ],
+        "properties": {
+          "uploadId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "storageReference": {
+            "type": "string",
+            "description": "Opaque server-owned object reference; never construct in the browser."
+          },
+          "writeUrl": {
+            "type": "string",
+            "format": "uri",
+            "description": "Short-lived write-only URL returned by the server for the browser upload."
+          },
+          "requiredHeaders": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "maximumSizeBytes": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "fileName": {
+            "type": "string"
+          },
+          "mimeType": {
+            "type": "string"
+          },
+          "sizeBytes": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "contentSha256": {
+            "type": "string",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "PENDING",
+              "UPLOADED",
+              "CONSUMED",
+              "EXPIRED"
+            ]
+          }
+        }
+      },
+      "Staff_CreateDocumentIntakeBody": {
+        "type": "object",
+        "required": [
+          "uploadId",
+          "documentTypeHint",
+          "idempotencyKey"
+        ],
+        "properties": {
+          "uploadId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "documentTypeHint": {
+            "type": "string"
+          },
+          "idempotencyKey": {
+            "type": "string"
+          }
+        }
+      },
+      "Staff_DocumentIntakeHttpResponse": {
+        "type": "object",
+        "required": [
+          "intakeId",
+          "shipmentId",
+          "documentId",
+          "uploadId",
+          "ocrJobId",
+          "status",
+          "intakeStatus",
+          "fileName",
+          "createdAt",
+          "retryable"
+        ],
+        "properties": {
+          "intakeId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "shipmentId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "documentId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "uploadId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "ocrJobId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "RECEIVED",
+              "PROCESSING",
+              "READY",
+              "NEEDS_REVIEW",
+              "REJECTED",
+              "FAILED",
+              "CANCELLED"
+            ]
+          },
+          "stage": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "QUEUED",
+              "EXTRACTING",
+              "HUMAN_REVIEW",
+              "COMPLETED",
+              "ERROR"
+            ]
+          },
+          "intakeStatus": {
+            "type": "string",
+            "enum": [
+              "PENDING_ATTACHMENT",
+              "PENDING_OCR",
+              "SUBMITTED",
+              "FAILED_RETRYABLE"
+            ]
+          },
+          "fileName": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "retryable": {
+            "type": "boolean"
+          },
+          "retryAfterSeconds": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          }
+        }
+      },
+      "Staff_UnifiedDocumentStatusResponse": {
+        "type": "object",
+        "required": [
+          "id",
+          "documentType",
+          "status",
+          "fileName",
+          "needsReview"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "documentType": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "RECEIVED",
+              "PROCESSING",
+              "READY",
+              "NEEDS_REVIEW",
+              "REJECTED",
+              "FAILED",
+              "CANCELLED"
+            ]
+          },
+          "stage": {
+            "type": "string",
+            "nullable": true
+          },
+          "fileName": {
+            "type": "string"
+          },
+          "needsReview": {
+            "type": "boolean"
+          },
+          "confidence": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "normalizedJson": {
+            "type": "string",
+            "nullable": true
+          },
+          "errorCode": {
+            "type": "string",
+            "nullable": true
+          },
+          "errorMessage": {
+            "type": "string",
+            "nullable": true
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        }
+      },
+      "Staff_ListShipmentDocumentsResponse": {
+        "type": "object",
+        "required": [
+          "items",
+          "page",
+          "pageSize",
+          "totalItems",
+          "totalPages"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Staff_UnifiedDocumentStatusResponse"
+            }
+          },
+          "page": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "pageSize": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "totalItems": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "totalPages": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "Staff_OcrReviewDetailsResponse": {
+        "type": "object",
+        "required": [
+          "documentId",
+          "jobId",
+          "status",
+          "documentType",
+          "overallConfidence",
+          "reviewReasons",
+          "fields"
+        ],
+        "properties": {
+          "documentId": {
+            "type": "string"
+          },
+          "jobId": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "originalDocumentReference": {
+            "type": "string",
+            "nullable": true
+          },
+          "documentType": {
+            "type": "string"
+          },
+          "overallConfidence": {
+            "type": "number",
+            "format": "double"
+          },
+          "reviewReasons": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "fields": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Staff_OcrFieldReviewItem"
+            }
+          }
+        }
+      },
+      "Staff_OcrFieldReviewItem": {
+        "type": "object",
+        "required": [
+          "name",
+          "value",
+          "confidence",
+          "needsReview"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          },
+          "confidence": {
+            "type": "number",
+            "format": "double"
+          },
+          "needsReview": {
+            "type": "boolean"
+          }
+        }
+      },
+      "Staff_SubmitOcrReviewRequest": {
+        "type": "object",
+        "required": [
+          "action"
+        ],
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "CONFIRM",
+              "CORRECT",
+              "REJECT"
+            ]
+          },
+          "fields": {
+            "type": "array",
+            "nullable": true,
+            "items": {
+              "$ref": "#/components/schemas/Staff_OcrFieldCorrection"
+            }
+          },
+          "comment": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "Staff_OcrFieldCorrection": {
+        "type": "object",
+        "required": [
+          "name",
+          "value"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          }
+        }
+      },
+      "ProblemDetails": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "nullable": true
+          },
+          "title": {
+            "type": "string",
+            "nullable": true
+          },
+          "status": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "detail": {
+            "type": "string",
+            "nullable": true
+          },
+          "instance": {
+            "type": "string",
+            "nullable": true
+          },
+          "code": {
+            "type": "string",
+            "description": "Stable client classification exposed in the extensions object."
+          },
+          "retryable": {
+            "type": "boolean"
+          },
+          "retryAfterSeconds": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          }
+        },
+        "additionalProperties": true
+      }
+    }
+  }
+}

@@ -22,4 +22,9 @@
     <Using Include="Xunit" />
   </ItemGroup>
 
+  <ItemGroup>
+    <EmbeddedResource Include="..\..\..\..\docs\contracts\staff-bff-documents.openapi.json"
+                      LogicalName="Staff.Bff.Tests.Contracts.staff-bff-documents.openapi.json" />
+  </ItemGroup>
+
 </Project>

@@ -3,7 +3,7 @@
 > **Document ID:** `DOC-BFF-STAFF`  
 > **Status:** Canonical Specification (Synchronized with `Staff.Bff` C# Source)  
 > **Scope:** HTTP REST APIs consumed by the **Aurora Operations Workspace** for operational execution (`Staff.Bff`).  
-> **Base Controller:** `[Authorize]` via [StaffControllerBase.cs](file:///d:/IT/CD/aurora-server/src/dotnet/BFF/Staff.Bff/Controllers/StaffControllerBase.cs).  
+> **Base Controller:** `[Authorize]` via `src/dotnet/BFF/Staff.Bff/Controllers/StaffControllerBase.cs`.
 > **Source Precedence:** Source Code & Protos > docs/technical/frontend > docs/bff-api > Figma UI Specs.
 
 ---
@@ -20,7 +20,8 @@
 | **Shipment** | `POST` | `/api/v1/shipments/{id}/submit` | Submit shipment for execution | `shipments:submit` | Tenant | `ShipmentWorkflowService.SubmitShipment` | `CURRENT` |
 | **Shipment** | `POST` | `/api/v1/shipments/{id}/cancel` | Cancel active shipment | `shipments:cancel` | Tenant | `ShipmentWorkflowService.CancelShipment` | `CURRENT` |
 | **Shipment** | `POST` | `/api/v1/shipments/{id}/milestones` | Record delivery milestone | `shipments:milestones:update` | Tenant | `ShipmentWorkflowService.UpdateMilestone` | `CURRENT` |
-| **Shipment** | `POST` | `/api/v1/shipments/{id}/documents` | Attach OCR document | `documents:attach` | Tenant | `ShipmentWorkflowService.AttachDocument` | `CURRENT` |
+| **Shipment** | `POST` | `/api/v1/shipments/{id}/document-intakes` | Create/replay the authoritative upload → attachment → OCR intake | `documents:ingest` | Tenant shipment + upload | `ShipmentWorkflowService.CreateDocumentIntake` + `DocumentOcrService` | `CURRENT` |
+| **Shipment** | `POST` | `/api/v1/shipments/{id}/documents` | Attach a pre-existing document metadata record | `shipments:create` (legacy fallback: `documents:create`) | Tenant shipment | `ShipmentWorkflowService.AttachShipmentDocument` | `CURRENT_LEGACY` |
 | **Shipment** | `GET` | `/api/v1/shipments/{id}/events` | Get shipment event audit trail | `shipments:read` | Tenant | `ShipmentWorkflowService.GetShipmentEvents` | `CURRENT` |
 | **Routes** | `POST` | `/api/v1/routes` | Create route proposal | `route_planning:create` | Tenant | `RoutePlanningService.CreateRoute` | `CURRENT` |
 | **Routes** | `GET` | `/api/v1/routes` | List routes with pagination | `route_planning:read` | Tenant | `RoutePlanningService.ListRoutes` | `CURRENT` |
@@ -45,10 +46,16 @@
 | **Mail** | `GET` | `/api/v1/mail/quarantine` | List quarantined emails | `mail:quarantine:read` | Tenant | `MailSecurity.ListQuarantineRecords` | `CURRENT` |
 | **Mail** | `GET` | `/api/v1/mail/quarantine/{id}` | Inspect quarantined threat record | `mail:quarantine:read` | Tenant | `MailSecurity.GetQuarantineRecord` | `CURRENT` |
 | **Mail** | `POST` | `/api/v1/mail/quarantine/{id}/release` | Release false-positive email to queue | `mail:quarantine:release` | Tenant | `MailSecurity.ReleaseQuarantine` | `CURRENT` |
-| **OCR** | `POST` | `/api/v1/documents/shipment` | Submit document for structured extraction | `shipments:create` | Shipment | `DocumentOcrService.SubmitOcrJob` | `CURRENT` |
-| **OCR** | `GET` | `/api/v1/documents/jobs/{jobId}` | Get OCR job status | `shipments:read` | Job | `DocumentOcrService.GetOcrJob` | `CURRENT` |
-| **OCR** | `GET` | `/api/v1/documents/jobs/{jobId}/ocr-result` | Get extracted JSON payload | `shipments:read` | Job | `DocumentOcrService.GetOcrResult` | `CURRENT` |
-| **OCR** | `POST` | `/api/v1/documents/jobs/{jobId}/review` | Human-in-the-loop review confirmation | `documents:review` | Job | `DocumentOcrService.ReviewOcrJob` | `CURRENT` |
+| **Documents/OCR** | `POST` | `/api/v1/documents/uploads` | Create a short-lived, write-only browser upload session | `documents:ingest` | Tenant upload session | `DocumentOcrService.CreateUploadSession` | `CURRENT` |
+| **Documents/OCR** | `PUT` | `{writeUrl returned by /documents/uploads}` | Upload bytes directly to object storage; this is not a Staff BFF route | Upload session capability | Tenant upload object | S3-compatible/local input storage | `CURRENT` |
+| **Documents/OCR** | `GET` | `/api/v1/documents/shipment-documents` | List tenant shipment OCR jobs | `documents:read` | Tenant | `DocumentOcrService.ListDocumentJobs` | `CURRENT` |
+| **Documents/OCR** | `GET` | `/api/v1/documents/shipment/{id}` | Get shipment document/OCR detail | `documents:read` | Tenant document/job | `DocumentOcrService.GetDocumentJob` | `CURRENT` |
+| **Documents/OCR** | `GET` | `/api/v1/documents/shipment-documents/{id}` | Detail route alias retained by the controller | `documents:read` | Tenant document/job | `DocumentOcrService.GetDocumentJob` | `CURRENT` |
+| **Documents/OCR** | `GET` | `/api/v1/documents/shipment-documents/{id}/review` | Get field-level human-review payload | `ocr:review` | Tenant document/job | `DocumentOcrService.GetDocumentJob` | `CURRENT` |
+| **Documents/OCR** | `POST` | `/api/v1/documents/shipment-documents/{id}/review` | Confirm, correct or reject OCR extraction | `ocr:review` | Tenant document/job | `DocumentOcrService.ReviewDocumentJob` | `CURRENT` |
+| **Documents/OCR** | `POST` | `/api/v1/documents/shipment-documents/{id}/cancel` | Cancel an active OCR job | `documents:manage` | Tenant document/job | `DocumentOcrService.CancelDocumentJob` | `CURRENT` |
+| **Documents/OCR** | `POST` | `/api/v1/documents/shipment-documents/{id}/retry` | Retry a failed OCR job | `documents:manage` | Tenant document/job | `DocumentOcrService.RetryDocumentJob` | `CURRENT` |
+| **Documents/OCR** | `POST` | `/api/v1/documents/shipment` or `/api/v1/documents/shipment-documents` | Submit a storage-reference-based OCR job | `documents:ingest` | Tenant document/job | `DocumentOcrService.SubmitOcrJob` | `CURRENT_LEGACY` |
 | **Compliance** | `POST` | `/api/v1/compliance/evaluations` | Evaluate shipment trade compliance | `compliance:evaluate` | Shipment | `RegulatoryComplianceService.EvaluateCompliance` | `CURRENT` |
 | **Compliance** | `GET` | `/api/v1/compliance/evaluations/{id}` | Get compliance assessment result | `compliance:read` | Evaluation | `RegulatoryComplianceService.GetEvaluation` | `CURRENT` |
 | **Compliance** | `POST` | `/api/v1/compliance/rag/query` | Query regulatory citations | `compliance:read` | Jurisdiction | `RegulatoryComplianceService.QueryRegulations` | `CURRENT` |
@@ -74,7 +81,49 @@
 
 ---
 
-## 2. Mail Thread Operational Workflow
+## 2. Secure Documents/OCR Intake Flow
+
+The browser must use the upload-session flow for new shipment documents. The BFF never receives file bytes and never asks the browser to invent a `storageReference` or `externalDocumentId`.
+
+```text
+1. POST /api/v1/documents/uploads                       [documents:ingest]
+   └─ 201 { uploadId, storageReference, writeUrl, requiredHeaders, expiresAt, ... }
+2. PUT {writeUrl}                                       [direct object-storage upload]
+   └─ Send the returned required headers and file bytes; writeUrl expires after 15 minutes.
+3. POST /api/v1/shipments/{shipmentId}/document-intakes [documents:ingest]
+   └─ { uploadId, documentTypeHint, idempotencyKey }
+   └─ 202 { intakeId, documentId, ocrJobId, status, stage, ... }
+4. GET /api/v1/documents/shipment-documents             [documents:read]
+   └─ Poll list/detail until terminal OCR status; use review/manage routes below as needed.
+```
+
+The intake endpoint verifies the tenant-scoped upload object, creates or replays one shipment attachment, consumes the upload session, and submits one idempotent OCR job. Replaying the same `idempotencyKey` with the same body resumes the persisted intake; changing the body returns a conflict. Cross-tenant IDs follow the anti-enumeration policy and are not converted into new IDs.
+
+Upload/intake failures use `application/problem+json` with `code` and `retryable` extensions. The canonical statuses are:
+
+| HTTP status | Stable codes/examples | Client behavior |
+|---:|---|---|
+| `400` | `INVALID_REQUEST`, `INVALID_UPLOAD_REQUEST` | Fix the request; do not retry unchanged. |
+| `404` | `UPLOAD_NOT_FOUND`, `UPLOAD_TENANT_MISMATCH`, `DOCUMENT_INTAKE_NOT_FOUND` | Treat as not visible to this tenant. |
+| `409` | `UPLOAD_EXPIRED`, `UPLOAD_IDEMPOTENCY_CONFLICT`, `INVALID_STATE_TRANSITION` | Refresh/reconcile the existing resource; preserve idempotency key. |
+| `422` | `UPLOAD_CONTENT_MISMATCH`, `UPLOAD_MIME_MISMATCH`, `UPLOAD_SIZE_MISMATCH`, `UPLOAD_HASH_MISMATCH` | Recreate the upload session and upload the correct bytes. |
+| `503` | `DOCUMENT_OCR_UNAVAILABLE`, `SHIPMENT_WORKFLOW_UNAVAILABLE` (`retryable: true`) | Retry the same intake request; do not create a second attachment. |
+
+### Retained compatibility routes
+
+The following routes remain for existing clients and are not the new browser upload flow:
+
+- `POST /api/v1/documents/shipment` and `POST /api/v1/documents/shipment-documents` accept a caller-supplied `storageReference` and submit OCR directly. They require `documents:ingest` and return the legacy `200` job status shape.
+- `POST /api/v1/shipments/{id}/documents` attaches caller-supplied document metadata through ShipmentWorkflow. Its source permission is `shipments:create` with legacy fallback `documents:create`; new UI code must use `POST /api/v1/shipments/{id}/document-intakes` instead.
+- The `/api/v1`-less `api/...` route aliases declared on `DocumentsController` are compatibility aliases. The versioned `/api/v1/...` paths above are the FE contract.
+
+The old `/api/v1/documents/jobs/...` and `/api/v1/documents/ocr/jobs/...` paths are not Staff BFF routes in the current source and must not be used by FE.
+
+The sanitized FE contract fixture is tracked at `docs/contracts/staff-bff-documents.openapi.json`. It is source-derived from the Staff BFF controller DTOs and attributes because the isolated finalization environment could not complete runtime Swagger generation; `DocumentsPublishedContractTests` provides the drift check against those source types and metadata.
+
+---
+
+## 3. Mail Thread Operational Workflow
 
 ```text
 [Incoming Email Ingestion]
