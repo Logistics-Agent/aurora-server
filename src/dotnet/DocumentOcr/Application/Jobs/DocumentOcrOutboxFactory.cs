@@ -12,7 +12,8 @@ public sealed record DocumentOcrEventInput(
     Guid DocumentId,
     Guid JobId,
     Guid CorrelationId,
-    string Purpose = "SHIPMENT_DOCUMENT");
+    DocumentOcrPurpose Purpose = DocumentOcrPurpose.ShipmentDocument,
+    string? ExternalContextId = null);
 
 public static class DocumentOcrOutboxFactory
 {
@@ -26,16 +27,16 @@ public static class DocumentOcrOutboxFactory
         RequiresReview(Input(job), occurredAt, job);
 
     public static OutboxMessage Completed(DocumentOcrEventInput input, DateTimeOffset? occurredAt = null) =>
-        Completed(input, occurredAt ?? DateTimeOffset.UtcNow, input.DocumentId, input.ShipmentId, input.Purpose, string.Empty, "{}", null, string.Empty, 0m, false);
+        Completed(input, occurredAt ?? DateTimeOffset.UtcNow, input.DocumentId, input.ShipmentId, input.ExternalContextId, string.Empty, "{}", null, string.Empty, 0m, false);
 
     public static OutboxMessage Failed(DocumentOcrEventInput input, DateTimeOffset? occurredAt = null) =>
         Failed(input, occurredAt ?? DateTimeOffset.UtcNow, "document_processing_failed", "Document processing failed.", 0m, null, null);
 
     public static OutboxMessage RequiresReview(DocumentOcrEventInput input, DateTimeOffset? occurredAt = null) =>
-        RequiresReview(input, occurredAt ?? DateTimeOffset.UtcNow, input.DocumentId, input.ShipmentId, input.Purpose, string.Empty, "{}", null, 0m);
+        RequiresReview(input, occurredAt ?? DateTimeOffset.UtcNow, input.DocumentId, input.ShipmentId, input.ExternalContextId, string.Empty, "{}", null, 0m);
 
     private static OutboxMessage Completed(DocumentOcrEventInput input, DateTimeOffset occurredAt, DocumentOcrJob job) =>
-        Completed(input, occurredAt, job.ExternalDocumentId, job.ExternalShipmentId, job.ExternalContextId, job.DetectedDocumentType?.ToString() ?? string.Empty, job.NormalizedJson ?? "{}", job.ArtifactReference, job.ExtractionMode.ToString(), job.Confidence ?? 0m, job.NeedsReview ?? false);
+        Completed(input, occurredAt, job.ExternalDocumentId, job.ExternalShipmentId, input.ExternalContextId, job.DetectedDocumentType?.ToString() ?? string.Empty, job.NormalizedJson ?? "{}", job.ArtifactReference, job.ExtractionMode.ToString(), job.Confidence ?? 0m, job.NeedsReview ?? false);
 
     private static OutboxMessage Completed(
         DocumentOcrEventInput input,
@@ -86,7 +87,7 @@ public static class DocumentOcrOutboxFactory
             Purpose = input.Purpose,
             ExternalDocumentId = input.DocumentId,
             ExternalShipmentId = input.ShipmentId,
-            ExternalContextId = input.Purpose,
+            ExternalContextId = input.ExternalContextId,
             ErrorCode = errorCode,
             ErrorMessage = errorMessage,
             Confidence = confidence,
@@ -98,7 +99,7 @@ public static class DocumentOcrOutboxFactory
     }
 
     private static OutboxMessage RequiresReview(DocumentOcrEventInput input, DateTimeOffset occurredAt, DocumentOcrJob job) =>
-        RequiresReview(input, occurredAt, job.ExternalDocumentId, job.ExternalShipmentId, job.ExternalContextId, job.DetectedDocumentType?.ToString() ?? string.Empty, job.NormalizedJson ?? "{}", job.ArtifactReference, job.Confidence ?? 0m);
+        RequiresReview(input, occurredAt, job.ExternalDocumentId, job.ExternalShipmentId, input.ExternalContextId, job.DetectedDocumentType?.ToString() ?? string.Empty, job.NormalizedJson ?? "{}", job.ArtifactReference, job.Confidence ?? 0m);
 
     private static OutboxMessage RequiresReview(
         DocumentOcrEventInput input,
@@ -136,8 +137,9 @@ public static class DocumentOcrOutboxFactory
         job.ExternalShipmentId,
         job.ExternalDocumentId,
         job.Id,
-        job.Id,
-        job.ExternalContextId ?? "SHIPMENT_DOCUMENT");
+        job.InitiatingCorrelationId,
+        job.Purpose,
+        job.ExternalContextId);
 
     private static OutboxMessage Serialize<T>(Guid tenantId, Guid eventId, string eventType, T value, DateTimeOffset occurredAt) =>
         OutboxMessage.Create(tenantId, eventId, eventType, JsonSerializer.Serialize(value), occurredAt);

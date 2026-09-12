@@ -1,10 +1,13 @@
 using DocumentOcr.Application.Jobs;
+using DocumentOcr.Application.Intake;
 using DocumentOcr.Application.Uploads;
 using DocumentOcr.Domain.Entities;
 using Google.Protobuf.WellKnownTypes;
 using Grpc.Core;
 using Shared.Security;
 using Shared.Constants;
+using Shared.Exceptions;
+using DocumentOcr.Contracts.Events;
 using OcrGrpc = DocumentOcr.Grpc;
 using DomainDocumentType = DocumentOcr.Domain.Enums.OcrDocumentType;
 using DomainJobStatus = DocumentOcr.Domain.Enums.DocumentOcrJobStatus;
@@ -14,7 +17,8 @@ namespace DocumentOcr.GrpcServices;
 public sealed class DocumentOcrGrpcService(
     IDocumentOcrJobService jobService,
     ICurrentUserService currentUser,
-    DocumentUploadService? uploadService = null)
+    DocumentUploadService? uploadService = null,
+    IDocumentIntakeService? intakeService = null)
     : OcrGrpc.DocumentOcrService.DocumentOcrServiceBase
 {
     public override async Task<OcrGrpc.DocumentOcrJobResponse> SubmitDocumentJob(
@@ -29,6 +33,7 @@ public sealed class DocumentOcrGrpcService(
             var externalShipmentId = ParseOptionalId(
                 request.ExternalShipmentId, "ExternalShipmentId");
             var documentType = ParseDocumentType(request.DocumentTypeHint);
+            var purpose = ParsePurpose(request.Purpose);
             var job = await jobService.SubmitAsync(
                 new SubmitDocumentJobInput(
                     request.IdempotencyKey,
@@ -38,7 +43,12 @@ public sealed class DocumentOcrGrpcService(
                     request.SizeBytes,
                     documentType,
                     externalDocumentId,
-                    externalShipmentId),
+                    externalShipmentId,
+                    purpose,
+                    DocumentOcrCorrelationId.FromTrace(
+                        string.IsNullOrWhiteSpace(request.CorrelationId)
+                            ? currentUser.TraceId
+                            : request.CorrelationId)),
                 context.CancellationToken);
             return MapJob(job);
         }
@@ -59,6 +69,7 @@ public sealed class DocumentOcrGrpcService(
                 request.ExternalDocumentId, "ExternalDocumentId");
             var documentType = ParseDocumentType(request.DocumentTypeHint);
             var extractionMode = (DocumentOcr.Domain.Enums.OcrExtractionMode)(int)request.ExtractionMode;
+            var purpose = ParsePurpose(request.Purpose);
 
             var job = await jobService.SubmitOcrAsync(
                 new SubmitOcrJobInput(
@@ -71,7 +82,12 @@ public sealed class DocumentOcrGrpcService(
                     extractionMode,
                     externalDocumentId,
                     request.ExternalContextId,
-                    ParseOptionalId(request.ExternalShipmentId, "ExternalShipmentId")),
+                    ParseOptionalId(request.ExternalShipmentId, "ExternalShipmentId"),
+                    purpose,
+                    DocumentOcrCorrelationId.FromTrace(
+                        string.IsNullOrWhiteSpace(request.CorrelationId)
+                            ? currentUser.TraceId
+                            : request.CorrelationId)),
                 context.CancellationToken);
             return MapJob(job);
         }
@@ -290,6 +306,45 @@ public sealed class DocumentOcrGrpcService(
         }
     }
 
+    public override async Task<OcrGrpc.DocumentOcrJobResponse> CreateDocumentIntake(
+        OcrGrpc.CreateDocumentIntakeRequest request,
+        ServerCallContext context)
+    {
+        RequireTenant();
+        try
+        {
+            var job = await RequireIntakeService().CreateAsync(
+                new CreateDocumentIntakeInput(
+                    ParseRequiredId(request.UploadId, "UploadId"),
+                    request.IdempotencyKey,
+                    ParseDocumentType(request.DocumentTypeHint),
+                    ParsePurpose(request.Purpose),
+                    request.ExternalReference,
+                    DocumentOcrCorrelationId.FromTrace(
+                        string.IsNullOrWhiteSpace(request.CorrelationId)
+                            ? currentUser.TraceId
+                            : request.CorrelationId)),
+                context.CancellationToken);
+            return MapJob(job);
+        }
+        catch (DocumentUploadValidationException exception)
+        {
+            throw UploadValidationFailure(StatusCode.FailedPrecondition, exception);
+        }
+        catch (ConflictException exception)
+        {
+            throw new RpcException(new Status(StatusCode.AlreadyExists, exception.Message));
+        }
+        catch (Shared.Exceptions.NotFoundException exception)
+        {
+            throw new RpcException(new Status(StatusCode.NotFound, exception.Message));
+        }
+        catch (ArgumentException exception)
+        {
+            throw InvalidArgument(exception.Message);
+        }
+    }
+
     internal static OcrGrpc.DocumentOcrJobResponse MapJob(DocumentOcrJob job)
     {
         var response = new OcrGrpc.DocumentOcrJobResponse
@@ -326,6 +381,8 @@ public sealed class DocumentOcrGrpcService(
         if (!string.IsNullOrEmpty(job.ArtifactReference))
             response.ArtifactReference = job.ArtifactReference;
         response.ExtractionMode = (OcrGrpc.OcrExtractionMode)(int)job.ExtractionMode;
+        response.Purpose = (OcrGrpc.DocumentOcrPurpose)(int)job.Purpose;
+        response.CorrelationId = job.InitiatingCorrelationId.ToString();
         return response;
     }
 
@@ -354,6 +411,9 @@ public sealed class DocumentOcrGrpcService(
 
     private DocumentUploadService RequireUploadService() =>
         uploadService ?? throw new InvalidOperationException("Document upload service is not configured.");
+
+    private IDocumentIntakeService RequireIntakeService() =>
+        intakeService ?? throw new InvalidOperationException("Document intake service is not configured.");
 
     private void RequireTenant()
     {
@@ -385,6 +445,17 @@ public sealed class DocumentOcrGrpcService(
         return System.Enum.IsDefined(parsed)
             ? parsed
             : throw InvalidArgument("DocumentTypeHint is invalid.");
+    }
+
+    private static DocumentOcrPurpose ParsePurpose(OcrGrpc.DocumentOcrPurpose value)
+    {
+        if (value == OcrGrpc.DocumentOcrPurpose.Unspecified)
+            return DocumentOcrPurpose.ShipmentDocument;
+
+        var parsed = (DocumentOcrPurpose)(int)value;
+        return System.Enum.IsDefined(parsed)
+            ? parsed
+            : throw InvalidArgument("Purpose is invalid.");
     }
 
     private static DomainJobStatus? ParseStatus(OcrGrpc.DocumentOcrJobStatus value)

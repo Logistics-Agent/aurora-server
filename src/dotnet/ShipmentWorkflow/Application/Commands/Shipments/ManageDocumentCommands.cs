@@ -3,7 +3,6 @@ using Microsoft.EntityFrameworkCore;
 using Shared.Exceptions;
 using Shared.Security;
 using ShipmentWorkflow.Application.DTOs.Shipments;
-using ShipmentWorkflow.Domain.Entities;
 using ShipmentWorkflow.Domain.Enums;
 using ShipmentWorkflow.Infrastructure.Persistences;
 
@@ -16,10 +15,7 @@ public sealed record AttachShipmentDocumentCommand(
     string StorageUrl,
     OCRStatus OCRStatus,
     decimal? OCRConfidence,
-    string? ExtractedDataJson,
-    string? IdempotencyKey = null,
-    Guid? UploadId = null,
-    string? StorageReference = null) : IRequest<ShipmentDto>;
+    string? ExtractedDataJson) : IRequest<ShipmentDto>;
 
 public sealed record UpdateShipmentDocumentOcrCommand(
     Guid ShipmentId,
@@ -37,120 +33,27 @@ public sealed class AttachShipmentDocumentCommandHandler(
     public async Task<ShipmentDto> Handle(AttachShipmentDocumentCommand request, CancellationToken cancellationToken)
     {
         ShipmentCommandHelpers.RequireTenantId(currentUser);
-        var storageReference = NormalizeStorageReference(request);
-        var idempotencyKey = NormalizeOptional(request.IdempotencyKey);
-        ValidateIdempotentFields(request, idempotencyKey, storageReference);
-        var effectiveStorageUrl = NormalizeEffectiveStorageUrl(request, storageReference);
         var shipment = await ShipmentCommandHelpers.GetShipmentAsync(dbContext, request.ShipmentId, cancellationToken);
         ShipmentCommandHelpers.EnsureNonTerminalMutation(shipment);
 
-        var requestHash = idempotencyKey is null
-            ? null
-            : DocumentIntakeRequestHasher.ForAttachment(request, storageReference, effectiveStorageUrl);
-        var existing = idempotencyKey is null
-            ? null
-            : shipment.Documents.SingleOrDefault(document =>
-                document.IdempotencyKey == idempotencyKey);
-        if (existing is not null)
-        {
-            if (!string.Equals(existing.RequestHash, requestHash, StringComparison.Ordinal))
-                throw new ConflictException("The idempotency key was already used with a different request.");
-            return ShipmentDto.FromEntity(shipment);
-        }
-
-        var document = shipment.AddDocumentMetadata(
+        shipment.AddDocumentMetadata(
             request.FileName,
             request.DocumentType,
-            effectiveStorageUrl,
+            request.StorageUrl,
             currentUser.UserId,
             DateTimeOffset.UtcNow,
             request.OCRStatus,
             request.OCRConfidence,
-            request.ExtractedDataJson,
-            idempotencyKey,
-            request.UploadId,
-            idempotencyKey is null ? null : storageReference,
-            requestHash);
-        ShipmentCommandHelpers.MarkAggregateRootUnchanged(dbContext, shipment);
+            request.ExtractedDataJson);
+
+        var document = shipment.Documents.Last();
         dbContext.Entry(document).State = EntityState.Added;
         ShipmentCommandHelpers.AddDocumentAttachedOutbox(dbContext, shipment, document);
+        ShipmentCommandHelpers.MarkAggregateRootUnchanged(dbContext, shipment);
 
-        try
-        {
-            await dbContext.SaveChangesAsync(cancellationToken);
-        }
-        catch (DbUpdateException exception) when (idempotencyKey is not null)
-        {
-            var constraintName = DocumentIntakePersistenceErrors.GetUniqueConstraintName(exception);
-            if (constraintName == DocumentIntakePersistenceErrors.AttachmentStorageReferenceConstraint)
-            {
-                dbContext.ChangeTracker.Clear();
-                shipment = await ShipmentCommandHelpers.GetShipmentAsync(dbContext, request.ShipmentId, cancellationToken);
-                existing = shipment.Documents.SingleOrDefault(document => document.IdempotencyKey == idempotencyKey);
-                if (existing is not null)
-                {
-                    if (!string.Equals(existing.RequestHash, requestHash, StringComparison.Ordinal))
-                        throw new ConflictException("The idempotency key was already used with a different request.");
-                    return ShipmentDto.FromEntity(shipment);
-                }
-
-                throw new ConflictException("The storage reference is already attached to this shipment.");
-            }
-            if (constraintName != DocumentIntakePersistenceErrors.AttachmentIdempotencyKeyConstraint)
-                throw;
-
-            dbContext.ChangeTracker.Clear();
-            shipment = await ShipmentCommandHelpers.GetShipmentAsync(dbContext, request.ShipmentId, cancellationToken);
-            existing = shipment.Documents.SingleOrDefault(document => document.IdempotencyKey == idempotencyKey)
-                ?? throw new ConflictException("The document attachment could not be committed safely.");
-            if (!string.Equals(existing.RequestHash, requestHash, StringComparison.Ordinal))
-                throw new ConflictException("The idempotency key was already used with a different request.");
-        }
-
+        await dbContext.SaveChangesAsync(cancellationToken);
         return ShipmentDto.FromEntity(shipment);
     }
-
-    private static string NormalizeStorageReference(AttachShipmentDocumentCommand request)
-    {
-        var storageReference = string.IsNullOrWhiteSpace(request.StorageReference)
-            ? request.StorageUrl
-            : request.StorageReference;
-        return string.IsNullOrWhiteSpace(storageReference)
-            ? throw new DomainException("StorageReference is required.")
-            : storageReference.Trim();
-    }
-
-    private static string NormalizeEffectiveStorageUrl(
-        AttachShipmentDocumentCommand request,
-        string storageReference)
-    {
-        return (string.IsNullOrWhiteSpace(request.StorageUrl)
-                ? storageReference
-                : request.StorageUrl).Trim();
-    }
-
-    private static string? NormalizeOptional(string? value) =>
-        string.IsNullOrWhiteSpace(value) ? null : value.Trim();
-
-    private static void ValidateIdempotentFields(
-        AttachShipmentDocumentCommand request,
-        string? idempotencyKey,
-        string storageReference)
-    {
-        if (idempotencyKey is null &&
-            (request.UploadId.HasValue || !string.IsNullOrWhiteSpace(request.StorageReference)))
-        {
-            throw new DomainException("IdempotencyKey is required for intake metadata.");
-        }
-
-        if (idempotencyKey is null)
-            return;
-        if (!request.UploadId.HasValue || request.UploadId.Value == Guid.Empty)
-            throw new DomainException("UploadId is required for idempotent attachment.");
-        if (storageReference.Length > ShipmentDocument.StorageUrlMaxLength)
-            throw new DomainException("StorageReference must be 1000 characters or fewer.");
-    }
-
 }
 
 public sealed class UpdateShipmentDocumentOcrCommandHandler(

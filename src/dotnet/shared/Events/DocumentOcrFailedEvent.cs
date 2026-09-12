@@ -9,7 +9,7 @@ public sealed record DocumentOcrFailedEvent
     public Guid? ShipmentId { get; init; }
     public Guid? DocumentId { get; init; }
     public Guid CorrelationId { get; init; }
-    public string Purpose { get; init; } = "SHIPMENT_DOCUMENT";
+    public DocumentOcrPurpose Purpose { get; init; } = DocumentOcrPurpose.ShipmentDocument;
     public Guid? ExternalDocumentId { get; init; }
     public Guid? ExternalShipmentId { get; init; }
     public string? ExternalContextId { get; init; }

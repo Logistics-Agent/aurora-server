@@ -6,7 +6,6 @@ using Microsoft.AspNetCore.Mvc;
 using Shared.Constants;
 using Shared.Security;
 using ShipmentWorkflow.Grpc;
-using StaffBff.Services;
 
 namespace StaffBff.Controllers;
 
@@ -18,50 +17,8 @@ namespace StaffBff.Controllers;
 public class ShipmentsController(
     ShipmentWorkflowService.ShipmentWorkflowServiceClient shipmentClient,
     ICurrentUserService currentUser,
-    ILogger<ShipmentsController> logger,
-    IDocumentIntakeOrchestrator documentIntakeOrchestrator) : StaffControllerBase
+    ILogger<ShipmentsController> logger) : StaffControllerBase
 {
-    [HttpPost("{id}/document-intakes")]
-    [RequirePermission(PermissionConstants.Documents.Ingest)]
-    [ProducesResponseType(typeof(DocumentIntakeHttpResponse), StatusCodes.Status202Accepted)]
-    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
-    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
-    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
-    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status422UnprocessableEntity)]
-    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status503ServiceUnavailable)]
-    public async Task<IActionResult> CreateDocumentIntake(
-        [FromRoute] string id,
-        [FromBody] CreateDocumentIntakeBody body,
-        CancellationToken ct = default)
-    {
-        if (!Guid.TryParse(id, out var shipmentId) || shipmentId == Guid.Empty)
-            return BadRequest(DocumentsContract.CreateProblemDetails("INVALID_REQUEST", "The shipment id is invalid.", StatusCodes.Status400BadRequest, false));
-        if (body is null || !Guid.TryParse(body.UploadId, out var uploadId) || uploadId == Guid.Empty ||
-            string.IsNullOrWhiteSpace(body.DocumentTypeHint) || string.IsNullOrWhiteSpace(body.IdempotencyKey))
-        {
-            return BadRequest(DocumentsContract.CreateProblemDetails("INVALID_REQUEST", "UploadId, DocumentTypeHint, and IdempotencyKey are required.", StatusCodes.Status400BadRequest, false));
-        }
-        try
-        {
-            var result = await documentIntakeOrchestrator.ComposeAsync(
-                shipmentId,
-                new CreateDocumentIntakeRequestModel(uploadId, body.DocumentTypeHint, body.IdempotencyKey),
-                ct);
-            return StatusCode(StatusCodes.Status202Accepted, result);
-        }
-        catch (DocumentIntakeOrchestrationException exception)
-        {
-            var problem = DocumentsContract.CreateProblemDetails(exception.Code, exception.Message, exception.StatusCode, exception.Retryable);
-            if (exception.IntakeId.HasValue)
-                problem.Extensions["intakeId"] = exception.IntakeId.Value;
-            if (exception.DocumentId.HasValue)
-                problem.Extensions["documentId"] = exception.DocumentId.Value;
-            if (exception.Retryable)
-                problem.Extensions["retryAfterSeconds"] = 5;
-            return StatusCode(exception.StatusCode, problem);
-        }
-    }
-
     [HttpPost]
     [RequirePermission(PermissionConstants.Shipment.Create, "documents:create")]
     public async Task<IActionResult> CreateShipment([FromBody] CreateShipmentBody body, CancellationToken ct = default)
@@ -465,11 +422,6 @@ public record DocumentDto(
     string? OcrStatus,
     double? OcrConfidence,
     string? ExtractedDataJson);
-
-public sealed record CreateDocumentIntakeBody(
-    string UploadId,
-    string DocumentTypeHint,
-    string IdempotencyKey);
 
 public record MilestoneDto(
     string? Status,

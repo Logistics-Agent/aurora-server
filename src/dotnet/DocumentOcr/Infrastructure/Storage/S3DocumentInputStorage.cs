@@ -2,6 +2,7 @@ using Amazon.S3;
 using Amazon.S3.Model;
 using DocumentOcr.Application.Storage;
 using Microsoft.Extensions.Configuration;
+using System.Globalization;
 
 namespace DocumentOcr.Infrastructure.Storage;
 
@@ -26,6 +27,13 @@ public sealed class S3DocumentInputStorage(IAmazonS3 client, IConfiguration conf
         {
             ["Content-Type"] = mimeType
         };
+        if (maximumSizeBytes <= 0)
+            throw new ArgumentOutOfRangeException(nameof(maximumSizeBytes));
+
+        // Browser PUTs emit Content-Length automatically for a Blob. Signing the
+        // declared length makes the presigned URL reject an oversized body before
+        // S3/R2 stores it. Post-upload inspection remains the authoritative defense.
+        var contentLength = maximumSizeBytes.ToString(CultureInfo.InvariantCulture);
         var request = new GetPreSignedUrlRequest
         {
             BucketName = _bucketName,
@@ -35,6 +43,7 @@ public sealed class S3DocumentInputStorage(IAmazonS3 client, IConfiguration conf
             Expires = expiresAt.UtcDateTime,
             ContentType = mimeType
         };
+        request.Headers["Content-Length"] = contentLength;
         if (contentSha256 is not null)
         {
             request.Headers["x-amz-meta-content-sha256"] = contentSha256;

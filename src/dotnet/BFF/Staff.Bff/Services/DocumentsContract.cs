@@ -1,11 +1,41 @@
 using DocumentOcr.Grpc;
 using Grpc.Core;
 using Microsoft.AspNetCore.Mvc;
+using System.Text.Json;
 
 namespace StaffBff.Services;
 
 internal static class DocumentsContract
 {
+    internal static bool TryParseDocumentType(string? value, out OcrDocumentType documentType)
+    {
+        documentType = NormalizeEnumValue(value) switch
+        {
+            "INVOICE" or "COMMERCIALINVOICE" => OcrDocumentType.CommercialInvoice,
+            "PACKINGLIST" => OcrDocumentType.PackingList,
+            "BILLOFLADING" => OcrDocumentType.BillOfLading,
+            "CUSTOMSDECLARATION" => OcrDocumentType.CustomsDeclaration,
+            "CERTIFICATEOFORIGIN" => OcrDocumentType.CertificateOfOrigin,
+            "PROOFOFDELIVERY" => OcrDocumentType.ProofOfDelivery,
+            "OTHER" => OcrDocumentType.Other,
+            _ => OcrDocumentType.Unspecified
+        };
+        return documentType != OcrDocumentType.Unspecified;
+    }
+
+    internal static bool TryParsePurpose(string? value, out DocumentOcrPurpose purpose)
+    {
+        purpose = NormalizeEnumValue(value) switch
+        {
+            "SHIPMENTDOCUMENT" => DocumentOcrPurpose.ShipmentDocument,
+            "REGULATORYCORPUS" => DocumentOcrPurpose.RegulatoryCorpus,
+            "KNOWLEDGECORPUS" => DocumentOcrPurpose.KnowledgeCorpus,
+            "GENERALDOCUMENT" => DocumentOcrPurpose.GeneralDocument,
+            _ => DocumentOcrPurpose.Unspecified
+        };
+        return purpose != DocumentOcrPurpose.Unspecified;
+    }
+
     internal static bool IsUnavailable(StatusCode statusCode) =>
         statusCode is StatusCode.Unavailable or StatusCode.DeadlineExceeded;
 
@@ -15,25 +45,48 @@ internal static class DocumentsContract
         StatusCodes.Status503ServiceUnavailable,
         retryable: true);
 
+    internal static ProblemDetails CreateTenantContextRequiredProblemDetails() => CreateProblemDetails(
+        DocumentProblemContractCatalog.TenantContextRequired);
+
+    internal static Guid CreateDeterministicCompatibilityDocumentId(params string[] components)
+    {
+        var bytes = System.Security.Cryptography.SHA256.HashData(
+            JsonSerializer.SerializeToUtf8Bytes(components));
+        bytes[6] = (byte)((bytes[6] & 0x0F) | 0x50);
+        bytes[8] = (byte)((bytes[8] & 0x3F) | 0x80);
+        return new Guid(bytes.AsSpan(0, 16));
+    }
+
     internal static ProblemDetails CreateProblemDetails(
         string code,
         string detail,
         int status,
         bool retryable)
     {
+        var contract = DocumentProblemContractCatalog.ResolveRuntimeTuple(code, status, retryable);
+        var safeDetail = contract == DocumentProblemContractCatalog.DocumentContractError
+            ? contract.DefaultDetail
+            : detail;
+        return CreateProblemDetails(contract, safeDetail);
+    }
+
+    internal static ProblemDetails CreateProblemDetails(
+        DocumentProblemContractCatalog.Definition contract,
+        string? detail = null)
+    {
         var problem = new ProblemDetails
         {
-            Title = code,
-            Detail = detail,
-            Status = status
+            Title = contract.Code,
+            Detail = detail ?? contract.DefaultDetail,
+            Status = contract.StatusCode
         };
-        problem.Extensions["code"] = code;
-        problem.Extensions["retryable"] = retryable;
+        problem.Extensions["code"] = contract.Code;
+        problem.Extensions["retryable"] = contract.Retryable;
         return problem;
     }
 
     internal static ProblemDetails CreateProblemDetails(DocumentUploadError error) =>
-        CreateProblemDetails(error.Code, error.Detail, error.StatusCode, error.Retryable);
+        CreateProblemDetails(error.Contract, error.Detail);
 
     internal static string MapUploadStatus(DocumentUploadStatus status) => status switch
     {
@@ -65,13 +118,21 @@ internal static class DocumentsContract
         DocumentOcrJobStatus.Failed => "ERROR",
         _ => null
     };
+
+    private static string NormalizeEnumValue(string? value) =>
+        string.IsNullOrWhiteSpace(value)
+            ? string.Empty
+            : new string(value.Where(char.IsLetterOrDigit).Select(char.ToUpperInvariant).ToArray());
 }
 
 internal sealed record DocumentUploadError(
-    string Code,
-    string Detail,
-    int StatusCode,
-    bool Retryable);
+    DocumentProblemContractCatalog.Definition Contract,
+    string Detail)
+{
+    internal string Code => Contract.Code;
+    internal int StatusCode => Contract.StatusCode;
+    internal bool Retryable => Contract.Retryable;
+}
 
 internal static class DocumentUploadErrorMapper
 {
@@ -83,30 +144,16 @@ internal static class DocumentUploadErrorMapper
                 "document-upload-validation-code",
                 StringComparison.OrdinalIgnoreCase))?.Value;
         if (!string.IsNullOrWhiteSpace(trailerCode))
-            return FromCode(trailerCode);
+            return From(DocumentProblemContractCatalog.ResolveUploadCode(trailerCode));
         if (exception.StatusCode == Grpc.Core.StatusCode.AlreadyExists)
-            return FromCode("UPLOAD_IDEMPOTENCY_CONFLICT");
+            return From(DocumentProblemContractCatalog.UploadIdempotencyConflict);
         if (exception.StatusCode == Grpc.Core.StatusCode.NotFound)
-            return FromCode("UPLOAD_NOT_FOUND");
+            return From(DocumentProblemContractCatalog.UploadNotFound);
         if (DocumentsContract.IsUnavailable(exception.StatusCode))
-            return FromCode("DOCUMENT_OCR_UNAVAILABLE");
-        return new("UPLOAD_INVALID", "The upload request is invalid.", StatusCodes.Status422UnprocessableEntity, false);
+            return From(DocumentProblemContractCatalog.DocumentOcrUnavailable);
+        return From(DocumentProblemContractCatalog.UploadInvalid);
     }
 
-    private static DocumentUploadError FromCode(string code) => code switch
-    {
-        "UPLOAD_EXPIRED" => new(code, "The upload session has expired.", StatusCodes.Status409Conflict, false),
-        "UPLOAD_OBJECT_NOT_FOUND" => new(code, "The uploaded object was not found.", StatusCodes.Status404NotFound, false),
-        "UPLOAD_TENANT_MISMATCH" => new(code, "The upload session was not found.", StatusCodes.Status404NotFound, false),
-        "UPLOAD_MIME_MISMATCH" or "UPLOAD_SIZE_MISMATCH" or "UPLOAD_HASH_MISMATCH" or "UPLOAD_CONTENT_MISMATCH" or "UPLOAD_SIZE_EXCEEDED"
-            => new(code, "The uploaded object did not satisfy the upload session contract.", StatusCodes.Status422UnprocessableEntity, false),
-        "UPLOAD_IDEMPOTENCY_CONFLICT" => new(code, "The upload idempotency key was already used with a different request.", StatusCodes.Status409Conflict, false),
-        "UPLOAD_INVALID_REQUEST" => new("INVALID_UPLOAD_REQUEST", "The upload request is invalid.", StatusCodes.Status400BadRequest, false),
-        "UPLOAD_VERIFICATION_IN_PROGRESS" => new(code, "The upload session is still being verified.", StatusCodes.Status409Conflict, true),
-        "UPLOAD_NOT_VERIFIED" => new(code, "The upload session must be verified before it is consumed.", StatusCodes.Status409Conflict, false),
-        "UPLOAD_NOT_FOUND" => new(code, "The upload session was not found.", StatusCodes.Status404NotFound, false),
-        "DOCUMENT_OCR_UNAVAILABLE" => new(code, "The OCR dependency is temporarily unavailable. Retry the same request.", StatusCodes.Status503ServiceUnavailable, true),
-        _ when code.StartsWith("UPLOAD_", StringComparison.Ordinal) => new(code, "The uploaded object did not satisfy the upload session contract.", StatusCodes.Status422UnprocessableEntity, false),
-        _ => new("UPLOAD_INVALID", "The upload request is invalid.", StatusCodes.Status422UnprocessableEntity, false)
-    };
+    private static DocumentUploadError From(DocumentProblemContractCatalog.Definition contract) =>
+        new(contract, contract.DefaultDetail);
 }

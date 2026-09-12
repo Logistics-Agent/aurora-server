@@ -5,10 +5,14 @@ using Grpc.Core;
 using Grpc.Net.Client;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.Filters;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using RegulatoryCompliance.Grpc;
 using Shared.Constants;
+using Shared.Security;
+using StaffBff.Attributes;
 using StaffBff.Controllers;
 using StaffBff.Services;
 
@@ -16,6 +20,36 @@ namespace StaffBff.Tests;
 
 public sealed class DocumentsControllerContractTests
 {
+    [Theory]
+    [InlineData("INVOICE", OcrDocumentType.CommercialInvoice)]
+    [InlineData("COMMERCIAL_INVOICE", OcrDocumentType.CommercialInvoice)]
+    [InlineData("PACKING_LIST", OcrDocumentType.PackingList)]
+    [InlineData("BILL_OF_LADING", OcrDocumentType.BillOfLading)]
+    [InlineData("CUSTOMS_DECLARATION", OcrDocumentType.CustomsDeclaration)]
+    [InlineData("CERTIFICATE_OF_ORIGIN", OcrDocumentType.CertificateOfOrigin)]
+    [InlineData("PROOF_OF_DELIVERY", OcrDocumentType.ProofOfDelivery)]
+    [InlineData("OTHER", OcrDocumentType.Other)]
+    public void TryParseDocumentType_accepts_canonical_wire_values(
+        string value,
+        OcrDocumentType expected)
+    {
+        Assert.True(DocumentsContract.TryParseDocumentType(value, out var actual));
+        Assert.Equal(expected, actual);
+    }
+
+    [Theory]
+    [InlineData("SHIPMENT_DOCUMENT", DocumentOcrPurpose.ShipmentDocument)]
+    [InlineData("REGULATORY_CORPUS", DocumentOcrPurpose.RegulatoryCorpus)]
+    [InlineData("KNOWLEDGE_CORPUS", DocumentOcrPurpose.KnowledgeCorpus)]
+    [InlineData("GENERAL_DOCUMENT", DocumentOcrPurpose.GeneralDocument)]
+    public void TryParsePurpose_accepts_canonical_wire_values(
+        string value,
+        DocumentOcrPurpose expected)
+    {
+        Assert.True(DocumentsContract.TryParsePurpose(value, out var actual));
+        Assert.Equal(expected, actual);
+    }
+
     [Theory]
     [InlineData(DocumentOcrJobStatus.Unspecified, null)]
     [InlineData(DocumentOcrJobStatus.Queued, "QUEUED")]
@@ -50,6 +84,109 @@ public sealed class DocumentsControllerContractTests
         Assert.Equal(expectedStatus, DocumentsContract.MapStatus(status, needsReview));
     }
 
+    [Fact]
+    public void Deterministic_compatibility_document_id_rejects_newline_component_collision()
+    {
+        var left = DocumentsContract.CreateDeterministicCompatibilityDocumentId("a\nb", "c");
+        var right = DocumentsContract.CreateDeterministicCompatibilityDocumentId("a", "b\nc");
+
+        Assert.NotEqual(left, right);
+    }
+
+    [Fact]
+    public void Deterministic_compatibility_document_id_is_stable_for_same_components()
+    {
+        var first = DocumentsContract.CreateDeterministicCompatibilityDocumentId(
+            "legacy-shipment-document", "tenant-a", "shipment-1", "idempotency-1", "objects/invoice.pdf");
+        var second = DocumentsContract.CreateDeterministicCompatibilityDocumentId(
+            "legacy-shipment-document", "tenant-a", "shipment-1", "idempotency-1", "objects/invoice.pdf");
+
+        Assert.Equal(first, second);
+    }
+
+    [Fact]
+    public void Deterministic_compatibility_document_id_preserves_domain_separation()
+    {
+        var shipmentId = DocumentsContract.CreateDeterministicCompatibilityDocumentId(
+            "legacy-shipment-document", "tenant-a", "shipment-1", "idempotency-1", "objects/invoice.pdf");
+        var regulatoryId = DocumentsContract.CreateDeterministicCompatibilityDocumentId(
+            "legacy-regulatory-document", "tenant-a", "shipment-1", "idempotency-1", "objects/invoice.pdf");
+
+        Assert.NotEqual(shipmentId, regulatoryId);
+    }
+
+    [Theory]
+    [InlineData(nameof(DocumentsController.SubmitGeneralDocument))]
+    [InlineData(nameof(DocumentsController.SubmitRegulatorySource))]
+    [InlineData(nameof(DocumentsController.SubmitKnowledgeDocument))]
+    [InlineData(nameof(DocumentsController.ListShipmentDocuments))]
+    [InlineData(nameof(DocumentsController.GetShipmentDocumentReview))]
+    [InlineData(nameof(DocumentsController.CancelShipmentDocument))]
+    [InlineData(nameof(DocumentsController.CreateUploadSession))]
+    [InlineData(nameof(DocumentsController.SubmitShipmentDocument))]
+    public void Documents_controller_routes_are_covered_by_the_tenant_guard(string actionName)
+    {
+        var action = typeof(DocumentsController).GetMethod(actionName, BindingFlags.Public | BindingFlags.Instance);
+
+        Assert.NotNull(action);
+        Assert.NotNull(typeof(DocumentsController).GetCustomAttribute<RequireTenantContextAttribute>());
+    }
+
+    [Fact]
+    public void Document_intake_route_has_its_own_tenant_guard()
+    {
+        var action = typeof(DocumentsController).GetMethod(nameof(DocumentsController.CreateDocumentIntake));
+
+        Assert.NotNull(action);
+        Assert.NotNull(typeof(DocumentsController).GetCustomAttribute<RequireTenantContextAttribute>());
+        Assert.Contains(
+            action.GetCustomAttributes<HttpPostAttribute>(),
+            attribute => string.Equals(attribute.Template, "intakes", StringComparison.Ordinal));
+        Assert.Null(typeof(ShipmentsController).GetMethod("CreateDocumentIntake"));
+    }
+
+    [Fact]
+    public async Task Tenant_guard_returns_canonical_401_before_action_pipeline()
+    {
+        var currentUser = new CurrentUserService();
+        var services = new ServiceCollection()
+            .AddSingleton<ICurrentUserService>(currentUser)
+            .BuildServiceProvider();
+        var httpContext = new DefaultHttpContext { RequestServices = services };
+        var filterContext = new AuthorizationFilterContext(
+            new ActionContext(httpContext, new(), new()),
+            []);
+
+        await new RequireTenantContextAttribute().OnAuthorizationAsync(filterContext);
+
+        var result = Assert.IsType<UnauthorizedObjectResult>(filterContext.Result);
+        var problem = Assert.IsType<ProblemDetails>(result.Value);
+        Assert.Equal(StatusCodes.Status401Unauthorized, result.StatusCode);
+        Assert.Equal("TENANT_CONTEXT_REQUIRED", problem.Extensions["code"]);
+        Assert.False((bool)problem.Extensions["retryable"]!);
+    }
+
+    [Fact]
+    public async Task Tenant_guard_rejects_tenant_null_system_admin()
+    {
+        var currentUser = new CurrentUserService();
+        currentUser.Populate(Guid.CreateVersion7(), null, null, 1, RoleConstants.SystemAdmin, []);
+        var services = new ServiceCollection()
+            .AddSingleton<ICurrentUserService>(currentUser)
+            .BuildServiceProvider();
+        var httpContext = new DefaultHttpContext { RequestServices = services };
+        var filterContext = new AuthorizationFilterContext(
+            new ActionContext(httpContext, new(), new()),
+            []);
+
+        await new RequireTenantContextAttribute().OnAuthorizationAsync(filterContext);
+
+        var result = Assert.IsType<UnauthorizedObjectResult>(filterContext.Result);
+        var problem = Assert.IsType<ProblemDetails>(result.Value);
+        Assert.Equal(StatusCodes.Status401Unauthorized, result.StatusCode);
+        Assert.Equal("TENANT_CONTEXT_REQUIRED", problem.Extensions["code"]);
+    }
+
     [Theory]
     [InlineData(nameof(DocumentsController.SubmitShipmentDocument), PermissionConstants.Documents.Ingest)]
     [InlineData(nameof(DocumentsController.GetShipmentDocumentStatus), PermissionConstants.Documents.Read)]
@@ -63,6 +200,7 @@ public sealed class DocumentsControllerContractTests
     [InlineData(nameof(DocumentsController.SubmitKnowledgeDocument), PermissionConstants.Documents.Ingest)]
     [InlineData(nameof(DocumentsController.QueryKnowledge), PermissionConstants.Documents.Read)]
     [InlineData(nameof(DocumentsController.SubmitGeneralDocument), PermissionConstants.Documents.Ingest)]
+    [InlineData(nameof(DocumentsController.CreateDocumentIntake), PermissionConstants.Documents.Ingest)]
     [InlineData(nameof(DocumentsController.PromoteGeneralDocumentToKnowledge), PermissionConstants.Documents.Manage)]
     public void Document_endpoints_require_only_the_canonical_capability(
         string methodName,
@@ -75,6 +213,40 @@ public sealed class DocumentsControllerContractTests
         Assert.Equal(expectedPermission, permission!.RequiredPermission);
         Assert.Null(permission.LegacyFallbackPermission);
         Assert.Empty(permission.FallbackPermissions);
+    }
+
+    [Fact]
+    public async Task Create_intake_maps_canonical_values_and_defaults_to_general_document()
+    {
+        var fixture = CreateFixture();
+        CreateDocumentIntakeRequest? captured = null;
+        fixture.DocumentOcrClient
+            .Setup(client => client.CreateDocumentIntakeAsync(
+                It.IsAny<CreateDocumentIntakeRequest>(),
+                It.IsAny<Metadata>(),
+                It.IsAny<DateTime?>(),
+                It.IsAny<CancellationToken>()))
+            .Callback<CreateDocumentIntakeRequest, Metadata, DateTime?, CancellationToken>(
+                (request, _, _, _) => captured = request)
+            .Returns(CreateSuccessfulCall(new DocumentOcrJobResponse
+            {
+                JobId = Guid.CreateVersion7().ToString(),
+                Status = DocumentOcrJobStatus.Queued,
+                FileName = "invoice.pdf",
+                CreatedAt = Google.Protobuf.WellKnownTypes.Timestamp.FromDateTimeOffset(DateTimeOffset.UtcNow)
+            }));
+
+        var result = await fixture.Controller.CreateDocumentIntake(
+            new CreateDocumentIntakeBody(
+                Guid.CreateVersion7().ToString(),
+                "COMMERCIAL_INVOICE",
+                "intake-001"),
+            default);
+
+        Assert.IsType<AcceptedResult>(result);
+        Assert.NotNull(captured);
+        Assert.Equal(OcrDocumentType.CommercialInvoice, captured.DocumentTypeHint);
+        Assert.Equal(DocumentOcrPurpose.GeneralDocument, captured.Purpose);
     }
 
     [Theory]
@@ -255,9 +427,21 @@ public sealed class DocumentsControllerContractTests
         var controller = new DocumentsController(
             documentOcrClient.Object,
             regulatoryClient.Object,
+            CreateTenantUser(),
             NullLogger<DocumentsController>.Instance);
+        controller.ControllerContext = new ControllerContext
+        {
+            HttpContext = new DefaultHttpContext()
+        };
 
         return new ControllerFixture(documentOcrClient, controller);
+    }
+
+    private static ICurrentUserService CreateTenantUser()
+    {
+        var currentUser = new CurrentUserService();
+        currentUser.Populate(Guid.CreateVersion7(), Guid.CreateVersion7(), null, 1, RoleConstants.Staff, []);
+        return currentUser;
     }
 
     private static void SetupListFailure(

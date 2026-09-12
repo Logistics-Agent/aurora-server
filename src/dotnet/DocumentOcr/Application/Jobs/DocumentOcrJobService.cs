@@ -19,7 +19,9 @@ public sealed record SubmitDocumentJobInput(
     long SizeBytes,
     OcrDocumentType DocumentTypeHint,
     Guid ExternalDocumentId,
-    Guid? ExternalShipmentId);
+    Guid? ExternalShipmentId,
+    DocumentOcrPurpose Purpose = DocumentOcrPurpose.ShipmentDocument,
+    Guid? InitiatingCorrelationId = null);
 
 public sealed record SubmitOcrJobInput(
     string IdempotencyKey,
@@ -31,7 +33,9 @@ public sealed record SubmitOcrJobInput(
     OcrExtractionMode ExtractionMode,
     Guid ExternalDocumentId,
     string? ExternalContextId = null,
-    Guid? ExternalShipmentId = null);
+    Guid? ExternalShipmentId = null,
+    DocumentOcrPurpose Purpose = DocumentOcrPurpose.ShipmentDocument,
+    Guid? InitiatingCorrelationId = null);
 
 public sealed record ListDocumentJobsInput(
     int Page,
@@ -109,7 +113,9 @@ public sealed class DocumentOcrJobService(
                 OcrExtractionMode.Structured,
                 input.ExternalDocumentId,
                 null,
-                input.ExternalShipmentId),
+                input.ExternalShipmentId,
+                input.Purpose,
+                input.InitiatingCorrelationId),
             cancellationToken);
     }
 
@@ -119,6 +125,12 @@ public sealed class DocumentOcrJobService(
     {
         ArgumentNullException.ThrowIfNull(input);
         var tenantId = RequireTenant();
+        var purpose = input.Purpose;
+        if (purpose == DocumentOcrPurpose.Unspecified || !Enum.IsDefined(purpose))
+            throw new ArgumentOutOfRangeException(nameof(input.Purpose), "Purpose is invalid.");
+        var initiatingCorrelationId = input.InitiatingCorrelationId is { } suppliedCorrelationId && suppliedCorrelationId != Guid.Empty
+            ? suppliedCorrelationId
+            : DocumentOcrCorrelationId.FromTrace(currentUser.TraceId);
         inputPolicy.ValidateMetadata(
             input.StorageReference, input.FileName, input.MimeType, input.SizeBytes);
         var idempotencyKey = Required(input.IdempotencyKey, nameof(input.IdempotencyKey), 150);
@@ -141,7 +153,9 @@ public sealed class DocumentOcrJobService(
             input.ExternalShipmentId,
             timeProvider.GetUtcNow(),
             input.ExtractionMode,
-            input.ExternalContextId);
+            input.ExternalContextId,
+            purpose,
+            initiatingCorrelationId);
         dbContext.Jobs.Add(job);
 
         try

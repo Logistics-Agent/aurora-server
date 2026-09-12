@@ -18,6 +18,7 @@ service DocumentOcrService {
   rpc VerifyUploadSession(VerifyUploadSessionRequest) returns (DocumentUploadReceipt);
   rpc GetUploadSession(GetUploadSessionRequest) returns (DocumentUploadReceipt);
   rpc ConsumeUploadSession(ConsumeUploadSessionRequest) returns (DocumentUploadReceipt);
+  rpc CreateDocumentIntake(CreateDocumentIntakeRequest) returns (DocumentOcrJobResponse);
 }
               
 enum DocumentOcrJobStatus {
@@ -49,6 +50,14 @@ enum OcrExtractionMode {
   OCR_EXTRACTION_MODE_BOTH = 3;
 }
 
+enum DocumentOcrPurpose {
+  DOCUMENT_OCR_PURPOSE_UNSPECIFIED = 0;
+  DOCUMENT_OCR_PURPOSE_SHIPMENT_DOCUMENT = 1;
+  DOCUMENT_OCR_PURPOSE_REGULATORY_CORPUS = 2;
+  DOCUMENT_OCR_PURPOSE_KNOWLEDGE_CORPUS = 3;
+  DOCUMENT_OCR_PURPOSE_GENERAL_DOCUMENT = 4;
+}
+
 enum DocumentUploadStatus {
   DOCUMENT_UPLOAD_STATUS_UNSPECIFIED = 0;
   DOCUMENT_UPLOAD_STATUS_PENDING = 1;
@@ -77,6 +86,15 @@ message ConsumeUploadSessionRequest {
   string upload_id = 1;
 }
 
+message CreateDocumentIntakeRequest {
+  string upload_id = 1;
+  string idempotency_key = 2;
+  OcrDocumentType document_type_hint = 3;
+  DocumentOcrPurpose purpose = 4;
+  string external_reference = 5;
+  string correlation_id = 6;
+}
+
 message DocumentUploadReceipt {
   string upload_id = 1;
   string storage_reference = 2;
@@ -103,6 +121,8 @@ message SubmitDocumentJobRequest {
   OcrDocumentType document_type_hint = 6;
   string external_document_id = 7;
   string external_shipment_id = 8;
+  DocumentOcrPurpose purpose = 9;
+  string correlation_id = 10;
 }
 
 message SubmitOcrJobRequest {
@@ -116,6 +136,8 @@ message SubmitOcrJobRequest {
   string external_document_id = 8;
   string external_context_id = 9;
   string external_shipment_id = 10;
+  DocumentOcrPurpose purpose = 11;
+  string correlation_id = 12;
 }
 
 message GetDocumentJobRequest {
@@ -153,6 +175,8 @@ message DocumentOcrJobResponse {
   string artifact_reference = 20;
   OcrExtractionMode extraction_mode = 21;
   string field_confidence_json = 22;
+  DocumentOcrPurpose purpose = 23;
+  string correlation_id = 24;
 }
 
 message ListDocumentJobsResponse {

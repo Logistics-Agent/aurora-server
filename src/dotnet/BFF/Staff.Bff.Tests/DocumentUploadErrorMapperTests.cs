@@ -18,7 +18,10 @@ public sealed class DocumentUploadErrorMapperTests
     [InlineData("UPLOAD_IDEMPOTENCY_CONFLICT", "UPLOAD_IDEMPOTENCY_CONFLICT", 409, false)]
     [InlineData("UPLOAD_VERIFICATION_IN_PROGRESS", "UPLOAD_VERIFICATION_IN_PROGRESS", 409, true)]
     [InlineData("UPLOAD_NOT_VERIFIED", "UPLOAD_NOT_VERIFIED", 409, false)]
+    [InlineData("UPLOAD_NOT_READY", "UPLOAD_NOT_READY", 409, false)]
+    [InlineData("UPLOAD_INVALID", "UPLOAD_INVALID", 422, false)]
     [InlineData("UPLOAD_INVALID_REQUEST", "INVALID_UPLOAD_REQUEST", 400, false)]
+    [InlineData("DOCUMENT_OCR_UNAVAILABLE", "DOCUMENT_OCR_UNAVAILABLE", 503, true)]
     public void Stable_upload_errors_serialize_code_and_retryable(
         string trailerCode,
         string expectedCode,
@@ -73,5 +76,33 @@ public sealed class DocumentUploadErrorMapperTests
         Assert.Equal("UPLOAD_NOT_FOUND", mapped.Code);
         Assert.Equal(404, mapped.StatusCode);
         Assert.False(mapped.Retryable);
+    }
+
+    [Fact]
+    public void Unknown_upload_trailer_maps_to_stable_upload_invalid_contract()
+    {
+        var mapped = DocumentUploadErrorMapper.Map(
+            new RpcException(
+                new Status(StatusCode.InvalidArgument, "missing contract"),
+                new Metadata { { "document-upload-validation-code", "UPLOAD_UNKNOWN_INTERNAL_CODE" } }));
+
+        Assert.Equal("UPLOAD_INVALID", mapped.Code);
+        Assert.Equal(422, mapped.StatusCode);
+        Assert.False(mapped.Retryable);
+        Assert.DoesNotContain("UPLOAD_UNKNOWN_INTERNAL_CODE", mapped.Detail);
+    }
+
+    [Fact]
+    public void Unknown_non_upload_trailer_maps_to_stable_upload_invalid_contract()
+    {
+        var mapped = DocumentUploadErrorMapper.Map(
+            new RpcException(
+                new Status(StatusCode.InvalidArgument, "missing contract"),
+                new Metadata { { "document-upload-validation-code", "DOCUMENT_UNKNOWN_INTERNAL_CODE" } }));
+
+        Assert.Equal("UPLOAD_INVALID", mapped.Code);
+        Assert.Equal(422, mapped.StatusCode);
+        Assert.False(mapped.Retryable);
+        Assert.DoesNotContain("DOCUMENT_UNKNOWN_INTERNAL_CODE", mapped.Detail);
     }
 }

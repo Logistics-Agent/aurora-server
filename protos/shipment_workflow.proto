@@ -53,18 +53,6 @@ service ShipmentWorkflowService {
     rpc AttachShipmentDocument(AttachShipmentDocumentRequest)
     returns (ShipmentResponse);
 
-    rpc CreateDocumentIntake(CreateDocumentIntakeRequest)
-    returns (DocumentIntakeResponse);
-
-    rpc AttachDocumentIntake(AttachDocumentIntakeRequest)
-    returns (DocumentIntakeResponse);
-
-    rpc MarkDocumentIntakeSubmitted(MarkDocumentIntakeSubmittedRequest)
-    returns (DocumentIntakeResponse);
-
-    rpc MarkDocumentIntakeRetryable(MarkDocumentIntakeRetryableRequest)
-    returns (DocumentIntakeResponse);
-
     rpc UpdateShipmentDocumentOcr(UpdateShipmentDocumentOcrRequest)
     returns (ShipmentResponse);
 
@@ -305,48 +293,6 @@ message AttachShipmentDocumentRequest {
   string ocrStatus = 5;
   optional double ocrConfidence = 6;
   string extractedDataJson = 7;
-  string idempotency_key = 8;
-  string upload_id = 9;
-  string storage_reference = 10;
-}
-
-message CreateDocumentIntakeRequest {
-  string shipment_id = 1;
-  string upload_id = 2;
-  string storage_reference = 3;
-  string file_name = 4;
-  string document_type = 5;
-  string idempotency_key = 6;
-}
-
-message AttachDocumentIntakeRequest {
-  string intake_id = 1;
-  string storage_reference = 2;
-  string file_name = 3;
-  string upload_id = 4;
-}
-
-message MarkDocumentIntakeSubmittedRequest {
-  string intake_id = 1;
-}
-
-message MarkDocumentIntakeRetryableRequest {
-  string intake_id = 1;
-  string failure_reason = 2;
-}
-
-message DocumentIntakeResponse {
-  string intake_id = 1;
-  string shipment_id = 2;
-  string document_id = 3;
-  string upload_id = 4;
-  string storage_reference = 5;
-  string file_name = 6;
-  string document_type = 7;
-  string status = 8;
-  string stage = 9;
-  google.protobuf.Timestamp created_at = 10;
-  google.protobuf.Timestamp updated_at = 11;
 }
 
 message UpdateShipmentDocumentOcrRequest {

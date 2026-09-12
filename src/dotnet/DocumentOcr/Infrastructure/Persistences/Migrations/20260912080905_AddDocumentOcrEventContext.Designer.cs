@@ -3,6 +3,7 @@ using System;
 using DocumentOcr.Infrastructure.Persistences;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace DocumentOcr.Infrastructure.Persistences.Migrations
 {
     [DbContext(typeof(DocumentOcrDbContext))]
-    partial class DocumentOcrDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260912080905_AddDocumentOcrEventContext")]
+    partial class AddDocumentOcrEventContext
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -106,9 +109,6 @@ namespace DocumentOcr.Infrastructure.Persistences.Migrations
                         .HasMaxLength(150)
                         .HasColumnType("character varying(150)");
 
-                    b.Property<Guid?>("UploadId")
-                        .HasColumnType("uuid");
-
                     b.Property<Guid>("InitiatingCorrelationId")
                         .HasColumnType("uuid");
 
@@ -185,9 +185,6 @@ namespace DocumentOcr.Infrastructure.Persistences.Migrations
                     b.HasIndex("TenantId", "ExternalShipmentId");
 
                     b.HasIndex("TenantId", "IdempotencyKey")
-                        .IsUnique();
-
-                    b.HasIndex("TenantId", "UploadId")
                         .IsUnique();
 
                     b.HasIndex("Status", "NextAttemptAt", "CreatedAt");
@@ -490,12 +487,6 @@ namespace DocumentOcr.Infrastructure.Persistences.Migrations
             modelBuilder.Entity("DocumentOcr.Domain.Entities.DocumentOcrJob", b =>
                 {
                     b.Navigation("Attempts");
-
-                    b.HasOne("DocumentOcr.Domain.Entities.DocumentUploadSession", null)
-                        .WithMany()
-                        .HasForeignKey("TenantId", "UploadId")
-                        .HasPrincipalKey("TenantId", "Id")
-                        .OnDelete(DeleteBehavior.Restrict);
                 });
 #pragma warning restore 612, 618
         }

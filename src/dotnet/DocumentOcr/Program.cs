@@ -1,5 +1,6 @@
 using Amazon.S3;
 using DocumentOcr.Application.Jobs;
+using DocumentOcr.Application.Intake;
 using DocumentOcr.Application.Providers;
 using DocumentOcr.Application.Storage;
 using DocumentOcr.Application.Uploads;
@@ -95,6 +96,7 @@ else if (inputStorageProvider == DocumentInputStorageProvider.S3)
 }
 builder.Services.AddScoped<DocumentInputPolicy>();
 builder.Services.AddScoped<DocumentUploadService>();
+builder.Services.AddScoped<IDocumentIntakeService, DocumentIntakeService>();
 builder.Services.AddHostedService<ExpiredUploadCleanupService>();
 builder.Services.AddScoped<IDocumentContentReader, DeterministicDocumentContentReader>();
 builder.Services.AddScoped<IOcrProvider>(services =>

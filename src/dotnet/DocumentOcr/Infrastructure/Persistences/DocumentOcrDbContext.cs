@@ -41,6 +41,7 @@ public sealed class DocumentOcrDbContext(
             entity.HasAlternateKey(job => new { job.TenantId, job.Id });
             entity.HasQueryFilter(job => job.TenantId == _currentUser.TenantId);
             entity.HasIndex(job => new { job.TenantId, job.IdempotencyKey }).IsUnique();
+            entity.HasIndex(job => new { job.TenantId, job.UploadId }).IsUnique();
             entity.HasIndex(job => new { job.TenantId, job.ExternalDocumentId });
             entity.HasIndex(job => new { job.TenantId, job.ExternalShipmentId });
             entity.HasIndex(job => new { job.TenantId, job.Status, job.CreatedAt, job.Id });
@@ -48,6 +49,7 @@ public sealed class DocumentOcrDbContext(
             entity.HasIndex(job => new { job.Status, job.LeaseExpiresAt });
 
             entity.Property(job => job.IdempotencyKey).HasMaxLength(150).IsRequired();
+            entity.Property(job => job.UploadId);
             entity.Property(job => job.StorageReference).HasMaxLength(1_000).IsRequired();
             entity.Property(job => job.FileName).HasMaxLength(255).IsRequired();
             entity.Property(job => job.MimeType).HasMaxLength(150).IsRequired();
@@ -61,6 +63,12 @@ public sealed class DocumentOcrDbContext(
             entity.Property(job => job.FullTextContent);
             entity.Property(job => job.ArtifactReference).HasMaxLength(1_000);
             entity.Property(job => job.ExternalContextId).HasMaxLength(150);
+            entity.Property(job => job.Purpose)
+                .HasConversion<string>()
+                .HasMaxLength(50)
+                .IsRequired();
+            entity.Property(job => job.InitiatingCorrelationId)
+                .IsRequired();
             entity.Property(job => job.ErrorCode).HasMaxLength(100);
             entity.Property(job => job.ErrorMessage).HasMaxLength(2_000);
             ConfigureAudit(entity);
@@ -71,6 +79,12 @@ public sealed class DocumentOcrDbContext(
                 .HasPrincipalKey(job => new { job.TenantId, job.Id })
                 .OnDelete(DeleteBehavior.Cascade);
             entity.Navigation(job => job.Attempts).UsePropertyAccessMode(PropertyAccessMode.Field);
+
+            entity.HasOne<DocumentUploadSession>()
+                .WithMany()
+                .HasForeignKey(job => new { job.TenantId, job.UploadId })
+                .HasPrincipalKey(session => new { session.TenantId, session.Id })
+                .OnDelete(DeleteBehavior.Restrict);
         });
     }
 
