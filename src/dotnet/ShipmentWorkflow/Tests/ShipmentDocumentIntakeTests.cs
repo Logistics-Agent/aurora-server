@@ -3,6 +3,7 @@ using Shared.Exceptions;
 using Shared.Interceptors;
 using Shared.Security;
 using ShipmentWorkflow.Application.Commands.Shipments;
+using ShipmentWorkflow.Application.DTOs.Shipments;
 using ShipmentWorkflow.Domain.Enums;
 using ShipmentWorkflow.Infrastructure.Persistences;
 using ShipmentEntity = global::ShipmentWorkflow.Domain.Entities.Shipment;
@@ -16,7 +17,74 @@ public sealed class ShipmentDocumentIntakeTests
         "Host=localhost;Port=5433;Database=aurora_shipment_workflow_tests;Username=postgres;Password=postgres";
 
     [Fact]
-    public async Task Same_key_replays_original_attachment_without_duplicate_event()
+    public async Task Create_intake_only_persists_pending_attachment_without_document_or_outbox()
+    {
+        var tenantId = Guid.NewGuid();
+        var currentUser = new TestCurrentUserService(tenantId);
+        await using var dbContext = await CreateDbContextAsync(currentUser);
+        var shipment = await AddShipmentAsync(dbContext, tenantId, "SHP-INTAKE-LEDGER");
+
+        var created = await new CreateDocumentIntakeCommandHandler(dbContext, currentUser)
+            .Handle(CreateCommand(shipment.Id), CancellationToken.None);
+
+        Assert.Equal(DocumentIntakeStatus.PendingAttachment, created.Status);
+        Assert.Equal(1, await dbContext.DocumentIntakes.CountAsync());
+        Assert.Equal(0, await dbContext.ShipmentDocuments.CountAsync());
+        Assert.Equal(0, await dbContext.OutboxMessages.CountAsync());
+    }
+
+    [Fact]
+    public async Task Attach_intake_after_verification_is_idempotent_and_emits_one_attachment()
+    {
+        var tenantId = Guid.NewGuid();
+        var currentUser = new TestCurrentUserService(tenantId);
+        await using var dbContext = await CreateDbContextAsync(currentUser);
+        var shipment = await AddShipmentAsync(dbContext, tenantId, "SHP-INTAKE-ATTACH");
+        var command = CreateCommand(shipment.Id);
+        var created = await new CreateDocumentIntakeCommandHandler(dbContext, currentUser)
+            .Handle(command, CancellationToken.None);
+        var attach = new AttachDocumentIntakeCommandHandler(dbContext, currentUser);
+        var attachCommand = new AttachDocumentIntakeCommand(
+            created.IntakeId,
+            created.UploadId,
+            "objects/tenant/upload/invoice.pdf",
+            "invoice.pdf");
+
+        var first = await attach.Handle(attachCommand, CancellationToken.None);
+        dbContext.ChangeTracker.Clear();
+        var replay = await new AttachDocumentIntakeCommandHandler(dbContext, currentUser)
+            .Handle(attachCommand, CancellationToken.None);
+
+        Assert.Equal(DocumentIntakeStatus.PendingOcr, first.Status);
+        Assert.Equal(first.DocumentId, replay.DocumentId);
+        Assert.Equal(DocumentIntakeStatus.PendingOcr, replay.Status);
+        Assert.Equal(1, await dbContext.ShipmentDocuments.CountAsync());
+        Assert.Equal(1, await dbContext.OutboxMessages.CountAsync());
+    }
+
+    [Fact]
+    public async Task Attach_intake_is_tenant_scoped()
+    {
+        var ownerTenantId = Guid.NewGuid();
+        await using var ownerContext = await CreateDbContextAsync(new TestCurrentUserService(ownerTenantId));
+        var shipment = await AddShipmentAsync(ownerContext, ownerTenantId, "SHP-INTAKE-ATTACH-TENANT");
+        var created = await new CreateDocumentIntakeCommandHandler(ownerContext, new TestCurrentUserService(ownerTenantId))
+            .Handle(CreateCommand(shipment.Id), CancellationToken.None);
+
+        var otherUser = new TestCurrentUserService(Guid.NewGuid());
+        await using var otherContext = CreateDbContext(otherUser);
+
+        await Assert.ThrowsAsync<NotFoundException>(() =>
+            new AttachDocumentIntakeCommandHandler(otherContext, otherUser)
+                .Handle(new AttachDocumentIntakeCommand(
+                    created.IntakeId,
+                    created.UploadId,
+                    "objects/other/upload/invoice.pdf",
+                    "invoice.pdf"), CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task Same_key_replays_original_ledger_without_attachment()
     {
         var tenantId = Guid.NewGuid();
         var currentUser = new TestCurrentUserService(tenantId);
@@ -32,10 +100,10 @@ public sealed class ShipmentDocumentIntakeTests
 
         Assert.Equal(first.IntakeId, replay.IntakeId);
         Assert.Equal(first.DocumentId, replay.DocumentId);
-        Assert.Equal(DocumentIntakeStatus.PendingOcr, replay.Status);
+        Assert.Equal(DocumentIntakeStatus.PendingAttachment, replay.Status);
         Assert.Equal(1, await dbContext.DocumentIntakes.CountAsync());
-        Assert.Equal(1, await dbContext.ShipmentDocuments.CountAsync());
-        Assert.Equal(1, await dbContext.OutboxMessages.CountAsync());
+        Assert.Equal(0, await dbContext.ShipmentDocuments.CountAsync());
+        Assert.Equal(0, await dbContext.OutboxMessages.CountAsync());
         var requestHash = await dbContext.DocumentIntakes
             .Select(intake => intake.RequestHash)
             .SingleAsync();
@@ -58,27 +126,39 @@ public sealed class ShipmentDocumentIntakeTests
                 .Handle(CreateCommand(shipment.Id, uploadId: Guid.NewGuid()), CancellationToken.None));
 
         Assert.Equal("The idempotency key was already used with a different request.", exception.Message);
-        Assert.Equal(1, await dbContext.ShipmentDocuments.CountAsync());
-        Assert.Equal(1, await dbContext.OutboxMessages.CountAsync());
+        Assert.Equal(0, await dbContext.ShipmentDocuments.CountAsync());
+        Assert.Equal(0, await dbContext.OutboxMessages.CountAsync());
     }
 
     [Fact]
-    public async Task Different_keys_with_same_storage_reference_return_stable_conflict_without_phantom_intake()
+    public async Task Different_keys_with_same_storage_reference_conflict_at_attach_without_duplicate_document()
     {
         var tenantId = Guid.NewGuid();
         var currentUser = new TestCurrentUserService(tenantId);
         await using var dbContext = await CreateDbContextAsync(currentUser);
         var shipment = await AddShipmentAsync(dbContext, tenantId, "SHP-INTAKE-STORAGE-COLLISION");
 
-        await new CreateDocumentIntakeCommandHandler(dbContext, currentUser)
+        var first = await new CreateDocumentIntakeCommandHandler(dbContext, currentUser)
             .Handle(CreateCommand(shipment.Id), CancellationToken.None);
+        await new AttachDocumentIntakeCommandHandler(dbContext, currentUser)
+            .Handle(new AttachDocumentIntakeCommand(
+                first.IntakeId,
+                first.UploadId,
+                "objects/tenant/upload/invoice.pdf",
+                "invoice.pdf"), CancellationToken.None);
 
+        var second = await new CreateDocumentIntakeCommandHandler(dbContext, currentUser)
+            .Handle(CreateCommand(shipment.Id, idempotencyKey: "intake-key-2"), CancellationToken.None);
         var exception = await Assert.ThrowsAsync<ConflictException>(() =>
-            new CreateDocumentIntakeCommandHandler(dbContext, currentUser)
-                .Handle(CreateCommand(shipment.Id, idempotencyKey: "intake-key-2"), CancellationToken.None));
+            new AttachDocumentIntakeCommandHandler(dbContext, currentUser)
+                .Handle(new AttachDocumentIntakeCommand(
+                    second.IntakeId,
+                    second.UploadId,
+                    "objects/tenant/upload/invoice.pdf",
+                    "invoice.pdf"), CancellationToken.None));
 
         Assert.Equal("The storage reference is already attached to this shipment.", exception.Message);
-        Assert.Equal(1, await dbContext.DocumentIntakes.CountAsync());
+        Assert.Equal(2, await dbContext.DocumentIntakes.CountAsync());
         Assert.Equal(1, await dbContext.ShipmentDocuments.CountAsync());
     }
 
@@ -92,6 +172,14 @@ public sealed class ShipmentDocumentIntakeTests
         var command = CreateCommand(shipment.Id);
         await new CreateDocumentIntakeCommandHandler(dbContext, currentUser)
             .Handle(command, CancellationToken.None);
+        var created = await new CreateDocumentIntakeCommandHandler(dbContext, currentUser)
+            .Handle(command, CancellationToken.None);
+        await new AttachDocumentIntakeCommandHandler(dbContext, currentUser)
+            .Handle(new AttachDocumentIntakeCommand(
+                created.IntakeId,
+                created.UploadId,
+                "objects/tenant/upload/invoice.pdf",
+                "invoice.pdf"), CancellationToken.None);
         var document = await dbContext.ShipmentDocuments.SingleAsync();
         dbContext.ShipmentDocuments.Remove(document);
         await dbContext.SaveChangesAsync();
@@ -115,9 +203,10 @@ public sealed class ShipmentDocumentIntakeTests
 
         var first = CreateDbContext(new TestCurrentUserService(tenantId));
         var second = CreateDbContext(new TestCurrentUserService(tenantId));
+        DocumentIntakeDto[] results;
         try
         {
-            var results = await Task.WhenAll(
+            results = await Task.WhenAll(
                 new CreateDocumentIntakeCommandHandler(first, new TestCurrentUserService(tenantId))
                     .Handle(command, CancellationToken.None),
                 new CreateDocumentIntakeCommandHandler(second, new TestCurrentUserService(tenantId))
@@ -134,6 +223,15 @@ public sealed class ShipmentDocumentIntakeTests
 
         await using var verificationContext = CreateDbContext(new TestCurrentUserService(tenantId));
         Assert.Equal(1, await verificationContext.DocumentIntakes.CountAsync());
+        var attachResult = await new AttachDocumentIntakeCommandHandler(
+                verificationContext,
+                new TestCurrentUserService(tenantId))
+            .Handle(new AttachDocumentIntakeCommand(
+                results[0].IntakeId,
+                results[0].UploadId,
+                "objects/tenant/upload/invoice.pdf",
+                "invoice.pdf"), CancellationToken.None);
+        Assert.Equal(results[0].DocumentId, attachResult.DocumentId);
         Assert.Equal(1, await verificationContext.ShipmentDocuments.CountAsync());
         Assert.Equal(1, await verificationContext.OutboxMessages.CountAsync());
     }
@@ -183,10 +281,21 @@ public sealed class ShipmentDocumentIntakeTests
         var handler = new CreateDocumentIntakeCommandHandler(dbContext, currentUser);
 
         var created = await handler.Handle(command, CancellationToken.None);
+        await new AttachDocumentIntakeCommandHandler(dbContext, currentUser)
+            .Handle(new AttachDocumentIntakeCommand(
+                created.IntakeId,
+                created.UploadId,
+                "objects/tenant/upload/invoice.pdf",
+                "invoice.pdf"), CancellationToken.None);
         var retryable = await new MarkDocumentIntakeRetryableCommandHandler(dbContext, currentUser)
             .Handle(new MarkDocumentIntakeRetryableCommand(created.IntakeId, "OCR unavailable"), CancellationToken.None);
         dbContext.ChangeTracker.Clear();
-        var resumed = await handler.Handle(command, CancellationToken.None);
+        var resumed = await new AttachDocumentIntakeCommandHandler(dbContext, currentUser)
+            .Handle(new AttachDocumentIntakeCommand(
+                created.IntakeId,
+                created.UploadId,
+                "objects/tenant/upload/invoice.pdf",
+                "invoice.pdf"), CancellationToken.None);
 
         Assert.Equal(DocumentIntakeStatus.FailedRetryable, retryable.Status);
         Assert.Equal(DocumentIntakeStatus.PendingOcr, resumed.Status);
@@ -204,6 +313,12 @@ public sealed class ShipmentDocumentIntakeTests
         var shipment = await AddShipmentAsync(setupContext, tenantId, "SHP-INTAKE-CONCURRENCY");
         var created = await new CreateDocumentIntakeCommandHandler(setupContext, currentUser)
             .Handle(CreateCommand(shipment.Id), CancellationToken.None);
+        await new AttachDocumentIntakeCommandHandler(setupContext, currentUser)
+            .Handle(new AttachDocumentIntakeCommand(
+                created.IntakeId,
+                created.UploadId,
+                "objects/tenant/upload/invoice.pdf",
+                "invoice.pdf"), CancellationToken.None);
 
         await using var staleRetryableContext = CreateDbContext(new TestCurrentUserService(tenantId));
         _ = await staleRetryableContext.DocumentIntakes
@@ -243,6 +358,12 @@ public sealed class ShipmentDocumentIntakeTests
         var shipment = await AddShipmentAsync(dbContext, tenantId, "SHP-INTAKE-SUBMITTED");
         var created = await new CreateDocumentIntakeCommandHandler(dbContext, currentUser)
             .Handle(CreateCommand(shipment.Id), CancellationToken.None);
+        await new AttachDocumentIntakeCommandHandler(dbContext, currentUser)
+            .Handle(new AttachDocumentIntakeCommand(
+                created.IntakeId,
+                created.UploadId,
+                "objects/tenant/upload/invoice.pdf",
+                "invoice.pdf"), CancellationToken.None);
         var submittedHandler = new MarkDocumentIntakeSubmittedCommandHandler(dbContext, currentUser);
 
         var submitted = await submittedHandler.Handle(

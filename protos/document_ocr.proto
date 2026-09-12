@@ -17,6 +17,7 @@ service DocumentOcrService {
   rpc CreateUploadSession(CreateUploadSessionRequest) returns (DocumentUploadReceipt);
   rpc VerifyUploadSession(VerifyUploadSessionRequest) returns (DocumentUploadReceipt);
   rpc GetUploadSession(GetUploadSessionRequest) returns (DocumentUploadReceipt);
+  rpc ConsumeUploadSession(ConsumeUploadSessionRequest) returns (DocumentUploadReceipt);
 }
               
 enum DocumentOcrJobStatus {
@@ -69,6 +70,10 @@ message VerifyUploadSessionRequest {
 }
 
 message GetUploadSessionRequest {
+  string upload_id = 1;
+}
+
+message ConsumeUploadSessionRequest {
   string upload_id = 1;
 }
 

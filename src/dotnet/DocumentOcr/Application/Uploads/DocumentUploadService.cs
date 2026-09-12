@@ -216,6 +216,10 @@ public sealed class DocumentUploadService(
             cancellationToken) ?? throw new NotFoundException("Document upload session was not found.");
         if (session.Status == DocumentUploadStatus.Consumed)
             return ToReceipt(session);
+        if (session.Status == DocumentUploadStatus.Expired)
+            throw new DocumentUploadValidationException("UPLOAD_EXPIRED", "The upload session has expired.");
+        if (session.Status != DocumentUploadStatus.Uploaded)
+            throw new DocumentUploadValidationException("UPLOAD_NOT_VERIFIED", "The upload session must be verified before it is consumed.");
         session.MarkConsumed(timeProvider.GetUtcNow());
         await dbContext.SaveChangesAsync(cancellationToken);
         return ToReceipt(session);

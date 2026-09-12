@@ -31,7 +31,7 @@ public sealed class DocumentOcrContractTests
             .ToArray();
 
         Assert.Equal(
-            ["SubmitDocumentJob", "SubmitOcrJob", "GetDocumentJob", "ListDocumentJobs", "CancelDocumentJob", "RetryDocumentJob", "ReviewDocumentJob", "CreateUploadSession", "VerifyUploadSession", "GetUploadSession"],
+            ["SubmitDocumentJob", "SubmitOcrJob", "GetDocumentJob", "ListDocumentJobs", "CancelDocumentJob", "RetryDocumentJob", "ReviewDocumentJob", "CreateUploadSession", "VerifyUploadSession", "GetUploadSession", "ConsumeUploadSession"],
             methods);
     }
 
@@ -65,13 +65,14 @@ public sealed class DocumentOcrContractTests
     }
 
     [Fact]
-    public void IntegrationEventsDefaultToVersionOneAndUniqueIds()
+    public void IntegrationEventsUseApprovedContractVersionsAndUniqueIds()
     {
         var completed = new DocumentOcrCompletedEvent();
         var failed = new DocumentOcrFailedEvent();
 
         Assert.Equal(2, completed.ContractVersion);
         Assert.Equal(2, failed.ContractVersion);
+        Assert.Equal(1, new DocumentOcrRequiresReviewEvent().ContractVersion);
         Assert.NotEqual(Guid.Empty, completed.EventId);
         Assert.NotEqual(Guid.Empty, failed.EventId);
         Assert.NotEqual(completed.EventId, failed.EventId);

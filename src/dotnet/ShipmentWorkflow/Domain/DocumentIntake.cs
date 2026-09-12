@@ -67,17 +67,41 @@ public sealed class DocumentIntake : TenantAuditableEntity
         };
     }
 
-    public void MarkAttachmentCreated(DateTimeOffset changedAt)
+    public void AttachVerifiedDocument(
+        string storageReference,
+        string fileName,
+        DateTimeOffset changedAt)
     {
-        if (Status == DocumentIntakeStatus.PendingOcr)
+        RequireText(storageReference, nameof(storageReference), StorageReferenceMaxLength);
+        RequireText(fileName, nameof(fileName), FileNameMaxLength);
+        if (Status is DocumentIntakeStatus.PendingOcr or DocumentIntakeStatus.Submitted)
+        {
+            EnsureAttachmentMetadata(storageReference, fileName);
             return;
+        }
+        if (Status == DocumentIntakeStatus.FailedRetryable)
+        {
+            EnsureAttachmentMetadata(storageReference, fileName);
+            ResumeOcr(changedAt);
+            return;
+        }
         EnsureChangedAt(changedAt);
         if (Status != DocumentIntakeStatus.PendingAttachment)
             throw new DomainException("Document intake cannot attach a document from its current state.");
 
+        StorageReference = storageReference.Trim();
+        FileName = fileName.Trim();
         Status = DocumentIntakeStatus.PendingOcr;
         UpdatedAt = changedAt;
         AdvanceState();
+    }
+
+    public void ReplaceRetryableAttachmentMetadata(string storageReference, string fileName)
+    {
+        if (Status != DocumentIntakeStatus.FailedRetryable)
+            throw new DomainException("Only retryable document intakes can replace attachment metadata.");
+        StorageReference = RequireTextValue(storageReference, nameof(storageReference), StorageReferenceMaxLength);
+        FileName = RequireTextValue(fileName, nameof(fileName), FileNameMaxLength);
     }
 
     public void MarkRetryable(string? failureReason, DateTimeOffset changedAt)
@@ -85,8 +109,8 @@ public sealed class DocumentIntake : TenantAuditableEntity
         if (Status == DocumentIntakeStatus.FailedRetryable)
             return;
         EnsureChangedAt(changedAt);
-        if (Status != DocumentIntakeStatus.PendingOcr)
-            throw new DomainException("Document intake can only be marked retryable while pending OCR.");
+        if (Status is not (DocumentIntakeStatus.PendingAttachment or DocumentIntakeStatus.PendingOcr))
+            throw new DomainException("Document intake can only be marked retryable while pending attachment or OCR.");
 
         FailureReason = NormalizeOptionalText(failureReason, FailureReasonMaxLength);
         Status = DocumentIntakeStatus.FailedRetryable;
@@ -124,6 +148,13 @@ public sealed class DocumentIntake : TenantAuditableEntity
 
     private void AdvanceState() => StateVersion++;
 
+    private void EnsureAttachmentMetadata(string storageReference, string fileName)
+    {
+        if (!string.Equals(StorageReference, storageReference.Trim(), StringComparison.Ordinal) ||
+            !string.Equals(FileName, fileName.Trim(), StringComparison.Ordinal))
+            throw new DomainException("The verified upload metadata does not match the document intake.");
+    }
+
     private static void RequireId(Guid value, string name)
     {
         if (value == Guid.Empty)
@@ -136,6 +167,12 @@ public sealed class DocumentIntake : TenantAuditableEntity
             throw new DomainException($"{name} is required.");
         if (value.Trim().Length > maxLength)
             throw new DomainException($"{name} must be {maxLength} characters or fewer.");
+    }
+
+    private static string RequireTextValue(string? value, string name, int maxLength)
+    {
+        RequireText(value, name, maxLength);
+        return value!.Trim();
     }
 
     private static string? NormalizeOptionalText(string? value, int maxLength)

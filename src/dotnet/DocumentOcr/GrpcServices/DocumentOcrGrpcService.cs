@@ -269,6 +269,27 @@ public sealed class DocumentOcrGrpcService(
         }
     }
 
+    public override async Task<OcrGrpc.DocumentUploadReceipt> ConsumeUploadSession(
+        OcrGrpc.ConsumeUploadSessionRequest request,
+        ServerCallContext context)
+    {
+        RequireTenant();
+        try
+        {
+            return MapUpload(await RequireUploadService().ConsumeAsync(
+                ParseRequiredId(request.UploadId, "UploadId"),
+                context.CancellationToken));
+        }
+        catch (DocumentUploadValidationException exception)
+        {
+            throw UploadValidationFailure(StatusCode.FailedPrecondition, exception);
+        }
+        catch (Shared.Exceptions.NotFoundException exception)
+        {
+            throw new RpcException(new Status(StatusCode.NotFound, exception.Message));
+        }
+    }
+
     internal static OcrGrpc.DocumentOcrJobResponse MapJob(DocumentOcrJob job)
     {
         var response = new OcrGrpc.DocumentOcrJobResponse

@@ -1,4 +1,5 @@
 using System.Reflection;
+using System.Text.Json;
 using BuildingBlocks.BFF.Attributes;
 using DocumentOcr.Grpc;
 using Grpc.Core;
@@ -7,8 +8,10 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
+using RegulatoryCompliance.Grpc;
 using ShipmentWorkflow.Grpc;
 using Shared.Constants;
+using Shared.Security;
 using StaffBff.Controllers;
 using StaffBff.Services;
 
@@ -29,183 +32,120 @@ public sealed class DocumentIntakeControllerTests
     }
 
     [Fact]
-    public async Task Intake_replays_after_ocr_unavailable_without_duplicate_attachment()
+    public async Task Upload_endpoint_returns_201_with_serializable_contract()
     {
-        var fixture = CreateOrchestratorFixture();
         var uploadId = Guid.CreateVersion7();
-        var shipmentId = Guid.CreateVersion7();
-        var documentId = Guid.CreateVersion7();
-        var intakeId = Guid.CreateVersion7();
-        var jobId = Guid.CreateVersion7();
-        var attempts = 0;
-
-        fixture.DocumentOcrClient
-            .Setup(client => client.GetUploadSessionAsync(
-                It.IsAny<GetUploadSessionRequest>(), It.IsAny<Metadata>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()))
-            .Returns(CreateSuccessfulCall(new DocumentUploadReceipt
-            {
-                UploadId = uploadId.ToString(),
-                StorageReference = "objects/tenant/upload/invoice.pdf",
-                FileName = "invoice.pdf",
-                Status = DocumentUploadStatus.Uploaded
-            }));
-        fixture.DocumentOcrClient
-            .Setup(client => client.VerifyUploadSessionAsync(
-                It.IsAny<VerifyUploadSessionRequest>(), It.IsAny<Metadata>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()))
-            .Returns(CreateSuccessfulCall(new DocumentUploadReceipt
-            {
-                UploadId = uploadId.ToString(),
-                StorageReference = "objects/tenant/upload/invoice.pdf",
-                FileName = "invoice.pdf",
-                Status = DocumentUploadStatus.Uploaded
-            }));
-        fixture.ShipmentClient
-            .Setup(client => client.CreateDocumentIntakeAsync(
-                It.IsAny<CreateDocumentIntakeRequest>(), It.IsAny<Metadata>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()))
-            .Returns(() => CreateSuccessfulCall(new DocumentIntakeResponse
-            {
-                IntakeId = intakeId.ToString(),
-                ShipmentId = shipmentId.ToString(),
-                DocumentId = documentId.ToString(),
-                UploadId = uploadId.ToString(),
-                StorageReference = "objects/tenant/upload/invoice.pdf",
-                FileName = "invoice.pdf",
-                Status = "PENDING_OCR",
-                Stage = "PENDING_OCR"
-            }));
-        fixture.DocumentOcrClient
-            .Setup(client => client.SubmitOcrJobAsync(
-                It.IsAny<SubmitOcrJobRequest>(), It.IsAny<Metadata>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()))
-            .Returns(() =>
-            {
-                attempts++;
-                return attempts == 1
-                    ? CreateFailedCall<DocumentOcrJobResponse>(StatusCode.Unavailable)
-                    : CreateSuccessfulCall(new DocumentOcrJobResponse
-                    {
-                        JobId = jobId.ToString(),
-                        Status = DocumentOcrJobStatus.Queued,
-                        FileName = "invoice.pdf"
-                    });
-            });
-        fixture.ShipmentClient
-            .Setup(client => client.MarkDocumentIntakeRetryableAsync(
-                It.IsAny<MarkDocumentIntakeRetryableRequest>(), It.IsAny<Metadata>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()))
-            .Returns(CreateSuccessfulCall(new DocumentIntakeResponse
-            {
-                IntakeId = intakeId.ToString(),
-                ShipmentId = shipmentId.ToString(),
-                DocumentId = documentId.ToString(),
-                UploadId = uploadId.ToString(),
-                StorageReference = "objects/tenant/upload/invoice.pdf",
-                FileName = "invoice.pdf",
-                Status = "FAILED_RETRYABLE",
-                Stage = "FAILED_RETRYABLE"
-            }));
-        fixture.ShipmentClient
-            .Setup(client => client.MarkDocumentIntakeSubmittedAsync(
-                It.IsAny<MarkDocumentIntakeSubmittedRequest>(), It.IsAny<Metadata>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()))
-            .Returns(CreateSuccessfulCall(new DocumentIntakeResponse
-            {
-                IntakeId = intakeId.ToString(),
-                ShipmentId = shipmentId.ToString(),
-                DocumentId = documentId.ToString(),
-                UploadId = uploadId.ToString(),
-                StorageReference = "objects/tenant/upload/invoice.pdf",
-                FileName = "invoice.pdf",
-                Status = "SUBMITTED",
-                Stage = "SUBMITTED"
-            }));
-
-        var request = new CreateDocumentIntakeRequestModel(uploadId, "INVOICE", "intake-key");
-        var exception = await Assert.ThrowsAsync<DocumentIntakeOrchestrationException>(() =>
-            fixture.Orchestrator.ComposeAsync(shipmentId, request, CancellationToken.None));
-
-        Assert.Equal(StatusCodes.Status503ServiceUnavailable, exception.StatusCode);
-        Assert.Equal("DOCUMENT_OCR_UNAVAILABLE", exception.Code);
-        Assert.Equal(intakeId, exception.IntakeId);
-        Assert.Equal(documentId, exception.DocumentId);
-
-        var result = await fixture.Orchestrator.ComposeAsync(shipmentId, request, CancellationToken.None);
-
-        Assert.Equal(intakeId, result.IntakeId);
-        Assert.Equal(documentId, result.DocumentId);
-        Assert.Equal(jobId, result.OcrJobId);
-        Assert.Equal("PROCESSING", result.Status);
-        Assert.Equal("QUEUED", result.Stage);
-        fixture.ShipmentClient.Verify(client => client.CreateDocumentIntakeAsync(
-            It.IsAny<CreateDocumentIntakeRequest>(), It.IsAny<Metadata>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()), Times.Exactly(2));
-        fixture.DocumentOcrClient.Verify(client => client.SubmitOcrJobAsync(
-            It.Is<SubmitOcrJobRequest>(request => request.ExternalDocumentId == documentId.ToString() && request.ExternalShipmentId == shipmentId.ToString()),
-            It.IsAny<Metadata>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()), Times.Exactly(2));
-    }
-
-    [Fact]
-    public async Task Upload_validation_trailer_maps_to_stable_problem_code()
-    {
-        var fixture = CreateOrchestratorFixture();
-        var uploadId = Guid.CreateVersion7();
-        var shipmentId = Guid.CreateVersion7();
-        var intakeId = Guid.CreateVersion7();
-        var documentId = Guid.CreateVersion7();
-
-        fixture.DocumentOcrClient
-            .Setup(client => client.GetUploadSessionAsync(
-                It.IsAny<GetUploadSessionRequest>(), It.IsAny<Metadata>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()))
-            .Returns(CreateSuccessfulCall(new DocumentUploadReceipt
-            {
-                UploadId = uploadId.ToString(),
-                StorageReference = "objects/tenant/upload/invoice.pdf",
-                FileName = "invoice.pdf",
-                Status = DocumentUploadStatus.Pending
-            }));
-        fixture.ShipmentClient
-            .Setup(client => client.CreateDocumentIntakeAsync(
-                It.IsAny<CreateDocumentIntakeRequest>(), It.IsAny<Metadata>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()))
-            .Returns(CreateSuccessfulCall(new DocumentIntakeResponse
-            {
-                IntakeId = intakeId.ToString(),
-                ShipmentId = shipmentId.ToString(),
-                DocumentId = documentId.ToString(),
-                UploadId = uploadId.ToString(),
-                StorageReference = "objects/tenant/upload/invoice.pdf",
-                FileName = "invoice.pdf",
-                Status = "PENDING_ATTACHMENT"
-            }));
-        fixture.DocumentOcrClient
-            .Setup(client => client.VerifyUploadSessionAsync(
-                It.IsAny<VerifyUploadSessionRequest>(), It.IsAny<Metadata>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()))
-            .Returns(CreateFailedCall<DocumentUploadReceipt>(
-                StatusCode.InvalidArgument,
-                ("document-upload-validation-code", "UPLOAD_CONTENT_MISMATCH")));
-
-        var exception = await Assert.ThrowsAsync<DocumentIntakeOrchestrationException>(() =>
-            fixture.Orchestrator.ComposeAsync(
-                shipmentId,
-                new CreateDocumentIntakeRequestModel(uploadId, "INVOICE", "intake-key"),
-                CancellationToken.None));
-
-        Assert.Equal(StatusCodes.Status422UnprocessableEntity, exception.StatusCode);
-        Assert.Equal("UPLOAD_CONTENT_MISMATCH", exception.Code);
-        Assert.Equal(intakeId, exception.IntakeId);
-    }
-
-    private static OrchestratorFixture CreateOrchestratorFixture()
-    {
         var documentClient = new Mock<DocumentOcrService.DocumentOcrServiceClient>(new object[]
         {
             GrpcChannel.ForAddress("http://localhost:54321")
         });
-        var shipmentClient = new Mock<ShipmentWorkflowService.ShipmentWorkflowServiceClient>(new object[]
-        {
-            GrpcChannel.ForAddress("http://localhost:54322")
-        });
-        var orchestrator = new DocumentIntakeOrchestrator(
+        documentClient
+            .Setup(client => client.CreateUploadSessionAsync(
+                It.IsAny<CreateUploadSessionRequest>(), It.IsAny<Metadata>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()))
+            .Returns(CreateSuccessfulCall(new DocumentUploadReceipt
+            {
+                UploadId = uploadId.ToString(),
+                StorageReference = "objects/tenant/upload/invoice.pdf",
+                WriteUrl = "https://upload.test/opaque",
+                FileName = "invoice.pdf",
+                MimeType = "application/pdf",
+                SizeBytes = 1_024,
+                Status = DocumentUploadStatus.Pending,
+                ExpiresAt = Google.Protobuf.WellKnownTypes.Timestamp.FromDateTimeOffset(DateTimeOffset.UtcNow.AddMinutes(15))
+            }));
+        var controller = new DocumentsController(
             documentClient.Object,
-            shipmentClient.Object,
-            NullLogger<DocumentIntakeOrchestrator>.Instance);
-        return new OrchestratorFixture(documentClient, shipmentClient, orchestrator);
+            new Mock<RegulatoryComplianceService.RegulatoryComplianceServiceClient>(new object[]
+            {
+                GrpcChannel.ForAddress("http://localhost:54324")
+            }).Object,
+            NullLogger<DocumentsController>.Instance)
+        {
+            ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() }
+        };
+
+        var result = await controller.CreateUploadSession(
+            new CreateDocumentUploadSessionRequest("upload-key", "invoice.pdf", "application/pdf", 1_024, null),
+            CancellationToken.None);
+
+        var created = Assert.IsType<CreatedResult>(result);
+        Assert.Equal(StatusCodes.Status201Created, created.StatusCode);
+        var serialized = JsonSerializer.Serialize(created.Value);
+        Assert.Contains(uploadId.ToString(), serialized);
+        Assert.Contains("objects/tenant/upload/invoice.pdf", serialized);
     }
+
+    [Fact]
+    public async Task Intake_endpoint_returns_202_with_serializable_contract()
+    {
+        var orchestrator = new Mock<IDocumentIntakeOrchestrator>();
+        var response = new DocumentIntakeHttpResponse(
+            Guid.CreateVersion7(),
+            Guid.CreateVersion7(),
+            Guid.CreateVersion7(),
+            Guid.CreateVersion7(),
+            Guid.CreateVersion7(),
+            "PROCESSING",
+            "QUEUED",
+            "SUBMITTED",
+            "invoice.pdf",
+            DateTimeOffset.UtcNow,
+            DateTimeOffset.UtcNow,
+            false,
+            null);
+        orchestrator
+            .Setup(service => service.ComposeAsync(
+                It.IsAny<Guid>(), It.IsAny<CreateDocumentIntakeRequestModel>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(response);
+        var controller = CreateShipmentsController(orchestrator.Object);
+
+        var result = await controller.CreateDocumentIntake(
+            Guid.CreateVersion7().ToString(),
+            new CreateDocumentIntakeBody(Guid.CreateVersion7().ToString(), "INVOICE", "intake-key"),
+            CancellationToken.None);
+
+        var accepted = Assert.IsType<ObjectResult>(result);
+        Assert.Equal(StatusCodes.Status202Accepted, accepted.StatusCode);
+        Assert.Contains("PROCESSING", JsonSerializer.Serialize(accepted.Value));
+    }
+
+    [Fact]
+    public async Task Intake_endpoint_serializes_stable_problem_details()
+    {
+        var orchestrator = new Mock<IDocumentIntakeOrchestrator>();
+        orchestrator
+            .Setup(service => service.ComposeAsync(
+                It.IsAny<Guid>(), It.IsAny<CreateDocumentIntakeRequestModel>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new DocumentIntakeOrchestrationException(
+                "UPLOAD_TENANT_MISMATCH",
+                "The upload session was not found.",
+                StatusCodes.Status404NotFound,
+                false));
+        var controller = CreateShipmentsController(orchestrator.Object);
+
+        var result = await controller.CreateDocumentIntake(
+            Guid.CreateVersion7().ToString(),
+            new CreateDocumentIntakeBody(Guid.CreateVersion7().ToString(), "INVOICE", "intake-key"),
+            CancellationToken.None);
+
+        var problemResult = Assert.IsType<ObjectResult>(result);
+        var problem = Assert.IsType<ProblemDetails>(problemResult.Value);
+        var serialized = JsonSerializer.Serialize(problem);
+        Assert.Equal("UPLOAD_TENANT_MISMATCH", problem.Extensions["code"]);
+        Assert.False((bool)problem.Extensions["retryable"]!);
+        Assert.Contains("UPLOAD_TENANT_MISMATCH", serialized);
+        Assert.Contains("retryable", serialized);
+    }
+
+    private static ShipmentsController CreateShipmentsController(IDocumentIntakeOrchestrator orchestrator) =>
+        new(
+            new Mock<ShipmentWorkflowService.ShipmentWorkflowServiceClient>(new object[]
+            {
+                GrpcChannel.ForAddress("http://localhost:54322")
+            }).Object,
+            new CurrentUserService(),
+            NullLogger<ShipmentsController>.Instance,
+            orchestrator);
 
     private static AsyncUnaryCall<TResponse> CreateSuccessfulCall<TResponse>(TResponse response)
         where TResponse : class => new(
@@ -214,25 +154,4 @@ public sealed class DocumentIntakeControllerTests
             () => new Status(StatusCode.OK, string.Empty),
             () => new Metadata(),
             () => { });
-
-    private static AsyncUnaryCall<TResponse> CreateFailedCall<TResponse>(
-        StatusCode statusCode,
-        params (string Key, string Value)[] trailers)
-        where TResponse : class
-    {
-        var metadata = new Metadata();
-        foreach (var trailer in trailers)
-            metadata.Add(trailer.Key, trailer.Value);
-        return new AsyncUnaryCall<TResponse>(
-            Task.FromException<TResponse>(new RpcException(new Status(statusCode, "downstream failure"), metadata)),
-            Task.FromResult(metadata),
-            () => new Status(statusCode, "downstream failure"),
-            () => metadata,
-            () => { });
-    }
-
-    private sealed record OrchestratorFixture(
-        Mock<DocumentOcrService.DocumentOcrServiceClient> DocumentOcrClient,
-        Mock<ShipmentWorkflowService.ShipmentWorkflowServiceClient> ShipmentClient,
-        DocumentIntakeOrchestrator Orchestrator);
 }

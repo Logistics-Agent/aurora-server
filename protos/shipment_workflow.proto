@@ -56,6 +56,9 @@ service ShipmentWorkflowService {
     rpc CreateDocumentIntake(CreateDocumentIntakeRequest)
     returns (DocumentIntakeResponse);
 
+    rpc AttachDocumentIntake(AttachDocumentIntakeRequest)
+    returns (DocumentIntakeResponse);
+
     rpc MarkDocumentIntakeSubmitted(MarkDocumentIntakeSubmittedRequest)
     returns (DocumentIntakeResponse);
 
@@ -314,6 +317,13 @@ message CreateDocumentIntakeRequest {
   string file_name = 4;
   string document_type = 5;
   string idempotency_key = 6;
+}
+
+message AttachDocumentIntakeRequest {
+  string intake_id = 1;
+  string storage_reference = 2;
+  string file_name = 3;
+  string upload_id = 4;
 }
 
 message MarkDocumentIntakeSubmittedRequest {

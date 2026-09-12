@@ -74,23 +74,10 @@ public sealed class DocumentsController(
 
             return Created($"/api/v1/documents/uploads/{receipt.UploadId}", response);
         }
-        catch (RpcException exception) when (exception.StatusCode == Grpc.Core.StatusCode.AlreadyExists)
+        catch (RpcException exception)
         {
-            return Conflict(DocumentsContract.CreateProblemDetails(
-                "UPLOAD_IDEMPOTENCY_CONFLICT",
-                "The upload idempotency key was already used with a different request.",
-                StatusCodes.Status409Conflict,
-                retryable: false));
-        }
-        catch (RpcException exception) when (exception.StatusCode is Grpc.Core.StatusCode.InvalidArgument or Grpc.Core.StatusCode.FailedPrecondition)
-        {
-            var code = exception.Trailers.GetValue("document-upload-validation-code") ?? "INVALID_UPLOAD";
-            var status = code == "UPLOAD_EXPIRED" ? StatusCodes.Status409Conflict : StatusCodes.Status422UnprocessableEntity;
-            return StatusCode(status, DocumentsContract.CreateProblemDetails(code, "The upload session request is invalid.", status, retryable: false));
-        }
-        catch (RpcException exception) when (DocumentsContract.IsUnavailable(exception.StatusCode))
-        {
-            return StatusCode(StatusCodes.Status503ServiceUnavailable, DocumentsContract.CreateUnavailableProblemDetails());
+            var error = DocumentUploadErrorMapper.Map(exception);
+            return StatusCode(error.StatusCode, DocumentsContract.CreateProblemDetails(error));
         }
     }
 
@@ -945,62 +932,6 @@ public sealed class DocumentsController(
         RegulatoryIngestionStatus.Completed => ("READY", "READY"),
         RegulatoryIngestionStatus.Failed => ("FAILED", null),
         _ => ("PROCESSING", "INDEXING")
-    };
-}
-
-internal static class DocumentsContract
-{
-    internal static bool IsUnavailable(StatusCode statusCode)
-        => statusCode is StatusCode.Unavailable or StatusCode.DeadlineExceeded;
-
-    internal static ProblemDetails CreateUnavailableProblemDetails() => CreateProblemDetails(
-        "DOCUMENT_OCR_UNAVAILABLE",
-        "Document OCR service is temporarily unavailable. Please retry shortly.",
-        StatusCodes.Status503ServiceUnavailable,
-        retryable: true);
-
-    internal static ProblemDetails CreateProblemDetails(string code, string detail, int status, bool retryable)
-    {
-        var problem = new ProblemDetails
-        {
-            Title = code,
-            Detail = detail,
-            Status = status
-        };
-        problem.Extensions["code"] = code;
-        problem.Extensions["retryable"] = retryable;
-        return problem;
-    }
-
-    internal static string MapUploadStatus(DocumentUploadStatus status) => status switch
-    {
-        DocumentUploadStatus.Pending => "PENDING",
-        DocumentUploadStatus.Uploaded => "UPLOADED",
-        DocumentUploadStatus.Consumed => "CONSUMED",
-        DocumentUploadStatus.Expired => "EXPIRED",
-        _ => "PENDING"
-    };
-
-    internal static string MapStatus(DocumentOcrJobStatus status, bool needsReview) => status switch
-    {
-        DocumentOcrJobStatus.Queued => "PROCESSING",
-        DocumentOcrJobStatus.Processing => "PROCESSING",
-        DocumentOcrJobStatus.RequiresReview => "NEEDS_REVIEW",
-        DocumentOcrJobStatus.Completed => needsReview ? "NEEDS_REVIEW" : "READY",
-        DocumentOcrJobStatus.Rejected => "REJECTED",
-        DocumentOcrJobStatus.Failed => "FAILED",
-        DocumentOcrJobStatus.Cancelled => "CANCELLED",
-        _ => "RECEIVED"
-    };
-
-    internal static string? MapStage(DocumentOcrJobStatus status) => status switch
-    {
-        DocumentOcrJobStatus.Queued => "QUEUED",
-        DocumentOcrJobStatus.Processing => "EXTRACTING",
-        DocumentOcrJobStatus.RequiresReview => "HUMAN_REVIEW",
-        DocumentOcrJobStatus.Completed => "COMPLETED",
-        DocumentOcrJobStatus.Failed => "ERROR",
-        _ => null
     };
 }
 

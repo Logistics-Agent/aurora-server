@@ -19,7 +19,7 @@ public class ShipmentsController(
     ShipmentWorkflowService.ShipmentWorkflowServiceClient shipmentClient,
     ICurrentUserService currentUser,
     ILogger<ShipmentsController> logger,
-    DocumentIntakeOrchestrator? documentIntakeOrchestrator = null) : StaffControllerBase
+    IDocumentIntakeOrchestrator documentIntakeOrchestrator) : StaffControllerBase
 {
     [HttpPost("{id}/document-intakes")]
     [RequirePermission(PermissionConstants.Documents.Ingest)]
@@ -37,9 +37,6 @@ public class ShipmentsController(
         {
             return BadRequest(DocumentsContract.CreateProblemDetails("INVALID_REQUEST", "UploadId, DocumentTypeHint, and IdempotencyKey are required.", StatusCodes.Status400BadRequest, false));
         }
-        if (documentIntakeOrchestrator is null)
-            return StatusCode(StatusCodes.Status503ServiceUnavailable, DocumentsContract.CreateProblemDetails("DOCUMENT_INTAKE_UNAVAILABLE", "Document intake is not configured.", StatusCodes.Status503ServiceUnavailable, true));
-
         try
         {
             var result = await documentIntakeOrchestrator.ComposeAsync(

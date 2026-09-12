@@ -324,6 +324,21 @@ public sealed class ShipmentGrpcService(ISender sender)
         return MapToDocumentIntakeResponse(result);
     }
 
+    public override async Task<DocumentIntakeResponse> AttachDocumentIntake(
+        AttachDocumentIntakeRequest request,
+        ServerCallContext context)
+    {
+        var result = await sender.Send(
+            new AttachDocumentIntakeCommand(
+                ParseGuid(request.IntakeId, "Invalid intake id."),
+                ParseGuid(request.UploadId, "Invalid upload id."),
+                request.StorageReference,
+                request.FileName),
+            context.CancellationToken);
+
+        return MapToDocumentIntakeResponse(result);
+    }
+
     public override async Task<DocumentIntakeResponse> MarkDocumentIntakeSubmitted(
         MarkDocumentIntakeSubmittedRequest request,
         ServerCallContext context)

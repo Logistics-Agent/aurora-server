@@ -18,6 +18,12 @@ public sealed record CreateDocumentIntakeCommand(
     DocumentType DocumentType,
     string IdempotencyKey) : IRequest<DocumentIntakeDto>;
 
+public sealed record AttachDocumentIntakeCommand(
+    Guid IntakeId,
+    Guid UploadId,
+    string StorageReference,
+    string FileName) : IRequest<DocumentIntakeDto>;
+
 public sealed record MarkDocumentIntakeSubmittedCommand(Guid IntakeId) : IRequest<DocumentIntakeDto>;
 
 public sealed record MarkDocumentIntakeRetryableCommand(
@@ -43,29 +49,13 @@ public sealed class CreateDocumentIntakeCommandHandler(
             input.IdempotencyKey);
         var existing = await FindIntakeAsync(tenantId, input.ShipmentId, input.IdempotencyKey, cancellationToken);
         if (existing is not null)
-            return await ReplayOrResumeAsync(existing, requestHash, cancellationToken);
+            return await ReplayAsync(existing, requestHash, cancellationToken);
 
         var shipment = await ShipmentCommandHelpers.GetShipmentAsync(
             dbContext,
             input.ShipmentId,
             cancellationToken);
         ShipmentCommandHelpers.EnsureNonTerminalMutation(shipment);
-        if (await dbContext.ShipmentDocuments.AnyAsync(
-                document => document.ShipmentId == input.ShipmentId &&
-                    document.StorageReference == input.StorageReference,
-                cancellationToken))
-        {
-            var committedIntake = await FindIntakeAsync(
-                tenantId,
-                input.ShipmentId,
-                input.IdempotencyKey,
-                cancellationToken);
-            if (committedIntake is not null)
-                return await ReplayOrResumeAsync(committedIntake, requestHash, cancellationToken);
-
-            throw new ConflictException("The storage reference is already attached to this shipment.");
-        }
-
         var intake = DocumentIntake.Create(
             tenantId,
             input.ShipmentId,
@@ -92,128 +82,20 @@ public sealed class CreateDocumentIntakeCommandHandler(
             dbContext.ChangeTracker.Clear();
             existing = await FindIntakeAsync(tenantId, input.ShipmentId, input.IdempotencyKey, cancellationToken)
                 ?? throw new ConflictException("The document intake could not be committed safely.");
-            return await ReplayOrResumeAsync(existing, requestHash, cancellationToken);
+            return await ReplayAsync(existing, requestHash, cancellationToken);
         }
 
-        return await AttachPendingAsync(intake, shipment, cancellationToken);
+        return DocumentIntakeDto.FromEntity(intake);
     }
 
-    private async Task<DocumentIntakeDto> ReplayOrResumeAsync(
+    private async Task<DocumentIntakeDto> ReplayAsync(
         DocumentIntake intake,
         string requestHash,
         CancellationToken cancellationToken)
     {
         EnsureRequestMatches(intake, requestHash);
-        if (intake.Status == DocumentIntakeStatus.Submitted ||
-            intake.Status == DocumentIntakeStatus.PendingOcr)
-        {
+        if (intake.Status is not (DocumentIntakeStatus.PendingAttachment or DocumentIntakeStatus.FailedRetryable))
             await EnsureReferencedDocumentExistsAsync(intake, cancellationToken);
-            return DocumentIntakeDto.FromEntity(intake);
-        }
-
-        if (intake.Status == DocumentIntakeStatus.FailedRetryable)
-        {
-            await EnsureReferencedDocumentExistsAsync(intake, cancellationToken);
-            intake.ResumeOcr(DateTimeOffset.UtcNow);
-            try
-            {
-                await dbContext.SaveChangesAsync(cancellationToken);
-                return DocumentIntakeDto.FromEntity(intake);
-            }
-            catch (DbUpdateConcurrencyException)
-            {
-                dbContext.ChangeTracker.Clear();
-                var current = await FindIntakeAsync(
-                    intake.TenantId,
-                    intake.ShipmentId,
-                    intake.IdempotencyKey,
-                    cancellationToken) ?? throw new ConflictException("The document intake could not be committed safely.");
-                EnsureRequestMatches(current, requestHash);
-                await EnsureReferencedDocumentExistsAsync(current, cancellationToken);
-                if (current.Status is DocumentIntakeStatus.PendingOcr or DocumentIntakeStatus.Submitted)
-                    return DocumentIntakeDto.FromEntity(current);
-                throw new ConflictException("The document intake was changed concurrently.");
-            }
-        }
-
-        var shipment = await ShipmentCommandHelpers.GetShipmentAsync(
-            dbContext,
-            intake.ShipmentId,
-            cancellationToken);
-        ShipmentCommandHelpers.EnsureNonTerminalMutation(shipment);
-        return await AttachPendingAsync(intake, shipment, cancellationToken);
-    }
-
-    private async Task<DocumentIntakeDto> AttachPendingAsync(
-        DocumentIntake intake,
-        ShipmentEntity shipment,
-        CancellationToken cancellationToken)
-    {
-        var document = await dbContext.ShipmentDocuments.SingleOrDefaultAsync(
-            item => item.Id == intake.DocumentId,
-            cancellationToken);
-        if (document is null)
-        {
-            document = shipment.AddDocumentMetadata(
-                intake.FileName,
-                intake.DocumentType,
-                intake.StorageReference,
-                currentUser.UserId,
-                DateTimeOffset.UtcNow,
-                OCRStatus.Pending,
-                null,
-                null,
-                intake.IdempotencyKey,
-                intake.UploadId,
-                intake.StorageReference,
-                intake.RequestHash,
-                intake.DocumentId);
-            ShipmentCommandHelpers.MarkAggregateRootUnchanged(dbContext, shipment);
-            dbContext.Entry(document).State = EntityState.Added;
-            ShipmentCommandHelpers.AddDocumentAttachedOutbox(dbContext, shipment, document);
-        }
-
-        intake.MarkAttachmentCreated(DateTimeOffset.UtcNow);
-        try
-        {
-            await dbContext.SaveChangesAsync(cancellationToken);
-        }
-        catch (DbUpdateConcurrencyException)
-        {
-            dbContext.ChangeTracker.Clear();
-            var winner = await FindIntakeAsync(
-                intake.TenantId,
-                intake.ShipmentId,
-                intake.IdempotencyKey,
-                cancellationToken) ?? throw new ConflictException("The document intake could not be committed safely.");
-            EnsureRequestMatches(winner, intake.RequestHash);
-            await EnsureReferencedDocumentExistsAsync(winner, cancellationToken);
-            return DocumentIntakeDto.FromEntity(winner);
-        }
-        catch (DbUpdateException exception)
-        {
-            var constraintName = DocumentIntakePersistenceErrors.GetUniqueConstraintName(exception);
-            if (constraintName == DocumentIntakePersistenceErrors.AttachmentStorageReferenceConstraint)
-            {
-                await RemovePendingIntakeAsync(intake.Id, cancellationToken);
-                throw new ConflictException("The storage reference is already attached to this shipment.");
-            }
-
-            if (constraintName is not (DocumentIntakePersistenceErrors.IntakeDocumentIdConstraint or
-                "PK_shipment_documents"))
-                throw;
-
-            dbContext.ChangeTracker.Clear();
-            var winner = await FindIntakeAsync(
-                intake.TenantId,
-                intake.ShipmentId,
-                intake.IdempotencyKey,
-                cancellationToken) ?? throw new ConflictException("The document intake could not be committed safely.");
-            EnsureRequestMatches(winner, intake.RequestHash);
-            await EnsureReferencedDocumentExistsAsync(winner, cancellationToken);
-            return DocumentIntakeDto.FromEntity(winner);
-        }
-
         return DocumentIntakeDto.FromEntity(intake);
     }
 
@@ -221,14 +103,11 @@ public sealed class CreateDocumentIntakeCommandHandler(
         Guid tenantId,
         Guid shipmentId,
         string idempotencyKey,
-        CancellationToken cancellationToken)
-    {
-        return await dbContext.DocumentIntakes.SingleOrDefaultAsync(
-            item => item.TenantId == tenantId &&
-                item.ShipmentId == shipmentId &&
-                item.IdempotencyKey == idempotencyKey,
-            cancellationToken);
-    }
+        CancellationToken cancellationToken) => await dbContext.DocumentIntakes.SingleOrDefaultAsync(
+        item => item.TenantId == tenantId &&
+            item.ShipmentId == shipmentId &&
+            item.IdempotencyKey == idempotencyKey,
+        cancellationToken);
 
     private async Task EnsureReferencedDocumentExistsAsync(
         DocumentIntake intake,
@@ -237,24 +116,7 @@ public sealed class CreateDocumentIntakeCommandHandler(
         if (!await dbContext.ShipmentDocuments.AnyAsync(
                 document => document.Id == intake.DocumentId,
                 cancellationToken))
-        {
             throw new ConflictException("The document intake references a missing document.");
-        }
-    }
-
-    private async Task RemovePendingIntakeAsync(
-        Guid intakeId,
-        CancellationToken cancellationToken)
-    {
-        dbContext.ChangeTracker.Clear();
-        var pending = await dbContext.DocumentIntakes.SingleOrDefaultAsync(
-            intake => intake.Id == intakeId,
-            cancellationToken);
-        if (pending is null)
-            return;
-
-        dbContext.DocumentIntakes.Remove(pending);
-        await dbContext.SaveChangesAsync(cancellationToken);
     }
 
     private static NormalizedIntake Normalize(CreateDocumentIntakeCommand request)
@@ -298,6 +160,140 @@ public sealed class CreateDocumentIntakeCommandHandler(
         string FileName,
         DocumentType DocumentType,
         string IdempotencyKey);
+}
+
+public sealed class AttachDocumentIntakeCommandHandler(
+    ShipmentWorkflowDbContext dbContext,
+    ICurrentUserService currentUser) : IRequestHandler<AttachDocumentIntakeCommand, DocumentIntakeDto>
+{
+    public async Task<DocumentIntakeDto> Handle(
+        AttachDocumentIntakeCommand request,
+        CancellationToken cancellationToken)
+    {
+        ShipmentCommandHelpers.RequireTenantId(currentUser);
+        Validate(request);
+        var intake = await GetIntakeAsync(request.IntakeId, cancellationToken);
+        if (request.UploadId == Guid.Empty || request.UploadId != intake.UploadId)
+            throw new NotFoundException("Document intake was not found.");
+        var document = await dbContext.ShipmentDocuments.SingleOrDefaultAsync(
+            item => item.Id == intake.DocumentId,
+            cancellationToken);
+
+        if (intake.Status is DocumentIntakeStatus.PendingOcr or DocumentIntakeStatus.Submitted)
+        {
+            EnsureMetadataMatches(intake, request);
+            if (document is null)
+                throw new ConflictException("The document intake references a missing document.");
+            return DocumentIntakeDto.FromEntity(intake);
+        }
+
+        var shipment = await ShipmentCommandHelpers.GetShipmentAsync(
+            dbContext,
+            intake.ShipmentId,
+            cancellationToken);
+        ShipmentCommandHelpers.EnsureNonTerminalMutation(shipment);
+        if (intake.Status == DocumentIntakeStatus.FailedRetryable)
+        {
+            if (document is null)
+                intake.ReplaceRetryableAttachmentMetadata(request.StorageReference, request.FileName);
+            else
+                EnsureMetadataMatches(intake, request);
+            if (document is not null)
+            {
+                intake.AttachVerifiedDocument(request.StorageReference, request.FileName, DateTimeOffset.UtcNow);
+                await SaveAsync(cancellationToken);
+                return DocumentIntakeDto.FromEntity(intake);
+            }
+        }
+
+        var duplicate = await dbContext.ShipmentDocuments.SingleOrDefaultAsync(
+            item => item.ShipmentId == intake.ShipmentId &&
+                item.StorageReference == request.StorageReference &&
+                item.Id != intake.DocumentId,
+            cancellationToken);
+        if (duplicate is not null)
+            throw new ConflictException("The storage reference is already attached to this shipment.");
+
+        if (document is null)
+        {
+            document = shipment.AddDocumentMetadata(
+                request.FileName,
+                intake.DocumentType,
+                request.StorageReference,
+                currentUser.UserId,
+                DateTimeOffset.UtcNow,
+                OCRStatus.Pending,
+                null,
+                null,
+                intake.IdempotencyKey,
+                intake.UploadId,
+                request.StorageReference,
+                intake.RequestHash,
+                intake.DocumentId);
+            ShipmentCommandHelpers.MarkAggregateRootUnchanged(dbContext, shipment);
+            dbContext.Entry(document).State = EntityState.Added;
+            ShipmentCommandHelpers.AddDocumentAttachedOutbox(dbContext, shipment, document);
+        }
+        intake.AttachVerifiedDocument(request.StorageReference, request.FileName, DateTimeOffset.UtcNow);
+
+        try
+        {
+            await dbContext.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            dbContext.ChangeTracker.Clear();
+            var winner = await GetIntakeAsync(request.IntakeId, cancellationToken);
+            if (winner.Status is DocumentIntakeStatus.PendingOcr or DocumentIntakeStatus.Submitted)
+                return DocumentIntakeDto.FromEntity(winner);
+            throw new ConflictException("The document intake was changed concurrently.");
+        }
+        catch (DbUpdateException exception) when (
+            DocumentIntakePersistenceErrors.GetUniqueConstraintName(exception) is
+            DocumentIntakePersistenceErrors.AttachmentStorageReferenceConstraint)
+        {
+            throw new ConflictException("The storage reference is already attached to this shipment.");
+        }
+        catch (DbUpdateException exception) when (
+            DocumentIntakePersistenceErrors.GetUniqueConstraintName(exception) is
+            DocumentIntakePersistenceErrors.IntakeDocumentIdConstraint or "PK_shipment_documents")
+        {
+            dbContext.ChangeTracker.Clear();
+            var winner = await GetIntakeAsync(request.IntakeId, cancellationToken);
+            if (winner.Status is DocumentIntakeStatus.PendingOcr or DocumentIntakeStatus.Submitted)
+                return DocumentIntakeDto.FromEntity(winner);
+            throw new ConflictException("The document intake could not be committed safely.");
+        }
+
+        return DocumentIntakeDto.FromEntity(intake);
+    }
+
+    private async Task<DocumentIntake> GetIntakeAsync(Guid intakeId, CancellationToken cancellationToken)
+    {
+        if (intakeId == Guid.Empty)
+            throw new DomainException("IntakeId is required.");
+        return await dbContext.DocumentIntakes.SingleOrDefaultAsync(
+            item => item.Id == intakeId,
+            cancellationToken) ?? throw new NotFoundException("Document intake was not found.");
+    }
+
+    private static void Validate(AttachDocumentIntakeCommand request)
+    {
+        if (string.IsNullOrWhiteSpace(request.StorageReference))
+            throw new DomainException("StorageReference is required.");
+        if (string.IsNullOrWhiteSpace(request.FileName))
+            throw new DomainException("FileName is required.");
+    }
+
+    private static void EnsureMetadataMatches(DocumentIntake intake, AttachDocumentIntakeCommand request)
+    {
+        if (!string.Equals(intake.StorageReference, request.StorageReference.Trim(), StringComparison.Ordinal) ||
+            !string.Equals(intake.FileName, request.FileName.Trim(), StringComparison.Ordinal))
+            throw new ConflictException("The verified upload metadata does not match the document intake.");
+    }
+
+    private async Task SaveAsync(CancellationToken cancellationToken) =>
+        await dbContext.SaveChangesAsync(cancellationToken);
 }
 
 public sealed class MarkDocumentIntakeSubmittedCommandHandler(
