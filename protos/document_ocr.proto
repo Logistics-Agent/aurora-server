@@ -19,6 +19,7 @@ service DocumentOcrService {
   rpc GetUploadSession(GetUploadSessionRequest) returns (DocumentUploadReceipt);
   rpc ConsumeUploadSession(ConsumeUploadSessionRequest) returns (DocumentUploadReceipt);
   rpc CreateDocumentIntake(CreateDocumentIntakeRequest) returns (DocumentOcrJobResponse);
+  rpc CreateDocumentDownload(CreateDocumentDownloadRequest) returns (DocumentDownloadResponse);
 }
               
 enum DocumentOcrJobStatus {
@@ -200,4 +201,16 @@ message ReviewDocumentJobRequest {
   string action = 2; // CONFIRM, CORRECT, REJECT
   string corrected_json = 3;
   string comment = 4;
+}
+
+message CreateDocumentDownloadRequest {
+  string job_id = 1;
+  int32 expires_in_seconds = 2;
+}
+
+message DocumentDownloadResponse {
+  string url = 1;
+  google.protobuf.Timestamp expires_at = 2;
+  string file_name = 3;
+  string mime_type = 4;
 }

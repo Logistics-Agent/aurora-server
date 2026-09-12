@@ -31,11 +31,26 @@ public interface IDocumentInputStorage
         CancellationToken cancellationToken = default);
 }
 
+public interface IDocumentDownloadStorage
+{
+    Task<SignedReadTarget> CreateSignedReadTargetAsync(
+        Guid tenantId,
+        string objectKey,
+        string fileName,
+        string contentType,
+        DateTimeOffset expiresAt,
+        CancellationToken cancellationToken = default);
+}
+
 public sealed record SignedWriteTarget(
     string Url,
     IReadOnlyDictionary<string, string> RequiredHeaders,
     DateTimeOffset ExpiresAt,
     long MaximumSizeBytes);
+
+public sealed record SignedReadTarget(
+    string Url,
+    DateTimeOffset ExpiresAt);
 
 public sealed record DocumentObjectMetadata(
     string ObjectKey,

@@ -548,6 +548,61 @@
         }
       }
     },
+    "/api/v1/documents/shipment-documents/{id}/download": {
+      "get": {
+        "tags": [
+          "Documents"
+        ],
+        "operationId": "GetShipmentDocumentDownload",
+        "x-required-permission": "documents:read",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/DocumentId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Short-lived signed URL for the original document",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Staff_DocumentDownloadResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem401_1"
+          },
+          "404": {
+            "$ref": "#/components/responses/Problem404_11"
+          },
+          "503": {
+            "$ref": "#/components/responses/Problem503_5"
+          }
+        },
+        "x-error-contract": {
+          "401": [
+            {
+              "code": "TENANT_CONTEXT_REQUIRED",
+              "retryable": false
+            }
+          ],
+          "404": [
+            {
+              "code": "DOCUMENT_NOT_FOUND",
+              "retryable": false
+            }
+          ],
+          "503": [
+            {
+              "code": "DOCUMENT_OCR_UNAVAILABLE",
+              "retryable": true
+            }
+          ]
+        }
+      }
+    },
     "/api/v1/documents/shipment-documents/{id}/review": {
       "get": {
         "tags": [
@@ -998,6 +1053,32 @@
               "CONSUMED",
               "EXPIRED"
             ]
+          }
+        }
+      },
+      "Staff_DocumentDownloadResponse": {
+        "type": "object",
+        "required": [
+          "url",
+          "expiresAt",
+          "fileName",
+          "mimeType"
+        ],
+        "properties": {
+          "url": {
+            "type": "string",
+            "format": "uri",
+            "description": "Short-lived signed read URL; do not persist it."
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "fileName": {
+            "type": "string"
+          },
+          "mimeType": {
+            "type": "string"
           }
         }
       },

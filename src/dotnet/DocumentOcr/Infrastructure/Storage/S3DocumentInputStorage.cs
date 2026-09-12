@@ -6,7 +6,7 @@ using System.Globalization;
 
 namespace DocumentOcr.Infrastructure.Storage;
 
-public sealed class S3DocumentInputStorage(IAmazonS3 client, IConfiguration configuration) : IDocumentInputStorage
+public sealed class S3DocumentInputStorage(IAmazonS3 client, IConfiguration configuration) : IDocumentInputStorage, IDocumentDownloadStorage
 {
     private readonly string _bucketName = configuration["Storage:S3:Bucket"]
         ?? throw new InvalidOperationException("Storage:S3:Bucket is required when S3 input storage is enabled.");
@@ -76,6 +76,36 @@ public sealed class S3DocumentInputStorage(IAmazonS3 client, IConfiguration conf
         }
     }
 
+    public Task<SignedReadTarget> CreateSignedReadTargetAsync(
+        Guid tenantId,
+        string objectKey,
+        string fileName,
+        string contentType,
+        DateTimeOffset expiresAt,
+        CancellationToken cancellationToken = default)
+    {
+        ValidateKeyPrefix(tenantId, objectKey);
+        if (string.IsNullOrWhiteSpace(fileName))
+            throw new ArgumentException("File name is required.", nameof(fileName));
+        if (string.IsNullOrWhiteSpace(contentType))
+            throw new ArgumentException("Content type is required.", nameof(contentType));
+
+        var request = new GetPreSignedUrlRequest
+        {
+            BucketName = _bucketName,
+            Key = objectKey,
+            Verb = HttpVerb.GET,
+            Protocol = Protocol.HTTPS,
+            Expires = expiresAt.UtcDateTime
+        };
+        request.ResponseHeaderOverrides.ContentDisposition =
+            $"attachment; filename=\"{Uri.EscapeDataString(Path.GetFileName(fileName))}\"";
+        request.ResponseHeaderOverrides.ContentType = contentType;
+
+        return Task.FromResult(new SignedReadTarget(
+            client.GetPreSignedURL(request), expiresAt));
+    }
+
     public Task WriteAsync(
         Guid tenantId,
         string objectKey,
@@ -102,7 +132,8 @@ public sealed class S3DocumentInputStorage(IAmazonS3 client, IConfiguration conf
         if (uploadId == Guid.Empty)
             throw new ArgumentException("UploadId is required.", nameof(uploadId));
         ValidateKeyPrefix(tenantId, objectKey);
-        if (!objectKey.StartsWith($"objects/{tenantId}/{uploadId}/", StringComparison.Ordinal))
+        if (!objectKey.StartsWith($"tenants/{tenantId}/documents/{uploadId}/", StringComparison.Ordinal) &&
+            !objectKey.StartsWith($"objects/{tenantId}/{uploadId}/", StringComparison.Ordinal))
             throw new ArgumentException("Object key does not match the upload session.", nameof(objectKey));
     }
 
@@ -111,7 +142,8 @@ public sealed class S3DocumentInputStorage(IAmazonS3 client, IConfiguration conf
         if (tenantId == Guid.Empty)
             throw new ArgumentException("TenantId is required.", nameof(tenantId));
         if (string.IsNullOrWhiteSpace(objectKey) ||
-            !objectKey.StartsWith($"objects/{tenantId}/", StringComparison.Ordinal) ||
+            (!objectKey.StartsWith($"tenants/{tenantId}/documents/", StringComparison.Ordinal) &&
+             !objectKey.StartsWith($"objects/{tenantId}/", StringComparison.Ordinal)) ||
             objectKey.Contains("..", StringComparison.Ordinal) ||
             objectKey.Contains('\\') ||
             objectKey.Split('/').Any(string.IsNullOrEmpty))

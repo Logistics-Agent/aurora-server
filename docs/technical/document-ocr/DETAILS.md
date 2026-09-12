@@ -64,6 +64,10 @@ POST /api/v1/ocr/{jobId}/review
 
 ## 4. Multi-Tenancy & Storage Security
 
-- Files stored in Cloudflare R2 under path: `tenants/{tenantId}/documents/{year}/{month}/{jobId}.pdf`.
-- Frontend downloads use pre-signed GET URLs expiring in 15 minutes.
+- New input files are stored in Cloudflare R2 under
+  `tenants/{tenantId}/documents/{uploadId}/{fileName}`.
+- Generated OCR artifacts use
+  `tenants/{tenantId}/documents/{jobId}/artifacts/{fileName}`.
+- Frontend downloads use tenant-scoped pre-signed GET URLs expiring in 15
+  minutes; the bucket remains private.
 - Multi-tenant query isolation enforced by EF Core global query filters.

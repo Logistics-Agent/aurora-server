@@ -84,9 +84,11 @@ the permission fix. The pod was rolled out successfully and the
 lost when the pod is restarted or rescheduled, while their database records
 remain. This is acceptable only as a staging/demo workaround.
 
-The application currently uses filesystem storage for OCR artifacts. The input
-storage abstraction has an S3-compatible implementation, but artifact storage
-still needs an object-storage implementation before `emptyDir` can be removed.
+Local development uses filesystem storage through `appsettings.json`. The AKS
+deployment is configured for R2 using the S3-compatible implementation for
+both upload inputs and generated OCR artifacts, plus a tenant-scoped
+signed-download endpoint. The pod-local `emptyDir` is no longer part of the
+AKS values.
 
 The `libgssapi_krb5.so.2` startup warning was observed separately. It did not
 crash the pod or produce the `/app/storage` exception, but should be resolved
@@ -94,11 +96,30 @@ in the container image or dependency configuration before production rollout.
 
 ## Production follow-up
 
-1. Create and rotate the input-bridge signing key in Azure Key Vault.
-2. Add the Key Vault secret to the Document OCR ExternalSecret mapping.
-3. Implement and configure Azure Blob/R2 storage for both uploaded inputs and
-   OCR artifacts.
-4. Migrate any files currently stored under the pod filesystem.
-5. Verify upload, list, retry, download/review, and pod-reschedule behavior.
-6. Remove the `emptyDir` mount only after object storage is verified.
+1. If the filesystem provider is still used anywhere, create and rotate the
+   input-bridge signing key in Azure Key Vault. S3/R2 mode does not use it.
+2. Create an R2 API token scoped to `aurora-document-ocr` with Object Read &
+   Write, and store its access key and secret key in Key Vault.
+3. Apply and verify `deploy/storage/r2-document-uploads-cors.json` with the
+   commands in `deploy/storage/README.md`.
+4. Verify upload, list, retry, signed download/review, and pod-reschedule
+   behavior before removing any old filesystem objects.
+5. Remove any old `emptyDir` mount only after the R2 deployment is healthy and the
+   database references point to object-storage keys. Existing files under
+   `/app/storage` need an explicit one-time migration if they must be retained.
 
+### R2 cost expectation
+
+Cloudflare R2 Standard currently includes 10 GB-month storage, 1 million Class
+A operations and 10 million Class B operations per month; internet egress is
+free. Usage above those allowances is billed, and Infrequent Access has
+different pricing and no free tier. Check the current Cloudflare pricing page
+before production budgeting. See the [Cloudflare R2 pricing page](https://developers.cloudflare.com/r2/pricing/).
+
+### Object key convention
+
+New uploads use the tenant-partitioned key
+`tenants/{tenantId}/documents/{uploadId}/{fileName}`. Generated OCR artifacts
+use `tenants/{tenantId}/documents/{jobId}/artifacts/{fileName}`. The adapter
+continues to read legacy `objects/{tenantId}/...` references during migration,
+but no new upload should create that legacy prefix.

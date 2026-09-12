@@ -1,6 +1,7 @@
 using DocumentOcr.Application.Jobs;
 using DocumentOcr.Application.Intake;
 using DocumentOcr.Application.Uploads;
+using DocumentOcr.Application.Storage;
 using DocumentOcr.Domain.Entities;
 using Google.Protobuf.WellKnownTypes;
 using Grpc.Core;
@@ -18,7 +19,8 @@ public sealed class DocumentOcrGrpcService(
     IDocumentOcrJobService jobService,
     ICurrentUserService currentUser,
     DocumentUploadService? uploadService = null,
-    IDocumentIntakeService? intakeService = null)
+    IDocumentIntakeService? intakeService = null,
+    IDocumentDownloadStorage? downloadStorage = null)
     : OcrGrpc.DocumentOcrService.DocumentOcrServiceBase
 {
     public override async Task<OcrGrpc.DocumentOcrJobResponse> SubmitDocumentJob(
@@ -342,6 +344,53 @@ public sealed class DocumentOcrGrpcService(
         catch (ArgumentException exception)
         {
             throw InvalidArgument(exception.Message);
+        }
+    }
+
+    public override async Task<OcrGrpc.DocumentDownloadResponse> CreateDocumentDownload(
+        OcrGrpc.CreateDocumentDownloadRequest request,
+        ServerCallContext context)
+    {
+        RequireTenant();
+        if (downloadStorage is null)
+            throw new RpcException(new Status(StatusCode.FailedPrecondition, "Document download storage is not configured."));
+
+        try
+        {
+            var job = await jobService.GetAsync(
+                ParseRequiredId(request.JobId, "JobId"),
+                context.CancellationToken);
+            var expiresInSeconds = Math.Clamp(
+                request.ExpiresInSeconds <= 0 ? 900 : request.ExpiresInSeconds,
+                60,
+                900);
+            var target = await downloadStorage.CreateSignedReadTargetAsync(
+                currentUser.TenantId!.Value,
+                job.StorageReference,
+                job.FileName,
+                job.MimeType,
+                DateTimeOffset.UtcNow.AddSeconds(expiresInSeconds),
+                context.CancellationToken);
+
+            return new OcrGrpc.DocumentDownloadResponse
+            {
+                Url = target.Url,
+                ExpiresAt = Timestamp.FromDateTimeOffset(target.ExpiresAt),
+                FileName = job.FileName,
+                MimeType = job.MimeType
+            };
+        }
+        catch (Shared.Exceptions.NotFoundException exception)
+        {
+            throw new RpcException(new Status(StatusCode.NotFound, exception.Message));
+        }
+        catch (ArgumentException exception)
+        {
+            throw InvalidArgument(exception.Message);
+        }
+        catch (NotSupportedException exception)
+        {
+            throw new RpcException(new Status(StatusCode.FailedPrecondition, exception.Message));
         }
     }
 
