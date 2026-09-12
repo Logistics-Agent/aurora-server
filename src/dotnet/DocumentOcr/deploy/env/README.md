@@ -30,7 +30,9 @@ S3-compatible endpoint and does not require an AWS account. Cloudflare R2 uses
 Object Read & Write permission for the document bucket.
 
 Keep the default `FileSystem` provider for the current staging deployment until
-the five R2 values exist in Key Vault. The deployable example is
-`../helm/r2-values.example.yaml`; copy it to a private values file, replace the
-bucket/endpoint names, create the three Key Vault secrets, then deploy it as a
-second Helm values file. Never commit R2 credentials or private values files.
+the R2 bucket, endpoint and two R2 credential secrets are ready. The deployable
+example is `../helm/r2-values.example.yaml`; copy it to a private values file,
+replace the bucket/endpoint names, create the two Key Vault secrets, then deploy
+it as a second Helm values file. `Storage__InputBridge__SigningKey` is only
+needed for the filesystem upload bridge and is not required in S3/R2 mode.
+Never commit R2 credentials or private values files.

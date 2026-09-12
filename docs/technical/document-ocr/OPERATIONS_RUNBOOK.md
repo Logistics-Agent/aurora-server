@@ -95,7 +95,8 @@ in the container image or dependency configuration before production rollout.
 
 ## Production follow-up
 
-1. Create and rotate the input-bridge signing key in Azure Key Vault.
+1. If the filesystem provider is still used anywhere, create and rotate the
+   input-bridge signing key in Azure Key Vault. S3/R2 mode does not use it.
 2. Create an R2 API token scoped to the document bucket with Object Read &
    Write, and store its access key and secret key in Key Vault.
 3. Add the R2 secrets to the Document OCR ExternalSecret and deploy the private

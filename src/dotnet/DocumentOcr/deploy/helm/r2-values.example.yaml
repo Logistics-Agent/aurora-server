@@ -18,9 +18,6 @@ externalSecret:
     - secretKey: Storage__S3__SecretKey
       remoteRef:
         key: aurora-document-ocr-r2-secret-key
-    - secretKey: Storage__InputBridge__SigningKey
-      remoteRef:
-        key: aurora-document-ocr-input-bridge-signing-key
 
 # R2 makes the pod-local writable volume unnecessary. Remove it from the
 # rendered Deployment when this overlay is applied.
