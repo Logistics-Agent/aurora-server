@@ -7,6 +7,35 @@ namespace StaffBff.Services;
 
 internal static class DocumentsContract
 {
+    internal static bool TryParseDocumentType(string? value, out OcrDocumentType documentType)
+    {
+        documentType = NormalizeEnumValue(value) switch
+        {
+            "INVOICE" or "COMMERCIALINVOICE" => OcrDocumentType.CommercialInvoice,
+            "PACKINGLIST" => OcrDocumentType.PackingList,
+            "BILLOFLADING" => OcrDocumentType.BillOfLading,
+            "CUSTOMSDECLARATION" => OcrDocumentType.CustomsDeclaration,
+            "CERTIFICATEOFORIGIN" => OcrDocumentType.CertificateOfOrigin,
+            "PROOFOFDELIVERY" => OcrDocumentType.ProofOfDelivery,
+            "OTHER" => OcrDocumentType.Other,
+            _ => OcrDocumentType.Unspecified
+        };
+        return documentType != OcrDocumentType.Unspecified;
+    }
+
+    internal static bool TryParsePurpose(string? value, out DocumentOcrPurpose purpose)
+    {
+        purpose = NormalizeEnumValue(value) switch
+        {
+            "SHIPMENTDOCUMENT" => DocumentOcrPurpose.ShipmentDocument,
+            "REGULATORYCORPUS" => DocumentOcrPurpose.RegulatoryCorpus,
+            "KNOWLEDGECORPUS" => DocumentOcrPurpose.KnowledgeCorpus,
+            "GENERALDOCUMENT" => DocumentOcrPurpose.GeneralDocument,
+            _ => DocumentOcrPurpose.Unspecified
+        };
+        return purpose != DocumentOcrPurpose.Unspecified;
+    }
+
     internal static bool IsUnavailable(StatusCode statusCode) =>
         statusCode is StatusCode.Unavailable or StatusCode.DeadlineExceeded;
 
@@ -59,9 +88,6 @@ internal static class DocumentsContract
     internal static ProblemDetails CreateProblemDetails(DocumentUploadError error) =>
         CreateProblemDetails(error.Contract, error.Detail);
 
-    internal static ProblemDetails CreateProblemDetails(DocumentIntakeOrchestrationException exception) =>
-        CreateProblemDetails(exception.Contract, exception.Message);
-
     internal static string MapUploadStatus(DocumentUploadStatus status) => status switch
     {
         DocumentUploadStatus.Pending => "PENDING",
@@ -92,6 +118,11 @@ internal static class DocumentsContract
         DocumentOcrJobStatus.Failed => "ERROR",
         _ => null
     };
+
+    private static string NormalizeEnumValue(string? value) =>
+        string.IsNullOrWhiteSpace(value)
+            ? string.Empty
+            : new string(value.Where(char.IsLetterOrDigit).Select(char.ToUpperInvariant).ToArray());
 }
 
 internal sealed record DocumentUploadError(

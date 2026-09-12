@@ -1,10 +1,12 @@
 using DocumentOcr.Application.Jobs;
+using DocumentOcr.Application.Intake;
 using DocumentOcr.Application.Uploads;
 using DocumentOcr.Domain.Entities;
 using Google.Protobuf.WellKnownTypes;
 using Grpc.Core;
 using Shared.Security;
 using Shared.Constants;
+using Shared.Exceptions;
 using DocumentOcr.Contracts.Events;
 using OcrGrpc = DocumentOcr.Grpc;
 using DomainDocumentType = DocumentOcr.Domain.Enums.OcrDocumentType;
@@ -15,7 +17,8 @@ namespace DocumentOcr.GrpcServices;
 public sealed class DocumentOcrGrpcService(
     IDocumentOcrJobService jobService,
     ICurrentUserService currentUser,
-    DocumentUploadService? uploadService = null)
+    DocumentUploadService? uploadService = null,
+    IDocumentIntakeService? intakeService = null)
     : OcrGrpc.DocumentOcrService.DocumentOcrServiceBase
 {
     public override async Task<OcrGrpc.DocumentOcrJobResponse> SubmitDocumentJob(
@@ -303,6 +306,45 @@ public sealed class DocumentOcrGrpcService(
         }
     }
 
+    public override async Task<OcrGrpc.DocumentOcrJobResponse> CreateDocumentIntake(
+        OcrGrpc.CreateDocumentIntakeRequest request,
+        ServerCallContext context)
+    {
+        RequireTenant();
+        try
+        {
+            var job = await RequireIntakeService().CreateAsync(
+                new CreateDocumentIntakeInput(
+                    ParseRequiredId(request.UploadId, "UploadId"),
+                    request.IdempotencyKey,
+                    ParseDocumentType(request.DocumentTypeHint),
+                    ParsePurpose(request.Purpose),
+                    request.ExternalReference,
+                    DocumentOcrCorrelationId.FromTrace(
+                        string.IsNullOrWhiteSpace(request.CorrelationId)
+                            ? currentUser.TraceId
+                            : request.CorrelationId)),
+                context.CancellationToken);
+            return MapJob(job);
+        }
+        catch (DocumentUploadValidationException exception)
+        {
+            throw UploadValidationFailure(StatusCode.FailedPrecondition, exception);
+        }
+        catch (ConflictException exception)
+        {
+            throw new RpcException(new Status(StatusCode.AlreadyExists, exception.Message));
+        }
+        catch (Shared.Exceptions.NotFoundException exception)
+        {
+            throw new RpcException(new Status(StatusCode.NotFound, exception.Message));
+        }
+        catch (ArgumentException exception)
+        {
+            throw InvalidArgument(exception.Message);
+        }
+    }
+
     internal static OcrGrpc.DocumentOcrJobResponse MapJob(DocumentOcrJob job)
     {
         var response = new OcrGrpc.DocumentOcrJobResponse
@@ -369,6 +411,9 @@ public sealed class DocumentOcrGrpcService(
 
     private DocumentUploadService RequireUploadService() =>
         uploadService ?? throw new InvalidOperationException("Document upload service is not configured.");
+
+    private IDocumentIntakeService RequireIntakeService() =>
+        intakeService ?? throw new InvalidOperationException("Document intake service is not configured.");
 
     private void RequireTenant()
     {

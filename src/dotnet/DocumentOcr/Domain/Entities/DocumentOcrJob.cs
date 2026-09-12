@@ -11,6 +11,7 @@ public sealed class DocumentOcrJob : TenantAuditableEntity
     private DocumentOcrJob() { }
 
     public string IdempotencyKey { get; private set; } = string.Empty;
+    public Guid? UploadId { get; private set; }
     public string StorageReference { get; private set; } = string.Empty;
     public string FileName { get; private set; } = string.Empty;
     public string MimeType { get; private set; } = string.Empty;
@@ -61,11 +62,13 @@ public sealed class DocumentOcrJob : TenantAuditableEntity
         OcrExtractionMode extractionMode = OcrExtractionMode.Structured,
         string? externalContextId = null,
         DocumentOcrPurpose purpose = DocumentOcrPurpose.ShipmentDocument,
-        Guid? initiatingCorrelationId = null)
+        Guid? initiatingCorrelationId = null,
+        Guid? uploadId = null)
     {
         DocumentOcrValidation.RequiredId(tenantId, nameof(tenantId));
         DocumentOcrValidation.RequiredId(externalDocumentId, nameof(externalDocumentId));
         DocumentOcrValidation.OptionalId(externalShipmentId, nameof(externalShipmentId));
+        DocumentOcrValidation.OptionalId(uploadId, nameof(uploadId));
         if (purpose == DocumentOcrPurpose.Unspecified || !Enum.IsDefined(purpose))
             throw new ArgumentOutOfRangeException(nameof(purpose));
         if (sizeBytes <= 0)
@@ -79,6 +82,7 @@ public sealed class DocumentOcrJob : TenantAuditableEntity
         {
             TenantId = tenantId,
             IdempotencyKey = DocumentOcrValidation.RequiredText(idempotencyKey, nameof(idempotencyKey), 150),
+            UploadId = uploadId,
             StorageReference = DocumentOcrValidation.RequiredText(storageReference, nameof(storageReference), 1_000),
             FileName = DocumentOcrValidation.RequiredText(fileName, nameof(fileName), 255),
             MimeType = DocumentOcrValidation.RequiredText(mimeType, nameof(mimeType), 100),
@@ -97,6 +101,18 @@ public sealed class DocumentOcrJob : TenantAuditableEntity
             UpdatedAt = createdAt
         };
     }
+
+    public bool MatchesIntakeRequest(
+        Guid uploadId,
+        string idempotencyKey,
+        OcrDocumentType documentTypeHint,
+        DocumentOcrPurpose purpose,
+        string? externalReference) =>
+        UploadId == uploadId &&
+        string.Equals(IdempotencyKey, idempotencyKey, StringComparison.Ordinal) &&
+        DocumentTypeHint == documentTypeHint &&
+        Purpose == purpose &&
+        string.Equals(ExternalContextId, externalReference, StringComparison.Ordinal);
 
     public OcrProviderAttempt Start(
         string providerName,

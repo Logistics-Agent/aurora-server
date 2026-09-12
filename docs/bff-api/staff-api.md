@@ -20,7 +20,6 @@
 | **Shipment** | `POST` | `/api/v1/shipments/{id}/submit` | Submit shipment for execution | `shipments:submit` | Tenant | `ShipmentWorkflowService.SubmitShipment` | `CURRENT` |
 | **Shipment** | `POST` | `/api/v1/shipments/{id}/cancel` | Cancel active shipment | `shipments:cancel` | Tenant | `ShipmentWorkflowService.CancelShipment` | `CURRENT` |
 | **Shipment** | `POST` | `/api/v1/shipments/{id}/milestones` | Record delivery milestone | `shipments:milestones:update` | Tenant | `ShipmentWorkflowService.UpdateMilestone` | `CURRENT` |
-| **Shipment** | `POST` | `/api/v1/shipments/{id}/document-intakes` | Create/replay the authoritative upload → attachment → OCR intake | `documents:ingest` | Tenant shipment + upload | `ShipmentWorkflowService.CreateDocumentIntake` + `DocumentOcrService` | `CURRENT` |
 | **Shipment** | `POST` | `/api/v1/shipments/{id}/documents` | Attach a pre-existing document metadata record | `shipments:create` (legacy fallback: `documents:create`) | Tenant shipment | `ShipmentWorkflowService.AttachShipmentDocument` | `CURRENT_LEGACY` |
 | **Shipment** | `GET` | `/api/v1/shipments/{id}/events` | Get shipment event audit trail | `shipments:read` | Tenant | `ShipmentWorkflowService.GetShipmentEvents` | `CURRENT` |
 | **Routes** | `POST` | `/api/v1/routes` | Create route proposal | `route_planning:create` | Tenant | `RoutePlanningService.CreateRoute` | `CURRENT` |
@@ -48,6 +47,7 @@
 | **Mail** | `POST` | `/api/v1/mail/quarantine/{id}/release` | Release false-positive email to queue | `mail:quarantine:release` | Tenant | `MailSecurity.ReleaseQuarantine` | `CURRENT` |
 | **Documents/OCR** | `POST` | `/api/v1/documents/uploads` | Create a short-lived, write-only browser upload session; caller must provide `idempotencyKey` | `documents:ingest` | Tenant upload session | `DocumentOcrService.CreateUploadSession` | `CURRENT` |
 | **Documents/OCR** | `PUT` | `{writeUrl returned by /documents/uploads}` | Upload bytes directly to object storage; this is not a Staff BFF route | Upload session capability | Tenant upload object | S3-compatible/local input storage | `CURRENT` |
+| **Documents/OCR** | `POST` | `/api/v1/documents/intakes` | Verify upload and create/replay the authoritative OCR job | `documents:ingest` | Tenant upload + DocumentOcr job | `DocumentOcrService.CreateDocumentIntake` | `CURRENT` |
 | **Documents/OCR** | `GET` | `/api/v1/documents/shipment-documents` | List tenant shipment OCR jobs | `documents:read` | Tenant | `DocumentOcrService.ListDocumentJobs` | `CURRENT` |
 | **Documents/OCR** | `GET` | `/api/v1/documents/shipment/{id}` | Get shipment document/OCR detail | `documents:read` | Tenant document/job | `DocumentOcrService.GetDocumentJob` | `CURRENT` |
 | **Documents/OCR** | `GET` | `/api/v1/documents/shipment-documents/{id}` | Detail route alias retained by the controller | `documents:read` | Tenant document/job | `DocumentOcrService.GetDocumentJob` | `CURRENT` |
@@ -91,34 +91,34 @@ The browser must use the upload-session flow for new shipment documents. The BFF
    └─ 201 { uploadId, storageReference, writeUrl, requiredHeaders, expiresAt, ... }
 2. PUT {writeUrl}                                       [direct object-storage upload]
    └─ Send the returned required headers and file bytes; writeUrl expires after 15 minutes.
-3. POST /api/v1/shipments/{shipmentId}/document-intakes [documents:ingest]
-   └─ { uploadId, documentTypeHint, idempotencyKey }
-   └─ 202 { intakeId, documentId, ocrJobId, status, stage, ... }
+3. POST /api/v1/documents/intakes [documents:ingest]
+   └─ { uploadId, documentTypeHint, purpose?, idempotencyKey, externalReference? }
+   └─ 202 { id, documentType, status, stage, fileName, ... }
 4. GET /api/v1/documents/shipment-documents             [documents:read]
    └─ Poll list/detail until terminal OCR status; use review/manage routes below as needed.
 ```
 
-The intake endpoint verifies the tenant-scoped upload object, creates or replays one shipment attachment, consumes the upload session, and submits one idempotent OCR job. Replaying the same `idempotencyKey` with the same body resumes the persisted intake; changing the body returns a conflict. Cross-tenant IDs follow the anti-enumeration policy and are not converted into new IDs.
+The intake endpoint verifies the tenant-scoped upload object, creates or replays one DocumentOcr job, and consumes the upload only after the durable job exists. Replaying the same `idempotencyKey` with the same body returns the same job; changing the body returns a conflict. Cross-tenant IDs follow the anti-enumeration policy.
 
 Upload/intake failures use `application/problem+json` with `code` and `retryable` extensions. The canonical statuses are:
 
-Every `DocumentsController` route and `POST /api/v1/shipments/{shipmentId}/document-intakes` first requires a trusted tenant context. This includes tenant-null `SYSTEM_ADMIN` requests; system/admin BFF routes outside this controller remain unchanged. Missing context returns `401 TENANT_CONTEXT_REQUIRED` before the downstream OCR, Compliance, or ShipmentWorkflow client is called.
+Every `DocumentsController` route and `POST /api/v1/documents/intakes` first requires a trusted tenant context. This includes tenant-null `SYSTEM_ADMIN` requests; system/admin BFF routes outside this controller remain unchanged. Missing context returns `401 TENANT_CONTEXT_REQUIRED` before a downstream Documents or Compliance client is called.
 
 | HTTP status | Stable codes/examples | Client behavior |
 |---:|---|---|
 | `400` | `INVALID_REQUEST`, `INVALID_UPLOAD_REQUEST` | Fix the request; do not retry unchanged. |
 | `401` | `TENANT_CONTEXT_REQUIRED` | Re-authenticate with a JWT/IdentifyUser tenant context; request headers/query cannot select a tenant. |
-| `404` | `UPLOAD_NOT_FOUND`, `UPLOAD_TENANT_MISMATCH`, `DOCUMENT_INTAKE_NOT_FOUND` | Treat as not visible to this tenant. |
+| `404` | `UPLOAD_NOT_FOUND`, `UPLOAD_TENANT_MISMATCH` | Treat as not visible to this tenant. |
 | `409` | Upload session: `UPLOAD_EXPIRED`, `UPLOAD_IDEMPOTENCY_CONFLICT`, `UPLOAD_VERIFICATION_IN_PROGRESS`, `UPLOAD_NOT_VERIFIED`; intake: `IDEMPOTENCY_CONFLICT`, `INVALID_STATE_TRANSITION` | Upload conflicts reconcile the upload session; intake conflicts reconcile the persisted intake and preserve the same idempotency key. |
 | `422` | `UPLOAD_CONTENT_MISMATCH`, `UPLOAD_MIME_MISMATCH`, `UPLOAD_SIZE_MISMATCH`, `UPLOAD_HASH_MISMATCH` | Recreate the upload session and upload the correct bytes. |
-| `503` | `DOCUMENT_OCR_UNAVAILABLE`, `SHIPMENT_WORKFLOW_UNAVAILABLE` (`retryable: true`) | Retry the same intake request; do not create a second attachment. |
+| `503` | `DOCUMENT_OCR_UNAVAILABLE` (`retryable: true`) | Retry the same intake request with the same idempotency key. |
 
 ### Retained compatibility routes
 
 The following routes remain for existing clients and are not the new browser upload flow:
 
 - `POST /api/v1/documents/shipment` and `POST /api/v1/documents/shipment-documents` accept a caller-supplied `storageReference` and submit OCR directly. They require `idempotencyKey`; `externalDocumentId` is optional and is derived deterministically from the trusted tenant, shipment, idempotency key and storage reference when omitted. They require `documents:ingest` and return the legacy `200` job status shape.
-- `POST /api/v1/shipments/{id}/documents` attaches caller-supplied document metadata through ShipmentWorkflow. Its source permission is `shipments:create` with legacy fallback `documents:create`; new UI code must use `POST /api/v1/shipments/{id}/document-intakes` instead.
+- `POST /api/v1/shipments/{id}/documents` remains a legacy shipment attachment route through ShipmentWorkflow. The Documents-owned upload flow uses `POST /api/v1/documents/intakes`.
 - The `/api/v1`-less `api/...` route aliases declared on `DocumentsController` are compatibility aliases. The versioned `/api/v1/...` paths above are the FE contract.
 
 The old `/api/v1/documents/jobs/...` and `/api/v1/documents/ocr/jobs/...` paths are not Staff BFF routes in the current source and must not be used by FE.

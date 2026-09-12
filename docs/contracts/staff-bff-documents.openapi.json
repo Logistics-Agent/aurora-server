@@ -148,19 +148,14 @@
         }
       }
     },
-    "/api/v1/shipments/{id}/document-intakes": {
+    "/api/v1/documents/intakes": {
       "post": {
         "tags": [
-          "Shipments"
+          "Documents"
         ],
         "operationId": "CreateDocumentIntake",
-        "description": "Verifies the upload, creates or replays one attachment, consumes the upload session and submits one idempotent OCR job.",
+        "description": "Verifies the upload, creates or replays one DocumentOcr job, and consumes the upload only after durable job persistence.",
         "x-required-permission": "documents:ingest",
-        "parameters": [
-          {
-            "$ref": "#/components/parameters/ShipmentId"
-          }
-        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -177,7 +172,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Staff_DocumentIntakeHttpResponse"
+                  "$ref": "#/components/schemas/Staff_UnifiedDocumentStatusResponse"
                 }
               }
             }
@@ -228,14 +223,6 @@
             },
             {
               "code": "UPLOAD_TENANT_MISMATCH",
-              "retryable": false
-            },
-            {
-              "code": "DOCUMENT_INTAKE_NOT_FOUND",
-              "retryable": false
-            },
-            {
-              "code": "DOCUMENT_NOT_FOUND",
               "retryable": false
             }
           ],
@@ -304,10 +291,6 @@
           "503": [
             {
               "code": "DOCUMENT_OCR_UNAVAILABLE",
-              "retryable": true
-            },
-            {
-              "code": "SHIPMENT_WORKFLOW_UNAVAILABLE",
               "retryable": true
             }
           ]
@@ -399,7 +382,7 @@
           "Documents (legacy)"
         ],
         "operationId": "SubmitShipmentDocumentLegacyAlias",
-        "description": "Retained storageReference-based submission. New FE code must use uploads and document-intakes.",
+        "description": "Retained storageReference-based submission. New FE code must use uploads and intakes.",
         "x-required-permission": "documents:ingest",
         "x-contract-status": "CURRENT_LEGACY",
         "responses": {
@@ -836,7 +819,7 @@
           "Documents (legacy)"
         ],
         "operationId": "SubmitShipmentDocumentLegacy",
-        "description": "Retained storageReference-based submission. New FE code must use uploads and document-intakes.",
+        "description": "Retained storageReference-based submission. New FE code must use uploads and intakes.",
         "x-required-permission": "documents:ingest",
         "x-contract-status": "CURRENT_LEGACY",
         "responses": {
@@ -1031,99 +1014,36 @@
             "format": "uuid"
           },
           "documentTypeHint": {
-            "type": "string"
+            "type": "string",
+            "enum": [
+              "COMMERCIAL_INVOICE",
+              "PACKING_LIST",
+              "BILL_OF_LADING",
+              "CUSTOMS_DECLARATION",
+              "CERTIFICATE_OF_ORIGIN",
+              "PROOF_OF_DELIVERY",
+              "OTHER"
+            ]
           },
           "idempotencyKey": {
-            "type": "string"
-          }
-        }
-      },
-      "Staff_DocumentIntakeHttpResponse": {
-        "type": "object",
-        "required": [
-          "intakeId",
-          "shipmentId",
-          "documentId",
-          "uploadId",
-          "ocrJobId",
-          "status",
-          "intakeStatus",
-          "fileName",
-          "createdAt",
-          "retryable"
-        ],
-        "properties": {
-          "intakeId": {
             "type": "string",
-            "format": "uuid"
+            "maxLength": 150
           },
-          "shipmentId": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "documentId": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "uploadId": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "ocrJobId": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "status": {
-            "type": "string",
-            "enum": [
-              "RECEIVED",
-              "PROCESSING",
-              "READY",
-              "NEEDS_REVIEW",
-              "REJECTED",
-              "FAILED",
-              "CANCELLED"
-            ]
-          },
-          "stage": {
+          "purpose": {
             "type": "string",
             "nullable": true,
+            "default": "GENERAL_DOCUMENT",
             "enum": [
-              "QUEUED",
-              "EXTRACTING",
-              "HUMAN_REVIEW",
-              "COMPLETED",
-              "ERROR"
+              "SHIPMENT_DOCUMENT",
+              "REGULATORY_CORPUS",
+              "KNOWLEDGE_CORPUS",
+              "GENERAL_DOCUMENT"
             ]
           },
-          "intakeStatus": {
+          "externalReference": {
             "type": "string",
-            "enum": [
-              "PENDING_ATTACHMENT",
-              "PENDING_OCR",
-              "SUBMITTED",
-              "FAILED_RETRYABLE"
-            ]
-          },
-          "fileName": {
-            "type": "string"
-          },
-          "createdAt": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "updatedAt": {
-            "type": "string",
-            "format": "date-time",
-            "nullable": true
-          },
-          "retryable": {
-            "type": "boolean"
-          },
-          "retryAfterSeconds": {
-            "type": "integer",
-            "format": "int32",
-            "nullable": true
+            "nullable": true,
+            "maxLength": 150
           }
         }
       },
@@ -1380,7 +1300,6 @@
             "type": "string",
             "enum": [
               "DOCUMENT_CONTRACT_ERROR",
-              "DOCUMENT_INTAKE_NOT_FOUND",
               "DOCUMENT_NOT_FOUND",
               "DOCUMENT_OCR_UNAVAILABLE",
               "IDEMPOTENCY_CONFLICT",
@@ -1388,7 +1307,6 @@
               "INVALID_REQUEST",
               "INVALID_STATE_TRANSITION",
               "INVALID_UPLOAD_REQUEST",
-              "SHIPMENT_WORKFLOW_UNAVAILABLE",
               "TENANT_CONTEXT_REQUIRED",
               "UPLOAD_CONTENT_MISMATCH",
               "UPLOAD_EXPIRED",
@@ -1931,7 +1849,7 @@
         }
       },
       "Problem503_5": {
-        "description": "A downstream DocumentOcr or ShipmentWorkflow dependency is temporarily unavailable.",
+        "description": "The DocumentOcr dependency is temporarily unavailable.",
         "content": {
           "application/problem+json": {
             "schema": {
@@ -1981,7 +1899,7 @@
                   "type": "https://httpstatuses.io/503",
                   "title": "DOCUMENT_OCR_UNAVAILABLE",
                   "status": 503,
-                  "detail": "A downstream DocumentOcr or ShipmentWorkflow dependency is temporarily unavailable.",
+                  "detail": "The DocumentOcr dependency is temporarily unavailable.",
                   "code": "DOCUMENT_OCR_UNAVAILABLE",
                   "retryable": true,
                   "retryAfterSeconds": 5
@@ -2080,7 +1998,6 @@
                         "code": {
                           "type": "string",
                           "enum": [
-                            "DOCUMENT_INTAKE_NOT_FOUND",
                             "DOCUMENT_NOT_FOUND",
                             "UPLOAD_NOT_FOUND",
                             "UPLOAD_OBJECT_NOT_FOUND",
@@ -2130,17 +2047,6 @@
                   "status": 404,
                   "detail": "Resource not found or hidden by tenant anti-enumeration policy.",
                   "code": "UPLOAD_TENANT_MISMATCH",
-                  "retryable": false
-                }
-              },
-              "DOCUMENT_INTAKE_NOT_FOUND": {
-                "summary": "DOCUMENT_INTAKE_NOT_FOUND",
-                "value": {
-                  "type": "https://httpstatuses.io/404",
-                  "title": "DOCUMENT_INTAKE_NOT_FOUND",
-                  "status": 404,
-                  "detail": "Resource not found or hidden by tenant anti-enumeration policy.",
-                  "code": "DOCUMENT_INTAKE_NOT_FOUND",
                   "retryable": false
                 }
               },
@@ -2328,7 +2234,7 @@
         }
       },
       "Problem503_9": {
-        "description": "A downstream DocumentOcr or ShipmentWorkflow dependency is temporarily unavailable.",
+        "description": "The DocumentOcr dependency is temporarily unavailable.",
         "content": {
           "application/problem+json": {
             "schema": {
@@ -2356,8 +2262,7 @@
                         "code": {
                           "type": "string",
                           "enum": [
-                            "DOCUMENT_OCR_UNAVAILABLE",
-                            "SHIPMENT_WORKFLOW_UNAVAILABLE"
+                            "DOCUMENT_OCR_UNAVAILABLE"
                           ]
                         },
                         "retryable": {
@@ -2379,20 +2284,8 @@
                   "type": "https://httpstatuses.io/503",
                   "title": "DOCUMENT_OCR_UNAVAILABLE",
                   "status": 503,
-                  "detail": "A downstream DocumentOcr or ShipmentWorkflow dependency is temporarily unavailable.",
+                  "detail": "The DocumentOcr dependency is temporarily unavailable.",
                   "code": "DOCUMENT_OCR_UNAVAILABLE",
-                  "retryable": true,
-                  "retryAfterSeconds": 5
-                }
-              },
-              "SHIPMENT_WORKFLOW_UNAVAILABLE": {
-                "summary": "SHIPMENT_WORKFLOW_UNAVAILABLE",
-                "value": {
-                  "type": "https://httpstatuses.io/503",
-                  "title": "SHIPMENT_WORKFLOW_UNAVAILABLE",
-                  "status": 503,
-                  "detail": "A downstream DocumentOcr or ShipmentWorkflow dependency is temporarily unavailable.",
-                  "code": "SHIPMENT_WORKFLOW_UNAVAILABLE",
                   "retryable": true,
                   "retryAfterSeconds": 5
                 }

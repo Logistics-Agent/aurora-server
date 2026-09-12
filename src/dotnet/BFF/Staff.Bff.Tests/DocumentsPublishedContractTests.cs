@@ -17,7 +17,7 @@ public sealed class DocumentsPublishedContractTests
     private static readonly OperationContract[] Operations =
     [
         new(typeof(DocumentsController), nameof(DocumentsController.CreateUploadSession), "/api/v1/documents/uploads", "post", "CreateUploadSession", PermissionConstants.Documents.Ingest, typeof(CreateDocumentUploadSessionRequest), typeof(DocumentUploadSessionResponse)),
-        new(typeof(ShipmentsController), nameof(ShipmentsController.CreateDocumentIntake), "/api/v1/shipments/{id}/document-intakes", "post", "CreateDocumentIntake", PermissionConstants.Documents.Ingest, typeof(CreateDocumentIntakeBody), typeof(DocumentIntakeHttpResponse)),
+        new(typeof(DocumentsController), nameof(DocumentsController.CreateDocumentIntake), "/api/v1/documents/intakes", "post", "CreateDocumentIntake", PermissionConstants.Documents.Ingest, typeof(CreateDocumentIntakeBody), typeof(UnifiedDocumentStatusResponse)),
         new(typeof(DocumentsController), nameof(DocumentsController.ListShipmentDocuments), "/api/v1/documents/shipment-documents", "get", "ListShipmentDocuments", PermissionConstants.Documents.Read, null, typeof(ListShipmentDocumentsResponse)),
         new(typeof(DocumentsController), nameof(DocumentsController.GetShipmentDocumentStatus), "/api/v1/documents/shipment/{id}", "get", "GetShipmentDocumentStatus", PermissionConstants.Documents.Read, null, typeof(UnifiedDocumentStatusResponse)),
         new(typeof(DocumentsController), nameof(DocumentsController.GetShipmentDocumentStatus), "/api/v1/documents/shipment-documents/{id}", "get", "GetShipmentDocumentStatusAlias", PermissionConstants.Documents.Read, null, typeof(UnifiedDocumentStatusResponse)),
@@ -34,7 +34,6 @@ public sealed class DocumentsPublishedContractTests
         typeof(CreateDocumentUploadSessionRequest),
         typeof(DocumentUploadSessionResponse),
         typeof(CreateDocumentIntakeBody),
-        typeof(DocumentIntakeHttpResponse),
         typeof(SubmitShipmentDocumentRequest),
         typeof(UnifiedDocumentStatusResponse),
         typeof(ListShipmentDocumentsResponse),

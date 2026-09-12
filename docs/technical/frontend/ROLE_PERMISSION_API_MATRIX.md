@@ -97,7 +97,7 @@ Aurora defines **exactly four canonical Base Roles**. Base roles act as UI perso
 | **Shipments** | `POST /api/v1/shipments/{id}/milestones` | `shipments:milestones:update` | Tenant Shipment | Staff, Operator | `CURRENT` |
 | **Documents/OCR** | `POST /api/v1/documents/uploads` | `documents:ingest` | Tenant upload session; caller-supplied `idempotencyKey` | MANAGER, TENANT_ADMIN; STAFF only with a custom grant | `CURRENT` |
 | **Documents/OCR** | `PUT {writeUrl returned by /api/v1/documents/uploads}` | Upload-session capability | Tenant object storage | Any caller holding the issued upload capability | `CURRENT` |
-| **Documents/OCR** | `POST /api/v1/shipments/{id}/document-intakes` | `documents:ingest` | Tenant shipment + upload | MANAGER, TENANT_ADMIN; STAFF only with a custom grant | `CURRENT` |
+| **Documents/OCR** | `POST /api/v1/documents/intakes` | `documents:ingest` | Tenant upload + OCR job | MANAGER, TENANT_ADMIN; STAFF only with a custom grant | `CURRENT` |
 | **Documents/OCR** | `GET /api/v1/documents/shipment-documents` | `documents:read` | Tenant document jobs | STAFF, MANAGER, TENANT_ADMIN | `CURRENT` |
 | **Documents/OCR** | `GET /api/v1/documents/shipment/{id}` | `documents:read` | Tenant document/job | STAFF, MANAGER, TENANT_ADMIN | `CURRENT` |
 | **Documents/OCR** | `GET /api/v1/documents/shipment-documents/{id}` | `documents:read` | Tenant document/job | STAFF, MANAGER, TENANT_ADMIN | `CURRENT` |
@@ -139,7 +139,7 @@ Aurora defines **exactly four canonical Base Roles**. Base roles act as UI perso
 
 ### Documents/OCR contract notes
 
-- New FE upload is `POST /api/v1/documents/uploads` (`documents:ingest`), direct `PUT` to the returned short-lived `writeUrl`, then `POST /api/v1/shipments/{id}/document-intakes` (`documents:ingest`). The BFF owns upload verification, attachment idempotency and OCR submission.
+- New FE upload is `POST /api/v1/documents/uploads` (`documents:ingest`), direct `PUT` to the returned short-lived `writeUrl`, then `POST /api/v1/documents/intakes` (`documents:ingest`). DocumentOcr owns upload verification, upload-to-job linkage, idempotency and OCR submission.
 - Queue/detail reads use `documents:read`. Human review uses `ocr:review`. Cancel/retry management uses `documents:manage`.
 - `CURRENT_LEGACY` rows are retained source routes for existing callers. They do not authorize the new UI to provide `storageReference` or browser-generated document IDs. The obsolete `/api/v1/documents/jobs/...` and `/api/v1/documents/ocr/jobs/...` paths are not in the current Staff BFF controller metadata.
 - Runtime authorization uses the direct permission claim and tenant scope; persona labels in this table are informational only.

@@ -1,7 +1,9 @@
 using DocumentOcr.Application.Jobs;
+using DocumentOcr.Application.Intake;
 using DocumentOcr.Application.Providers;
 using DocumentOcr.Application.Storage;
 using DocumentOcr.Application.Uploads;
+using DocumentOcr.Contracts.Events;
 using DocumentOcr.Domain.Entities;
 using DocumentOcr.Domain.Enums;
 using DocumentOcr.GrpcServices;
@@ -43,6 +45,60 @@ public sealed class DocumentOcrGrpcServiceTests
         Assert.Equal(tenantId, fake.LastSubmittedJob!.TenantId);
         Assert.Equal(documentId.ToString(), response.ExternalDocumentId);
         Assert.Equal(OcrGrpc.DocumentOcrJobStatus.Queued, response.Status);
+    }
+
+    [Fact]
+    public async Task CreateDocumentIntakeMapsTheDocumentOcrOwnedRequest()
+    {
+        var tenantId = Guid.CreateVersion7();
+        var currentUser = CreateCurrentUser(tenantId);
+        var fakeIntake = new FakeIntakeService(tenantId);
+        var service = new DocumentOcrGrpcService(
+            new FakeJobService(tenantId),
+            currentUser,
+            null,
+            fakeIntake);
+        var uploadId = Guid.CreateVersion7();
+
+        var response = await service.CreateDocumentIntake(
+            new OcrGrpc.CreateDocumentIntakeRequest
+            {
+                UploadId = uploadId.ToString(),
+                IdempotencyKey = "intake-001",
+                DocumentTypeHint = OcrGrpc.OcrDocumentType.CommercialInvoice,
+                Purpose = OcrGrpc.DocumentOcrPurpose.RegulatoryCorpus,
+                ExternalReference = "regulatory-source-001"
+            },
+            TestServerCallContext.Create());
+
+        Assert.Equal(uploadId, fakeIntake.LastInput!.UploadId);
+        Assert.Equal("intake-001", fakeIntake.LastInput.IdempotencyKey);
+        Assert.Equal(DocumentOcrPurpose.RegulatoryCorpus, fakeIntake.LastInput.Purpose);
+        Assert.Equal("regulatory-source-001", fakeIntake.LastInput.ExternalReference);
+        Assert.Equal(fakeIntake.LastJob!.Id.ToString(), response.JobId);
+    }
+
+    [Fact]
+    public async Task CreateDocumentIntakeMapsMissingUploadToNotFound()
+    {
+        var tenantId = Guid.CreateVersion7();
+        var service = new DocumentOcrGrpcService(
+            new FakeJobService(tenantId),
+            CreateCurrentUser(tenantId),
+            null,
+            new MissingUploadIntakeService());
+
+        var exception = await Assert.ThrowsAsync<RpcException>(() => service.CreateDocumentIntake(
+            new OcrGrpc.CreateDocumentIntakeRequest
+            {
+                UploadId = Guid.CreateVersion7().ToString(),
+                IdempotencyKey = "intake-001",
+                DocumentTypeHint = OcrGrpc.OcrDocumentType.CommercialInvoice,
+                Purpose = OcrGrpc.DocumentOcrPurpose.GeneralDocument
+            },
+            TestServerCallContext.Create()));
+
+        Assert.Equal(StatusCode.NotFound, exception.StatusCode);
     }
 
     [Fact]
@@ -317,5 +373,43 @@ public sealed class DocumentOcrGrpcServiceTests
             LastSubmittedJob?.ApplyReview(action, correctedJson, comment, null, Now);
             return Task.FromResult(LastSubmittedJob!);
         }
+    }
+
+    private sealed class FakeIntakeService(Guid tenantId) : IDocumentIntakeService
+    {
+        public CreateDocumentIntakeInput? LastInput { get; private set; }
+        public DocumentOcrJob? LastJob { get; private set; }
+
+        public Task<DocumentOcrJob> CreateAsync(
+            CreateDocumentIntakeInput input,
+            CancellationToken cancellationToken = default)
+        {
+            LastInput = input;
+            LastJob = DocumentOcrJob.Create(
+                tenantId,
+                input.IdempotencyKey,
+                $"objects/{tenantId}/{input.UploadId}/invoice.pdf",
+                "invoice.pdf",
+                "application/pdf",
+                1_024,
+                input.DocumentTypeHint,
+                input.UploadId,
+                null,
+                Now,
+                OcrExtractionMode.Structured,
+                input.ExternalReference,
+                input.Purpose,
+                input.InitiatingCorrelationId,
+                input.UploadId);
+            return Task.FromResult(LastJob);
+        }
+    }
+
+    private sealed class MissingUploadIntakeService : IDocumentIntakeService
+    {
+        public Task<DocumentOcrJob> CreateAsync(
+            CreateDocumentIntakeInput input,
+            CancellationToken cancellationToken = default) =>
+            throw new Shared.Exceptions.NotFoundException("Document upload session was not found.");
     }
 }

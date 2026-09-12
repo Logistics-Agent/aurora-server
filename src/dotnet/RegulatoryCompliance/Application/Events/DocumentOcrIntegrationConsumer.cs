@@ -44,6 +44,7 @@ public sealed class DocumentOcrIntegrationConsumer(
         switch (message.Purpose)
         {
             case DocumentOcrPurpose.ShipmentDocument:
+            case DocumentOcrPurpose.GeneralDocument:
                 return;
             case DocumentOcrPurpose.KnowledgeCorpus:
                 await ProcessKnowledgeDocumentOcrAsync(
@@ -76,6 +77,7 @@ public sealed class DocumentOcrIntegrationConsumer(
         switch (message.Purpose)
         {
             case DocumentOcrPurpose.ShipmentDocument:
+            case DocumentOcrPurpose.GeneralDocument:
                 return;
             case DocumentOcrPurpose.KnowledgeCorpus:
             {
@@ -116,7 +118,7 @@ public sealed class DocumentOcrIntegrationConsumer(
     {
         ArgumentNullException.ThrowIfNull(message);
         DocumentOcrEventContract.ValidateVersion(nameof(DocumentOcrRequiresReviewEvent), message.ContractVersion);
-        if (message.Purpose is not (DocumentOcrPurpose.ShipmentDocument or DocumentOcrPurpose.KnowledgeCorpus or DocumentOcrPurpose.RegulatoryCorpus))
+        if (message.Purpose is not (DocumentOcrPurpose.ShipmentDocument or DocumentOcrPurpose.GeneralDocument or DocumentOcrPurpose.KnowledgeCorpus or DocumentOcrPurpose.RegulatoryCorpus))
             throw new NotSupportedException($"Unsupported Document OCR purpose '{message.Purpose}'.");
 
         _logger.LogInformation(

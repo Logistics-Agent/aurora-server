@@ -7,8 +7,6 @@ public class ShipmentDocument : TenantAuditableEntity
 {
     public const int FileNameMaxLength = 255;
     public const int StorageUrlMaxLength = 1_000;
-    public const int IdempotencyKeyMaxLength = 150;
-    public const int RequestHashMaxLength = 64;
 
     private ShipmentDocument() { }
 
@@ -22,18 +20,12 @@ public class ShipmentDocument : TenantAuditableEntity
         DateTimeOffset uploadedAt,
         OCRStatus ocrStatus = OCRStatus.Pending,
         decimal? ocrConfidence = null,
-        string? extractedDataJson = null,
-        string? idempotencyKey = null,
-        Guid? uploadId = null,
-        string? storageReference = null,
-        string? requestHash = null,
-        Guid? documentId = null)
+        string? extractedDataJson = null)
     {
         ValidateTenantAndShipment(tenantId, shipmentId);
         ValidateRequiredText(fileName, nameof(fileName), FileNameMaxLength);
-        var normalizedStorageUrl = RequireStorageReference(storageUrl, storageReference);
+        ValidateRequiredText(storageUrl, nameof(storageUrl), StorageUrlMaxLength);
         ValidateOcrConfidence(ocrConfidence);
-        ValidateIdempotency(idempotencyKey, uploadId, requestHash);
 
         if (uploadedAt == default)
         {
@@ -42,18 +34,11 @@ public class ShipmentDocument : TenantAuditableEntity
 
         return new ShipmentDocument
         {
-            Id = documentId ?? Guid.CreateVersion7(),
             TenantId = tenantId,
             ShipmentId = shipmentId,
             FileName = fileName.Trim(),
             DocumentType = documentType,
-            StorageUrl = normalizedStorageUrl,
-            StorageReference = string.IsNullOrWhiteSpace(idempotencyKey)
-                ? null
-                : storageReference!.Trim(),
-            IdempotencyKey = idempotencyKey?.Trim(),
-            UploadId = uploadId,
-            RequestHash = requestHash?.Trim().ToLowerInvariant(),
+            StorageUrl = storageUrl.Trim(),
             OCRStatus = ocrStatus,
             OCRConfidence = ocrConfidence,
             UploadedBy = uploadedBy,
@@ -69,16 +54,11 @@ public class ShipmentDocument : TenantAuditableEntity
     public string FileName { get; private set; } = string.Empty;
     public DocumentType DocumentType { get; private set; }
     public string StorageUrl { get; private set; } = string.Empty;
-    public string? StorageReference { get; private set; }
-    public string? IdempotencyKey { get; private set; }
-    public Guid? UploadId { get; private set; }
-    public string? RequestHash { get; private set; }
     public OCRStatus OCRStatus { get; private set; }
     public decimal? OCRConfidence { get; private set; }
     public Guid? UploadedBy { get; private set; }
     public DateTimeOffset UploadedAt { get; private set; }
     public string? ExtractedDataJson { get; private set; }
-    public Guid? LastOcrEventId { get; private set; }
 
     internal void UpdateOcrMetadata(
         OCRStatus ocrStatus,
@@ -92,21 +72,6 @@ public class ShipmentDocument : TenantAuditableEntity
         ExtractedDataJson = string.IsNullOrWhiteSpace(extractedDataJson)
             ? null
             : extractedDataJson.Trim();
-    }
-
-    internal void ApplyOcrEvent(
-        Guid eventId,
-        OCRStatus ocrStatus,
-        decimal? ocrConfidence,
-        string? extractedDataJson)
-    {
-        if (eventId == Guid.Empty)
-            throw new ArgumentException("EventId is required.", nameof(eventId));
-        if (LastOcrEventId == eventId)
-            return;
-
-        UpdateOcrMetadata(ocrStatus, ocrConfidence, extractedDataJson);
-        LastOcrEventId = eventId;
     }
 
     private static void ValidateTenantAndShipment(Guid tenantId, Guid shipmentId)
@@ -130,38 +95,6 @@ public class ShipmentDocument : TenantAuditableEntity
                 nameof(ocrConfidence),
                 "OCR confidence must be between 0 and 1.");
         }
-    }
-
-    private static string RequireStorageReference(string storageUrl, string? storageReference)
-    {
-        var normalizedStorageUrl = string.IsNullOrWhiteSpace(storageUrl)
-            ? storageReference
-            : storageUrl;
-        ValidateRequiredText(normalizedStorageUrl!, nameof(storageUrl), StorageUrlMaxLength);
-        if (!string.IsNullOrWhiteSpace(storageReference) &&
-            storageReference.Trim().Length > StorageUrlMaxLength)
-        {
-            throw new ArgumentException(
-                $"StorageReference must be {StorageUrlMaxLength} characters or fewer.",
-                nameof(storageReference));
-        }
-
-        return normalizedStorageUrl!.Trim();
-    }
-
-    private static void ValidateIdempotency(string? idempotencyKey, Guid? uploadId, string? requestHash)
-    {
-        if (string.IsNullOrWhiteSpace(idempotencyKey))
-        {
-            if (uploadId.HasValue || !string.IsNullOrWhiteSpace(requestHash))
-                throw new ArgumentException("IdempotencyKey is required for intake metadata.", nameof(idempotencyKey));
-            return;
-        }
-
-        ValidateRequiredText(idempotencyKey, nameof(idempotencyKey), IdempotencyKeyMaxLength);
-        if (!uploadId.HasValue || uploadId.Value == Guid.Empty)
-            throw new ArgumentException("UploadId is required for idempotent attachment.", nameof(uploadId));
-        ValidateRequiredText(requestHash!, nameof(requestHash), RequestHashMaxLength);
     }
 
     private static void ValidateRequiredText(string value, string name, int maxLength)

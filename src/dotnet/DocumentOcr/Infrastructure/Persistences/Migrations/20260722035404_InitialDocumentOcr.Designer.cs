@@ -3,6 +3,7 @@ using System;
 using DocumentOcr.Infrastructure.Persistences;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace DocumentOcr.Infrastructure.Persistences.Migrations
 {
     [DbContext(typeof(DocumentOcrDbContext))]
-    partial class DocumentOcrDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260722035404_InitialDocumentOcr")]
+    partial class InitialDocumentOcr
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -27,10 +30,6 @@ namespace DocumentOcr.Infrastructure.Persistences.Migrations
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
-
-                    b.Property<string>("ArtifactReference")
-                        .HasMaxLength(1000)
-                        .HasColumnType("character varying(1000)");
 
                     b.Property<int>("AttemptCount")
                         .HasColumnType("integer");
@@ -69,20 +68,11 @@ namespace DocumentOcr.Infrastructure.Persistences.Migrations
                         .HasMaxLength(2000)
                         .HasColumnType("character varying(2000)");
 
-                    b.Property<string>("ExternalContextId")
-                        .HasMaxLength(150)
-                        .HasColumnType("character varying(150)");
-
                     b.Property<Guid>("ExternalDocumentId")
                         .HasColumnType("uuid");
 
                     b.Property<Guid?>("ExternalShipmentId")
                         .HasColumnType("uuid");
-
-                    b.Property<string>("ExtractionMode")
-                        .IsRequired()
-                        .HasMaxLength(50)
-                        .HasColumnType("character varying(50)");
 
                     b.Property<DateTimeOffset?>("FailedAt")
                         .HasColumnType("timestamp with time zone");
@@ -95,9 +85,6 @@ namespace DocumentOcr.Infrastructure.Persistences.Migrations
                         .HasMaxLength(255)
                         .HasColumnType("character varying(255)");
 
-                    b.Property<string>("FullTextContent")
-                        .HasColumnType("text");
-
                     b.Property<DateTimeOffset?>("HeartbeatAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -105,12 +92,6 @@ namespace DocumentOcr.Infrastructure.Persistences.Migrations
                         .IsRequired()
                         .HasMaxLength(150)
                         .HasColumnType("character varying(150)");
-
-                    b.Property<Guid?>("UploadId")
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid>("InitiatingCorrelationId")
-                        .HasColumnType("uuid");
 
                     b.Property<DateTimeOffset?>("LeaseExpiresAt")
                         .HasColumnType("timestamp with time zone");
@@ -129,28 +110,8 @@ namespace DocumentOcr.Infrastructure.Persistences.Migrations
                     b.Property<string>("NormalizedJson")
                         .HasColumnType("jsonb");
 
-                    b.Property<string>("OriginalAiNormalizedJson")
-                        .HasColumnType("text");
-
                     b.Property<DateTimeOffset?>("ProcessingStartedAt")
                         .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("Purpose")
-                        .IsRequired()
-                        .HasMaxLength(50)
-                        .HasColumnType("character varying(50)");
-
-                    b.Property<string>("ReviewAction")
-                        .HasColumnType("text");
-
-                    b.Property<string>("ReviewComment")
-                        .HasColumnType("text");
-
-                    b.Property<DateTimeOffset?>("ReviewedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<Guid?>("ReviewedBy")
-                        .HasColumnType("uuid");
 
                     b.Property<long>("SizeBytes")
                         .HasColumnType("bigint");
@@ -187,124 +148,11 @@ namespace DocumentOcr.Infrastructure.Persistences.Migrations
                     b.HasIndex("TenantId", "IdempotencyKey")
                         .IsUnique();
 
-                    b.HasIndex("TenantId", "UploadId")
-                        .IsUnique();
-
                     b.HasIndex("Status", "NextAttemptAt", "CreatedAt");
 
                     b.HasIndex("TenantId", "Status", "CreatedAt", "Id");
 
                     b.ToTable("document_ocr_jobs", (string)null);
-                });
-
-            modelBuilder.Entity("DocumentOcr.Domain.Entities.DocumentUploadSession", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("CleanupStatus")
-                        .IsRequired()
-                        .HasMaxLength(20)
-                        .HasColumnType("character varying(20)");
-
-                    b.Property<DateTimeOffset?>("ConsumedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("CreatedBy")
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)");
-
-                    b.Property<string>("DeclaredContentSha256")
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
-                    b.Property<string>("DeclaredMimeType")
-                        .IsRequired()
-                        .HasMaxLength(150)
-                        .HasColumnType("character varying(150)");
-
-                    b.Property<long>("DeclaredSizeBytes")
-                        .HasColumnType("bigint");
-
-                    b.Property<DateTimeOffset?>("ExpiredAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<DateTimeOffset>("ExpiresAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("FileName")
-                        .IsRequired()
-                        .HasMaxLength(255)
-                        .HasColumnType("character varying(255)");
-
-                    b.Property<string>("IdempotencyKey")
-                        .IsRequired()
-                        .HasMaxLength(150)
-                        .HasColumnType("character varying(150)");
-
-                    b.Property<long>("MaximumSizeBytes")
-                        .HasColumnType("bigint");
-
-                    b.Property<string>("ObjectKey")
-                        .IsRequired()
-                        .HasMaxLength(1000)
-                        .HasColumnType("character varying(1000)");
-
-                    b.Property<string>("RequestFingerprint")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
-                    b.Property<int>("StateVersion")
-                        .IsConcurrencyToken()
-                        .HasColumnType("integer");
-
-                    b.Property<string>("Status")
-                        .IsRequired()
-                        .HasMaxLength(20)
-                        .HasColumnType("character varying(20)");
-
-                    b.Property<Guid>("TenantId")
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTimeOffset?>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("UpdatedBy")
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)");
-
-                    b.Property<DateTimeOffset?>("VerifiedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("VerifiedContentSha256")
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
-                    b.Property<string>("VerifiedMimeType")
-                        .HasMaxLength(150)
-                        .HasColumnType("character varying(150)");
-
-                    b.Property<long?>("VerifiedSizeBytes")
-                        .HasColumnType("bigint");
-
-                    b.HasKey("Id");
-
-                    b.HasAlternateKey("TenantId", "Id");
-
-                    b.HasIndex("TenantId", "IdempotencyKey")
-                        .IsUnique();
-
-                    b.HasIndex("TenantId", "ObjectKey")
-                        .IsUnique();
-
-                    b.HasIndex("TenantId", "Status", "ExpiresAt");
-
-                    b.ToTable("document_upload_sessions", (string)null);
                 });
 
             modelBuilder.Entity("DocumentOcr.Domain.Entities.InboxMessage", b =>
@@ -490,12 +338,6 @@ namespace DocumentOcr.Infrastructure.Persistences.Migrations
             modelBuilder.Entity("DocumentOcr.Domain.Entities.DocumentOcrJob", b =>
                 {
                     b.Navigation("Attempts");
-
-                    b.HasOne("DocumentOcr.Domain.Entities.DocumentUploadSession", null)
-                        .WithMany()
-                        .HasForeignKey("TenantId", "UploadId")
-                        .HasPrincipalKey("TenantId", "Id")
-                        .OnDelete(DeleteBehavior.Restrict);
                 });
 #pragma warning restore 612, 618
         }

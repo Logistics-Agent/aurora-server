@@ -27,7 +27,6 @@ internal static class DocumentProblemContractCatalog
     internal const string UploadNotFoundCode = "UPLOAD_NOT_FOUND";
     internal const string UploadObjectNotFoundCode = "UPLOAD_OBJECT_NOT_FOUND";
     internal const string UploadTenantMismatchCode = "UPLOAD_TENANT_MISMATCH";
-    internal const string DocumentIntakeNotFoundCode = "DOCUMENT_INTAKE_NOT_FOUND";
     internal const string UploadExpiredCode = "UPLOAD_EXPIRED";
     internal const string UploadIdempotencyConflictCode = "UPLOAD_IDEMPOTENCY_CONFLICT";
     internal const string UploadNotVerifiedCode = "UPLOAD_NOT_VERIFIED";
@@ -42,7 +41,6 @@ internal static class DocumentProblemContractCatalog
     internal const string UploadContentMismatchCode = "UPLOAD_CONTENT_MISMATCH";
     internal const string UploadSizeExceededCode = "UPLOAD_SIZE_EXCEEDED";
     internal const string DocumentOcrUnavailableCode = "DOCUMENT_OCR_UNAVAILABLE";
-    internal const string ShipmentWorkflowUnavailableCode = "SHIPMENT_WORKFLOW_UNAVAILABLE";
     internal const string DocumentContractErrorCode = "DOCUMENT_CONTRACT_ERROR";
     internal const string TenantContextRequiredCode = "TENANT_CONTEXT_REQUIRED";
 
@@ -66,9 +64,6 @@ internal static class DocumentProblemContractCatalog
 
     internal static Definition UploadTenantMismatch { get; } =
         new(UploadTenantMismatchCode, StatusCodes.Status404NotFound, false, "The upload session was not found.");
-
-    internal static Definition DocumentIntakeNotFound { get; } =
-        new(DocumentIntakeNotFoundCode, StatusCodes.Status404NotFound, false, "The authoritative document intake could not be found.");
 
     internal static Definition UploadExpired { get; } =
         new(UploadExpiredCode, StatusCodes.Status409Conflict, false, "The upload session has expired.");
@@ -112,9 +107,6 @@ internal static class DocumentProblemContractCatalog
     internal static Definition DocumentOcrUnavailable { get; } =
         new(DocumentOcrUnavailableCode, StatusCodes.Status503ServiceUnavailable, true, "The OCR dependency is temporarily unavailable. Retry the same request.");
 
-    internal static Definition ShipmentWorkflowUnavailable { get; } =
-        new(ShipmentWorkflowUnavailableCode, StatusCodes.Status503ServiceUnavailable, true, "The shipment intake dependency is temporarily unavailable. Retry the same request.");
-
     internal static Definition DocumentContractError { get; } =
         new(DocumentContractErrorCode, StatusCodes.Status500InternalServerError, false, "The document service returned an undeclared error contract.");
 
@@ -130,7 +122,6 @@ internal static class DocumentProblemContractCatalog
         UploadNotFound,
         UploadObjectNotFound,
         UploadTenantMismatch,
-        DocumentIntakeNotFound,
         UploadExpired,
         UploadIdempotencyConflict,
         UploadNotVerified,
@@ -145,7 +136,6 @@ internal static class DocumentProblemContractCatalog
         UploadContentMismatch,
         UploadSizeExceeded,
         DocumentOcrUnavailable,
-        ShipmentWorkflowUnavailable,
         DocumentContractError,
         TenantContextRequired
     ];
@@ -157,7 +147,6 @@ internal static class DocumentProblemContractCatalog
         new HashSet<string>(StringComparer.Ordinal)
         {
             DocumentOcrUnavailableCode,
-            ShipmentWorkflowUnavailableCode
         };
 
     internal static bool TryGet(string code, out Definition definition) =>
@@ -221,11 +210,9 @@ internal static class DocumentEndpointProblemContracts
             [
                 DocumentProblemContractCatalog.TenantContextRequired,
                 DocumentProblemContractCatalog.InvalidRequest,
-                DocumentProblemContractCatalog.DocumentNotFound,
                 DocumentProblemContractCatalog.UploadNotFound,
                 DocumentProblemContractCatalog.UploadObjectNotFound,
                 DocumentProblemContractCatalog.UploadTenantMismatch,
-                DocumentProblemContractCatalog.DocumentIntakeNotFound,
                 DocumentProblemContractCatalog.UploadExpired,
                 DocumentProblemContractCatalog.UploadIdempotencyConflict,
                 DocumentProblemContractCatalog.UploadNotVerified,
@@ -240,7 +227,6 @@ internal static class DocumentEndpointProblemContracts
                 DocumentProblemContractCatalog.UploadContentMismatch,
                 DocumentProblemContractCatalog.UploadSizeExceeded,
                 DocumentProblemContractCatalog.DocumentOcrUnavailable,
-                DocumentProblemContractCatalog.ShipmentWorkflowUnavailable,
                 DocumentProblemContractCatalog.DocumentContractError
             ],
             [ListShipmentDocuments] =

@@ -102,6 +102,117 @@ public sealed class DocumentsController(
         }
     }
 
+    [HttpPost("intakes")]
+    [RequirePermission(PermissionConstants.Documents.Ingest)]
+    [ProducesResponseType(typeof(UnifiedDocumentStatusResponse), StatusCodes.Status202Accepted)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status422UnprocessableEntity)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status503ServiceUnavailable)]
+    [DocumentProblemContract(DocumentEndpointProblemContracts.CreateDocumentIntake)]
+    public async Task<IActionResult> CreateDocumentIntake(
+        [FromBody] CreateDocumentIntakeBody request,
+        CancellationToken cancellationToken)
+    {
+        if (!HasTrustedTenant())
+            return Unauthorized(DocumentsContract.CreateTenantContextRequiredProblemDetails());
+
+        if (request is null)
+        {
+            return BadRequest(DocumentsContract.CreateProblemDetails(
+                DocumentProblemContractCatalog.InvalidRequestCode,
+                "The document intake request is required.",
+                StatusCodes.Status400BadRequest,
+                retryable: false));
+        }
+
+        if (!Guid.TryParse(request.UploadId, out var uploadId) || uploadId == Guid.Empty ||
+            string.IsNullOrWhiteSpace(request.IdempotencyKey) ||
+            !DocumentsContract.TryParseDocumentType(request.DocumentTypeHint, out var documentType))
+        {
+            return BadRequest(DocumentsContract.CreateProblemDetails(
+                DocumentProblemContractCatalog.InvalidRequestCode,
+                "UploadId, IdempotencyKey, and a valid DocumentTypeHint are required.",
+                StatusCodes.Status400BadRequest,
+                retryable: false));
+        }
+
+        var purpose = string.IsNullOrWhiteSpace(request.Purpose)
+            ? DocumentOcrPurpose.GeneralDocument
+            : DocumentsContract.TryParsePurpose(request.Purpose, out var parsedPurpose)
+                ? parsedPurpose
+                : DocumentOcrPurpose.Unspecified;
+        if (purpose == DocumentOcrPurpose.Unspecified)
+        {
+            return BadRequest(DocumentsContract.CreateProblemDetails(
+                DocumentProblemContractCatalog.InvalidRequestCode,
+                "Purpose is invalid.",
+                StatusCodes.Status400BadRequest,
+                retryable: false));
+        }
+
+        try
+        {
+            var response = await documentOcrClient.CreateDocumentIntakeAsync(
+                new CreateDocumentIntakeRequest
+                {
+                    UploadId = uploadId.ToString(),
+                    IdempotencyKey = request.IdempotencyKey.Trim(),
+                    DocumentTypeHint = documentType,
+                    Purpose = purpose,
+                    ExternalReference = request.ExternalReference?.Trim() ?? string.Empty,
+                    CorrelationId = HttpContext.TraceIdentifier
+                },
+                cancellationToken: cancellationToken);
+
+            return Accepted(new UnifiedDocumentStatusResponse(
+                response.JobId,
+                "DOCUMENT",
+                MapOcrStatus(response.Status, response.NeedsReview),
+                MapOcrStage(response.Status),
+                response.FileName,
+                response.NeedsReview,
+                response.Confidence,
+                response.NormalizedJson,
+                response.ErrorCode,
+                response.ErrorMessage,
+                response.CreatedAt?.ToDateTimeOffset(),
+                response.CompletedAt?.ToDateTimeOffset()));
+        }
+        catch (RpcException exception) when (DocumentsContract.IsUnavailable(exception.StatusCode))
+        {
+            return StatusCode(
+                StatusCodes.Status503ServiceUnavailable,
+                DocumentsContract.CreateUnavailableProblemDetails());
+        }
+        catch (RpcException exception) when (exception.StatusCode == Grpc.Core.StatusCode.AlreadyExists)
+        {
+            return Conflict(DocumentsContract.CreateProblemDetails(
+                DocumentProblemContractCatalog.IdempotencyConflict));
+        }
+        catch (RpcException exception) when (exception.StatusCode == Grpc.Core.StatusCode.NotFound)
+        {
+            return NotFound(DocumentsContract.CreateProblemDetails(
+                DocumentProblemContractCatalog.UploadNotFound));
+        }
+        catch (RpcException exception) when (exception.StatusCode == Grpc.Core.StatusCode.FailedPrecondition)
+        {
+            var error = DocumentUploadErrorMapper.Map(exception);
+            return StatusCode(error.StatusCode, DocumentsContract.CreateProblemDetails(error));
+        }
+        catch (RpcException exception) when (exception.StatusCode == Grpc.Core.StatusCode.InvalidArgument)
+        {
+            return BadRequest(DocumentsContract.CreateProblemDetails(
+                DocumentProblemContractCatalog.InvalidRequestCode,
+                exception.Status.Detail,
+                StatusCodes.Status400BadRequest,
+                retryable: false));
+        }
+    }
+
     // ──────────────────────────────────────────────────────────────────────────
     // BOX 1: SHIPMENT DOCUMENTS (Transaction-Only, Structured Extraction)
     // ──────────────────────────────────────────────────────────────────────────
@@ -1065,6 +1176,13 @@ public sealed record CreateDocumentUploadSessionRequest(
     string MimeType,
     long SizeBytes,
     string? ContentSha256);
+
+public sealed record CreateDocumentIntakeBody(
+    string UploadId,
+    string DocumentTypeHint,
+    string IdempotencyKey,
+    string? Purpose = null,
+    string? ExternalReference = null);
 
 public sealed record DocumentUploadSessionResponse(
     Guid UploadId,

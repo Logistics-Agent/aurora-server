@@ -21,6 +21,36 @@ namespace StaffBff.Tests;
 public sealed class DocumentsControllerContractTests
 {
     [Theory]
+    [InlineData("INVOICE", OcrDocumentType.CommercialInvoice)]
+    [InlineData("COMMERCIAL_INVOICE", OcrDocumentType.CommercialInvoice)]
+    [InlineData("PACKING_LIST", OcrDocumentType.PackingList)]
+    [InlineData("BILL_OF_LADING", OcrDocumentType.BillOfLading)]
+    [InlineData("CUSTOMS_DECLARATION", OcrDocumentType.CustomsDeclaration)]
+    [InlineData("CERTIFICATE_OF_ORIGIN", OcrDocumentType.CertificateOfOrigin)]
+    [InlineData("PROOF_OF_DELIVERY", OcrDocumentType.ProofOfDelivery)]
+    [InlineData("OTHER", OcrDocumentType.Other)]
+    public void TryParseDocumentType_accepts_canonical_wire_values(
+        string value,
+        OcrDocumentType expected)
+    {
+        Assert.True(DocumentsContract.TryParseDocumentType(value, out var actual));
+        Assert.Equal(expected, actual);
+    }
+
+    [Theory]
+    [InlineData("SHIPMENT_DOCUMENT", DocumentOcrPurpose.ShipmentDocument)]
+    [InlineData("REGULATORY_CORPUS", DocumentOcrPurpose.RegulatoryCorpus)]
+    [InlineData("KNOWLEDGE_CORPUS", DocumentOcrPurpose.KnowledgeCorpus)]
+    [InlineData("GENERAL_DOCUMENT", DocumentOcrPurpose.GeneralDocument)]
+    public void TryParsePurpose_accepts_canonical_wire_values(
+        string value,
+        DocumentOcrPurpose expected)
+    {
+        Assert.True(DocumentsContract.TryParsePurpose(value, out var actual));
+        Assert.Equal(expected, actual);
+    }
+
+    [Theory]
     [InlineData(DocumentOcrJobStatus.Unspecified, null)]
     [InlineData(DocumentOcrJobStatus.Queued, "QUEUED")]
     [InlineData(DocumentOcrJobStatus.Processing, "EXTRACTING")]
@@ -105,9 +135,14 @@ public sealed class DocumentsControllerContractTests
     [Fact]
     public void Document_intake_route_has_its_own_tenant_guard()
     {
-        var action = typeof(ShipmentsController).GetMethod(nameof(ShipmentsController.CreateDocumentIntake));
+        var action = typeof(DocumentsController).GetMethod(nameof(DocumentsController.CreateDocumentIntake));
 
-        Assert.NotNull(action?.GetCustomAttribute<RequireTenantContextAttribute>());
+        Assert.NotNull(action);
+        Assert.NotNull(typeof(DocumentsController).GetCustomAttribute<RequireTenantContextAttribute>());
+        Assert.Contains(
+            action.GetCustomAttributes<HttpPostAttribute>(),
+            attribute => string.Equals(attribute.Template, "intakes", StringComparison.Ordinal));
+        Assert.Null(typeof(ShipmentsController).GetMethod("CreateDocumentIntake"));
     }
 
     [Fact]
@@ -165,6 +200,7 @@ public sealed class DocumentsControllerContractTests
     [InlineData(nameof(DocumentsController.SubmitKnowledgeDocument), PermissionConstants.Documents.Ingest)]
     [InlineData(nameof(DocumentsController.QueryKnowledge), PermissionConstants.Documents.Read)]
     [InlineData(nameof(DocumentsController.SubmitGeneralDocument), PermissionConstants.Documents.Ingest)]
+    [InlineData(nameof(DocumentsController.CreateDocumentIntake), PermissionConstants.Documents.Ingest)]
     [InlineData(nameof(DocumentsController.PromoteGeneralDocumentToKnowledge), PermissionConstants.Documents.Manage)]
     public void Document_endpoints_require_only_the_canonical_capability(
         string methodName,
@@ -177,6 +213,40 @@ public sealed class DocumentsControllerContractTests
         Assert.Equal(expectedPermission, permission!.RequiredPermission);
         Assert.Null(permission.LegacyFallbackPermission);
         Assert.Empty(permission.FallbackPermissions);
+    }
+
+    [Fact]
+    public async Task Create_intake_maps_canonical_values_and_defaults_to_general_document()
+    {
+        var fixture = CreateFixture();
+        CreateDocumentIntakeRequest? captured = null;
+        fixture.DocumentOcrClient
+            .Setup(client => client.CreateDocumentIntakeAsync(
+                It.IsAny<CreateDocumentIntakeRequest>(),
+                It.IsAny<Metadata>(),
+                It.IsAny<DateTime?>(),
+                It.IsAny<CancellationToken>()))
+            .Callback<CreateDocumentIntakeRequest, Metadata, DateTime?, CancellationToken>(
+                (request, _, _, _) => captured = request)
+            .Returns(CreateSuccessfulCall(new DocumentOcrJobResponse
+            {
+                JobId = Guid.CreateVersion7().ToString(),
+                Status = DocumentOcrJobStatus.Queued,
+                FileName = "invoice.pdf",
+                CreatedAt = Google.Protobuf.WellKnownTypes.Timestamp.FromDateTimeOffset(DateTimeOffset.UtcNow)
+            }));
+
+        var result = await fixture.Controller.CreateDocumentIntake(
+            new CreateDocumentIntakeBody(
+                Guid.CreateVersion7().ToString(),
+                "COMMERCIAL_INVOICE",
+                "intake-001"),
+            default);
+
+        Assert.IsType<AcceptedResult>(result);
+        Assert.NotNull(captured);
+        Assert.Equal(OcrDocumentType.CommercialInvoice, captured.DocumentTypeHint);
+        Assert.Equal(DocumentOcrPurpose.GeneralDocument, captured.Purpose);
     }
 
     [Theory]
@@ -359,6 +429,10 @@ public sealed class DocumentsControllerContractTests
             regulatoryClient.Object,
             CreateTenantUser(),
             NullLogger<DocumentsController>.Instance);
+        controller.ControllerContext = new ControllerContext
+        {
+            HttpContext = new DefaultHttpContext()
+        };
 
         return new ControllerFixture(documentOcrClient, controller);
     }

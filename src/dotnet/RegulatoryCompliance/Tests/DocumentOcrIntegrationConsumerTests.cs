@@ -41,4 +41,21 @@ public sealed class DocumentOcrIntegrationConsumerTests
             ExternalContextId = "knowledge:not-a-resource-id"
         });
     }
+
+    [Fact]
+    public async Task General_document_purpose_is_ignored_without_corpus_lookup()
+    {
+        var consumer = new DocumentOcrIntegrationConsumer(
+            null!,
+            new DeterministicEmbeddingProvider(),
+            new DeterministicRegulatoryChunker(),
+            TimeProvider.System,
+            NullLogger<DocumentOcrIntegrationConsumer>.Instance);
+
+        await consumer.HandleAsync(new DocumentOcrCompletedEvent
+        {
+            Purpose = DocumentOcrPurpose.GeneralDocument,
+            ExternalContextId = "opaque-external-reference"
+        });
+    }
 }

@@ -17,9 +17,7 @@ builder.Services.AddGrpc(options =>
 
 builder.Services.AddSharedServices(builder.Configuration);
 builder.Services.AddTransient<ExceptionInterceptor>();
-builder.Services.AddSharedMassTransit(
-    builder.Configuration,
-    bus => bus.AddConsumer<ShipmentWorkflow.Application.Events.DocumentOcrIntegrationConsumer>());
+builder.Services.AddSharedMassTransit(builder.Configuration);
 
 builder.Services.AddMediatR(cfg =>
     cfg.RegisterServicesFromAssembly(typeof(Program).Assembly));
