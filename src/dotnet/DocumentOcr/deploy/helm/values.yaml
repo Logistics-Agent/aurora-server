@@ -82,3 +82,13 @@ readinessProbe:
   timeoutSeconds: 3
   failureThreshold: 6
 
+# Document OCR uses the filesystem provider for upload inputs and generated
+# artifacts. The pod runs as UID 10001, so the image's /app directory cannot be
+# used as a writable storage root without an explicitly mounted volume.
+volumeMounts:
+  - name: document-ocr-storage
+    mountPath: /app/storage
+
+volumes:
+  - name: document-ocr-storage
+    emptyDir: {}
