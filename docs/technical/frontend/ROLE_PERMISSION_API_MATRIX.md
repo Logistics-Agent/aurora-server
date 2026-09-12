@@ -12,10 +12,10 @@ Aurora defines **exactly four canonical Base Roles**. Base roles act as UI perso
 
 | Canonical Base Role | Scope Level | Target Persona & UX Shell Focus | Default Permission Preset Template |
 |---|---|---|---|
-| **`STAFF`** | Tenant / Assigned Work | Day-to-day logistics operations: create shipments, claim & reply to mail threads, optimize routes, view tracking, upload docs. | `GetDefaultStaffPermissions()`: Baseline operational access (`mail:read`, `mail:send`, `shipments:create`, `route_planning:create`, `notifications:access`). |
-| **`MANAGER`** | Tenant / Supervisory | Supervisory oversight: team workload review, high-risk route governance, exception handling. | `GetDefaultManagerPermissions()`: Baseline + supervisory extensions (`mail:thread:read_all`, `mail:thread:reassign`, `mail:thread:unassign`, `route_planning:approve`, `ocr:review`). |
+| **`STAFF`** | Tenant / Assigned Work | Day-to-day logistics operations: create shipments, claim & reply to mail threads, optimize routes, view tracking, read document jobs. | `GetDefaultStaffPermissions()`: Baseline operational access, including `documents:read`, `compliance:read`, and `assistant:query`; it does **not** grant `documents:ingest`, `documents:manage`, or `ocr:review`. |
+| **`MANAGER`** | Tenant / Supervisory | Supervisory oversight: team workload review, high-risk route governance, exception handling, and document/OCR operations. | `GetDefaultManagerPermissions()`: Staff defaults plus `documents:ingest`, `documents:manage`, and `ocr:review` (along with supervisory extensions). |
 | **`TENANT_ADMIN`** | Tenant / Administrative | Enterprise administration: staff lifecycle, direct capability permission assignment, mailbox domains, company settings. | `GetTenantAdminPermissions()`: All tenant-scoped operational, supervisory, and IAM management capabilities (`iam:*`, `mail:mailbox:manage`, `route_planning:policy:manage`). |
-| **`SYSTEM_ADMIN`** | Global Platform | Platform super-administrator: tenant onboarding & suspension, global regulatory source ingestion, dead-letter queue recovery. | Platform-only capabilities (`mail:system:manage`, `compliance:platform:ingest`). |
+| **`SYSTEM_ADMIN`** | Global Platform | Platform super-administrator: tenant onboarding & suspension, global regulatory source ingestion, dead-letter queue recovery. | System context resolves `GetAllPermissions()`; it is global and has no tenant default template. |
 
 > [!IMPORTANT]
 > - "Default Template" is used during initial user invitation or when an Admin explicitly clicks **"Apply Role Defaults"**.
@@ -23,6 +23,8 @@ Aurora defines **exactly four canonical Base Roles**. Base roles act as UI perso
 > - Changing a user's role does **NOT** automatically grant or revoke their direct permissions.
 > - A user with role `STAFF` who is granted `route_planning:approve` **CAN** approve routes.
 > - A user with role `MANAGER` whose permissions lack `route_planning:approve` **CANNOT** approve routes.
+> - The personas below are the only canonical roles: `STAFF`, `MANAGER`, `TENANT_ADMIN`, and `SYSTEM_ADMIN`. Labels such as Document Clerk, Document Reviewer, Operator, or Planner are not roles; they describe optional custom permission groupings only.
+> - Runtime authorization uses direct permission claims. The matrix's default-access statements describe the role-default seed only; a custom grant can add a capability to any tenant user.
 
 ---
 
@@ -93,17 +95,17 @@ Aurora defines **exactly four canonical Base Roles**. Base roles act as UI perso
 | **Shipments** | `POST /api/v1/shipments/{id}/submit` | `shipments:submit` | Tenant Shipment | Staff, Operator | `CURRENT` |
 | **Shipments** | `POST /api/v1/shipments/{id}/cancel` | `shipments:cancel` | Tenant Shipment | Staff, Operator | `CURRENT` |
 | **Shipments** | `POST /api/v1/shipments/{id}/milestones` | `shipments:milestones:update` | Tenant Shipment | Staff, Operator | `CURRENT` |
-| **Documents/OCR** | `POST /api/v1/documents/uploads` | `documents:ingest` | Tenant upload session | Staff, Document Clerk | `CURRENT` |
-| **Documents/OCR** | `PUT {writeUrl returned by /api/v1/documents/uploads}` | Upload-session capability | Tenant object storage | Staff, Document Clerk | `CURRENT` |
-| **Documents/OCR** | `POST /api/v1/shipments/{id}/document-intakes` | `documents:ingest` | Tenant shipment + upload | Staff, Document Clerk | `CURRENT` |
-| **Documents/OCR** | `GET /api/v1/documents/shipment-documents` | `documents:read` | Tenant document jobs | Staff, Document Clerk | `CURRENT` |
-| **Documents/OCR** | `GET /api/v1/documents/shipment/{id}` | `documents:read` | Tenant document/job | Staff, Document Clerk | `CURRENT` |
-| **Documents/OCR** | `GET /api/v1/documents/shipment-documents/{id}` | `documents:read` | Tenant document/job | Staff, Document Clerk | `CURRENT` |
-| **Documents/OCR** | `GET /api/v1/documents/shipment-documents/{id}/review` | `ocr:review` | Tenant document/job | Document Reviewer | `CURRENT` |
-| **Documents/OCR** | `POST /api/v1/documents/shipment-documents/{id}/review` | `ocr:review` | Tenant document/job | Document Reviewer | `CURRENT` |
-| **Documents/OCR** | `POST /api/v1/documents/shipment-documents/{id}/cancel` | `documents:manage` | Tenant document/job | Document Manager | `CURRENT` |
-| **Documents/OCR** | `POST /api/v1/documents/shipment-documents/{id}/retry` | `documents:manage` | Tenant document/job | Document Manager | `CURRENT` |
-| **Shipments** | `POST /api/v1/shipments/{id}/documents` | `shipments:create` (legacy fallback: `documents:create`) | Tenant Shipment | Staff, Operator | `CURRENT_LEGACY` |
+| **Documents/OCR** | `POST /api/v1/documents/uploads` | `documents:ingest` | Tenant upload session | MANAGER, TENANT_ADMIN; STAFF only with a custom grant | `CURRENT` |
+| **Documents/OCR** | `PUT {writeUrl returned by /api/v1/documents/uploads}` | Upload-session capability | Tenant object storage | Any caller holding the issued upload capability | `CURRENT` |
+| **Documents/OCR** | `POST /api/v1/shipments/{id}/document-intakes` | `documents:ingest` | Tenant shipment + upload | MANAGER, TENANT_ADMIN; STAFF only with a custom grant | `CURRENT` |
+| **Documents/OCR** | `GET /api/v1/documents/shipment-documents` | `documents:read` | Tenant document jobs | STAFF, MANAGER, TENANT_ADMIN | `CURRENT` |
+| **Documents/OCR** | `GET /api/v1/documents/shipment/{id}` | `documents:read` | Tenant document/job | STAFF, MANAGER, TENANT_ADMIN | `CURRENT` |
+| **Documents/OCR** | `GET /api/v1/documents/shipment-documents/{id}` | `documents:read` | Tenant document/job | STAFF, MANAGER, TENANT_ADMIN | `CURRENT` |
+| **Documents/OCR** | `GET /api/v1/documents/shipment-documents/{id}/review` | `ocr:review` | Tenant document/job | MANAGER, TENANT_ADMIN; STAFF only with a custom grant | `CURRENT` |
+| **Documents/OCR** | `POST /api/v1/documents/shipment-documents/{id}/review` | `ocr:review` | Tenant document/job | MANAGER, TENANT_ADMIN; STAFF only with a custom grant | `CURRENT` |
+| **Documents/OCR** | `POST /api/v1/documents/shipment-documents/{id}/cancel` | `documents:manage` | Tenant document/job | MANAGER, TENANT_ADMIN; STAFF only with a custom grant | `CURRENT` |
+| **Documents/OCR** | `POST /api/v1/documents/shipment-documents/{id}/retry` | `documents:manage` | Tenant document/job | MANAGER, TENANT_ADMIN; STAFF only with a custom grant | `CURRENT` |
+| **Shipments** | `POST /api/v1/shipments/{id}/documents` | `shipments:create` (legacy fallback: `documents:create`) | Tenant Shipment | STAFF, MANAGER, TENANT_ADMIN, subject to direct claims | `CURRENT_LEGACY` |
 | **Routes** | `POST /api/v1/routes` | `route_planning:create` | Tenant Route | Staff, Planner | `CURRENT` |
 | **Routes** | `GET /api/v1/routes` | `route_planning:read` | Tenant Route | Staff, Planner | `CURRENT` |
 | **Routes** | `POST /api/v1/routes/{id}/optimize` | `route_planning:optimize` | Tenant Route | Staff, Planner | `CURRENT` |

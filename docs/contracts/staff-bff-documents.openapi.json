@@ -46,20 +46,92 @@
             }
           },
           "400": {
-            "$ref": "#/components/responses/Problem400"
+            "$ref": "#/components/responses/Problem400_1"
           },
           "404": {
-            "$ref": "#/components/responses/Problem404"
+            "$ref": "#/components/responses/Problem404_2"
           },
           "409": {
-            "$ref": "#/components/responses/Problem409"
+            "$ref": "#/components/responses/Problem409_3"
           },
           "422": {
-            "$ref": "#/components/responses/Problem422"
+            "$ref": "#/components/responses/Problem422_4"
           },
           "503": {
-            "$ref": "#/components/responses/Problem503"
+            "$ref": "#/components/responses/Problem503_5"
           }
+        },
+        "x-error-contract": {
+          "400": [
+            {
+              "code": "INVALID_UPLOAD_REQUEST",
+              "retryable": false
+            }
+          ],
+          "404": [
+            {
+              "code": "UPLOAD_NOT_FOUND",
+              "retryable": false
+            },
+            {
+              "code": "UPLOAD_OBJECT_NOT_FOUND",
+              "retryable": false
+            },
+            {
+              "code": "UPLOAD_TENANT_MISMATCH",
+              "retryable": false
+            }
+          ],
+          "409": [
+            {
+              "code": "UPLOAD_EXPIRED",
+              "retryable": false
+            },
+            {
+              "code": "UPLOAD_IDEMPOTENCY_CONFLICT",
+              "retryable": false
+            },
+            {
+              "code": "UPLOAD_NOT_VERIFIED",
+              "retryable": false
+            },
+            {
+              "code": "UPLOAD_VERIFICATION_IN_PROGRESS",
+              "retryable": true
+            }
+          ],
+          "422": [
+            {
+              "code": "UPLOAD_INVALID",
+              "retryable": false
+            },
+            {
+              "code": "UPLOAD_MIME_MISMATCH",
+              "retryable": false
+            },
+            {
+              "code": "UPLOAD_SIZE_MISMATCH",
+              "retryable": false
+            },
+            {
+              "code": "UPLOAD_HASH_MISMATCH",
+              "retryable": false
+            },
+            {
+              "code": "UPLOAD_CONTENT_MISMATCH",
+              "retryable": false
+            },
+            {
+              "code": "UPLOAD_SIZE_EXCEEDED",
+              "retryable": false
+            }
+          ],
+          "503": [
+            {
+              "code": "DOCUMENT_OCR_UNAVAILABLE",
+              "retryable": true
+            }
+          ]
         }
       }
     },
@@ -98,20 +170,108 @@
             }
           },
           "400": {
-            "$ref": "#/components/responses/Problem400"
+            "$ref": "#/components/responses/Problem400_6"
           },
           "404": {
-            "$ref": "#/components/responses/Problem404"
+            "$ref": "#/components/responses/Problem404_7"
           },
           "409": {
-            "$ref": "#/components/responses/Problem409"
+            "$ref": "#/components/responses/Problem409_8"
           },
           "422": {
-            "$ref": "#/components/responses/Problem422"
+            "$ref": "#/components/responses/Problem422_4"
           },
           "503": {
-            "$ref": "#/components/responses/Problem503"
+            "$ref": "#/components/responses/Problem503_9"
           }
+        },
+        "x-error-contract": {
+          "400": [
+            {
+              "code": "INVALID_REQUEST",
+              "retryable": false
+            }
+          ],
+          "404": [
+            {
+              "code": "UPLOAD_NOT_FOUND",
+              "retryable": false
+            },
+            {
+              "code": "UPLOAD_OBJECT_NOT_FOUND",
+              "retryable": false
+            },
+            {
+              "code": "UPLOAD_TENANT_MISMATCH",
+              "retryable": false
+            },
+            {
+              "code": "DOCUMENT_INTAKE_NOT_FOUND",
+              "retryable": false
+            }
+          ],
+          "409": [
+            {
+              "code": "UPLOAD_EXPIRED",
+              "retryable": false
+            },
+            {
+              "code": "UPLOAD_IDEMPOTENCY_CONFLICT",
+              "retryable": false
+            },
+            {
+              "code": "UPLOAD_NOT_VERIFIED",
+              "retryable": false
+            },
+            {
+              "code": "IDEMPOTENCY_CONFLICT",
+              "retryable": false
+            },
+            {
+              "code": "INVALID_STATE_TRANSITION",
+              "retryable": false
+            },
+            {
+              "code": "UPLOAD_VERIFICATION_IN_PROGRESS",
+              "retryable": true
+            }
+          ],
+          "422": [
+            {
+              "code": "UPLOAD_INVALID",
+              "retryable": false
+            },
+            {
+              "code": "UPLOAD_MIME_MISMATCH",
+              "retryable": false
+            },
+            {
+              "code": "UPLOAD_SIZE_MISMATCH",
+              "retryable": false
+            },
+            {
+              "code": "UPLOAD_HASH_MISMATCH",
+              "retryable": false
+            },
+            {
+              "code": "UPLOAD_CONTENT_MISMATCH",
+              "retryable": false
+            },
+            {
+              "code": "UPLOAD_SIZE_EXCEEDED",
+              "retryable": false
+            }
+          ],
+          "503": [
+            {
+              "code": "DOCUMENT_OCR_UNAVAILABLE",
+              "retryable": true
+            },
+            {
+              "code": "SHIPMENT_WORKFLOW_UNAVAILABLE",
+              "retryable": true
+            }
+          ]
         }
       }
     },
@@ -173,8 +333,16 @@
             }
           },
           "503": {
-            "$ref": "#/components/responses/Problem503"
+            "$ref": "#/components/responses/Problem503_5"
           }
+        },
+        "x-error-contract": {
+          "503": [
+            {
+              "code": "DOCUMENT_OCR_UNAVAILABLE",
+              "retryable": true
+            }
+          ]
         }
       },
       "post": {
@@ -198,10 +366,34 @@
             }
           },
           "400": {
-            "$ref": "#/components/responses/Problem400"
+            "$ref": "#/components/responses/Problem400_10"
           },
           "503": {
-            "$ref": "#/components/responses/Problem503"
+            "$ref": "#/components/responses/Problem503_5"
+          }
+        },
+        "x-error-contract": {
+          "400": [
+            {
+              "code": "INVALID_FILE",
+              "retryable": false
+            }
+          ],
+          "503": [
+            {
+              "code": "DOCUMENT_OCR_UNAVAILABLE",
+              "retryable": true
+            }
+          ]
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Staff_SubmitShipmentDocumentRequest"
+              }
+            }
           }
         }
       }
@@ -230,11 +422,25 @@
             }
           },
           "404": {
-            "$ref": "#/components/responses/Problem404"
+            "$ref": "#/components/responses/Problem404_11"
           },
           "503": {
-            "$ref": "#/components/responses/Problem503"
+            "$ref": "#/components/responses/Problem503_5"
           }
+        },
+        "x-error-contract": {
+          "404": [
+            {
+              "code": "DOCUMENT_NOT_FOUND",
+              "retryable": false
+            }
+          ],
+          "503": [
+            {
+              "code": "DOCUMENT_OCR_UNAVAILABLE",
+              "retryable": true
+            }
+          ]
         }
       }
     },
@@ -262,11 +468,25 @@
             }
           },
           "404": {
-            "$ref": "#/components/responses/Problem404"
+            "$ref": "#/components/responses/Problem404_11"
           },
           "503": {
-            "$ref": "#/components/responses/Problem503"
+            "$ref": "#/components/responses/Problem503_5"
           }
+        },
+        "x-error-contract": {
+          "404": [
+            {
+              "code": "DOCUMENT_NOT_FOUND",
+              "retryable": false
+            }
+          ],
+          "503": [
+            {
+              "code": "DOCUMENT_OCR_UNAVAILABLE",
+              "retryable": true
+            }
+          ]
         }
       }
     },
@@ -294,11 +514,25 @@
             }
           },
           "404": {
-            "$ref": "#/components/responses/Problem404"
+            "$ref": "#/components/responses/Problem404_11"
           },
           "503": {
-            "$ref": "#/components/responses/Problem503"
+            "$ref": "#/components/responses/Problem503_5"
           }
+        },
+        "x-error-contract": {
+          "404": [
+            {
+              "code": "DOCUMENT_NOT_FOUND",
+              "retryable": false
+            }
+          ],
+          "503": [
+            {
+              "code": "DOCUMENT_OCR_UNAVAILABLE",
+              "retryable": true
+            }
+          ]
         }
       },
       "post": {
@@ -334,17 +568,43 @@
             }
           },
           "400": {
-            "$ref": "#/components/responses/Problem400"
+            "$ref": "#/components/responses/Problem400_6"
           },
           "404": {
-            "$ref": "#/components/responses/Problem404"
+            "$ref": "#/components/responses/Problem404_11"
           },
           "409": {
-            "$ref": "#/components/responses/Problem409"
+            "$ref": "#/components/responses/Problem409_12"
           },
           "503": {
-            "$ref": "#/components/responses/Problem503"
+            "$ref": "#/components/responses/Problem503_5"
           }
+        },
+        "x-error-contract": {
+          "400": [
+            {
+              "code": "INVALID_REQUEST",
+              "retryable": false
+            }
+          ],
+          "404": [
+            {
+              "code": "DOCUMENT_NOT_FOUND",
+              "retryable": false
+            }
+          ],
+          "409": [
+            {
+              "code": "INVALID_STATE_TRANSITION",
+              "retryable": false
+            }
+          ],
+          "503": [
+            {
+              "code": "DOCUMENT_OCR_UNAVAILABLE",
+              "retryable": true
+            }
+          ]
         }
       }
     },
@@ -372,14 +632,34 @@
             }
           },
           "404": {
-            "$ref": "#/components/responses/Problem404"
+            "$ref": "#/components/responses/Problem404_11"
           },
           "409": {
-            "$ref": "#/components/responses/Problem409"
+            "$ref": "#/components/responses/Problem409_12"
           },
           "503": {
-            "$ref": "#/components/responses/Problem503"
+            "$ref": "#/components/responses/Problem503_5"
           }
+        },
+        "x-error-contract": {
+          "404": [
+            {
+              "code": "DOCUMENT_NOT_FOUND",
+              "retryable": false
+            }
+          ],
+          "409": [
+            {
+              "code": "INVALID_STATE_TRANSITION",
+              "retryable": false
+            }
+          ],
+          "503": [
+            {
+              "code": "DOCUMENT_OCR_UNAVAILABLE",
+              "retryable": true
+            }
+          ]
         }
       }
     },
@@ -407,14 +687,34 @@
             }
           },
           "404": {
-            "$ref": "#/components/responses/Problem404"
+            "$ref": "#/components/responses/Problem404_11"
           },
           "409": {
-            "$ref": "#/components/responses/Problem409"
+            "$ref": "#/components/responses/Problem409_12"
           },
           "503": {
-            "$ref": "#/components/responses/Problem503"
+            "$ref": "#/components/responses/Problem503_5"
           }
+        },
+        "x-error-contract": {
+          "404": [
+            {
+              "code": "DOCUMENT_NOT_FOUND",
+              "retryable": false
+            }
+          ],
+          "409": [
+            {
+              "code": "INVALID_STATE_TRANSITION",
+              "retryable": false
+            }
+          ],
+          "503": [
+            {
+              "code": "DOCUMENT_OCR_UNAVAILABLE",
+              "retryable": true
+            }
+          ]
         }
       }
     },
@@ -440,10 +740,34 @@
             }
           },
           "400": {
-            "$ref": "#/components/responses/Problem400"
+            "$ref": "#/components/responses/Problem400_10"
           },
           "503": {
-            "$ref": "#/components/responses/Problem503"
+            "$ref": "#/components/responses/Problem503_5"
+          }
+        },
+        "x-error-contract": {
+          "400": [
+            {
+              "code": "INVALID_FILE",
+              "retryable": false
+            }
+          ],
+          "503": [
+            {
+              "code": "DOCUMENT_OCR_UNAVAILABLE",
+              "retryable": true
+            }
+          ]
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Staff_SubmitShipmentDocumentRequest"
+              }
+            }
           }
         }
       }
@@ -472,58 +796,6 @@
         "required": true,
         "schema": {
           "type": "string"
-        }
-      }
-    },
-    "responses": {
-      "Problem400": {
-        "description": "Invalid request",
-        "content": {
-          "application/problem+json": {
-            "schema": {
-              "$ref": "#/components/schemas/ProblemDetails"
-            }
-          }
-        }
-      },
-      "Problem404": {
-        "description": "Resource not found or hidden by tenant anti-enumeration policy",
-        "content": {
-          "application/problem+json": {
-            "schema": {
-              "$ref": "#/components/schemas/ProblemDetails"
-            }
-          }
-        }
-      },
-      "Problem409": {
-        "description": "Conflict or invalid state transition",
-        "content": {
-          "application/problem+json": {
-            "schema": {
-              "$ref": "#/components/schemas/ProblemDetails"
-            }
-          }
-        }
-      },
-      "Problem422": {
-        "description": "Upload content or metadata does not satisfy the contract",
-        "content": {
-          "application/problem+json": {
-            "schema": {
-              "$ref": "#/components/schemas/ProblemDetails"
-            }
-          }
-        }
-      },
-      "Problem503": {
-        "description": "Downstream DocumentOcr or ShipmentWorkflow is unavailable",
-        "content": {
-          "application/problem+json": {
-            "schema": {
-              "$ref": "#/components/schemas/ProblemDetails"
-            }
-          }
         }
       }
     },
@@ -949,6 +1221,11 @@
       },
       "ProblemDetails": {
         "type": "object",
+        "required": [
+          "status",
+          "code",
+          "retryable"
+        ],
         "properties": {
           "type": {
             "type": "string",
@@ -961,7 +1238,13 @@
           "status": {
             "type": "integer",
             "format": "int32",
-            "nullable": true
+            "enum": [
+              400,
+              404,
+              409,
+              422,
+              503
+            ]
           },
           "detail": {
             "type": "string",
@@ -973,7 +1256,30 @@
           },
           "code": {
             "type": "string",
-            "description": "Stable client classification exposed in the extensions object."
+            "enum": [
+              "INVALID_UPLOAD_REQUEST",
+              "UPLOAD_NOT_FOUND",
+              "UPLOAD_OBJECT_NOT_FOUND",
+              "UPLOAD_TENANT_MISMATCH",
+              "UPLOAD_EXPIRED",
+              "UPLOAD_IDEMPOTENCY_CONFLICT",
+              "UPLOAD_NOT_VERIFIED",
+              "UPLOAD_VERIFICATION_IN_PROGRESS",
+              "UPLOAD_INVALID",
+              "UPLOAD_MIME_MISMATCH",
+              "UPLOAD_SIZE_MISMATCH",
+              "UPLOAD_HASH_MISMATCH",
+              "UPLOAD_CONTENT_MISMATCH",
+              "UPLOAD_SIZE_EXCEEDED",
+              "DOCUMENT_OCR_UNAVAILABLE",
+              "INVALID_REQUEST",
+              "DOCUMENT_INTAKE_NOT_FOUND",
+              "IDEMPOTENCY_CONFLICT",
+              "INVALID_STATE_TRANSITION",
+              "SHIPMENT_WORKFLOW_UNAVAILABLE",
+              "INVALID_FILE",
+              "DOCUMENT_NOT_FOUND"
+            ]
           },
           "retryable": {
             "type": "boolean"
@@ -985,6 +1291,1073 @@
           }
         },
         "additionalProperties": true
+      },
+      "Staff_SubmitShipmentDocumentRequest": {
+        "type": "object",
+        "required": [
+          "storageReference",
+          "fileName",
+          "sizeBytes",
+          "documentTypeHint",
+          "externalDocumentId"
+        ],
+        "properties": {
+          "idempotencyKey": {
+            "type": "string",
+            "nullable": true
+          },
+          "storageReference": {
+            "type": "string"
+          },
+          "fileName": {
+            "type": "string"
+          },
+          "mimeType": {
+            "type": "string",
+            "nullable": true
+          },
+          "sizeBytes": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "documentTypeHint": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "externalDocumentId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "shipmentId": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      }
+    },
+    "responses": {
+      "Problem400_1": {
+        "description": "Invalid request. The caller must correct the request before retrying.",
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "oneOf": [
+                {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ProblemDetails"
+                    },
+                    {
+                      "type": "object",
+                      "required": [
+                        "status",
+                        "code",
+                        "retryable"
+                      ],
+                      "properties": {
+                        "status": {
+                          "type": "integer",
+                          "format": "int32",
+                          "enum": [
+                            400
+                          ]
+                        },
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "INVALID_UPLOAD_REQUEST"
+                          ]
+                        },
+                        "retryable": {
+                          "type": "boolean",
+                          "enum": [
+                            false
+                          ]
+                        }
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            "examples": {
+              "INVALID_UPLOAD_REQUEST": {
+                "summary": "INVALID_UPLOAD_REQUEST",
+                "value": {
+                  "type": "https://httpstatuses.io/400",
+                  "title": "INVALID_UPLOAD_REQUEST",
+                  "status": 400,
+                  "detail": "Invalid request. The caller must correct the request before retrying.",
+                  "code": "INVALID_UPLOAD_REQUEST",
+                  "retryable": false
+                }
+              }
+            }
+          }
+        }
+      },
+      "Problem404_2": {
+        "description": "Resource not found or hidden by tenant anti-enumeration policy.",
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "oneOf": [
+                {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ProblemDetails"
+                    },
+                    {
+                      "type": "object",
+                      "required": [
+                        "status",
+                        "code",
+                        "retryable"
+                      ],
+                      "properties": {
+                        "status": {
+                          "type": "integer",
+                          "format": "int32",
+                          "enum": [
+                            404
+                          ]
+                        },
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UPLOAD_NOT_FOUND",
+                            "UPLOAD_OBJECT_NOT_FOUND",
+                            "UPLOAD_TENANT_MISMATCH"
+                          ]
+                        },
+                        "retryable": {
+                          "type": "boolean",
+                          "enum": [
+                            false
+                          ]
+                        }
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            "examples": {
+              "UPLOAD_NOT_FOUND": {
+                "summary": "UPLOAD_NOT_FOUND",
+                "value": {
+                  "type": "https://httpstatuses.io/404",
+                  "title": "UPLOAD_NOT_FOUND",
+                  "status": 404,
+                  "detail": "Resource not found or hidden by tenant anti-enumeration policy.",
+                  "code": "UPLOAD_NOT_FOUND",
+                  "retryable": false
+                }
+              },
+              "UPLOAD_OBJECT_NOT_FOUND": {
+                "summary": "UPLOAD_OBJECT_NOT_FOUND",
+                "value": {
+                  "type": "https://httpstatuses.io/404",
+                  "title": "UPLOAD_OBJECT_NOT_FOUND",
+                  "status": 404,
+                  "detail": "Resource not found or hidden by tenant anti-enumeration policy.",
+                  "code": "UPLOAD_OBJECT_NOT_FOUND",
+                  "retryable": false
+                }
+              },
+              "UPLOAD_TENANT_MISMATCH": {
+                "summary": "UPLOAD_TENANT_MISMATCH",
+                "value": {
+                  "type": "https://httpstatuses.io/404",
+                  "title": "UPLOAD_TENANT_MISMATCH",
+                  "status": 404,
+                  "detail": "Resource not found or hidden by tenant anti-enumeration policy.",
+                  "code": "UPLOAD_TENANT_MISMATCH",
+                  "retryable": false
+                }
+              }
+            }
+          }
+        }
+      },
+      "Problem409_3": {
+        "description": "Conflict or invalid state transition. Reconcile the existing resource before retrying.",
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "oneOf": [
+                {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ProblemDetails"
+                    },
+                    {
+                      "type": "object",
+                      "required": [
+                        "status",
+                        "code",
+                        "retryable"
+                      ],
+                      "properties": {
+                        "status": {
+                          "type": "integer",
+                          "format": "int32",
+                          "enum": [
+                            409
+                          ]
+                        },
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UPLOAD_EXPIRED",
+                            "UPLOAD_IDEMPOTENCY_CONFLICT",
+                            "UPLOAD_NOT_VERIFIED"
+                          ]
+                        },
+                        "retryable": {
+                          "type": "boolean",
+                          "enum": [
+                            false
+                          ]
+                        }
+                      }
+                    }
+                  ]
+                },
+                {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ProblemDetails"
+                    },
+                    {
+                      "type": "object",
+                      "required": [
+                        "status",
+                        "code",
+                        "retryable"
+                      ],
+                      "properties": {
+                        "status": {
+                          "type": "integer",
+                          "format": "int32",
+                          "enum": [
+                            409
+                          ]
+                        },
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UPLOAD_VERIFICATION_IN_PROGRESS"
+                          ]
+                        },
+                        "retryable": {
+                          "type": "boolean",
+                          "enum": [
+                            true
+                          ]
+                        }
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            "examples": {
+              "UPLOAD_EXPIRED": {
+                "summary": "UPLOAD_EXPIRED",
+                "value": {
+                  "type": "https://httpstatuses.io/409",
+                  "title": "UPLOAD_EXPIRED",
+                  "status": 409,
+                  "detail": "Conflict or invalid state transition. Reconcile the existing resource before retrying.",
+                  "code": "UPLOAD_EXPIRED",
+                  "retryable": false
+                }
+              },
+              "UPLOAD_IDEMPOTENCY_CONFLICT": {
+                "summary": "UPLOAD_IDEMPOTENCY_CONFLICT",
+                "value": {
+                  "type": "https://httpstatuses.io/409",
+                  "title": "UPLOAD_IDEMPOTENCY_CONFLICT",
+                  "status": 409,
+                  "detail": "Conflict or invalid state transition. Reconcile the existing resource before retrying.",
+                  "code": "UPLOAD_IDEMPOTENCY_CONFLICT",
+                  "retryable": false
+                }
+              },
+              "UPLOAD_NOT_VERIFIED": {
+                "summary": "UPLOAD_NOT_VERIFIED",
+                "value": {
+                  "type": "https://httpstatuses.io/409",
+                  "title": "UPLOAD_NOT_VERIFIED",
+                  "status": 409,
+                  "detail": "Conflict or invalid state transition. Reconcile the existing resource before retrying.",
+                  "code": "UPLOAD_NOT_VERIFIED",
+                  "retryable": false
+                }
+              },
+              "UPLOAD_VERIFICATION_IN_PROGRESS": {
+                "summary": "UPLOAD_VERIFICATION_IN_PROGRESS",
+                "value": {
+                  "type": "https://httpstatuses.io/409",
+                  "title": "UPLOAD_VERIFICATION_IN_PROGRESS",
+                  "status": 409,
+                  "detail": "Conflict or invalid state transition. Reconcile the existing resource before retrying.",
+                  "code": "UPLOAD_VERIFICATION_IN_PROGRESS",
+                  "retryable": true,
+                  "retryAfterSeconds": 5
+                }
+              }
+            }
+          }
+        }
+      },
+      "Problem422_4": {
+        "description": "Upload content or metadata does not satisfy the contract.",
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "oneOf": [
+                {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ProblemDetails"
+                    },
+                    {
+                      "type": "object",
+                      "required": [
+                        "status",
+                        "code",
+                        "retryable"
+                      ],
+                      "properties": {
+                        "status": {
+                          "type": "integer",
+                          "format": "int32",
+                          "enum": [
+                            422
+                          ]
+                        },
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UPLOAD_CONTENT_MISMATCH",
+                            "UPLOAD_HASH_MISMATCH",
+                            "UPLOAD_INVALID",
+                            "UPLOAD_MIME_MISMATCH",
+                            "UPLOAD_SIZE_EXCEEDED",
+                            "UPLOAD_SIZE_MISMATCH"
+                          ]
+                        },
+                        "retryable": {
+                          "type": "boolean",
+                          "enum": [
+                            false
+                          ]
+                        }
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            "examples": {
+              "UPLOAD_INVALID": {
+                "summary": "UPLOAD_INVALID",
+                "value": {
+                  "type": "https://httpstatuses.io/422",
+                  "title": "UPLOAD_INVALID",
+                  "status": 422,
+                  "detail": "Upload content or metadata does not satisfy the contract.",
+                  "code": "UPLOAD_INVALID",
+                  "retryable": false
+                }
+              },
+              "UPLOAD_MIME_MISMATCH": {
+                "summary": "UPLOAD_MIME_MISMATCH",
+                "value": {
+                  "type": "https://httpstatuses.io/422",
+                  "title": "UPLOAD_MIME_MISMATCH",
+                  "status": 422,
+                  "detail": "Upload content or metadata does not satisfy the contract.",
+                  "code": "UPLOAD_MIME_MISMATCH",
+                  "retryable": false
+                }
+              },
+              "UPLOAD_SIZE_MISMATCH": {
+                "summary": "UPLOAD_SIZE_MISMATCH",
+                "value": {
+                  "type": "https://httpstatuses.io/422",
+                  "title": "UPLOAD_SIZE_MISMATCH",
+                  "status": 422,
+                  "detail": "Upload content or metadata does not satisfy the contract.",
+                  "code": "UPLOAD_SIZE_MISMATCH",
+                  "retryable": false
+                }
+              },
+              "UPLOAD_HASH_MISMATCH": {
+                "summary": "UPLOAD_HASH_MISMATCH",
+                "value": {
+                  "type": "https://httpstatuses.io/422",
+                  "title": "UPLOAD_HASH_MISMATCH",
+                  "status": 422,
+                  "detail": "Upload content or metadata does not satisfy the contract.",
+                  "code": "UPLOAD_HASH_MISMATCH",
+                  "retryable": false
+                }
+              },
+              "UPLOAD_CONTENT_MISMATCH": {
+                "summary": "UPLOAD_CONTENT_MISMATCH",
+                "value": {
+                  "type": "https://httpstatuses.io/422",
+                  "title": "UPLOAD_CONTENT_MISMATCH",
+                  "status": 422,
+                  "detail": "Upload content or metadata does not satisfy the contract.",
+                  "code": "UPLOAD_CONTENT_MISMATCH",
+                  "retryable": false
+                }
+              },
+              "UPLOAD_SIZE_EXCEEDED": {
+                "summary": "UPLOAD_SIZE_EXCEEDED",
+                "value": {
+                  "type": "https://httpstatuses.io/422",
+                  "title": "UPLOAD_SIZE_EXCEEDED",
+                  "status": 422,
+                  "detail": "Upload content or metadata does not satisfy the contract.",
+                  "code": "UPLOAD_SIZE_EXCEEDED",
+                  "retryable": false
+                }
+              }
+            }
+          }
+        }
+      },
+      "Problem503_5": {
+        "description": "A downstream DocumentOcr or ShipmentWorkflow dependency is temporarily unavailable.",
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "oneOf": [
+                {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ProblemDetails"
+                    },
+                    {
+                      "type": "object",
+                      "required": [
+                        "status",
+                        "code",
+                        "retryable"
+                      ],
+                      "properties": {
+                        "status": {
+                          "type": "integer",
+                          "format": "int32",
+                          "enum": [
+                            503
+                          ]
+                        },
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "DOCUMENT_OCR_UNAVAILABLE"
+                          ]
+                        },
+                        "retryable": {
+                          "type": "boolean",
+                          "enum": [
+                            true
+                          ]
+                        }
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            "examples": {
+              "DOCUMENT_OCR_UNAVAILABLE": {
+                "summary": "DOCUMENT_OCR_UNAVAILABLE",
+                "value": {
+                  "type": "https://httpstatuses.io/503",
+                  "title": "DOCUMENT_OCR_UNAVAILABLE",
+                  "status": 503,
+                  "detail": "A downstream DocumentOcr or ShipmentWorkflow dependency is temporarily unavailable.",
+                  "code": "DOCUMENT_OCR_UNAVAILABLE",
+                  "retryable": true,
+                  "retryAfterSeconds": 5
+                }
+              }
+            }
+          }
+        }
+      },
+      "Problem400_6": {
+        "description": "Invalid request. The caller must correct the request before retrying.",
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "oneOf": [
+                {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ProblemDetails"
+                    },
+                    {
+                      "type": "object",
+                      "required": [
+                        "status",
+                        "code",
+                        "retryable"
+                      ],
+                      "properties": {
+                        "status": {
+                          "type": "integer",
+                          "format": "int32",
+                          "enum": [
+                            400
+                          ]
+                        },
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "INVALID_REQUEST"
+                          ]
+                        },
+                        "retryable": {
+                          "type": "boolean",
+                          "enum": [
+                            false
+                          ]
+                        }
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            "examples": {
+              "INVALID_REQUEST": {
+                "summary": "INVALID_REQUEST",
+                "value": {
+                  "type": "https://httpstatuses.io/400",
+                  "title": "INVALID_REQUEST",
+                  "status": 400,
+                  "detail": "Invalid request. The caller must correct the request before retrying.",
+                  "code": "INVALID_REQUEST",
+                  "retryable": false
+                }
+              }
+            }
+          }
+        }
+      },
+      "Problem404_7": {
+        "description": "Resource not found or hidden by tenant anti-enumeration policy.",
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "oneOf": [
+                {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ProblemDetails"
+                    },
+                    {
+                      "type": "object",
+                      "required": [
+                        "status",
+                        "code",
+                        "retryable"
+                      ],
+                      "properties": {
+                        "status": {
+                          "type": "integer",
+                          "format": "int32",
+                          "enum": [
+                            404
+                          ]
+                        },
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "DOCUMENT_INTAKE_NOT_FOUND",
+                            "UPLOAD_NOT_FOUND",
+                            "UPLOAD_OBJECT_NOT_FOUND",
+                            "UPLOAD_TENANT_MISMATCH"
+                          ]
+                        },
+                        "retryable": {
+                          "type": "boolean",
+                          "enum": [
+                            false
+                          ]
+                        }
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            "examples": {
+              "UPLOAD_NOT_FOUND": {
+                "summary": "UPLOAD_NOT_FOUND",
+                "value": {
+                  "type": "https://httpstatuses.io/404",
+                  "title": "UPLOAD_NOT_FOUND",
+                  "status": 404,
+                  "detail": "Resource not found or hidden by tenant anti-enumeration policy.",
+                  "code": "UPLOAD_NOT_FOUND",
+                  "retryable": false
+                }
+              },
+              "UPLOAD_OBJECT_NOT_FOUND": {
+                "summary": "UPLOAD_OBJECT_NOT_FOUND",
+                "value": {
+                  "type": "https://httpstatuses.io/404",
+                  "title": "UPLOAD_OBJECT_NOT_FOUND",
+                  "status": 404,
+                  "detail": "Resource not found or hidden by tenant anti-enumeration policy.",
+                  "code": "UPLOAD_OBJECT_NOT_FOUND",
+                  "retryable": false
+                }
+              },
+              "UPLOAD_TENANT_MISMATCH": {
+                "summary": "UPLOAD_TENANT_MISMATCH",
+                "value": {
+                  "type": "https://httpstatuses.io/404",
+                  "title": "UPLOAD_TENANT_MISMATCH",
+                  "status": 404,
+                  "detail": "Resource not found or hidden by tenant anti-enumeration policy.",
+                  "code": "UPLOAD_TENANT_MISMATCH",
+                  "retryable": false
+                }
+              },
+              "DOCUMENT_INTAKE_NOT_FOUND": {
+                "summary": "DOCUMENT_INTAKE_NOT_FOUND",
+                "value": {
+                  "type": "https://httpstatuses.io/404",
+                  "title": "DOCUMENT_INTAKE_NOT_FOUND",
+                  "status": 404,
+                  "detail": "Resource not found or hidden by tenant anti-enumeration policy.",
+                  "code": "DOCUMENT_INTAKE_NOT_FOUND",
+                  "retryable": false
+                }
+              }
+            }
+          }
+        }
+      },
+      "Problem409_8": {
+        "description": "Conflict or invalid state transition. Reconcile the existing resource before retrying.",
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "oneOf": [
+                {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ProblemDetails"
+                    },
+                    {
+                      "type": "object",
+                      "required": [
+                        "status",
+                        "code",
+                        "retryable"
+                      ],
+                      "properties": {
+                        "status": {
+                          "type": "integer",
+                          "format": "int32",
+                          "enum": [
+                            409
+                          ]
+                        },
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "IDEMPOTENCY_CONFLICT",
+                            "INVALID_STATE_TRANSITION",
+                            "UPLOAD_EXPIRED",
+                            "UPLOAD_IDEMPOTENCY_CONFLICT",
+                            "UPLOAD_NOT_VERIFIED"
+                          ]
+                        },
+                        "retryable": {
+                          "type": "boolean",
+                          "enum": [
+                            false
+                          ]
+                        }
+                      }
+                    }
+                  ]
+                },
+                {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ProblemDetails"
+                    },
+                    {
+                      "type": "object",
+                      "required": [
+                        "status",
+                        "code",
+                        "retryable"
+                      ],
+                      "properties": {
+                        "status": {
+                          "type": "integer",
+                          "format": "int32",
+                          "enum": [
+                            409
+                          ]
+                        },
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UPLOAD_VERIFICATION_IN_PROGRESS"
+                          ]
+                        },
+                        "retryable": {
+                          "type": "boolean",
+                          "enum": [
+                            true
+                          ]
+                        }
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            "examples": {
+              "UPLOAD_EXPIRED": {
+                "summary": "UPLOAD_EXPIRED",
+                "value": {
+                  "type": "https://httpstatuses.io/409",
+                  "title": "UPLOAD_EXPIRED",
+                  "status": 409,
+                  "detail": "Conflict or invalid state transition. Reconcile the existing resource before retrying.",
+                  "code": "UPLOAD_EXPIRED",
+                  "retryable": false
+                }
+              },
+              "UPLOAD_IDEMPOTENCY_CONFLICT": {
+                "summary": "UPLOAD_IDEMPOTENCY_CONFLICT",
+                "value": {
+                  "type": "https://httpstatuses.io/409",
+                  "title": "UPLOAD_IDEMPOTENCY_CONFLICT",
+                  "status": 409,
+                  "detail": "Conflict or invalid state transition. Reconcile the existing resource before retrying.",
+                  "code": "UPLOAD_IDEMPOTENCY_CONFLICT",
+                  "retryable": false
+                }
+              },
+              "UPLOAD_NOT_VERIFIED": {
+                "summary": "UPLOAD_NOT_VERIFIED",
+                "value": {
+                  "type": "https://httpstatuses.io/409",
+                  "title": "UPLOAD_NOT_VERIFIED",
+                  "status": 409,
+                  "detail": "Conflict or invalid state transition. Reconcile the existing resource before retrying.",
+                  "code": "UPLOAD_NOT_VERIFIED",
+                  "retryable": false
+                }
+              },
+              "IDEMPOTENCY_CONFLICT": {
+                "summary": "IDEMPOTENCY_CONFLICT",
+                "value": {
+                  "type": "https://httpstatuses.io/409",
+                  "title": "IDEMPOTENCY_CONFLICT",
+                  "status": 409,
+                  "detail": "Conflict or invalid state transition. Reconcile the existing resource before retrying.",
+                  "code": "IDEMPOTENCY_CONFLICT",
+                  "retryable": false
+                }
+              },
+              "INVALID_STATE_TRANSITION": {
+                "summary": "INVALID_STATE_TRANSITION",
+                "value": {
+                  "type": "https://httpstatuses.io/409",
+                  "title": "INVALID_STATE_TRANSITION",
+                  "status": 409,
+                  "detail": "Conflict or invalid state transition. Reconcile the existing resource before retrying.",
+                  "code": "INVALID_STATE_TRANSITION",
+                  "retryable": false
+                }
+              },
+              "UPLOAD_VERIFICATION_IN_PROGRESS": {
+                "summary": "UPLOAD_VERIFICATION_IN_PROGRESS",
+                "value": {
+                  "type": "https://httpstatuses.io/409",
+                  "title": "UPLOAD_VERIFICATION_IN_PROGRESS",
+                  "status": 409,
+                  "detail": "Conflict or invalid state transition. Reconcile the existing resource before retrying.",
+                  "code": "UPLOAD_VERIFICATION_IN_PROGRESS",
+                  "retryable": true,
+                  "retryAfterSeconds": 5
+                }
+              }
+            }
+          }
+        }
+      },
+      "Problem503_9": {
+        "description": "A downstream DocumentOcr or ShipmentWorkflow dependency is temporarily unavailable.",
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "oneOf": [
+                {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ProblemDetails"
+                    },
+                    {
+                      "type": "object",
+                      "required": [
+                        "status",
+                        "code",
+                        "retryable"
+                      ],
+                      "properties": {
+                        "status": {
+                          "type": "integer",
+                          "format": "int32",
+                          "enum": [
+                            503
+                          ]
+                        },
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "DOCUMENT_OCR_UNAVAILABLE",
+                            "SHIPMENT_WORKFLOW_UNAVAILABLE"
+                          ]
+                        },
+                        "retryable": {
+                          "type": "boolean",
+                          "enum": [
+                            true
+                          ]
+                        }
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            "examples": {
+              "DOCUMENT_OCR_UNAVAILABLE": {
+                "summary": "DOCUMENT_OCR_UNAVAILABLE",
+                "value": {
+                  "type": "https://httpstatuses.io/503",
+                  "title": "DOCUMENT_OCR_UNAVAILABLE",
+                  "status": 503,
+                  "detail": "A downstream DocumentOcr or ShipmentWorkflow dependency is temporarily unavailable.",
+                  "code": "DOCUMENT_OCR_UNAVAILABLE",
+                  "retryable": true,
+                  "retryAfterSeconds": 5
+                }
+              },
+              "SHIPMENT_WORKFLOW_UNAVAILABLE": {
+                "summary": "SHIPMENT_WORKFLOW_UNAVAILABLE",
+                "value": {
+                  "type": "https://httpstatuses.io/503",
+                  "title": "SHIPMENT_WORKFLOW_UNAVAILABLE",
+                  "status": 503,
+                  "detail": "A downstream DocumentOcr or ShipmentWorkflow dependency is temporarily unavailable.",
+                  "code": "SHIPMENT_WORKFLOW_UNAVAILABLE",
+                  "retryable": true,
+                  "retryAfterSeconds": 5
+                }
+              }
+            }
+          }
+        }
+      },
+      "Problem400_10": {
+        "description": "Invalid request. The caller must correct the request before retrying.",
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "oneOf": [
+                {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ProblemDetails"
+                    },
+                    {
+                      "type": "object",
+                      "required": [
+                        "status",
+                        "code",
+                        "retryable"
+                      ],
+                      "properties": {
+                        "status": {
+                          "type": "integer",
+                          "format": "int32",
+                          "enum": [
+                            400
+                          ]
+                        },
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "INVALID_FILE"
+                          ]
+                        },
+                        "retryable": {
+                          "type": "boolean",
+                          "enum": [
+                            false
+                          ]
+                        }
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            "examples": {
+              "INVALID_FILE": {
+                "summary": "INVALID_FILE",
+                "value": {
+                  "type": "https://httpstatuses.io/400",
+                  "title": "INVALID_FILE",
+                  "status": 400,
+                  "detail": "Invalid request. The caller must correct the request before retrying.",
+                  "code": "INVALID_FILE",
+                  "retryable": false
+                }
+              }
+            }
+          }
+        }
+      },
+      "Problem404_11": {
+        "description": "Resource not found or hidden by tenant anti-enumeration policy.",
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "oneOf": [
+                {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ProblemDetails"
+                    },
+                    {
+                      "type": "object",
+                      "required": [
+                        "status",
+                        "code",
+                        "retryable"
+                      ],
+                      "properties": {
+                        "status": {
+                          "type": "integer",
+                          "format": "int32",
+                          "enum": [
+                            404
+                          ]
+                        },
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "DOCUMENT_NOT_FOUND"
+                          ]
+                        },
+                        "retryable": {
+                          "type": "boolean",
+                          "enum": [
+                            false
+                          ]
+                        }
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            "examples": {
+              "DOCUMENT_NOT_FOUND": {
+                "summary": "DOCUMENT_NOT_FOUND",
+                "value": {
+                  "type": "https://httpstatuses.io/404",
+                  "title": "DOCUMENT_NOT_FOUND",
+                  "status": 404,
+                  "detail": "Resource not found or hidden by tenant anti-enumeration policy.",
+                  "code": "DOCUMENT_NOT_FOUND",
+                  "retryable": false
+                }
+              }
+            }
+          }
+        }
+      },
+      "Problem409_12": {
+        "description": "Conflict or invalid state transition. Reconcile the existing resource before retrying.",
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "oneOf": [
+                {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ProblemDetails"
+                    },
+                    {
+                      "type": "object",
+                      "required": [
+                        "status",
+                        "code",
+                        "retryable"
+                      ],
+                      "properties": {
+                        "status": {
+                          "type": "integer",
+                          "format": "int32",
+                          "enum": [
+                            409
+                          ]
+                        },
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "INVALID_STATE_TRANSITION"
+                          ]
+                        },
+                        "retryable": {
+                          "type": "boolean",
+                          "enum": [
+                            false
+                          ]
+                        }
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            "examples": {
+              "INVALID_STATE_TRANSITION": {
+                "summary": "INVALID_STATE_TRANSITION",
+                "value": {
+                  "type": "https://httpstatuses.io/409",
+                  "title": "INVALID_STATE_TRANSITION",
+                  "status": 409,
+                  "detail": "Conflict or invalid state transition. Reconcile the existing resource before retrying.",
+                  "code": "INVALID_STATE_TRANSITION",
+                  "retryable": false
+                }
+              }
+            }
+          }
+        }
       }
     }
   }

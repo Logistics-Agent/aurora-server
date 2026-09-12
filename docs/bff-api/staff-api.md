@@ -105,7 +105,7 @@ Upload/intake failures use `application/problem+json` with `code` and `retryable
 |---:|---|---|
 | `400` | `INVALID_REQUEST`, `INVALID_UPLOAD_REQUEST` | Fix the request; do not retry unchanged. |
 | `404` | `UPLOAD_NOT_FOUND`, `UPLOAD_TENANT_MISMATCH`, `DOCUMENT_INTAKE_NOT_FOUND` | Treat as not visible to this tenant. |
-| `409` | `UPLOAD_EXPIRED`, `UPLOAD_IDEMPOTENCY_CONFLICT`, `INVALID_STATE_TRANSITION` | Refresh/reconcile the existing resource; preserve idempotency key. |
+| `409` | Upload session: `UPLOAD_EXPIRED`, `UPLOAD_IDEMPOTENCY_CONFLICT`, `UPLOAD_VERIFICATION_IN_PROGRESS`, `UPLOAD_NOT_VERIFIED`; intake: `IDEMPOTENCY_CONFLICT`, `INVALID_STATE_TRANSITION` | Upload conflicts reconcile the upload session; intake conflicts reconcile the persisted intake and preserve the same idempotency key. |
 | `422` | `UPLOAD_CONTENT_MISMATCH`, `UPLOAD_MIME_MISMATCH`, `UPLOAD_SIZE_MISMATCH`, `UPLOAD_HASH_MISMATCH` | Recreate the upload session and upload the correct bytes. |
 | `503` | `DOCUMENT_OCR_UNAVAILABLE`, `SHIPMENT_WORKFLOW_UNAVAILABLE` (`retryable: true`) | Retry the same intake request; do not create a second attachment. |
 

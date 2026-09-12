@@ -29,6 +29,12 @@ public class ShipmentsController(
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status422UnprocessableEntity)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status503ServiceUnavailable)]
+    [DocumentProblemContract(StatusCodes.Status400BadRequest, false, "INVALID_REQUEST")]
+    [DocumentProblemContract(StatusCodes.Status404NotFound, false, "UPLOAD_NOT_FOUND", "UPLOAD_OBJECT_NOT_FOUND", "UPLOAD_TENANT_MISMATCH", "DOCUMENT_INTAKE_NOT_FOUND")]
+    [DocumentProblemContract(StatusCodes.Status409Conflict, false, "UPLOAD_EXPIRED", "UPLOAD_IDEMPOTENCY_CONFLICT", "UPLOAD_NOT_VERIFIED", "IDEMPOTENCY_CONFLICT", "INVALID_STATE_TRANSITION")]
+    [DocumentProblemContract(StatusCodes.Status409Conflict, true, "UPLOAD_VERIFICATION_IN_PROGRESS")]
+    [DocumentProblemContract(StatusCodes.Status422UnprocessableEntity, false, "UPLOAD_INVALID", "UPLOAD_MIME_MISMATCH", "UPLOAD_SIZE_MISMATCH", "UPLOAD_HASH_MISMATCH", "UPLOAD_CONTENT_MISMATCH", "UPLOAD_SIZE_EXCEEDED")]
+    [DocumentProblemContract(StatusCodes.Status503ServiceUnavailable, true, "DOCUMENT_OCR_UNAVAILABLE", "SHIPMENT_WORKFLOW_UNAVAILABLE")]
     public async Task<IActionResult> CreateDocumentIntake(
         [FromRoute] string id,
         [FromBody] CreateDocumentIntakeBody body,
