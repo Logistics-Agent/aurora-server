@@ -84,10 +84,11 @@ the permission fix. The pod was rolled out successfully and the
 lost when the pod is restarted or rescheduled, while their database records
 remain. This is acceptable only as a staging/demo workaround.
 
-The current default remains filesystem storage for staging. The application now
-has an S3-compatible implementation for both upload inputs and generated OCR
-artifacts, plus a tenant-scoped signed-download endpoint. R2 activation is
-documented below; until it is enabled, `emptyDir` remains ephemeral.
+Local development uses filesystem storage through `appsettings.json`. The AKS
+deployment is configured for R2 using the S3-compatible implementation for
+both upload inputs and generated OCR artifacts, plus a tenant-scoped
+signed-download endpoint. The pod-local `emptyDir` is no longer part of the
+AKS values.
 
 The `libgssapi_krb5.so.2` startup warning was observed separately. It did not
 crash the pod or produce the `/app/storage` exception, but should be resolved
@@ -97,15 +98,13 @@ in the container image or dependency configuration before production rollout.
 
 1. If the filesystem provider is still used anywhere, create and rotate the
    input-bridge signing key in Azure Key Vault. S3/R2 mode does not use it.
-2. Create an R2 API token scoped to the document bucket with Object Read &
+2. Create an R2 API token scoped to `aurora-document-ocr` with Object Read &
    Write, and store its access key and secret key in Key Vault.
-3. Add the R2 secrets to the Document OCR ExternalSecret and deploy the private
-   overlay at `src/dotnet/DocumentOcr/deploy/helm/r2-values.example.yaml`.
-4. Apply and verify `deploy/storage/r2-document-uploads-cors.json` with the
+3. Apply and verify `deploy/storage/r2-document-uploads-cors.json` with the
    commands in `deploy/storage/README.md`.
-5. Verify upload, list, retry, signed download/review, and pod-reschedule
+4. Verify upload, list, retry, signed download/review, and pod-reschedule
    behavior before removing any old filesystem objects.
-6. Remove the `emptyDir` mount only after the R2 deployment is healthy and the
+5. Remove any old `emptyDir` mount only after the R2 deployment is healthy and the
    database references point to object-storage keys. Existing files under
    `/app/storage` need an explicit one-time migration if they must be retained.
 

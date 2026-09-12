@@ -5,7 +5,7 @@
 env:
   Storage__InputProvider: "S3"
   Storage__S3__Bucket: "aurora-document-ocr"
-  Storage__S3__ServiceUrl: "https://<cloudflare-account-id>.r2.cloudflarestorage.com"
+  Storage__S3__ServiceUrl: "https://0e000fc3102c5511f71eaab39664a054.r2.cloudflarestorage.com"
   Storage__S3__Region: "auto"
   Storage__S3__ForcePathStyle: "true"
 

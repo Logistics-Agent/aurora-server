@@ -14,7 +14,7 @@ AI-driven Optical Character Recognition & bill-of-lading document processor (dep
 | `RabbitMQ__Password` | Yes | Yes | Local `.env` | Key Vault | — |
 | `AzureStorage__AccountName` | Yes | No | `.env.local` | ConfigMap | `stauroradatademo` |
 | `AzureStorage__ContainerName` | Yes | No | `.env.local` | ConfigMap | `ocr-docs` |
-| `Storage__InputProvider` | Yes | No | `.env.local` | ConfigMap | `FileSystem` (`S3` for R2) |
+| `Storage__InputProvider` | Yes | No | `.env.local` | ConfigMap | `S3` for AKS R2 (`FileSystem` locally) |
 | `Storage__S3__Bucket` | When `S3` | No | `.env.local` | ConfigMap | R2 bucket name |
 | `Storage__S3__ServiceUrl` | When `S3` | No | `.env.local` | ConfigMap | `https://<account-id>.r2.cloudflarestorage.com` |
 | `Storage__S3__Region` | When `S3` | No | `.env.local` | ConfigMap | `auto` for R2 |
