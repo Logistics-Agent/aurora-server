@@ -11,19 +11,39 @@ namespace ShipmentWorkflow.Infrastructure.Persistences.Migrations
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
-            migrationBuilder.AddColumn<Guid>(
-                name: "LastOcrEventId",
-                table: "shipment_documents",
-                type: "uuid",
-                nullable: true);
+            migrationBuilder.Sql("""
+                DO $$
+                BEGIN
+                    IF to_regclass('public.shipment_documents') IS NOT NULL
+                       AND NOT EXISTS (
+                           SELECT 1
+                           FROM information_schema.columns
+                           WHERE table_schema = 'public'
+                             AND table_name = 'shipment_documents'
+                             AND column_name = 'LastOcrEventId') THEN
+                        ALTER TABLE "shipment_documents" ADD COLUMN "LastOcrEventId" uuid;
+                    END IF;
+                END $$;
+                """);
         }
 
         /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
         {
-            migrationBuilder.DropColumn(
-                name: "LastOcrEventId",
-                table: "shipment_documents");
+            migrationBuilder.Sql("""
+                DO $$
+                BEGIN
+                    IF to_regclass('public.shipment_documents') IS NOT NULL
+                       AND EXISTS (
+                           SELECT 1
+                           FROM information_schema.columns
+                           WHERE table_schema = 'public'
+                             AND table_name = 'shipment_documents'
+                             AND column_name = 'LastOcrEventId') THEN
+                        ALTER TABLE "shipment_documents" DROP COLUMN "LastOcrEventId";
+                    END IF;
+                END $$;
+                """);
         }
     }
 }

@@ -1,16 +1,48 @@
+using System.Text.Json;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json.Serialization;
 
 namespace DocumentOcr.Contracts.Events;
 
-[JsonConverter(typeof(JsonStringEnumConverter))]
+[JsonConverter(typeof(DocumentOcrPurposeJsonConverter))]
 public enum DocumentOcrPurpose
 {
     Unspecified = 0,
     ShipmentDocument = 1,
     RegulatoryCorpus = 2,
-    KnowledgeCorpus = 3
+    KnowledgeCorpus = 3,
+    GeneralDocument = 4
+}
+
+public sealed class DocumentOcrPurposeJsonConverter : JsonConverter<DocumentOcrPurpose>
+{
+    public override DocumentOcrPurpose Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        if (reader.TokenType != JsonTokenType.String)
+            throw new JsonException("Document OCR purpose must be an approved string value.");
+
+        return reader.GetString() switch
+        {
+            "SHIPMENT_DOCUMENT" => DocumentOcrPurpose.ShipmentDocument,
+            "REGULATORY_CORPUS" => DocumentOcrPurpose.RegulatoryCorpus,
+            "KNOWLEDGE_CORPUS" => DocumentOcrPurpose.KnowledgeCorpus,
+            "GENERAL_DOCUMENT" => DocumentOcrPurpose.GeneralDocument,
+            _ => throw new JsonException("Document OCR purpose is not an approved value.")
+        };
+    }
+
+    public override void Write(Utf8JsonWriter writer, DocumentOcrPurpose value, JsonSerializerOptions options)
+    {
+        writer.WriteStringValue(value switch
+        {
+            DocumentOcrPurpose.ShipmentDocument => "SHIPMENT_DOCUMENT",
+            DocumentOcrPurpose.RegulatoryCorpus => "REGULATORY_CORPUS",
+            DocumentOcrPurpose.KnowledgeCorpus => "KNOWLEDGE_CORPUS",
+            DocumentOcrPurpose.GeneralDocument => "GENERAL_DOCUMENT",
+            _ => throw new JsonException("Document OCR purpose is not an approved value.")
+        });
+    }
 }
 
 public static class DocumentOcrCorrelationId

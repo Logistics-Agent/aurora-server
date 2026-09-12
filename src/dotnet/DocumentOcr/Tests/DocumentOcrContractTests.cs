@@ -96,7 +96,32 @@ public sealed class DocumentOcrContractTests
             CorrelationId = first
         });
 
-        Assert.Contains("\"Purpose\":\"RegulatoryCorpus\"", json);
+        Assert.Contains("\"Purpose\":\"REGULATORY_CORPUS\"", json);
+    }
+
+    [Theory]
+    [InlineData("SHIPMENT_DOCUMENT", EventPurpose.ShipmentDocument)]
+    [InlineData("REGULATORY_CORPUS", EventPurpose.RegulatoryCorpus)]
+    [InlineData("KNOWLEDGE_CORPUS", EventPurpose.KnowledgeCorpus)]
+    [InlineData("GENERAL_DOCUMENT", EventPurpose.GeneralDocument)]
+    public void Purpose_uses_approved_uppercase_wire_values(string wireValue, EventPurpose expected)
+    {
+        var json = $"{{\"Purpose\":\"{wireValue}\"}}";
+        var parsed = JsonSerializer.Deserialize<DocumentOcrCompletedEvent>(json);
+
+        Assert.NotNull(parsed);
+        Assert.Equal(expected, parsed.Purpose);
+        Assert.Contains($"\"Purpose\":\"{wireValue}\"", JsonSerializer.Serialize(parsed));
+    }
+
+    [Theory]
+    [InlineData("RegulatoryCorpus")]
+    [InlineData("UNKNOWN_PURPOSE")]
+    [InlineData("1")]
+    public void Purpose_rejects_non_contract_values(string invalidValue)
+    {
+        Assert.Throws<JsonException>(() =>
+            JsonSerializer.Deserialize<DocumentOcrCompletedEvent>($"{{\"Purpose\":{(invalidValue == "1" ? invalidValue : $"\"{invalidValue}\"")}}}"));
     }
 
     [Fact]

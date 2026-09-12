@@ -5,9 +5,16 @@ namespace Notification.Infrastructure.Messaging.Consumers;
 
 public sealed class DocumentOcrFailedConsumer(NotificationEventProcessor processor) : IConsumer<DocumentOcrFailedEvent>
 {
-    public Task Consume(ConsumeContext<DocumentOcrFailedEvent> context) => processor.ProcessAsync(
-        context.Message.EventId, context.Message.TenantId, context.Message.ExternalShipmentId,
-        "DOCUMENT_OCR_FAILED", "Document OCR failed",
-        $"OCR job {context.Message.JobId} failed ({context.Message.ErrorCode}): {context.Message.ErrorMessage}",
-        null, context.Message.OccurredAt, context.CancellationToken);
+    public Task Consume(ConsumeContext<DocumentOcrFailedEvent> context)
+    {
+        DocumentOcrNotificationPolicy.ValidateFailedVersion(context.Message.ContractVersion);
+        if (!DocumentOcrNotificationPolicy.ShouldNotify(context.Message.Purpose))
+            return Task.CompletedTask;
+
+        return processor.ProcessAsync(
+            context.Message.EventId, context.Message.TenantId, context.Message.ExternalShipmentId,
+            "DOCUMENT_OCR_FAILED", "Document OCR failed",
+            $"OCR job {context.Message.JobId} failed ({context.Message.ErrorCode}): {context.Message.ErrorMessage}",
+            null, context.Message.OccurredAt, context.CancellationToken);
+    }
 }
