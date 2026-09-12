@@ -101,6 +101,7 @@ internal static class DocumentUploadErrorMapper
         "UPLOAD_MIME_MISMATCH" or "UPLOAD_SIZE_MISMATCH" or "UPLOAD_HASH_MISMATCH" or "UPLOAD_CONTENT_MISMATCH" or "UPLOAD_SIZE_EXCEEDED"
             => new(code, "The uploaded object did not satisfy the upload session contract.", StatusCodes.Status422UnprocessableEntity, false),
         "UPLOAD_IDEMPOTENCY_CONFLICT" => new(code, "The upload idempotency key was already used with a different request.", StatusCodes.Status409Conflict, false),
+        "UPLOAD_INVALID_REQUEST" => new("INVALID_UPLOAD_REQUEST", "The upload request is invalid.", StatusCodes.Status400BadRequest, false),
         "UPLOAD_VERIFICATION_IN_PROGRESS" => new(code, "The upload session is still being verified.", StatusCodes.Status409Conflict, true),
         "UPLOAD_NOT_VERIFIED" => new(code, "The upload session must be verified before it is consumed.", StatusCodes.Status409Conflict, false),
         "UPLOAD_NOT_FOUND" => new(code, "The upload session was not found.", StatusCodes.Status404NotFound, false),

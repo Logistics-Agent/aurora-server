@@ -24,6 +24,10 @@ public class ShipmentsController(
     [HttpPost("{id}/document-intakes")]
     [RequirePermission(PermissionConstants.Documents.Ingest)]
     [ProducesResponseType(typeof(DocumentIntakeHttpResponse), StatusCodes.Status202Accepted)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status422UnprocessableEntity)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status503ServiceUnavailable)]
     public async Task<IActionResult> CreateDocumentIntake(
         [FromRoute] string id,

@@ -1,6 +1,7 @@
 using DocumentOcr.Grpc;
 using Grpc.Core;
 using Google.Protobuf.WellKnownTypes;
+using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging.Abstractions;
 using ShipmentWorkflow.Grpc;
 using StaffBff.Services;
@@ -43,6 +44,53 @@ public sealed class DocumentIntakeStatefulFakeTests
             fake.Operations);
     }
 
+    [Theory]
+    [InlineData(StatusCode.NotFound)]
+    [InlineData(StatusCode.FailedPrecondition)]
+    public async Task Retry_state_failure_preserves_original_orchestration_failure(StatusCode retryStatus)
+    {
+        var fake = new StatefulIntakeFake
+        {
+            SubmitFailuresRemaining = 1,
+            RetryFailureStatus = retryStatus
+        };
+        var orchestrator = new DocumentIntakeOrchestrator(
+            fake,
+            fake,
+            NullLogger<DocumentIntakeOrchestrator>.Instance);
+
+        var exception = await Assert.ThrowsAsync<DocumentIntakeOrchestrationException>(() =>
+            orchestrator.ComposeAsync(
+                fake.ShipmentId,
+                new CreateDocumentIntakeRequestModel(fake.UploadId, "INVOICE", "stateful-intake-key"),
+                CancellationToken.None));
+
+        Assert.Equal("DOCUMENT_OCR_UNAVAILABLE", exception.Code);
+        Assert.Equal(StatusCodes.Status503ServiceUnavailable, exception.StatusCode);
+    }
+
+    [Fact]
+    public async Task Retry_state_cancellation_is_not_swallowed()
+    {
+        var fake = new StatefulIntakeFake
+        {
+            SubmitFailuresRemaining = 1,
+            RetryFailureStatus = StatusCode.Cancelled
+        };
+        var orchestrator = new DocumentIntakeOrchestrator(
+            fake,
+            fake,
+            NullLogger<DocumentIntakeOrchestrator>.Instance);
+
+        var exception = await Assert.ThrowsAsync<RpcException>(() =>
+            orchestrator.ComposeAsync(
+                fake.ShipmentId,
+                new CreateDocumentIntakeRequestModel(fake.UploadId, "INVOICE", "stateful-intake-key"),
+                CancellationToken.None));
+
+        Assert.Equal(StatusCode.Cancelled, exception.StatusCode);
+    }
+
     private sealed class StatefulIntakeFake :
         IDocumentIntakeOcrGateway,
         IShipmentDocumentIntakeGateway
@@ -53,6 +101,7 @@ public sealed class DocumentIntakeStatefulFakeTests
         public Guid DocumentId { get; } = Guid.CreateVersion7();
         public Guid JobId { get; } = Guid.CreateVersion7();
         public int SubmitFailuresRemaining { get; set; }
+        public StatusCode? RetryFailureStatus { get; set; }
         public int AttachmentCount { get; private set; }
         public int JobCount { get; private set; }
         public int OutboxCount { get; private set; }
@@ -94,6 +143,8 @@ public sealed class DocumentIntakeStatefulFakeTests
             CancellationToken cancellationToken)
         {
             Operations.Add("retry");
+            if (RetryFailureStatus.HasValue)
+                throw new RpcException(new Status(RetryFailureStatus.Value, "retry state write failed"));
             IntakeStatus = "FAILED_RETRYABLE";
             return Task.FromResult(Response());
         }

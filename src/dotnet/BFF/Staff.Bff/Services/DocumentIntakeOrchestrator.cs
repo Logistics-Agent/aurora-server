@@ -333,11 +333,12 @@ public sealed class DocumentIntakeOrchestrator(
                 },
                 cancellationToken);
         }
-        catch (RpcException exception) when (DocumentsContract.IsUnavailable(exception.StatusCode))
+        catch (RpcException exception) when (exception.StatusCode != StatusCode.Cancelled)
         {
             logger.LogWarning(
-                "ShipmentWorkflow was unavailable while recording retryable document intake failure. IntakeId: {IntakeId}",
-                intakeId);
+                "Unable to record retryable document intake state; preserving original failure. IntakeId: {IntakeId}; StatusCode: {StatusCode}",
+                intakeId,
+                exception.StatusCode);
         }
     }
 

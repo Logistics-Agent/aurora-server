@@ -30,7 +30,11 @@ public sealed class DocumentsController(
     [HttpPost("uploads")]
     [RequirePermission(PermissionConstants.Documents.Ingest)]
     [ProducesResponseType(typeof(DocumentUploadSessionResponse), StatusCodes.Status201Created)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status422UnprocessableEntity)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status503ServiceUnavailable)]
     public async Task<IActionResult> CreateUploadSession(
         [FromBody] CreateDocumentUploadSessionRequest request,
         CancellationToken cancellationToken)
@@ -38,12 +42,11 @@ public sealed class DocumentsController(
         if (request is null || string.IsNullOrWhiteSpace(request.FileName) ||
             string.IsNullOrWhiteSpace(request.MimeType) || request.SizeBytes <= 0)
         {
-            return BadRequest(new ProblemDetails
-            {
-                Title = "INVALID_REQUEST",
-                Detail = "FileName, MimeType, and a positive SizeBytes are required.",
-                Status = StatusCodes.Status400BadRequest
-            });
+            return BadRequest(DocumentsContract.CreateProblemDetails(
+                "INVALID_UPLOAD_REQUEST",
+                "FileName, MimeType, and a positive SizeBytes are required.",
+                StatusCodes.Status400BadRequest,
+                retryable: false));
         }
 
         try
@@ -59,8 +62,17 @@ public sealed class DocumentsController(
                 ContentSha256 = request.ContentSha256 ?? string.Empty
             }, cancellationToken: cancellationToken);
 
+            if (!Guid.TryParse(receipt.UploadId, out var uploadId) || uploadId == Guid.Empty)
+            {
+                return BadRequest(DocumentsContract.CreateProblemDetails(
+                    "INVALID_UPLOAD_REQUEST",
+                    "The upload service returned an invalid upload id.",
+                    StatusCodes.Status400BadRequest,
+                    retryable: false));
+            }
+
             var response = new DocumentUploadSessionResponse(
-                Guid.Parse(receipt.UploadId),
+                uploadId,
                 receipt.StorageReference,
                 receipt.WriteUrl,
                 receipt.RequiredHeaders,

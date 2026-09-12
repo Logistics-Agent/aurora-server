@@ -35,10 +35,7 @@ public sealed class DocumentIntakeControllerTests
     public async Task Upload_endpoint_returns_201_with_serializable_contract()
     {
         var uploadId = Guid.CreateVersion7();
-        var documentClient = new Mock<DocumentOcrService.DocumentOcrServiceClient>(new object[]
-        {
-            GrpcChannel.ForAddress("http://localhost:54321")
-        });
+        var documentClient = CreateDocumentClient();
         documentClient
             .Setup(client => client.CreateUploadSessionAsync(
                 It.IsAny<CreateUploadSessionRequest>(), It.IsAny<Metadata>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()))
@@ -53,16 +50,7 @@ public sealed class DocumentIntakeControllerTests
                 Status = DocumentUploadStatus.Pending,
                 ExpiresAt = Google.Protobuf.WellKnownTypes.Timestamp.FromDateTimeOffset(DateTimeOffset.UtcNow.AddMinutes(15))
             }));
-        var controller = new DocumentsController(
-            documentClient.Object,
-            new Mock<RegulatoryComplianceService.RegulatoryComplianceServiceClient>(new object[]
-            {
-                GrpcChannel.ForAddress("http://localhost:54324")
-            }).Object,
-            NullLogger<DocumentsController>.Instance)
-        {
-            ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() }
-        };
+        var controller = CreateDocumentsController(documentClient.Object);
 
         var result = await controller.CreateUploadSession(
             new CreateDocumentUploadSessionRequest("upload-key", "invoice.pdf", "application/pdf", 1_024, null),
@@ -73,6 +61,133 @@ public sealed class DocumentIntakeControllerTests
         var serialized = JsonSerializer.Serialize(created.Value);
         Assert.Contains(uploadId.ToString(), serialized);
         Assert.Contains("objects/tenant/upload/invoice.pdf", serialized);
+    }
+
+    [Fact]
+    public async Task Upload_endpoint_invalid_body_returns_canonical_problem_details()
+    {
+        var controller = CreateDocumentsController(CreateDocumentClient().Object);
+
+        var result = await controller.CreateUploadSession(null!, CancellationToken.None);
+
+        var problemResult = Assert.IsAssignableFrom<ObjectResult>(result);
+        Assert.Equal(StatusCodes.Status400BadRequest, problemResult.StatusCode);
+        var problem = Assert.IsType<ProblemDetails>(problemResult.Value);
+        var serialized = JsonSerializer.Serialize(problem);
+        Assert.Equal("INVALID_UPLOAD_REQUEST", problem.Extensions["code"]);
+        Assert.False((bool)problem.Extensions["retryable"]!);
+        Assert.Contains("INVALID_UPLOAD_REQUEST", serialized);
+        Assert.Contains("\"retryable\":false", serialized);
+    }
+
+    [Fact]
+    public async Task Upload_endpoint_invalid_response_id_returns_canonical_problem_details()
+    {
+        var documentClient = CreateDocumentClient();
+        documentClient
+            .Setup(client => client.CreateUploadSessionAsync(
+                It.IsAny<CreateUploadSessionRequest>(), It.IsAny<Metadata>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()))
+            .Returns(CreateSuccessfulCall(new DocumentUploadReceipt
+            {
+                UploadId = "not-a-guid",
+                StorageReference = "objects/tenant/upload/invoice.pdf",
+                FileName = "invoice.pdf",
+                MimeType = "application/pdf",
+                Status = DocumentUploadStatus.Pending
+            }));
+        var controller = CreateDocumentsController(documentClient.Object);
+
+        var result = await controller.CreateUploadSession(
+            new CreateDocumentUploadSessionRequest("upload-key", "invoice.pdf", "application/pdf", 1_024, null),
+            CancellationToken.None);
+
+        var problemResult = Assert.IsAssignableFrom<ObjectResult>(result);
+        Assert.Equal(StatusCodes.Status400BadRequest, problemResult.StatusCode);
+        var problem = Assert.IsType<ProblemDetails>(problemResult.Value);
+        Assert.Equal("INVALID_UPLOAD_REQUEST", problem.Extensions["code"]);
+        Assert.False((bool)problem.Extensions["retryable"]!);
+    }
+
+    [Theory]
+    [InlineData("UPLOAD_INVALID_REQUEST", 400, false)]
+    [InlineData("UPLOAD_TENANT_MISMATCH", 404, false)]
+    [InlineData("UPLOAD_OBJECT_NOT_FOUND", 404, false)]
+    [InlineData("UPLOAD_EXPIRED", 409, false)]
+    [InlineData("UPLOAD_CONTENT_MISMATCH", 422, false)]
+    [InlineData("DOCUMENT_OCR_UNAVAILABLE", 503, true)]
+    public async Task Upload_endpoint_serializes_trailer_error_contract(
+        string code,
+        int expectedStatus,
+        bool retryable)
+    {
+        var documentClient = CreateDocumentClient();
+        documentClient
+            .Setup(client => client.CreateUploadSessionAsync(
+                It.IsAny<CreateUploadSessionRequest>(), It.IsAny<Metadata>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()))
+            .Returns(CreateFailedCall<DocumentUploadReceipt>(
+                new RpcException(
+                    new Status(StatusCode.InvalidArgument, "upload failed"),
+                    new Metadata { { "document-upload-validation-code", code } })));
+        var controller = CreateDocumentsController(documentClient.Object);
+
+        var result = await controller.CreateUploadSession(
+            new CreateDocumentUploadSessionRequest("upload-key", "invoice.pdf", "application/pdf", 1_024, null),
+            CancellationToken.None);
+
+        var problemResult = Assert.IsType<ObjectResult>(result);
+        Assert.Equal(expectedStatus, problemResult.StatusCode);
+        var problem = Assert.IsType<ProblemDetails>(problemResult.Value);
+        Assert.Equal(code == "UPLOAD_INVALID_REQUEST" ? "INVALID_UPLOAD_REQUEST" : code, problem.Extensions["code"]);
+        Assert.Equal(retryable, problem.Extensions["retryable"]);
+    }
+
+    [Fact]
+    public async Task Upload_endpoint_already_exists_returns_conflict_problem_details()
+    {
+        var documentClient = CreateDocumentClient();
+        documentClient
+            .Setup(client => client.CreateUploadSessionAsync(
+                It.IsAny<CreateUploadSessionRequest>(), It.IsAny<Metadata>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()))
+            .Returns(CreateFailedCall<DocumentUploadReceipt>(
+                new RpcException(new Status(StatusCode.AlreadyExists, "conflict"))));
+        var controller = CreateDocumentsController(documentClient.Object);
+
+        var result = await controller.CreateUploadSession(
+            new CreateDocumentUploadSessionRequest("upload-key", "invoice.pdf", "application/pdf", 1_024, null),
+            CancellationToken.None);
+
+        var problemResult = Assert.IsType<ObjectResult>(result);
+        Assert.Equal(StatusCodes.Status409Conflict, problemResult.StatusCode);
+        var problem = Assert.IsType<ProblemDetails>(problemResult.Value);
+        Assert.Equal("UPLOAD_IDEMPOTENCY_CONFLICT", problem.Extensions["code"]);
+        Assert.False((bool)problem.Extensions["retryable"]!);
+    }
+
+    [Fact]
+    public void Upload_and_intake_document_all_problem_status_contracts()
+    {
+        var expected = new[]
+        {
+            StatusCodes.Status400BadRequest,
+            StatusCodes.Status404NotFound,
+            StatusCodes.Status409Conflict,
+            StatusCodes.Status422UnprocessableEntity,
+            StatusCodes.Status503ServiceUnavailable
+        };
+
+        var uploadStatuses = typeof(DocumentsController)
+            .GetMethod(nameof(DocumentsController.CreateUploadSession))!
+            .GetCustomAttributes<ProducesResponseTypeAttribute>()
+            .Select(attribute => attribute.StatusCode)
+            .ToHashSet();
+        var intakeStatuses = typeof(ShipmentsController)
+            .GetMethod(nameof(ShipmentsController.CreateDocumentIntake))!
+            .GetCustomAttributes<ProducesResponseTypeAttribute>()
+            .Select(attribute => attribute.StatusCode)
+            .ToHashSet();
+
+        Assert.All(expected, status => Assert.Contains(status, uploadStatuses));
+        Assert.All(expected, status => Assert.Contains(status, intakeStatuses));
     }
 
     [Fact]
@@ -147,11 +262,35 @@ public sealed class DocumentIntakeControllerTests
             NullLogger<ShipmentsController>.Instance,
             orchestrator);
 
+    private static Mock<DocumentOcrService.DocumentOcrServiceClient> CreateDocumentClient() =>
+        new(new object[] { GrpcChannel.ForAddress("http://localhost:54321") });
+
+    private static DocumentsController CreateDocumentsController(
+        DocumentOcrService.DocumentOcrServiceClient documentClient) =>
+        new(
+            documentClient,
+            new Mock<RegulatoryComplianceService.RegulatoryComplianceServiceClient>(new object[]
+            {
+                GrpcChannel.ForAddress("http://localhost:54324")
+            }).Object,
+            NullLogger<DocumentsController>.Instance)
+        {
+            ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() }
+        };
+
     private static AsyncUnaryCall<TResponse> CreateSuccessfulCall<TResponse>(TResponse response)
         where TResponse : class => new(
             Task.FromResult(response),
             Task.FromResult(new Metadata()),
             () => new Status(StatusCode.OK, string.Empty),
+            () => new Metadata(),
+            () => { });
+
+    private static AsyncUnaryCall<TResponse> CreateFailedCall<TResponse>(RpcException exception)
+        where TResponse : class => new(
+            Task.FromException<TResponse>(exception),
+            Task.FromResult(new Metadata()),
+            () => exception.Status,
             () => new Metadata(),
             () => { });
 }
