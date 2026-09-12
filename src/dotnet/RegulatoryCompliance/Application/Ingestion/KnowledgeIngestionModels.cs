@@ -34,7 +34,8 @@ public sealed record KnowledgeEvidenceResult(
     string? SectionLabel,
     string? PageLabel,
     string Excerpt,
-    decimal RelevanceScore);
+    decimal RelevanceScore,
+    string SourceReference = "");
 
 public interface IKnowledgeIngestionService
 {

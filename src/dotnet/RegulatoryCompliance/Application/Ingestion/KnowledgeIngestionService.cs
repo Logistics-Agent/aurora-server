@@ -204,6 +204,9 @@ public sealed class KnowledgeIngestionService(
             foreach (var doc in docList)
             {
                 var latestVersion = doc.Versions.OrderByDescending(v => v.CreatedAt).FirstOrDefault();
+                var fullText = latestVersion != null && latestVersion.Chunks.Count > 0
+                    ? string.Join("\n\n", latestVersion.Chunks.OrderBy(c => c.Sequence).Select(c => c.NormalizedText))
+                    : string.Empty;
                 var firstChunk = latestVersion?.Chunks.OrderBy(c => c.Sequence).FirstOrDefault();
                 listResults.Add(new KnowledgeEvidenceResult(
                     doc.Id,
@@ -213,8 +216,9 @@ public sealed class KnowledgeIngestionService(
                     doc.Category,
                     firstChunk?.SectionLabel ?? "Overview",
                     firstChunk?.PageLabel ?? "1",
-                    firstChunk?.NormalizedText ?? string.Empty,
-                    1.0m));
+                    fullText,
+                    1.0m,
+                    doc.SourceReference));
             }
             return listResults;
         }
@@ -292,7 +296,8 @@ public sealed class KnowledgeIngestionService(
                 chunk.SectionLabel,
                 chunk.PageLabel,
                 chunk.NormalizedText,
-                result.Score));
+                result.Score,
+                doc.SourceReference));
         }
 
         if (evidence.Count == 0)
@@ -421,7 +426,8 @@ public sealed class KnowledgeIngestionService(
                     row.Chunk.SectionLabel,
                     row.Chunk.PageLabel,
                     row.Chunk.NormalizedText,
-                    score);
+                    score,
+                    row.Document.SourceReference);
             })
             .Where(item => item.RelevanceScore >= minimumRelevanceScore)
             .OrderByDescending(item => item.RelevanceScore)

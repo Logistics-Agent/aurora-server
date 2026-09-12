@@ -7,6 +7,7 @@ using Google.Protobuf.WellKnownTypes;
 using Grpc.Core;
 using Microsoft.AspNetCore.Mvc;
 using RegulatoryCompliance.Grpc;
+using Shared.Security;
 
 namespace SystemBff.Controllers;
 
@@ -15,9 +16,29 @@ namespace SystemBff.Controllers;
 [Route("api/v{version:apiVersion}/system/ingestion")]
 [Route("api/system")]
 public sealed class SystemIngestionController(
-    RegulatoryComplianceService.RegulatoryComplianceServiceClient regulatoryClient)
+    RegulatoryComplianceService.RegulatoryComplianceServiceClient regulatoryClient,
+    ICurrentUserService currentUser)
     : ControllerBase
 {
+    private Metadata CreateHeaders()
+    {
+        var headers = new Metadata
+        {
+            { "x-service-id", "system-bff" }
+        };
+
+        var tenantId = currentUser.TenantId ?? Guid.Empty;
+        headers.Add("x-tenant-id", tenantId.ToString());
+
+        if (currentUser.UserId.HasValue)
+            headers.Add("x-user-id", currentUser.UserId.Value.ToString());
+
+        if (!string.IsNullOrEmpty(currentUser.Role))
+            headers.Add("x-role", currentUser.Role);
+
+        return headers;
+    }
+
     /// <summary>
     /// Automated System Ingestion: Global Laws & Treaties
     /// </summary>
@@ -48,7 +69,9 @@ public sealed class SystemIngestionController(
                 : Guid.NewGuid().ToString(),
             Authority = request.Authority,
             Title = request.Title,
-            CanonicalSourceUri = request.CanonicalSourceUri ?? $"urn:system:law:{Guid.NewGuid()}",
+            CanonicalSourceUri = !string.IsNullOrWhiteSpace(request.CanonicalSourceUri)
+                ? request.CanonicalSourceUri
+                : $"urn:system:law:{Guid.NewGuid()}",
             JurisdictionCode = request.JurisdictionCode ?? "GLOBAL",
             RegulationType = (RegulationType)(int)request.RegulationType,
             LanguageCode = request.LanguageCode ?? "en",
@@ -64,7 +87,8 @@ public sealed class SystemIngestionController(
             Visibility = RegulatorySourceVisibility.Platform
         };
 
-        var response = await regulatoryClient.IngestRegulatorySourceAsync(ingestRequest, cancellationToken: cancellationToken);
+        var headers = CreateHeaders();
+        var response = await regulatoryClient.IngestRegulatorySourceAsync(ingestRequest, headers, cancellationToken: cancellationToken);
 
         return Ok(new
         {
@@ -99,7 +123,8 @@ public sealed class SystemIngestionController(
                 MinimumRelevanceScore = 0.0
             };
 
-            var response = await regulatoryClient.QueryRegulationsAsync(rpcRequest, cancellationToken: cancellationToken);
+            var headers = CreateHeaders();
+            var response = await regulatoryClient.QueryRegulationsAsync(rpcRequest, headers, cancellationToken: cancellationToken);
 
             var items = response.Evidence
                 .GroupBy(e => e.Citation?.RegulatoryDocumentId ?? Guid.NewGuid().ToString())
@@ -119,7 +144,7 @@ public sealed class SystemIngestionController(
                         chunkCount = g.Count(),
                         status = "Active",
                         relevanceScore = e.Citation?.RelevanceScore ?? 0.0,
-                        excerpt = e.Citation?.Excerpt ?? string.Empty
+                        excerpt = string.Join("\n\n", g.Select(x => x.Citation?.Excerpt).Where(x => !string.IsNullOrWhiteSpace(x)))
                     };
                 }).ToList();
 
@@ -127,6 +152,10 @@ public sealed class SystemIngestionController(
         }
         catch (RpcException ex)
         {
+            if (ex.StatusCode == Grpc.Core.StatusCode.Unauthenticated || (ex.Status.Detail != null && ex.Status.Detail.Contains("Tenant")))
+            {
+                return Ok(new { items = Array.Empty<object>(), total = 0 });
+            }
             return ex.ToActionResult();
         }
         catch (Exception)
@@ -177,7 +206,8 @@ public sealed class SystemIngestionController(
             Visibility = RegulatorySourceVisibility.Platform
         };
 
-        var response = await regulatoryClient.IngestKnowledgeDocumentAsync(ingestRequest, cancellationToken: cancellationToken);
+        var headers = CreateHeaders();
+        var response = await regulatoryClient.IngestKnowledgeDocumentAsync(ingestRequest, headers, cancellationToken: cancellationToken);
 
         return Ok(new
         {
@@ -208,7 +238,8 @@ public sealed class SystemIngestionController(
                 MinimumRelevanceScore = 0.0
             };
 
-            var response = await regulatoryClient.QueryKnowledgeAsync(rpcRequest, cancellationToken: cancellationToken);
+            var headers = CreateHeaders();
+            var response = await regulatoryClient.QueryKnowledgeAsync(rpcRequest, headers, cancellationToken: cancellationToken);
 
             var items = response.Evidence
                 .GroupBy(e => e.KnowledgeDocumentId)
@@ -223,11 +254,13 @@ public sealed class SystemIngestionController(
                                    e.Category == KnowledgeCategory.Contract ? "Contract" :
                                    e.Category == KnowledgeCategory.Guide ? "Guide" :
                                    e.Category == KnowledgeCategory.InternalPolicy ? "Internal Policy" : e.Category.ToString(),
+                        canonicalSourceUri = e.SourceReference,
+                        sourceReference = e.SourceReference,
                         versionLabel = "1.0",
                         chunkCount = g.Count(),
                         status = "Active",
                         relevanceScore = e.RelevanceScore,
-                        excerpt = e.Excerpt
+                        excerpt = string.Join("\n\n", g.Select(x => x.Excerpt).Where(x => !string.IsNullOrWhiteSpace(x)))
                     };
                 }).ToList();
 
@@ -235,6 +268,10 @@ public sealed class SystemIngestionController(
         }
         catch (RpcException ex)
         {
+            if (ex.StatusCode == Grpc.Core.StatusCode.Unauthenticated || (ex.Status.Detail != null && ex.Status.Detail.Contains("Tenant")))
+            {
+                return Ok(new { items = Array.Empty<object>(), total = 0 });
+            }
             return ex.ToActionResult();
         }
         catch (Exception)

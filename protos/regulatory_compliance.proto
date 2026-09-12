@@ -264,6 +264,7 @@ message KnowledgeEvidence {
   string page_label = 7;
   string excerpt = 8;
   double relevance_score = 9;
+  string source_reference = 10;
 }
 
 enum AssistantSearchMode {

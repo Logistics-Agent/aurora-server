@@ -286,7 +286,8 @@ public sealed class RegulatoryComplianceGrpcService(
                     SectionLabel = item.SectionLabel ?? string.Empty,
                     PageLabel = item.PageLabel ?? string.Empty,
                     Excerpt = item.Excerpt,
-                    RelevanceScore = Convert.ToDouble(item.RelevanceScore)
+                    RelevanceScore = Convert.ToDouble(item.RelevanceScore),
+                    SourceReference = item.SourceReference ?? string.Empty
                 });
             }
 
