@@ -3,6 +3,9 @@
 > **Service Layer**: Computer Vision, Document Extraction & Human Review  
 > **Target Audience**: Technical Recruiters, Computer Vision Engineers, System Architects  
 > **Source-of-Truth**: `src/dotnet/DocumentOcr`, `DocumentOcrJob`, `DocumentOcrGrpcService`, `DocumentOcrValidation`, `protos/document_ocr.proto`.
+>
+> **Operations:** See [OPERATIONS_RUNBOOK.md](./OPERATIONS_RUNBOOK.md) for the
+> staging incident, temporary fixes, and production follow-up.
 
 ---
 
@@ -43,7 +46,7 @@ The **Document OCR Service** provides **AI-Driven Document Extraction + Determin
 |---|---|
 | **Runtime & Framework** | .NET 10 (C#), ASP.NET Core gRPC |
 | **Persistence** | Entity Framework Core 10, PostgreSQL 16 (Neon Serverless SSL) |
-| **File Storage** | Cloudflare R2 / AWS S3 (Signed URLs for high-resolution images) |
+| **File Storage** | S3-compatible input storage is supported; staging currently uses filesystem storage and requires object-storage hardening for production |
 | **Events & Messaging** | Transactional Outbox Pattern, RabbitMQ (`DocumentOcrCompletedEvent`) |
 | **BFF Client** | `Staff.Bff` (`POST /api/v1/ocr/upload`, `POST /api/v1/ocr/{id}/review`) |
 
@@ -72,4 +75,4 @@ Exposed via `protos/document_ocr.proto` (`DocumentOcrService`):
 
 1. **Deterministic ISO Validation**: Extracted container numbers must pass ISO 6346 check digit algorithms; failures force `RequiresReview` status.
 2. **Review Privilege Gate**: Only users with explicit capability `ocr:review` can approve or edit OCR results.
-3. **Current Maturity**: Production-ready core extraction and review pipeline with transactional outbox event publishing.
+3. **Current Maturity**: Core extraction and review pipeline is implemented with transactional outbox publishing; production storage and secret-management hardening remain tracked in the operations runbook.
