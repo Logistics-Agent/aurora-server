@@ -36,25 +36,39 @@ public sealed record DocumentIntakeHttpResponse(
 
 public sealed class DocumentIntakeOrchestrationException : Exception
 {
-    public DocumentIntakeOrchestrationException(
+    internal DocumentIntakeOrchestrationException(
         string code,
         string detail,
         int statusCode,
         bool retryable,
         Guid? intakeId = null,
         Guid? documentId = null)
-        : base(detail)
+        : this(
+            DocumentProblemContractCatalog.ResolveRuntimeTuple(code, statusCode, retryable),
+            DocumentProblemContractCatalog.ResolveRuntimeTuple(code, statusCode, retryable) == DocumentProblemContractCatalog.DocumentContractError
+                ? DocumentProblemContractCatalog.DocumentContractError.DefaultDetail
+                : detail,
+            intakeId,
+            documentId)
     {
-        Code = code;
-        StatusCode = statusCode;
-        Retryable = retryable;
+    }
+
+    internal DocumentIntakeOrchestrationException(
+        DocumentProblemContractCatalog.Definition contract,
+        string? detail = null,
+        Guid? intakeId = null,
+        Guid? documentId = null)
+        : base(detail ?? contract.DefaultDetail)
+    {
+        Contract = contract;
         IntakeId = intakeId;
         DocumentId = documentId;
     }
 
-    public string Code { get; }
-    public int StatusCode { get; }
-    public bool Retryable { get; }
+    internal DocumentProblemContractCatalog.Definition Contract { get; }
+    public string Code => Contract.Code;
+    public int StatusCode => Contract.StatusCode;
+    public bool Retryable => Contract.Retryable;
     public Guid? IntakeId { get; }
     public Guid? DocumentId { get; }
 }
@@ -201,40 +215,32 @@ public sealed class DocumentIntakeOrchestrator(
         {
             await MarkRetryableAsync(ledger.IntakeId, "Document OCR service was unavailable while submitting the document.", cancellationToken);
             throw new DocumentIntakeOrchestrationException(
-                "DOCUMENT_OCR_UNAVAILABLE",
+                DocumentProblemContractCatalog.DocumentOcrUnavailable,
                 "The OCR dependency could not process the request.",
-                StatusCodes.Status503ServiceUnavailable,
-                true,
                 ParseOptionalId(ledger.IntakeId),
                 ParseOptionalId(ledger.DocumentId));
         }
         catch (RpcException exception) when (exception.StatusCode == StatusCode.AlreadyExists)
         {
             throw new DocumentIntakeOrchestrationException(
-                "IDEMPOTENCY_CONFLICT",
+                DocumentProblemContractCatalog.IdempotencyConflict,
                 "The idempotency key was already used with a different request.",
-                StatusCodes.Status409Conflict,
-                false,
                 ParseOptionalId(ledger.IntakeId),
                 ParseOptionalId(ledger.DocumentId));
         }
         catch (RpcException exception) when (exception.StatusCode == StatusCode.NotFound)
         {
             throw new DocumentIntakeOrchestrationException(
-                "DOCUMENT_NOT_FOUND",
+                DocumentProblemContractCatalog.DocumentNotFound,
                 "The authoritative document intake could not be found.",
-                StatusCodes.Status404NotFound,
-                false,
                 ParseOptionalId(ledger.IntakeId),
                 ParseOptionalId(ledger.DocumentId));
         }
         catch (RpcException exception) when (exception.StatusCode == StatusCode.InvalidArgument)
         {
             throw new DocumentIntakeOrchestrationException(
-                "INVALID_REQUEST",
+                DocumentProblemContractCatalog.InvalidRequest,
                 "The OCR submission request is invalid.",
-                StatusCodes.Status400BadRequest,
-                false,
                 ParseOptionalId(ledger.IntakeId),
                 ParseOptionalId(ledger.DocumentId));
         }
@@ -254,10 +260,8 @@ public sealed class DocumentIntakeOrchestrator(
         {
             await MarkRetryableAsync(ledger.IntakeId, "ShipmentWorkflow was unavailable while finalizing the intake.", cancellationToken);
             throw new DocumentIntakeOrchestrationException(
-                "SHIPMENT_WORKFLOW_UNAVAILABLE",
+                DocumentProblemContractCatalog.ShipmentWorkflowUnavailable,
                 "The shipment intake could not be finalized. Retry the same request.",
-                StatusCodes.Status503ServiceUnavailable,
-                true,
                 ParseOptionalId(ledger.IntakeId),
                 ParseOptionalId(ledger.DocumentId));
         }
@@ -280,43 +284,38 @@ public sealed class DocumentIntakeOrchestrator(
         if (error.Retryable)
             await MarkRetryableAsync(ledger.IntakeId, error.Detail, cancellationToken);
         return new DocumentIntakeOrchestrationException(
-            error.Code,
+            error.Contract,
             error.Detail,
-            error.StatusCode,
-            error.Retryable,
             ParseOptionalId(ledger.IntakeId),
             ParseOptionalId(ledger.DocumentId));
     }
 
     private DocumentIntakeOrchestrationException MapShipmentException(
         RpcException exception,
-        DocumentIntakeResponse? ledger = null) => new(
-        exception.StatusCode switch
+        DocumentIntakeResponse? ledger = null)
+    {
+        var contract = exception.StatusCode switch
         {
-            StatusCode.NotFound => "DOCUMENT_INTAKE_NOT_FOUND",
-            StatusCode.AlreadyExists => "IDEMPOTENCY_CONFLICT",
-            StatusCode.FailedPrecondition => "INVALID_STATE_TRANSITION",
-            _ when DocumentsContract.IsUnavailable(exception.StatusCode) => "SHIPMENT_WORKFLOW_UNAVAILABLE",
-            _ => "INVALID_REQUEST"
-        },
-        exception.StatusCode switch
+            StatusCode.NotFound => DocumentProblemContractCatalog.DocumentIntakeNotFound,
+            StatusCode.AlreadyExists => DocumentProblemContractCatalog.IdempotencyConflict,
+            StatusCode.FailedPrecondition => DocumentProblemContractCatalog.InvalidStateTransition,
+            _ when DocumentsContract.IsUnavailable(exception.StatusCode) => DocumentProblemContractCatalog.ShipmentWorkflowUnavailable,
+            _ => DocumentProblemContractCatalog.InvalidRequest
+        };
+        var detail = exception.StatusCode switch
         {
             StatusCode.NotFound => "The authoritative document intake could not be found.",
             StatusCode.AlreadyExists => "The document intake was changed by another request.",
             StatusCode.FailedPrecondition => "The document intake cannot be changed from its current state.",
             _ when DocumentsContract.IsUnavailable(exception.StatusCode) => "The shipment intake dependency is temporarily unavailable. Retry the same request.",
             _ => "The document intake request is invalid."
-        },
-        exception.StatusCode switch
-        {
-            StatusCode.NotFound => StatusCodes.Status404NotFound,
-            StatusCode.AlreadyExists or StatusCode.FailedPrecondition => StatusCodes.Status409Conflict,
-            _ when DocumentsContract.IsUnavailable(exception.StatusCode) => StatusCodes.Status503ServiceUnavailable,
-            _ => StatusCodes.Status400BadRequest
-        },
-        DocumentsContract.IsUnavailable(exception.StatusCode),
-        ledger is null ? null : ParseOptionalId(ledger.IntakeId),
-        ledger is null ? null : ParseOptionalId(ledger.DocumentId));
+        };
+        return new DocumentIntakeOrchestrationException(
+            contract,
+            detail,
+            ledger is null ? null : ParseOptionalId(ledger.IntakeId),
+            ledger is null ? null : ParseOptionalId(ledger.DocumentId));
+    }
 
     private async Task MarkRetryableAsync(
         string intakeId,
@@ -356,21 +355,18 @@ public sealed class DocumentIntakeOrchestrator(
         DocumentIntakeResponse ledger)
     {
         if (!Guid.TryParse(verified.UploadId, out var verifiedUploadId) || verifiedUploadId != uploadId)
-            throw UploadFailure("UPLOAD_TENANT_MISMATCH", StatusCodes.Status404NotFound, ledger);
+            throw UploadFailure(DocumentProblemContractCatalog.UploadTenantMismatch, ledger);
         if (verified.Status is not (DocumentUploadStatus.Uploaded or DocumentUploadStatus.Consumed))
-            throw UploadFailure("UPLOAD_NOT_READY", StatusCodes.Status409Conflict, ledger);
+            throw UploadFailure(DocumentProblemContractCatalog.UploadNotReady, ledger);
         if (string.IsNullOrWhiteSpace(verified.StorageReference) || string.IsNullOrWhiteSpace(verified.FileName))
-            throw UploadFailure("UPLOAD_INVALID", StatusCodes.Status422UnprocessableEntity, ledger);
+            throw UploadFailure(DocumentProblemContractCatalog.UploadInvalid, ledger);
     }
 
     private static DocumentIntakeOrchestrationException UploadFailure(
-        string code,
-        int statusCode,
+        DocumentProblemContractCatalog.Definition contract,
         DocumentIntakeResponse ledger) => new(
-        code,
-        "The uploaded object did not satisfy the upload session contract.",
-        statusCode,
-        false,
+        contract,
+        contract.DefaultDetail,
         ParseOptionalId(ledger.IntakeId),
         ParseOptionalId(ledger.DocumentId));
 

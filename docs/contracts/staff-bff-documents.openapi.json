@@ -183,6 +183,9 @@
           },
           "503": {
             "$ref": "#/components/responses/Problem503_9"
+          },
+          "500": {
+            "$ref": "#/components/responses/Problem500_13"
           }
         },
         "x-error-contract": {
@@ -207,6 +210,10 @@
             },
             {
               "code": "DOCUMENT_INTAKE_NOT_FOUND",
+              "retryable": false
+            },
+            {
+              "code": "DOCUMENT_NOT_FOUND",
               "retryable": false
             }
           ],
@@ -234,6 +241,10 @@
             {
               "code": "UPLOAD_VERIFICATION_IN_PROGRESS",
               "retryable": true
+            },
+            {
+              "code": "UPLOAD_NOT_READY",
+              "retryable": false
             }
           ],
           "422": [
@@ -270,6 +281,12 @@
             {
               "code": "SHIPMENT_WORKFLOW_UNAVAILABLE",
               "retryable": true
+            }
+          ],
+          "500": [
+            {
+              "code": "DOCUMENT_CONTRACT_ERROR",
+              "retryable": false
             }
           ]
         }
@@ -1243,6 +1260,7 @@
               404,
               409,
               422,
+              500,
               503
             ]
           },
@@ -1257,28 +1275,30 @@
           "code": {
             "type": "string",
             "enum": [
+              "DOCUMENT_CONTRACT_ERROR",
+              "DOCUMENT_INTAKE_NOT_FOUND",
+              "DOCUMENT_NOT_FOUND",
+              "DOCUMENT_OCR_UNAVAILABLE",
+              "IDEMPOTENCY_CONFLICT",
+              "INVALID_FILE",
+              "INVALID_REQUEST",
+              "INVALID_STATE_TRANSITION",
               "INVALID_UPLOAD_REQUEST",
-              "UPLOAD_NOT_FOUND",
-              "UPLOAD_OBJECT_NOT_FOUND",
-              "UPLOAD_TENANT_MISMATCH",
+              "SHIPMENT_WORKFLOW_UNAVAILABLE",
+              "UPLOAD_CONTENT_MISMATCH",
               "UPLOAD_EXPIRED",
+              "UPLOAD_HASH_MISMATCH",
               "UPLOAD_IDEMPOTENCY_CONFLICT",
-              "UPLOAD_NOT_VERIFIED",
-              "UPLOAD_VERIFICATION_IN_PROGRESS",
               "UPLOAD_INVALID",
               "UPLOAD_MIME_MISMATCH",
-              "UPLOAD_SIZE_MISMATCH",
-              "UPLOAD_HASH_MISMATCH",
-              "UPLOAD_CONTENT_MISMATCH",
+              "UPLOAD_NOT_FOUND",
+              "UPLOAD_NOT_READY",
+              "UPLOAD_NOT_VERIFIED",
+              "UPLOAD_OBJECT_NOT_FOUND",
               "UPLOAD_SIZE_EXCEEDED",
-              "DOCUMENT_OCR_UNAVAILABLE",
-              "INVALID_REQUEST",
-              "DOCUMENT_INTAKE_NOT_FOUND",
-              "IDEMPOTENCY_CONFLICT",
-              "INVALID_STATE_TRANSITION",
-              "SHIPMENT_WORKFLOW_UNAVAILABLE",
-              "INVALID_FILE",
-              "DOCUMENT_NOT_FOUND"
+              "UPLOAD_SIZE_MISMATCH",
+              "UPLOAD_TENANT_MISMATCH",
+              "UPLOAD_VERIFICATION_IN_PROGRESS"
             ]
           },
           "retryable": {
@@ -1883,6 +1903,7 @@
                           "type": "string",
                           "enum": [
                             "DOCUMENT_INTAKE_NOT_FOUND",
+                            "DOCUMENT_NOT_FOUND",
                             "UPLOAD_NOT_FOUND",
                             "UPLOAD_OBJECT_NOT_FOUND",
                             "UPLOAD_TENANT_MISMATCH"
@@ -1947,6 +1968,19 @@
               }
             }
           }
+        },
+        "examples": {
+          "DOCUMENT_NOT_FOUND": {
+            "summary": "DOCUMENT_NOT_FOUND",
+            "value": {
+              "type": "https://httpstatuses.io/404",
+              "title": "DOCUMENT_NOT_FOUND",
+              "status": 404,
+              "detail": "Resource not found or hidden by tenant anti-enumeration policy.",
+              "code": "DOCUMENT_NOT_FOUND",
+              "retryable": false
+            }
+          }
         }
       },
       "Problem409_8": {
@@ -1982,6 +2016,7 @@
                             "INVALID_STATE_TRANSITION",
                             "UPLOAD_EXPIRED",
                             "UPLOAD_IDEMPOTENCY_CONFLICT",
+                            "UPLOAD_NOT_READY",
                             "UPLOAD_NOT_VERIFIED"
                           ]
                         },
@@ -2101,6 +2136,19 @@
                   "retryAfterSeconds": 5
                 }
               }
+            }
+          }
+        },
+        "examples": {
+          "UPLOAD_NOT_READY": {
+            "summary": "UPLOAD_NOT_READY",
+            "value": {
+              "type": "https://httpstatuses.io/409",
+              "title": "UPLOAD_NOT_READY",
+              "status": 409,
+              "detail": "Conflict or invalid state transition. Reconcile the existing resource before retrying.",
+              "code": "UPLOAD_NOT_READY",
+              "retryable": false
             }
           }
         }
@@ -2352,6 +2400,66 @@
                   "status": 409,
                   "detail": "Conflict or invalid state transition. Reconcile the existing resource before retrying.",
                   "code": "INVALID_STATE_TRANSITION",
+                  "retryable": false
+                }
+              }
+            }
+          }
+        }
+      },
+      "Problem500_13": {
+        "description": "The document service returned an undeclared error contract.",
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "oneOf": [
+                {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ProblemDetails"
+                    },
+                    {
+                      "type": "object",
+                      "required": [
+                        "status",
+                        "code",
+                        "retryable"
+                      ],
+                      "properties": {
+                        "status": {
+                          "type": "integer",
+                          "format": "int32",
+                          "enum": [
+                            500
+                          ]
+                        },
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "DOCUMENT_CONTRACT_ERROR"
+                          ]
+                        },
+                        "retryable": {
+                          "type": "boolean",
+                          "enum": [
+                            false
+                          ]
+                        }
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            "examples": {
+              "DOCUMENT_CONTRACT_ERROR": {
+                "summary": "DOCUMENT_CONTRACT_ERROR",
+                "value": {
+                  "type": "https://httpstatuses.io/500",
+                  "title": "DOCUMENT_CONTRACT_ERROR",
+                  "status": 500,
+                  "detail": "The document service returned an undeclared error contract.",
+                  "code": "DOCUMENT_CONTRACT_ERROR",
                   "retryable": false
                 }
               }

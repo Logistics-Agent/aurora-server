@@ -75,7 +75,7 @@ public sealed class DocumentsPublishedContractTests
                 method.GetCustomAttribute<RequirePermissionAttribute>()?.RequiredPermission);
             AssertRequestBody(operationContract, method, operation);
             AssertResponses(root, operationContract, method, operation);
-            AssertErrorContract(root, method, operation);
+            AssertErrorContract(root, operationContract, method, operation);
         }
     }
 
@@ -194,13 +194,22 @@ public sealed class DocumentsPublishedContractTests
         }
     }
 
-    private static void AssertErrorContract(JsonElement root, MethodInfo method, JsonElement operation)
+    private static void AssertErrorContract(
+        JsonElement root,
+        OperationContract operationContract,
+        MethodInfo method,
+        JsonElement operation)
     {
-        var sourceContracts = method.GetCustomAttributes<DocumentProblemContractAttribute>()
-            .GroupBy(attribute => attribute.StatusCode)
+        var operationIds = method.GetCustomAttributes<DocumentProblemContractAttribute>()
+            .SelectMany(attribute => attribute.OperationIds)
+            .ToHashSet(StringComparer.Ordinal);
+        Assert.Contains(operationContract.OperationId, operationIds);
+
+        var sourceContracts = DocumentEndpointProblemContracts.Get(operationContract.OperationId)
+            .GroupBy(contract => contract.StatusCode)
             .ToDictionary(
                 group => group.Key.ToString(),
-                group => group.SelectMany(attribute => attribute.Codes.Select(code => new ErrorEntry(code, attribute.Retryable)))
+                group => group.Select(contract => new ErrorEntry(contract.Code, contract.Retryable))
                     .OrderBy(entry => entry.Code)
                     .ThenBy(entry => entry.Retryable)
                     .ToArray());

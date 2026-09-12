@@ -35,12 +35,7 @@ public sealed class DocumentsController(
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status422UnprocessableEntity)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status503ServiceUnavailable)]
-    [DocumentProblemContract(StatusCodes.Status400BadRequest, false, "INVALID_UPLOAD_REQUEST")]
-    [DocumentProblemContract(StatusCodes.Status404NotFound, false, "UPLOAD_NOT_FOUND", "UPLOAD_OBJECT_NOT_FOUND", "UPLOAD_TENANT_MISMATCH")]
-    [DocumentProblemContract(StatusCodes.Status409Conflict, false, "UPLOAD_EXPIRED", "UPLOAD_IDEMPOTENCY_CONFLICT", "UPLOAD_NOT_VERIFIED")]
-    [DocumentProblemContract(StatusCodes.Status409Conflict, true, "UPLOAD_VERIFICATION_IN_PROGRESS")]
-    [DocumentProblemContract(StatusCodes.Status422UnprocessableEntity, false, "UPLOAD_INVALID", "UPLOAD_MIME_MISMATCH", "UPLOAD_SIZE_MISMATCH", "UPLOAD_HASH_MISMATCH", "UPLOAD_CONTENT_MISMATCH", "UPLOAD_SIZE_EXCEEDED")]
-    [DocumentProblemContract(StatusCodes.Status503ServiceUnavailable, true, "DOCUMENT_OCR_UNAVAILABLE")]
+    [DocumentProblemContract(DocumentEndpointProblemContracts.CreateUploadSession)]
     public async Task<IActionResult> CreateUploadSession(
         [FromBody] CreateDocumentUploadSessionRequest request,
         CancellationToken cancellationToken)
@@ -113,8 +108,7 @@ public sealed class DocumentsController(
     [ProducesResponseType(typeof(UnifiedDocumentStatusResponse), 200)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status503ServiceUnavailable)]
-    [DocumentProblemContract(StatusCodes.Status400BadRequest, false, "INVALID_FILE")]
-    [DocumentProblemContract(StatusCodes.Status503ServiceUnavailable, true, "DOCUMENT_OCR_UNAVAILABLE")]
+    [DocumentProblemContract(DocumentEndpointProblemContracts.SubmitShipmentDocumentLegacyAlias, DocumentEndpointProblemContracts.SubmitShipmentDocumentLegacy)]
     public async Task<IActionResult> SubmitShipmentDocument(
         [FromBody] SubmitShipmentDocumentRequest request,
         CancellationToken cancellationToken)
@@ -190,8 +184,7 @@ public sealed class DocumentsController(
     [ProducesResponseType(typeof(UnifiedDocumentStatusResponse), 200)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status503ServiceUnavailable)]
-    [DocumentProblemContract(StatusCodes.Status404NotFound, false, "DOCUMENT_NOT_FOUND")]
-    [DocumentProblemContract(StatusCodes.Status503ServiceUnavailable, true, "DOCUMENT_OCR_UNAVAILABLE")]
+    [DocumentProblemContract(DocumentEndpointProblemContracts.GetShipmentDocumentStatus, DocumentEndpointProblemContracts.GetShipmentDocumentStatusAlias)]
     public async Task<IActionResult> GetShipmentDocumentStatus(
         [FromRoute] string id,
         CancellationToken cancellationToken)
@@ -240,7 +233,7 @@ public sealed class DocumentsController(
     [RequirePermission(PermissionConstants.Documents.Read)]
     [ProducesResponseType(typeof(ListShipmentDocumentsResponse), 200)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status503ServiceUnavailable)]
-    [DocumentProblemContract(StatusCodes.Status503ServiceUnavailable, true, "DOCUMENT_OCR_UNAVAILABLE")]
+    [DocumentProblemContract(DocumentEndpointProblemContracts.ListShipmentDocuments)]
     public async Task<IActionResult> ListShipmentDocuments(
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 20,
@@ -298,8 +291,7 @@ public sealed class DocumentsController(
     [ProducesResponseType(typeof(OcrReviewDetailsResponse), 200)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status503ServiceUnavailable)]
-    [DocumentProblemContract(StatusCodes.Status404NotFound, false, "DOCUMENT_NOT_FOUND")]
-    [DocumentProblemContract(StatusCodes.Status503ServiceUnavailable, true, "DOCUMENT_OCR_UNAVAILABLE")]
+    [DocumentProblemContract(DocumentEndpointProblemContracts.GetShipmentDocumentReview)]
     public async Task<IActionResult> GetShipmentDocumentReview(
         [FromRoute] string id,
         CancellationToken cancellationToken)
@@ -383,10 +375,7 @@ public sealed class DocumentsController(
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status503ServiceUnavailable)]
-    [DocumentProblemContract(StatusCodes.Status400BadRequest, false, "INVALID_REQUEST")]
-    [DocumentProblemContract(StatusCodes.Status404NotFound, false, "DOCUMENT_NOT_FOUND")]
-    [DocumentProblemContract(StatusCodes.Status409Conflict, false, "INVALID_STATE_TRANSITION")]
-    [DocumentProblemContract(StatusCodes.Status503ServiceUnavailable, true, "DOCUMENT_OCR_UNAVAILABLE")]
+    [DocumentProblemContract(DocumentEndpointProblemContracts.SubmitShipmentDocumentReview)]
     public async Task<IActionResult> SubmitShipmentDocumentReview(
         [FromRoute] string id,
         [FromBody] SubmitOcrReviewRequest request,
@@ -493,9 +482,7 @@ public sealed class DocumentsController(
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status503ServiceUnavailable)]
-    [DocumentProblemContract(StatusCodes.Status404NotFound, false, "DOCUMENT_NOT_FOUND")]
-    [DocumentProblemContract(StatusCodes.Status409Conflict, false, "INVALID_STATE_TRANSITION")]
-    [DocumentProblemContract(StatusCodes.Status503ServiceUnavailable, true, "DOCUMENT_OCR_UNAVAILABLE")]
+    [DocumentProblemContract(DocumentEndpointProblemContracts.CancelShipmentDocument)]
     public async Task<IActionResult> CancelShipmentDocument(
         [FromRoute] string id,
         CancellationToken cancellationToken)
@@ -553,9 +540,7 @@ public sealed class DocumentsController(
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status503ServiceUnavailable)]
-    [DocumentProblemContract(StatusCodes.Status404NotFound, false, "DOCUMENT_NOT_FOUND")]
-    [DocumentProblemContract(StatusCodes.Status409Conflict, false, "INVALID_STATE_TRANSITION")]
-    [DocumentProblemContract(StatusCodes.Status503ServiceUnavailable, true, "DOCUMENT_OCR_UNAVAILABLE")]
+    [DocumentProblemContract(DocumentEndpointProblemContracts.RetryShipmentDocument)]
     public async Task<IActionResult> RetryShipmentDocument(
         [FromRoute] string id,
         CancellationToken cancellationToken)

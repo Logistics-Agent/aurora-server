@@ -119,7 +119,7 @@ The following routes remain for existing clients and are not the new browser upl
 
 The old `/api/v1/documents/jobs/...` and `/api/v1/documents/ocr/jobs/...` paths are not Staff BFF routes in the current source and must not be used by FE.
 
-The sanitized FE contract fixture is tracked at `docs/contracts/staff-bff-documents.openapi.json`. It is source-derived from the Staff BFF controller DTOs and attributes because the isolated finalization environment could not complete runtime Swagger generation; `DocumentsPublishedContractTests` provides the drift check against those source types and metadata.
+The sanitized FE contract fixture is tracked at `docs/contracts/staff-bff-documents.openapi.json`. It is source-derived from the Staff BFF controller DTOs and the typed document problem-contract catalog/endpoint registry because the isolated finalization environment could not complete runtime Swagger generation; `DocumentsPublishedContractTests` provides the drift check against those source types and registry entries.
 
 ---
 

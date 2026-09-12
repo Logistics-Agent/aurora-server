@@ -252,6 +252,33 @@ public sealed class DocumentIntakeControllerTests
         Assert.Contains("retryable", serialized);
     }
 
+    [Fact]
+    public async Task Intake_endpoint_fails_closed_for_mismatched_exception_tuple()
+    {
+        var orchestrator = new Mock<IDocumentIntakeOrchestrator>();
+        orchestrator
+            .Setup(service => service.ComposeAsync(
+                It.IsAny<Guid>(), It.IsAny<CreateDocumentIntakeRequestModel>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new DocumentIntakeOrchestrationException(
+                "DOCUMENT_NOT_FOUND",
+                "do not leak this detail",
+                StatusCodes.Status409Conflict,
+                retryable: true));
+        var controller = CreateShipmentsController(orchestrator.Object);
+
+        var result = await controller.CreateDocumentIntake(
+            Guid.CreateVersion7().ToString(),
+            new CreateDocumentIntakeBody(Guid.CreateVersion7().ToString(), "INVOICE", "intake-key"),
+            CancellationToken.None);
+
+        var problemResult = Assert.IsType<ObjectResult>(result);
+        var problem = Assert.IsType<ProblemDetails>(problemResult.Value);
+        Assert.Equal(StatusCodes.Status500InternalServerError, problemResult.StatusCode);
+        Assert.Equal("DOCUMENT_CONTRACT_ERROR", problem.Extensions["code"]);
+        Assert.False((bool)problem.Extensions["retryable"]!);
+        Assert.DoesNotContain("do not leak this detail", JsonSerializer.Serialize(problem));
+    }
+
     private static ShipmentsController CreateShipmentsController(IDocumentIntakeOrchestrator orchestrator) =>
         new(
             new Mock<ShipmentWorkflowService.ShipmentWorkflowServiceClient>(new object[]
