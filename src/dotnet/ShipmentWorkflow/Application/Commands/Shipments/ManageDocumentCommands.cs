@@ -1,6 +1,5 @@
 using MediatR;
 using Microsoft.EntityFrameworkCore;
-using Npgsql;
 using Shared.Exceptions;
 using Shared.Security;
 using ShipmentWorkflow.Application.DTOs.Shipments;
@@ -41,12 +40,13 @@ public sealed class AttachShipmentDocumentCommandHandler(
         var storageReference = NormalizeStorageReference(request);
         var idempotencyKey = NormalizeOptional(request.IdempotencyKey);
         ValidateIdempotentFields(request, idempotencyKey, storageReference);
+        var effectiveStorageUrl = NormalizeEffectiveStorageUrl(request, storageReference);
         var shipment = await ShipmentCommandHelpers.GetShipmentAsync(dbContext, request.ShipmentId, cancellationToken);
         ShipmentCommandHelpers.EnsureNonTerminalMutation(shipment);
 
         var requestHash = idempotencyKey is null
             ? null
-            : DocumentIntakeRequestHasher.ForAttachment(request, storageReference);
+            : DocumentIntakeRequestHasher.ForAttachment(request, storageReference, effectiveStorageUrl);
         var existing = idempotencyKey is null
             ? null
             : shipment.Documents.SingleOrDefault(document =>
@@ -61,7 +61,7 @@ public sealed class AttachShipmentDocumentCommandHandler(
         var document = shipment.AddDocumentMetadata(
             request.FileName,
             request.DocumentType,
-            string.IsNullOrWhiteSpace(request.StorageUrl) ? storageReference : request.StorageUrl,
+            effectiveStorageUrl,
             currentUser.UserId,
             DateTimeOffset.UtcNow,
             request.OCRStatus,
@@ -79,8 +79,26 @@ public sealed class AttachShipmentDocumentCommandHandler(
         {
             await dbContext.SaveChangesAsync(cancellationToken);
         }
-        catch (DbUpdateException exception) when (IsUniqueViolation(exception) && idempotencyKey is not null)
+        catch (DbUpdateException exception) when (idempotencyKey is not null)
         {
+            var constraintName = DocumentIntakePersistenceErrors.GetUniqueConstraintName(exception);
+            if (constraintName == DocumentIntakePersistenceErrors.AttachmentStorageReferenceConstraint)
+            {
+                dbContext.ChangeTracker.Clear();
+                shipment = await ShipmentCommandHelpers.GetShipmentAsync(dbContext, request.ShipmentId, cancellationToken);
+                existing = shipment.Documents.SingleOrDefault(document => document.IdempotencyKey == idempotencyKey);
+                if (existing is not null)
+                {
+                    if (!string.Equals(existing.RequestHash, requestHash, StringComparison.Ordinal))
+                        throw new ConflictException("The idempotency key was already used with a different request.");
+                    return ShipmentDto.FromEntity(shipment);
+                }
+
+                throw new ConflictException("The storage reference is already attached to this shipment.");
+            }
+            if (constraintName != DocumentIntakePersistenceErrors.AttachmentIdempotencyKeyConstraint)
+                throw;
+
             dbContext.ChangeTracker.Clear();
             shipment = await ShipmentCommandHelpers.GetShipmentAsync(dbContext, request.ShipmentId, cancellationToken);
             existing = shipment.Documents.SingleOrDefault(document => document.IdempotencyKey == idempotencyKey)
@@ -100,6 +118,15 @@ public sealed class AttachShipmentDocumentCommandHandler(
         return string.IsNullOrWhiteSpace(storageReference)
             ? throw new DomainException("StorageReference is required.")
             : storageReference.Trim();
+    }
+
+    private static string NormalizeEffectiveStorageUrl(
+        AttachShipmentDocumentCommand request,
+        string storageReference)
+    {
+        return (string.IsNullOrWhiteSpace(request.StorageUrl)
+                ? storageReference
+                : request.StorageUrl).Trim();
     }
 
     private static string? NormalizeOptional(string? value) =>
@@ -124,8 +151,6 @@ public sealed class AttachShipmentDocumentCommandHandler(
             throw new DomainException("StorageReference must be 1000 characters or fewer.");
     }
 
-    private static bool IsUniqueViolation(DbUpdateException exception) =>
-        exception.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation };
 }
 
 public sealed class UpdateShipmentDocumentOcrCommandHandler(

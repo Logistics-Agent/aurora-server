@@ -48,9 +48,9 @@ public class ShipmentDocument : TenantAuditableEntity
             FileName = fileName.Trim(),
             DocumentType = documentType,
             StorageUrl = normalizedStorageUrl,
-            StorageReference = string.IsNullOrWhiteSpace(storageReference)
-                ? normalizedStorageUrl
-                : storageReference.Trim(),
+            StorageReference = string.IsNullOrWhiteSpace(idempotencyKey)
+                ? null
+                : storageReference!.Trim(),
             IdempotencyKey = idempotencyKey?.Trim(),
             UploadId = uploadId,
             RequestHash = requestHash?.Trim().ToLowerInvariant(),

@@ -63,6 +63,48 @@ public sealed class ShipmentDocumentIntakeTests
     }
 
     [Fact]
+    public async Task Different_keys_with_same_storage_reference_return_stable_conflict_without_phantom_intake()
+    {
+        var tenantId = Guid.NewGuid();
+        var currentUser = new TestCurrentUserService(tenantId);
+        await using var dbContext = await CreateDbContextAsync(currentUser);
+        var shipment = await AddShipmentAsync(dbContext, tenantId, "SHP-INTAKE-STORAGE-COLLISION");
+
+        await new CreateDocumentIntakeCommandHandler(dbContext, currentUser)
+            .Handle(CreateCommand(shipment.Id), CancellationToken.None);
+
+        var exception = await Assert.ThrowsAsync<ConflictException>(() =>
+            new CreateDocumentIntakeCommandHandler(dbContext, currentUser)
+                .Handle(CreateCommand(shipment.Id, idempotencyKey: "intake-key-2"), CancellationToken.None));
+
+        Assert.Equal("The storage reference is already attached to this shipment.", exception.Message);
+        Assert.Equal(1, await dbContext.DocumentIntakes.CountAsync());
+        Assert.Equal(1, await dbContext.ShipmentDocuments.CountAsync());
+    }
+
+    [Fact]
+    public async Task Existing_intake_with_missing_document_does_not_replay_phantom_document()
+    {
+        var tenantId = Guid.NewGuid();
+        var currentUser = new TestCurrentUserService(tenantId);
+        await using var dbContext = await CreateDbContextAsync(currentUser);
+        var shipment = await AddShipmentAsync(dbContext, tenantId, "SHP-INTAKE-MISSING-DOCUMENT");
+        var command = CreateCommand(shipment.Id);
+        await new CreateDocumentIntakeCommandHandler(dbContext, currentUser)
+            .Handle(command, CancellationToken.None);
+        var document = await dbContext.ShipmentDocuments.SingleAsync();
+        dbContext.ShipmentDocuments.Remove(document);
+        await dbContext.SaveChangesAsync();
+        dbContext.ChangeTracker.Clear();
+
+        var exception = await Assert.ThrowsAsync<ConflictException>(() =>
+            new CreateDocumentIntakeCommandHandler(dbContext, currentUser)
+                .Handle(command, CancellationToken.None));
+
+        Assert.Equal("The document intake references a missing document.", exception.Message);
+    }
+
+    [Fact]
     public async Task Concurrent_same_key_creates_one_document_and_one_event()
     {
         var tenantId = Guid.NewGuid();
@@ -154,6 +196,45 @@ public sealed class ShipmentDocumentIntakeTests
     }
 
     [Fact]
+    public async Task Stale_transition_contexts_conflict_but_same_transition_is_idempotent()
+    {
+        var tenantId = Guid.NewGuid();
+        var currentUser = new TestCurrentUserService(tenantId);
+        await using var setupContext = await CreateDbContextAsync(currentUser);
+        var shipment = await AddShipmentAsync(setupContext, tenantId, "SHP-INTAKE-CONCURRENCY");
+        var created = await new CreateDocumentIntakeCommandHandler(setupContext, currentUser)
+            .Handle(CreateCommand(shipment.Id), CancellationToken.None);
+
+        await using var staleRetryableContext = CreateDbContext(new TestCurrentUserService(tenantId));
+        _ = await staleRetryableContext.DocumentIntakes
+            .SingleAsync(intake => intake.Id == created.IntakeId);
+        await using var submittedContext = CreateDbContext(new TestCurrentUserService(tenantId));
+        var submitted = await new MarkDocumentIntakeSubmittedCommandHandler(
+                submittedContext,
+                new TestCurrentUserService(tenantId))
+            .Handle(new MarkDocumentIntakeSubmittedCommand(created.IntakeId), CancellationToken.None);
+        Assert.Equal(DocumentIntakeStatus.Submitted, submitted.Status);
+
+        await Assert.ThrowsAsync<ConflictException>(() =>
+            new MarkDocumentIntakeRetryableCommandHandler(
+                    staleRetryableContext,
+                    new TestCurrentUserService(tenantId))
+                .Handle(
+                    new MarkDocumentIntakeRetryableCommand(created.IntakeId, "OCR unavailable"),
+                    CancellationToken.None));
+
+        var sameTransitionContext = CreateDbContext(new TestCurrentUserService(tenantId));
+        _ = await sameTransitionContext.DocumentIntakes
+            .SingleAsync(intake => intake.Id == created.IntakeId);
+        var sameTransition = await new MarkDocumentIntakeSubmittedCommandHandler(
+                sameTransitionContext,
+                new TestCurrentUserService(tenantId))
+            .Handle(new MarkDocumentIntakeSubmittedCommand(created.IntakeId), CancellationToken.None);
+        Assert.Equal(DocumentIntakeStatus.Submitted, sameTransition.Status);
+        await sameTransitionContext.DisposeAsync();
+    }
+
+    [Fact]
     public async Task Submitted_intake_replays_and_illegal_transition_is_rejected()
     {
         var tenantId = Guid.NewGuid();
@@ -196,6 +277,38 @@ public sealed class ShipmentDocumentIntakeTests
 
         Assert.Single(result.Documents);
         Assert.Null(await dbContext.DocumentIntakes.SingleOrDefaultAsync());
+        Assert.Null(await dbContext.ShipmentDocuments.Select(document => document.StorageReference).SingleAsync());
+    }
+
+    [Fact]
+    public async Task Legacy_duplicate_and_idempotent_mixed_attachments_remain_compatible()
+    {
+        var tenantId = Guid.NewGuid();
+        var currentUser = new TestCurrentUserService(tenantId);
+        await using var dbContext = await CreateDbContextAsync(currentUser);
+        var shipment = await AddShipmentAsync(dbContext, tenantId, "SHP-INTAKE-LEGACY-MIXED");
+        var handler = new AttachShipmentDocumentCommandHandler(dbContext, currentUser);
+        var legacy = new AttachShipmentDocumentCommand(
+            shipment.Id,
+            "legacy.pdf",
+            DocumentType.Other,
+            "s3://legacy/repeatable.pdf",
+            OCRStatus.Pending,
+            null,
+            null);
+
+        await handler.Handle(legacy, CancellationToken.None);
+        await handler.Handle(legacy, CancellationToken.None);
+        await handler.Handle(legacy with
+        {
+            IdempotencyKey = "mixed-key",
+            UploadId = Guid.CreateVersion7(),
+            StorageReference = "s3://legacy/repeatable.pdf"
+        }, CancellationToken.None);
+
+        Assert.Equal(3, await dbContext.ShipmentDocuments.CountAsync());
+        Assert.Equal(2, await dbContext.ShipmentDocuments.CountAsync(document => document.StorageReference == null));
+        Assert.Equal(1, await dbContext.ShipmentDocuments.CountAsync(document => document.IdempotencyKey == "mixed-key"));
     }
 
     [Fact]
@@ -230,6 +343,118 @@ public sealed class ShipmentDocumentIntakeTests
         await Assert.ThrowsAsync<ConflictException>(() =>
             new AttachShipmentDocumentCommandHandler(dbContext, currentUser)
                 .Handle(command with { UploadId = Guid.CreateVersion7() }, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task Idempotent_attach_hash_uses_normalized_persisted_semantics()
+    {
+        var tenantId = Guid.NewGuid();
+        var currentUser = new TestCurrentUserService(tenantId);
+        await using var dbContext = await CreateDbContextAsync(currentUser);
+        var shipment = await AddShipmentAsync(dbContext, tenantId, "SHP-INTAKE-HASH");
+        var uploadId = Guid.CreateVersion7();
+        var first = new AttachShipmentDocumentCommand(
+            shipment.Id,
+            " invoice.pdf ",
+            DocumentType.Invoice,
+            " s3://shipment/invoice.pdf ",
+            OCRStatus.Pending,
+            0.87501m,
+            " {\"b\":2, \"a\":1} ",
+            " hash-key ",
+            uploadId,
+            " objects/tenant/upload/invoice.pdf ");
+        var equivalent = first with
+        {
+            FileName = "invoice.pdf",
+            StorageUrl = "s3://shipment/invoice.pdf",
+            OCRConfidence = 0.8750m,
+            ExtractedDataJson = "{\"a\":1,\"b\":2}",
+            IdempotencyKey = "hash-key",
+            StorageReference = "objects/tenant/upload/invoice.pdf"
+        };
+
+        var firstResult = await new AttachShipmentDocumentCommandHandler(dbContext, currentUser)
+            .Handle(first, CancellationToken.None);
+        dbContext.ChangeTracker.Clear();
+        var replay = await new AttachShipmentDocumentCommandHandler(dbContext, currentUser)
+            .Handle(equivalent, CancellationToken.None);
+
+        Assert.Equal(firstResult.Documents.Single().Id, replay.Documents.Single().Id);
+        Assert.Equal(1, await dbContext.ShipmentDocuments.CountAsync());
+
+        await Assert.ThrowsAsync<ConflictException>(() =>
+            new AttachShipmentDocumentCommandHandler(dbContext, currentUser)
+                .Handle(equivalent with { OCRStatus = OCRStatus.Completed }, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task Different_idempotent_attachment_keys_with_same_storage_reference_conflict()
+    {
+        var tenantId = Guid.NewGuid();
+        var currentUser = new TestCurrentUserService(tenantId);
+        await using var dbContext = await CreateDbContextAsync(currentUser);
+        var shipment = await AddShipmentAsync(dbContext, tenantId, "SHP-INTAKE-ATTACH-COLLISION");
+        var first = new AttachShipmentDocumentCommand(
+            shipment.Id,
+            "invoice.pdf",
+            DocumentType.Invoice,
+            "s3://shipment/invoice.pdf",
+            OCRStatus.Pending,
+            null,
+            null,
+            "attach-key-1",
+            Guid.CreateVersion7(),
+            "objects/tenant/upload/invoice.pdf");
+
+        await new AttachShipmentDocumentCommandHandler(dbContext, currentUser)
+            .Handle(first, CancellationToken.None);
+
+        var exception = await Assert.ThrowsAsync<ConflictException>(() =>
+            new AttachShipmentDocumentCommandHandler(dbContext, currentUser)
+                .Handle(first with
+                {
+                    IdempotencyKey = "attach-key-2",
+                    UploadId = Guid.CreateVersion7()
+                }, CancellationToken.None));
+
+        Assert.Equal("The storage reference is already attached to this shipment.", exception.Message);
+        Assert.Equal(1, await dbContext.ShipmentDocuments.CountAsync());
+        Assert.Equal(1, await dbContext.OutboxMessages.CountAsync());
+    }
+
+    [Fact]
+    public async Task Migration_preserves_existing_shipments_documents_and_outbox_rows()
+    {
+        var tenantId = Guid.NewGuid();
+        var currentUser = new TestCurrentUserService(tenantId);
+        await using var dbContext = await CreateDbContextAsync(currentUser);
+        var shipment = await AddShipmentAsync(dbContext, tenantId, "SHP-INTAKE-MIGRATION");
+        await new AttachShipmentDocumentCommandHandler(dbContext, currentUser)
+            .Handle(new AttachShipmentDocumentCommand(
+                shipment.Id,
+                "legacy.pdf",
+                DocumentType.Other,
+                "s3://legacy/migration.pdf",
+                OCRStatus.Pending,
+                null,
+                null), CancellationToken.None);
+        var existingOutboxCount = await dbContext.OutboxMessages.CountAsync();
+
+        await dbContext.Database.ExecuteSqlRawAsync("DROP TABLE IF EXISTS document_intakes;");
+        await dbContext.Database.ExecuteSqlRawAsync("DROP INDEX IF EXISTS \"IX_shipment_documents_TenantId_ShipmentId_IdempotencyKey\";");
+        await dbContext.Database.ExecuteSqlRawAsync("DROP INDEX IF EXISTS \"IX_shipment_documents_TenantId_ShipmentId_StorageReference\";");
+        await dbContext.Database.ExecuteSqlRawAsync("ALTER TABLE shipment_documents DROP COLUMN IF EXISTS \"StorageReference\", DROP COLUMN IF EXISTS \"IdempotencyKey\", DROP COLUMN IF EXISTS \"UploadId\", DROP COLUMN IF EXISTS \"RequestHash\";");
+        dbContext.ChangeTracker.Clear();
+
+        await dbContext.Database.MigrateAsync();
+
+        await using var migratedContext = CreateDbContext(currentUser);
+        Assert.Equal(1, await migratedContext.Shipments.CountAsync());
+        Assert.Equal(1, await migratedContext.ShipmentDocuments.CountAsync());
+        Assert.Equal(existingOutboxCount, await migratedContext.OutboxMessages.CountAsync());
+        Assert.Equal(0, await migratedContext.DocumentIntakes.CountAsync());
+        Assert.Null(await migratedContext.ShipmentDocuments.Select(document => document.StorageReference).SingleAsync());
     }
 
     private static CreateDocumentIntakeCommand CreateCommand(

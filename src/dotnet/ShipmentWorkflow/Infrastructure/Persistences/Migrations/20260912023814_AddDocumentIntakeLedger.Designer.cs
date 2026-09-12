@@ -137,6 +137,7 @@ namespace ShipmentWorkflow.Infrastructure.Persistences.Migrations
                         .HasColumnType("uuid");
 
                     b.Property<int>("StateVersion")
+                        .IsConcurrencyToken()
                         .HasColumnType("integer");
 
                     b.Property<string>("Status")
@@ -393,10 +394,12 @@ namespace ShipmentWorkflow.Infrastructure.Persistences.Migrations
                     b.HasIndex("TenantId", "ShipmentId", "DocumentType");
 
                     b.HasIndex("TenantId", "ShipmentId", "IdempotencyKey")
-                        .IsUnique();
+                        .IsUnique()
+                        .HasFilter("\"IdempotencyKey\" IS NOT NULL");
 
                     b.HasIndex("TenantId", "ShipmentId", "StorageReference")
-                        .IsUnique();
+                        .IsUnique()
+                        .HasFilter("\"IdempotencyKey\" IS NOT NULL AND \"StorageReference\" IS NOT NULL");
 
                     b.ToTable("shipment_documents", (string)null);
                 });

@@ -270,11 +270,13 @@ public sealed class ShipmentWorkflowDbContext(
 
             entity.HasIndex(document =>
                 new { document.TenantId, document.ShipmentId, document.IdempotencyKey })
-                .IsUnique();
+                .IsUnique()
+                .HasFilter("\"IdempotencyKey\" IS NOT NULL");
 
             entity.HasIndex(document =>
                 new { document.TenantId, document.ShipmentId, document.StorageReference })
-                .IsUnique();
+                .IsUnique()
+                .HasFilter("\"IdempotencyKey\" IS NOT NULL AND \"StorageReference\" IS NOT NULL");
 
             entity.Property(document => document.FileName)
                 .HasMaxLength(ShipmentDocumentEntity.FileNameMaxLength)
@@ -363,6 +365,9 @@ public sealed class ShipmentWorkflowDbContext(
                 .HasConversion<string>()
                 .HasMaxLength(50)
                 .IsRequired();
+
+            entity.Property(intake => intake.StateVersion)
+                .IsConcurrencyToken();
 
             entity.Property(intake => intake.FailureReason)
                 .HasMaxLength(DocumentIntakeEntity.FailureReasonMaxLength);
