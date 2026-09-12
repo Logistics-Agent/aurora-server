@@ -8,6 +8,7 @@ import "google/protobuf/timestamp.proto";
 
 service RegulatoryComplianceService {
   rpc EvaluateCompliance(EvaluateComplianceRequest) returns (ComplianceEvaluationResponse);
+  rpc ListComplianceEvaluations(ListComplianceEvaluationsRequest) returns (ListComplianceEvaluationsResponse);
   rpc GetComplianceEvaluation(GetComplianceEvaluationRequest) returns (ComplianceEvaluationResponse);
   rpc QueryRegulations(QueryRegulationsRequest) returns (QueryRegulationsResponse);
   rpc IngestRegulatorySource(IngestRegulatorySourceRequest) returns (IngestRegulatorySourceResponse);
@@ -84,6 +85,7 @@ message EvaluateComplianceRequest {
   string transport_mode = 7;
   repeated OcrDocumentSnapshot documents = 8;
   google.protobuf.Timestamp effective_at = 9;
+  string shipment_version = 10;
 }
 
 message CargoSnapshot {
@@ -108,6 +110,19 @@ message OcrDocumentSnapshot {
 
 message GetComplianceEvaluationRequest {
   string evaluation_id = 1;
+}
+
+message ListComplianceEvaluationsRequest {
+  int32 page = 1;
+  int32 page_size = 2;
+  ComplianceEvaluationStatus status = 3;
+}
+
+message ListComplianceEvaluationsResponse {
+  repeated ComplianceEvaluationResponse items = 1;
+  int32 page = 2;
+  int32 page_size = 3;
+  int32 total_count = 4;
 }
 
 message ComplianceEvaluationResponse {
@@ -373,4 +388,3 @@ message ValidateGroundedEvidenceResponse {
   bool insufficient_evidence = 5;
   repeated string missing_information = 6;
 }
-

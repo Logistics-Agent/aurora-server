@@ -35,7 +35,7 @@ public sealed class RegulatoryComplianceContractTests
             .ToArray();
 
         Assert.Equal(
-            ["EvaluateCompliance", "GenerateGroundedAnswer", "GetComplianceEvaluation", "IngestKnowledgeDocument", "IngestRegulatorySource", "QueryKnowledge", "QueryRegulations", "ValidateGroundedEvidence"],
+            ["EvaluateCompliance", "GenerateGroundedAnswer", "GetComplianceEvaluation", "IngestKnowledgeDocument", "IngestRegulatorySource", "ListComplianceEvaluations", "QueryKnowledge", "QueryRegulations", "ValidateGroundedEvidence"],
             methods);
     }
 
@@ -48,6 +48,11 @@ public sealed class RegulatoryComplianceContractTests
         Assert.NotNull(QueryRegulationsResponse.Descriptor.FindFieldByName("evidence_sufficiency"));
         Assert.NotNull(QueryRegulationsResponse.Descriptor.FindFieldByName("evidence"));
         Assert.NotNull(QueryRegulationsResponse.Descriptor.FindFieldByName("generated_explanation"));
+        Assert.NotNull(ComplianceEvaluationResponse.Descriptor.FindFieldByName("freshness"));
+        Assert.NotNull(ComplianceEvaluationResponse.Descriptor.FindFieldByName("snapshot_hash"));
+        Assert.NotNull(ComplianceEvaluationResponse.Descriptor.FindFieldByName("snapshot_version"));
+        Assert.NotNull(ComplianceEvaluationResponse.Descriptor.FindFieldByName("stale_at"));
+        Assert.NotNull(ComplianceEvaluationResponse.Descriptor.FindFieldByName("stale_reason_codes"));
     }
 
     [Fact]
@@ -56,6 +61,7 @@ public sealed class RegulatoryComplianceContractTests
         AssertTimestamp(EvaluateComplianceRequest.Descriptor, "effective_at");
         AssertTimestamp(ComplianceEvaluationResponse.Descriptor, "requested_at");
         AssertTimestamp(ComplianceEvaluationResponse.Descriptor, "completed_at");
+        AssertTimestamp(ComplianceEvaluationResponse.Descriptor, "stale_at");
         AssertTimestamp(RegulationCitation.Descriptor, "effective_from");
         AssertTimestamp(IngestRegulatorySourceRequest.Descriptor, "published_at");
     }
