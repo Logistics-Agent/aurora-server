@@ -446,6 +446,39 @@ public sealed class DocumentUploadServiceTests
             metadata.ContentSha256);
     }
 
+    [Fact]
+    public async Task S3AdapterSignsTheDeclaredBrowserContentLength()
+    {
+        var tenantId = Guid.CreateVersion7();
+        var uploadId = Guid.CreateVersion7();
+        var objectKey = $"objects/{tenantId}/{uploadId}/invoice.pdf";
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?> { ["Storage:S3:Bucket"] = "documents" })
+            .Build();
+        using var client = new AmazonS3Client(
+            new BasicAWSCredentials("access", "secret"),
+            new AmazonS3Config
+            {
+                ServiceURL = "https://r2.example.test",
+                AuthenticationRegion = "auto"
+            });
+        var storage = new global::DocumentOcr.Infrastructure.Storage.S3DocumentInputStorage(client, configuration);
+
+        var target = await storage.CreateSignedWriteTargetAsync(
+            tenantId,
+            uploadId,
+            objectKey,
+            "invoice.pdf",
+            "application/pdf",
+            2_048,
+            Now.AddMinutes(15),
+            null);
+
+        Assert.Contains("content-length", target.Url, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal("application/pdf", target.RequiredHeaders["Content-Type"]);
+        Assert.DoesNotContain("Content-Length", target.RequiredHeaders.Keys, StringComparer.OrdinalIgnoreCase);
+    }
+
     private static CreateDocumentUploadInput Input() =>
         new("upload-001", "invoice.pdf", "application/pdf", 1_024, null);
 

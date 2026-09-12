@@ -95,7 +95,7 @@ Aurora defines **exactly four canonical Base Roles**. Base roles act as UI perso
 | **Shipments** | `POST /api/v1/shipments/{id}/submit` | `shipments:submit` | Tenant Shipment | Staff, Operator | `CURRENT` |
 | **Shipments** | `POST /api/v1/shipments/{id}/cancel` | `shipments:cancel` | Tenant Shipment | Staff, Operator | `CURRENT` |
 | **Shipments** | `POST /api/v1/shipments/{id}/milestones` | `shipments:milestones:update` | Tenant Shipment | Staff, Operator | `CURRENT` |
-| **Documents/OCR** | `POST /api/v1/documents/uploads` | `documents:ingest` | Tenant upload session | MANAGER, TENANT_ADMIN; STAFF only with a custom grant | `CURRENT` |
+| **Documents/OCR** | `POST /api/v1/documents/uploads` | `documents:ingest` | Tenant upload session; caller-supplied `idempotencyKey` | MANAGER, TENANT_ADMIN; STAFF only with a custom grant | `CURRENT` |
 | **Documents/OCR** | `PUT {writeUrl returned by /api/v1/documents/uploads}` | Upload-session capability | Tenant object storage | Any caller holding the issued upload capability | `CURRENT` |
 | **Documents/OCR** | `POST /api/v1/shipments/{id}/document-intakes` | `documents:ingest` | Tenant shipment + upload | MANAGER, TENANT_ADMIN; STAFF only with a custom grant | `CURRENT` |
 | **Documents/OCR** | `GET /api/v1/documents/shipment-documents` | `documents:read` | Tenant document jobs | STAFF, MANAGER, TENANT_ADMIN | `CURRENT` |
@@ -114,7 +114,7 @@ Aurora defines **exactly four canonical Base Roles**. Base roles act as UI perso
 | **Routes** | `GET /api/v1/approvals` | `route_planning:approve` | Tenant Route | Manager, Risk Lead | `CURRENT` |
 | **Routes** | `POST /api/v1/approvals/{id}/approve` | `route_planning:approve` | Tenant Route | Authorized Approver | `CURRENT` |
 | **Routes** | `POST /api/v1/approvals/{id}/reject` | `route_planning:approve` | Tenant Route | Authorized Approver | `CURRENT` |
-| **Documents/OCR** | `POST /api/v1/documents/shipment` or `/api/v1/documents/shipment-documents` | `documents:ingest` | Tenant document/job | Existing clients only | `CURRENT_LEGACY` |
+| **Documents/OCR** | `POST /api/v1/documents/shipment` or `/api/v1/documents/shipment-documents` | `documents:ingest` | Tenant document/job; required `idempotencyKey`, deterministic external ID fallback | Existing clients only | `CURRENT_LEGACY` |
 | **Compliance**| `POST /api/v1/compliance/evaluations` | `compliance:evaluate` | Tenant Shipment | Customs Specialist | `CURRENT` |
 | **Compliance**| `POST /api/v1/compliance/rag/query` | `compliance:read` | Jurisdiction | Compliance Staff | `CURRENT` |
 | **Tracking** | `GET /api/v1/tracking/{id}/current` | `shipments:read` | Tenant Vehicle/Shipment | Staff, Dispatcher | `CURRENT` |

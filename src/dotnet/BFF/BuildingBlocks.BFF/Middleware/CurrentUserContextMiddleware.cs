@@ -24,16 +24,6 @@ public class CurrentUserContextMiddleware(RequestDelegate next)
                         ?? GetClaimGuid(context.User, Shared.Security.JwtClaims.TenantId)
                         ?? GetClaimGuid(context.User, "custom:tenant_id");
 
-            if (!tenantId.HasValue && context.Request.Headers.TryGetValue("x-tenant-id", out var headerTenantIdStr) && Guid.TryParse(headerTenantIdStr, out var headerTenantId))
-            {
-                tenantId = headerTenantId;
-            }
-
-            if (!tenantId.HasValue && context.Request.Query.TryGetValue("tenantId", out var queryTenantIdStr) && Guid.TryParse(queryTenantIdStr, out var queryTenantId))
-            {
-                tenantId = queryTenantId;
-            }
-
             var traceId = context.TraceIdentifier;
             var permVersion = GetClaimInt(context.User, "permission_version") 
                            ?? GetClaimInt(context.User, Shared.Security.JwtClaims.PermissionVersion);
@@ -84,28 +74,22 @@ public class CurrentUserContextMiddleware(RequestDelegate next)
                 }
             }
 
+            role = NormalizeRole(role);
+            if (IsExplicitSystemAdminTenantOverride(context, role, out var overrideTenantId))
+                tenantId = overrideTenantId;
+
             // Đồng bộ role và claims vào ClaimsIdentity để ASP.NET Core [Authorize(Roles = "...")] nhận diện được
             if (context.User.Identity is ClaimsIdentity claimsIdentity)
             {
                 if (!string.IsNullOrWhiteSpace(role))
                 {
-                    var canonicalRole = role.Trim().ToUpperInvariant() switch
-                    {
-                        "SYSTEMADMIN" or "SYSTEM_ADMIN" => Shared.Constants.RoleConstants.SystemAdmin,
-                        "TENANTADMIN" or "TENANT_ADMIN" => Shared.Constants.RoleConstants.TenantAdmin,
-                        "MANAGER" => Shared.Constants.RoleConstants.Manager,
-                        _ => role
-                    };
-
-                    role = canonicalRole;
-
-                    EnsureClaim(claimsIdentity, ClaimTypes.Role, canonicalRole);
-                    EnsureClaim(claimsIdentity, "role", canonicalRole);
-                    EnsureClaim(claimsIdentity, "cognito:groups", canonicalRole);
-                    EnsureClaim(claimsIdentity, Shared.Security.JwtClaims.Role, canonicalRole);
+                    EnsureClaim(claimsIdentity, ClaimTypes.Role, role);
+                    EnsureClaim(claimsIdentity, "role", role);
+                    EnsureClaim(claimsIdentity, "cognito:groups", role);
+                    EnsureClaim(claimsIdentity, Shared.Security.JwtClaims.Role, role);
                     if (!string.IsNullOrWhiteSpace(claimsIdentity.RoleClaimType) && claimsIdentity.RoleClaimType != ClaimTypes.Role)
                     {
-                        EnsureClaim(claimsIdentity, claimsIdentity.RoleClaimType, canonicalRole);
+                        EnsureClaim(claimsIdentity, claimsIdentity.RoleClaimType, role);
                     }
                 }
 
@@ -160,5 +144,33 @@ public class CurrentUserContextMiddleware(RequestDelegate next)
         var value = principal.FindFirstValue(claimType);
         return int.TryParse(value, out var result) ? result : null;
     }
-}
 
+    private static string? NormalizeRole(string? role) => role?.Trim().ToUpperInvariant() switch
+    {
+        "SYSTEMADMIN" or "SYSTEM_ADMIN" => Shared.Constants.RoleConstants.SystemAdmin,
+        "TENANTADMIN" or "TENANT_ADMIN" => Shared.Constants.RoleConstants.TenantAdmin,
+        "MANAGER" => Shared.Constants.RoleConstants.Manager,
+        "STAFF" => Shared.Constants.RoleConstants.Staff,
+        _ => role
+    };
+
+    private static bool IsExplicitSystemAdminTenantOverride(
+        HttpContext context,
+        string? role,
+        out Guid tenantId)
+    {
+        tenantId = Guid.Empty;
+        if (!string.Equals(role, Shared.Constants.RoleConstants.SystemAdmin, StringComparison.OrdinalIgnoreCase) ||
+            !context.Request.Headers.TryGetValue("x-tenant-context-override", out var overrideHeader) ||
+            !string.Equals(overrideHeader.ToString(), "true", StringComparison.OrdinalIgnoreCase) ||
+            !context.Request.Headers.TryGetValue("x-tenant-id", out var tenantHeader) ||
+            !Guid.TryParse(tenantHeader.ToString(), out tenantId) ||
+            tenantId == Guid.Empty)
+        {
+            tenantId = Guid.Empty;
+            return false;
+        }
+
+        return true;
+    }
+}

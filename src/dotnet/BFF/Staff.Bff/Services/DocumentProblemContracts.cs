@@ -44,6 +44,7 @@ internal static class DocumentProblemContractCatalog
     internal const string DocumentOcrUnavailableCode = "DOCUMENT_OCR_UNAVAILABLE";
     internal const string ShipmentWorkflowUnavailableCode = "SHIPMENT_WORKFLOW_UNAVAILABLE";
     internal const string DocumentContractErrorCode = "DOCUMENT_CONTRACT_ERROR";
+    internal const string TenantContextRequiredCode = "TENANT_CONTEXT_REQUIRED";
 
     internal static Definition InvalidRequest { get; } =
         new(InvalidRequestCode, StatusCodes.Status400BadRequest, false, "The document request is invalid.");
@@ -117,6 +118,9 @@ internal static class DocumentProblemContractCatalog
     internal static Definition DocumentContractError { get; } =
         new(DocumentContractErrorCode, StatusCodes.Status500InternalServerError, false, "The document service returned an undeclared error contract.");
 
+    internal static Definition TenantContextRequired { get; } =
+        new(TenantContextRequiredCode, StatusCodes.Status401Unauthorized, false, "A trusted tenant context is required for this resource.");
+
     internal static IReadOnlyList<Definition> All { get; } =
     [
         InvalidRequest,
@@ -142,7 +146,8 @@ internal static class DocumentProblemContractCatalog
         UploadSizeExceeded,
         DocumentOcrUnavailable,
         ShipmentWorkflowUnavailable,
-        DocumentContractError
+        DocumentContractError,
+        TenantContextRequired
     ];
 
     private static readonly IReadOnlyDictionary<string, Definition> ByCode =
@@ -194,6 +199,7 @@ internal static class DocumentEndpointProblemContracts
         {
             [CreateUploadSession] =
             [
+                DocumentProblemContractCatalog.TenantContextRequired,
                 DocumentProblemContractCatalog.InvalidUploadRequest,
                 DocumentProblemContractCatalog.UploadNotFound,
                 DocumentProblemContractCatalog.UploadObjectNotFound,
@@ -213,6 +219,7 @@ internal static class DocumentEndpointProblemContracts
             ],
             [CreateDocumentIntake] =
             [
+                DocumentProblemContractCatalog.TenantContextRequired,
                 DocumentProblemContractCatalog.InvalidRequest,
                 DocumentProblemContractCatalog.DocumentNotFound,
                 DocumentProblemContractCatalog.UploadNotFound,
@@ -251,9 +258,9 @@ internal static class DocumentEndpointProblemContracts
             [RetryShipmentDocument] =
             [DocumentProblemContractCatalog.DocumentNotFound, DocumentProblemContractCatalog.InvalidStateTransition, DocumentProblemContractCatalog.DocumentOcrUnavailable],
             [SubmitShipmentDocumentLegacyAlias] =
-            [DocumentProblemContractCatalog.InvalidFile, DocumentProblemContractCatalog.DocumentOcrUnavailable],
+            [DocumentProblemContractCatalog.InvalidFile, DocumentProblemContractCatalog.TenantContextRequired, DocumentProblemContractCatalog.DocumentOcrUnavailable],
             [SubmitShipmentDocumentLegacy] =
-            [DocumentProblemContractCatalog.InvalidFile, DocumentProblemContractCatalog.DocumentOcrUnavailable]
+            [DocumentProblemContractCatalog.InvalidFile, DocumentProblemContractCatalog.TenantContextRequired, DocumentProblemContractCatalog.DocumentOcrUnavailable]
         };
 
     internal static IReadOnlyList<DocumentProblemContractCatalog.Definition> Get(string operationId) =>

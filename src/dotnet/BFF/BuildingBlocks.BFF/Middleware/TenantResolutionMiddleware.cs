@@ -1,3 +1,4 @@
+using Shared.Constants;
 using Shared.Security;
 
 namespace BuildingBlocks.BFF.Middleware;
@@ -19,14 +20,28 @@ public class TenantResolutionMiddleware(RequestDelegate next, ILogger<TenantReso
             return;
         }
 
-        // TenantId phải có trong JWT claims (đã được populate bởi CurrentUserContextMiddleware)
-        // SystemAdmin có thể không có TenantId (TenantId = null = system scope)
-        if (context.User.Identity?.IsAuthenticated == true && !currentUser.TenantId.HasValue)
+        // TenantId phải có trong JWT/IdentifyUser context. Request headers/query không phải nguồn tenant.
+        // SystemAdmin chỉ được chạy system-scope routes khi không có tenant; tenant-scoped routes fail closed.
+        if (context.User.Identity?.IsAuthenticated == true && !currentUser.TenantId.HasValue &&
+            !string.Equals(currentUser.Role, RoleConstants.SystemAdmin, StringComparison.OrdinalIgnoreCase) &&
+            !IsSystemRoute(path))
         {
             logger.LogWarning(
-                "Authenticated user {UserId} missing TenantId claim. Path: {Path}. " +
-                "This is expected only for SystemAdmin accounts.",
+                "Authenticated user {UserId} missing trusted TenantId. Rejecting tenant-scoped path {Path}.",
                 currentUser.UserId, path);
+            context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+            context.Response.ContentType = "application/problem+json";
+            await context.Response.WriteAsJsonAsync(new
+            {
+                type = "https://httpstatuses.io/401",
+                title = "TENANT_CONTEXT_REQUIRED",
+                status = StatusCodes.Status401Unauthorized,
+                detail = "A trusted tenant context is required for this resource.",
+                code = "TENANT_CONTEXT_REQUIRED",
+                retryable = false,
+                traceId = context.TraceIdentifier
+            }, context.RequestAborted);
+            return;
         }
 
         await next(context);
@@ -38,6 +53,10 @@ public class TenantResolutionMiddleware(RequestDelegate next, ILogger<TenantReso
             && path.Contains("/auth/", StringComparison.OrdinalIgnoreCase)) ||
         path.StartsWith("/healthz",  StringComparison.OrdinalIgnoreCase) ||
         path.StartsWith("/metrics",  StringComparison.OrdinalIgnoreCase) ||
-        path.StartsWith("/api-docs", StringComparison.OrdinalIgnoreCase) ||
-        path.StartsWith("/swagger",  StringComparison.OrdinalIgnoreCase);
+            path.StartsWith("/api-docs", StringComparison.OrdinalIgnoreCase) ||
+            path.StartsWith("/swagger",  StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsSystemRoute(string path) =>
+        path.StartsWith("/api/v1/system", StringComparison.OrdinalIgnoreCase) ||
+        path.StartsWith("/api/system", StringComparison.OrdinalIgnoreCase);
 }

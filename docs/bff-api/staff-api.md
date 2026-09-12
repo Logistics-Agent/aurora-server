@@ -46,7 +46,7 @@
 | **Mail** | `GET` | `/api/v1/mail/quarantine` | List quarantined emails | `mail:quarantine:read` | Tenant | `MailSecurity.ListQuarantineRecords` | `CURRENT` |
 | **Mail** | `GET` | `/api/v1/mail/quarantine/{id}` | Inspect quarantined threat record | `mail:quarantine:read` | Tenant | `MailSecurity.GetQuarantineRecord` | `CURRENT` |
 | **Mail** | `POST` | `/api/v1/mail/quarantine/{id}/release` | Release false-positive email to queue | `mail:quarantine:release` | Tenant | `MailSecurity.ReleaseQuarantine` | `CURRENT` |
-| **Documents/OCR** | `POST` | `/api/v1/documents/uploads` | Create a short-lived, write-only browser upload session | `documents:ingest` | Tenant upload session | `DocumentOcrService.CreateUploadSession` | `CURRENT` |
+| **Documents/OCR** | `POST` | `/api/v1/documents/uploads` | Create a short-lived, write-only browser upload session; caller must provide `idempotencyKey` | `documents:ingest` | Tenant upload session | `DocumentOcrService.CreateUploadSession` | `CURRENT` |
 | **Documents/OCR** | `PUT` | `{writeUrl returned by /documents/uploads}` | Upload bytes directly to object storage; this is not a Staff BFF route | Upload session capability | Tenant upload object | S3-compatible/local input storage | `CURRENT` |
 | **Documents/OCR** | `GET` | `/api/v1/documents/shipment-documents` | List tenant shipment OCR jobs | `documents:read` | Tenant | `DocumentOcrService.ListDocumentJobs` | `CURRENT` |
 | **Documents/OCR** | `GET` | `/api/v1/documents/shipment/{id}` | Get shipment document/OCR detail | `documents:read` | Tenant document/job | `DocumentOcrService.GetDocumentJob` | `CURRENT` |
@@ -87,6 +87,7 @@ The browser must use the upload-session flow for new shipment documents. The BFF
 
 ```text
 1. POST /api/v1/documents/uploads                       [documents:ingest]
+   └─ { idempotencyKey, fileName, mimeType, sizeBytes, contentSha256? }
    └─ 201 { uploadId, storageReference, writeUrl, requiredHeaders, expiresAt, ... }
 2. PUT {writeUrl}                                       [direct object-storage upload]
    └─ Send the returned required headers and file bytes; writeUrl expires after 15 minutes.
@@ -104,6 +105,7 @@ Upload/intake failures use `application/problem+json` with `code` and `retryable
 | HTTP status | Stable codes/examples | Client behavior |
 |---:|---|---|
 | `400` | `INVALID_REQUEST`, `INVALID_UPLOAD_REQUEST` | Fix the request; do not retry unchanged. |
+| `401` | `TENANT_CONTEXT_REQUIRED` | Re-authenticate with a JWT/IdentifyUser tenant context; request headers/query cannot select a tenant. |
 | `404` | `UPLOAD_NOT_FOUND`, `UPLOAD_TENANT_MISMATCH`, `DOCUMENT_INTAKE_NOT_FOUND` | Treat as not visible to this tenant. |
 | `409` | Upload session: `UPLOAD_EXPIRED`, `UPLOAD_IDEMPOTENCY_CONFLICT`, `UPLOAD_VERIFICATION_IN_PROGRESS`, `UPLOAD_NOT_VERIFIED`; intake: `IDEMPOTENCY_CONFLICT`, `INVALID_STATE_TRANSITION` | Upload conflicts reconcile the upload session; intake conflicts reconcile the persisted intake and preserve the same idempotency key. |
 | `422` | `UPLOAD_CONTENT_MISMATCH`, `UPLOAD_MIME_MISMATCH`, `UPLOAD_SIZE_MISMATCH`, `UPLOAD_HASH_MISMATCH` | Recreate the upload session and upload the correct bytes. |
@@ -113,13 +115,15 @@ Upload/intake failures use `application/problem+json` with `code` and `retryable
 
 The following routes remain for existing clients and are not the new browser upload flow:
 
-- `POST /api/v1/documents/shipment` and `POST /api/v1/documents/shipment-documents` accept a caller-supplied `storageReference` and submit OCR directly. They require `documents:ingest` and return the legacy `200` job status shape.
+- `POST /api/v1/documents/shipment` and `POST /api/v1/documents/shipment-documents` accept a caller-supplied `storageReference` and submit OCR directly. They require `idempotencyKey`; `externalDocumentId` is optional and is derived deterministically from the trusted tenant, shipment, idempotency key and storage reference when omitted. They require `documents:ingest` and return the legacy `200` job status shape.
 - `POST /api/v1/shipments/{id}/documents` attaches caller-supplied document metadata through ShipmentWorkflow. Its source permission is `shipments:create` with legacy fallback `documents:create`; new UI code must use `POST /api/v1/shipments/{id}/document-intakes` instead.
 - The `/api/v1`-less `api/...` route aliases declared on `DocumentsController` are compatibility aliases. The versioned `/api/v1/...` paths above are the FE contract.
 
 The old `/api/v1/documents/jobs/...` and `/api/v1/documents/ocr/jobs/...` paths are not Staff BFF routes in the current source and must not be used by FE.
 
 The sanitized FE contract fixture is tracked at `docs/contracts/staff-bff-documents.openapi.json`. It is source-derived from the Staff BFF controller DTOs and the typed document problem-contract catalog/endpoint registry because the isolated finalization environment could not complete runtime Swagger generation; `DocumentsPublishedContractTests` provides the drift check against those source types and registry entries.
+
+Browser direct uploads to R2/S3 must also use the branch-managed policy in `deploy/storage/r2-document-uploads-cors.json`; apply and verify it with the Wrangler commands in `deploy/storage/README.md`. The presigned PUT signs the declared `Content-Length` (the browser supplies it for a `Blob`), while DocumentOcr still verifies bytes, MIME and SHA-256 after upload and cleans up expired objects.
 
 ---
 

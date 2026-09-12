@@ -81,6 +81,42 @@ public sealed class DocumentIntakeControllerTests
     }
 
     [Fact]
+    public async Task Upload_endpoint_requires_caller_idempotency_key_without_trace_fallback()
+    {
+        var documentClient = CreateDocumentClient();
+        var controller = CreateDocumentsController(documentClient.Object);
+
+        var result = await controller.CreateUploadSession(
+            new CreateDocumentUploadSessionRequest("", "invoice.pdf", "application/pdf", 1_024, null),
+            CancellationToken.None);
+
+        var problemResult = Assert.IsType<BadRequestObjectResult>(result);
+        var problem = Assert.IsType<ProblemDetails>(problemResult.Value);
+        Assert.Equal("INVALID_UPLOAD_REQUEST", problem.Extensions["code"]);
+        documentClient.Verify(client => client.CreateUploadSessionAsync(
+            It.IsAny<CreateUploadSessionRequest>(), It.IsAny<Metadata>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task Upload_endpoint_fails_closed_without_trusted_tenant()
+    {
+        var documentClient = CreateDocumentClient();
+        var controller = CreateDocumentsController(documentClient.Object, new CurrentUserService());
+
+        var result = await controller.CreateUploadSession(
+            new CreateDocumentUploadSessionRequest("upload-key", "invoice.pdf", "application/pdf", 1_024, null),
+            CancellationToken.None);
+
+        var problemResult = Assert.IsType<UnauthorizedObjectResult>(result);
+        var problem = Assert.IsType<ProblemDetails>(problemResult.Value);
+        Assert.Equal("TENANT_CONTEXT_REQUIRED", problem.Extensions["code"]);
+        documentClient.Verify(client => client.CreateUploadSessionAsync(
+            It.IsAny<CreateUploadSessionRequest>(), It.IsAny<Metadata>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
     public async Task Upload_endpoint_invalid_response_id_returns_canonical_problem_details()
     {
         var documentClient = CreateDocumentClient();
@@ -164,6 +200,61 @@ public sealed class DocumentIntakeControllerTests
     }
 
     [Fact]
+    public async Task Legacy_submit_requires_idempotency_key()
+    {
+        var documentClient = CreateDocumentClient();
+        var controller = CreateDocumentsController(documentClient.Object);
+
+        var result = await controller.SubmitShipmentDocument(
+            new SubmitShipmentDocumentRequest("", "objects/tenant/upload/invoice.pdf", "invoice.pdf", "application/pdf", 1_024, 1, Guid.Empty, "shipment-1"),
+            CancellationToken.None);
+
+        var problemResult = Assert.IsType<BadRequestObjectResult>(result);
+        var problem = Assert.IsType<ProblemDetails>(problemResult.Value);
+        Assert.Equal("INVALID_FILE", problem.Extensions["code"]);
+        documentClient.Verify(client => client.SubmitOcrJobAsync(
+            It.IsAny<SubmitOcrJobRequest>(), It.IsAny<Metadata>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task Legacy_submit_derives_a_stable_external_document_id()
+    {
+        var documentClient = CreateDocumentClient();
+        var response = new DocumentOcrJobResponse
+        {
+            JobId = "job-1",
+            FileName = "invoice.pdf",
+            Status = DocumentOcrJobStatus.Queued
+        };
+        SubmitOcrJobRequest? firstRequest = null;
+        SubmitOcrJobRequest? secondRequest = null;
+        documentClient
+            .Setup(client => client.SubmitOcrJobAsync(
+                It.IsAny<SubmitOcrJobRequest>(), It.IsAny<Metadata>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()))
+            .Callback<SubmitOcrJobRequest, Metadata, DateTime?, CancellationToken>((request, _, _, _) =>
+            {
+                if (firstRequest is null)
+                    firstRequest = request;
+                else
+                    secondRequest = request;
+            })
+            .Returns(CreateSuccessfulCall(response));
+        var controller = CreateDocumentsController(documentClient.Object);
+        var request = new SubmitShipmentDocumentRequest(
+            "legacy-key", "objects/tenant/upload/invoice.pdf", "invoice.pdf", "application/pdf", 1_024, 1, Guid.Empty, "shipment-1");
+
+        await controller.SubmitShipmentDocument(request, CancellationToken.None);
+        await controller.SubmitShipmentDocument(request, CancellationToken.None);
+
+        Assert.NotNull(firstRequest);
+        Assert.NotNull(secondRequest);
+        Assert.Equal("legacy-key", firstRequest!.IdempotencyKey);
+        Assert.Equal(firstRequest.ExternalDocumentId, secondRequest!.ExternalDocumentId);
+        Assert.NotEqual(Guid.Empty.ToString(), firstRequest.ExternalDocumentId);
+    }
+
+    [Fact]
     public void Upload_and_intake_document_all_problem_status_contracts()
     {
         var expected = new[]
@@ -222,6 +313,24 @@ public sealed class DocumentIntakeControllerTests
         var accepted = Assert.IsType<ObjectResult>(result);
         Assert.Equal(StatusCodes.Status202Accepted, accepted.StatusCode);
         Assert.Contains("PROCESSING", JsonSerializer.Serialize(accepted.Value));
+    }
+
+    [Fact]
+    public async Task Intake_endpoint_fails_closed_without_trusted_tenant()
+    {
+        var orchestrator = new Mock<IDocumentIntakeOrchestrator>();
+        var controller = CreateShipmentsControllerWithoutTenant(orchestrator.Object);
+
+        var result = await controller.CreateDocumentIntake(
+            Guid.CreateVersion7().ToString(),
+            new CreateDocumentIntakeBody(Guid.CreateVersion7().ToString(), "INVOICE", "intake-key"),
+            CancellationToken.None);
+
+        var problemResult = Assert.IsType<UnauthorizedObjectResult>(result);
+        var problem = Assert.IsType<ProblemDetails>(problemResult.Value);
+        Assert.Equal("TENANT_CONTEXT_REQUIRED", problem.Extensions["code"]);
+        orchestrator.Verify(service => service.ComposeAsync(
+            It.IsAny<Guid>(), It.IsAny<CreateDocumentIntakeRequestModel>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Fact]
@@ -285,7 +394,7 @@ public sealed class DocumentIntakeControllerTests
             {
                 GrpcChannel.ForAddress("http://localhost:54322")
             }).Object,
-            new CurrentUserService(),
+            CreateTenantUser(),
             NullLogger<ShipmentsController>.Instance,
             orchestrator);
 
@@ -293,17 +402,37 @@ public sealed class DocumentIntakeControllerTests
         new(new object[] { GrpcChannel.ForAddress("http://localhost:54321") });
 
     private static DocumentsController CreateDocumentsController(
-        DocumentOcrService.DocumentOcrServiceClient documentClient) =>
+        DocumentOcrService.DocumentOcrServiceClient documentClient,
+        ICurrentUserService? currentUser = null) =>
         new(
             documentClient,
             new Mock<RegulatoryComplianceService.RegulatoryComplianceServiceClient>(new object[]
             {
                 GrpcChannel.ForAddress("http://localhost:54324")
             }).Object,
+            currentUser ?? CreateTenantUser(),
             NullLogger<DocumentsController>.Instance)
         {
             ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() }
         };
+
+    private static ICurrentUserService CreateTenantUser()
+    {
+        var currentUser = new CurrentUserService();
+        currentUser.Populate(Guid.CreateVersion7(), Guid.CreateVersion7(), null, 1, RoleConstants.Staff, []);
+        return currentUser;
+    }
+
+    private static ShipmentsController CreateShipmentsControllerWithoutTenant(
+        IDocumentIntakeOrchestrator orchestrator) =>
+        new(
+            new Mock<ShipmentWorkflowService.ShipmentWorkflowServiceClient>(new object[]
+            {
+                GrpcChannel.ForAddress("http://localhost:54322")
+            }).Object,
+            new CurrentUserService(),
+            NullLogger<ShipmentsController>.Instance,
+            orchestrator);
 
     private static AsyncUnaryCall<TResponse> CreateSuccessfulCall<TResponse>(TResponse response)
         where TResponse : class => new(

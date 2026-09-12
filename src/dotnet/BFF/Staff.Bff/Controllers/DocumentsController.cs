@@ -12,6 +12,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using RegulatoryCompliance.Grpc;
 using Shared.Constants;
+using Shared.Security;
 using StaffBff.Services;
 
 namespace StaffBff.Controllers;
@@ -24,12 +25,14 @@ namespace StaffBff.Controllers;
 public sealed class DocumentsController(
     DocumentOcrService.DocumentOcrServiceClient documentOcrClient,
     RegulatoryComplianceService.RegulatoryComplianceServiceClient regulatoryClient,
+    ICurrentUserService currentUser,
     ILogger<DocumentsController> logger)
     : ControllerBase
 {
     [HttpPost("uploads")]
     [RequirePermission(PermissionConstants.Documents.Ingest)]
     [ProducesResponseType(typeof(DocumentUploadSessionResponse), StatusCodes.Status201Created)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
@@ -40,8 +43,12 @@ public sealed class DocumentsController(
         [FromBody] CreateDocumentUploadSessionRequest request,
         CancellationToken cancellationToken)
     {
+        if (!HasTrustedTenant())
+            return Unauthorized(DocumentsContract.CreateTenantContextRequiredProblemDetails());
+
         if (request is null || string.IsNullOrWhiteSpace(request.FileName) ||
-            string.IsNullOrWhiteSpace(request.MimeType) || request.SizeBytes <= 0)
+            string.IsNullOrWhiteSpace(request.MimeType) || request.SizeBytes <= 0 ||
+            string.IsNullOrWhiteSpace(request.IdempotencyKey))
         {
             return BadRequest(DocumentsContract.CreateProblemDetails(
                 "INVALID_UPLOAD_REQUEST",
@@ -54,9 +61,7 @@ public sealed class DocumentsController(
         {
             var receipt = await documentOcrClient.CreateUploadSessionAsync(new CreateUploadSessionRequest
             {
-                IdempotencyKey = string.IsNullOrWhiteSpace(request.IdempotencyKey)
-                    ? $"upload:{HttpContext.TraceIdentifier}"
-                    : request.IdempotencyKey,
+                IdempotencyKey = request.IdempotencyKey.Trim(),
                 FileName = request.FileName,
                 MimeType = request.MimeType,
                 SizeBytes = request.SizeBytes,
@@ -107,33 +112,44 @@ public sealed class DocumentsController(
     [RequirePermission(PermissionConstants.Documents.Ingest)]
     [ProducesResponseType(typeof(UnifiedDocumentStatusResponse), 200)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status503ServiceUnavailable)]
     [DocumentProblemContract(DocumentEndpointProblemContracts.SubmitShipmentDocumentLegacyAlias, DocumentEndpointProblemContracts.SubmitShipmentDocumentLegacy)]
     public async Task<IActionResult> SubmitShipmentDocument(
         [FromBody] SubmitShipmentDocumentRequest request,
         CancellationToken cancellationToken)
     {
-        if (string.IsNullOrWhiteSpace(request.StorageReference) || string.IsNullOrWhiteSpace(request.FileName))
+        if (!HasTrustedTenant())
+            return Unauthorized(DocumentsContract.CreateTenantContextRequiredProblemDetails());
+
+        if (request is null || string.IsNullOrWhiteSpace(request.StorageReference) ||
+            string.IsNullOrWhiteSpace(request.FileName) || string.IsNullOrWhiteSpace(request.IdempotencyKey))
             return BadRequest(DocumentsContract.CreateProblemDetails(
                 "INVALID_FILE",
-                "StorageReference and FileName are required.",
+                "StorageReference, FileName, and IdempotencyKey are required.",
                 StatusCodes.Status400BadRequest,
                 retryable: false));
 
+        var idempotencyKey = request.IdempotencyKey.Trim();
+        var externalDocumentId = request.ExternalDocumentId is { } requestedExternalDocumentId && requestedExternalDocumentId != Guid.Empty
+            ? requestedExternalDocumentId
+            : DocumentsContract.CreateDeterministicCompatibilityDocumentId(
+                "legacy-shipment-document",
+                currentUser.TenantId!.Value.ToString("N"),
+                request.ShipmentId ?? "TRANSACTION_ONLY",
+                idempotencyKey,
+                request.StorageReference);
+
         var ocrRequest = new SubmitOcrJobRequest
         {
-            IdempotencyKey = !string.IsNullOrWhiteSpace(request.IdempotencyKey)
-                ? request.IdempotencyKey
-                : Guid.NewGuid().ToString(),
+            IdempotencyKey = idempotencyKey,
             StorageReference = request.StorageReference,
             FileName = request.FileName,
             MimeType = request.MimeType ?? "application/pdf",
             SizeBytes = request.SizeBytes > 0 ? request.SizeBytes : 1024,
             DocumentTypeHint = (OcrDocumentType)(int)request.DocumentTypeHint,
             ExtractionMode = OcrExtractionMode.Structured,
-            ExternalDocumentId = request.ExternalDocumentId != Guid.Empty
-                ? request.ExternalDocumentId.ToString()
-                : Guid.NewGuid().ToString(),
+            ExternalDocumentId = externalDocumentId.ToString(),
             ExternalContextId = request.ShipmentId ?? "TRANSACTION_ONLY"
         };
 
@@ -970,6 +986,8 @@ public sealed class DocumentsController(
     // STATUS & STAGE HELPERS
     // ──────────────────────────────────────────────────────────────────────────
 
+    private bool HasTrustedTenant() => currentUser.TenantId is { } tenantId && tenantId != Guid.Empty;
+
     private static string MapOcrStatus(DocumentOcrJobStatus status, bool needsReview)
         => DocumentsContract.MapStatus(status, needsReview);
 
@@ -1029,17 +1047,17 @@ public sealed record UnifiedDocumentStatusResponse(
     DateTimeOffset? UpdatedAt);
 
 public sealed record SubmitShipmentDocumentRequest(
-    string? IdempotencyKey,
+    string IdempotencyKey,
     string StorageReference,
     string FileName,
     string? MimeType,
     long SizeBytes,
     int DocumentTypeHint,
-    Guid ExternalDocumentId,
+    Guid? ExternalDocumentId,
     string? ShipmentId);
 
 public sealed record CreateDocumentUploadSessionRequest(
-    string? IdempotencyKey,
+    string IdempotencyKey,
     string FileName,
     string MimeType,
     long SizeBytes,

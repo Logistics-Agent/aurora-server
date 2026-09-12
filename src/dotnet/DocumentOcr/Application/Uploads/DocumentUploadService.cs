@@ -278,7 +278,7 @@ public sealed class DocumentUploadService(
             session.ObjectKey,
             session.FileName,
             session.DeclaredMimeType,
-            session.MaximumSizeBytes,
+            session.DeclaredSizeBytes,
             session.ExpiresAt,
             session.DeclaredContentSha256,
             cancellationToken);

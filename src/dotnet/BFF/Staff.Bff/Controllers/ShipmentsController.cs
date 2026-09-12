@@ -25,6 +25,7 @@ public class ShipmentsController(
     [RequirePermission(PermissionConstants.Documents.Ingest)]
     [ProducesResponseType(typeof(DocumentIntakeHttpResponse), StatusCodes.Status202Accepted)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status422UnprocessableEntity)]
@@ -36,6 +37,9 @@ public class ShipmentsController(
         [FromBody] CreateDocumentIntakeBody body,
         CancellationToken ct = default)
     {
+        if (currentUser.TenantId is not { } tenantId || tenantId == Guid.Empty)
+            return Unauthorized(DocumentsContract.CreateTenantContextRequiredProblemDetails());
+
         if (!Guid.TryParse(id, out var shipmentId) || shipmentId == Guid.Empty)
             return BadRequest(DocumentsContract.CreateProblemDetails("INVALID_REQUEST", "The shipment id is invalid.", StatusCodes.Status400BadRequest, false));
         if (body is null || !Guid.TryParse(body.UploadId, out var uploadId) || uploadId == Guid.Empty ||

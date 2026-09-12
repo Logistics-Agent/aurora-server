@@ -9,6 +9,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using RegulatoryCompliance.Grpc;
 using Shared.Constants;
+using Shared.Security;
 using StaffBff.Controllers;
 using StaffBff.Services;
 
@@ -255,9 +256,17 @@ public sealed class DocumentsControllerContractTests
         var controller = new DocumentsController(
             documentOcrClient.Object,
             regulatoryClient.Object,
+            CreateTenantUser(),
             NullLogger<DocumentsController>.Instance);
 
         return new ControllerFixture(documentOcrClient, controller);
+    }
+
+    private static ICurrentUserService CreateTenantUser()
+    {
+        var currentUser = new CurrentUserService();
+        currentUser.Populate(Guid.CreateVersion7(), Guid.CreateVersion7(), null, 1, RoleConstants.Staff, []);
+        return currentUser;
     }
 
     private static void SetupListFailure(
