@@ -110,6 +110,7 @@ message SubmitOcrJobRequest {
   OcrExtractionMode extraction_mode = 7;
   string external_document_id = 8;
   string external_context_id = 9;
+  string external_shipment_id = 10;
 }
 
 message GetDocumentJobRequest {
@@ -171,4 +172,3 @@ message ReviewDocumentJobRequest {
   string corrected_json = 3;
   string comment = 4;
 }
-

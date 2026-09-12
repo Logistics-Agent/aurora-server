@@ -392,7 +392,11 @@ public sealed class DocumentOcrJobService(
                 artifactRef);
             if (job.Status == DocumentOcrJobStatus.Completed)
             {
-                AddCompletedOutbox(job, completedAt);
+                dbContext.OutboxMessages.Add(DocumentOcrOutboxFactory.CreateCompleted(job, completedAt));
+            }
+            else if (job.Status == DocumentOcrJobStatus.RequiresReview)
+            {
+                dbContext.OutboxMessages.Add(DocumentOcrOutboxFactory.CreateRequiresReview(job, completedAt));
             }
             await dbContext.SaveChangesAsync(cancellationToken);
         }
@@ -454,27 +458,7 @@ public sealed class DocumentOcrJobService(
 
     private void AddCompletedOutbox(DocumentOcrJob job, DateTimeOffset occurredAt)
     {
-        var integrationEvent = new DocumentOcrCompletedEvent
-        {
-            TenantId = job.TenantId,
-            JobId = job.Id,
-            ExternalDocumentId = job.ExternalDocumentId,
-            ExternalShipmentId = job.ExternalShipmentId,
-            ExternalContextId = job.ExternalContextId,
-            DetectedDocumentType = job.DetectedDocumentType?.ToString() ?? string.Empty,
-            NormalizedJson = job.NormalizedJson ?? "{}",
-            ArtifactReference = job.ArtifactReference,
-            ExtractionMode = job.ExtractionMode.ToString(),
-            Confidence = job.Confidence ?? 0m,
-            NeedsReview = job.NeedsReview ?? false,
-            OccurredAt = occurredAt
-        };
-        dbContext.OutboxMessages.Add(OutboxMessage.Create(
-            job.TenantId,
-            integrationEvent.EventId,
-            nameof(DocumentOcrCompletedEvent),
-            JsonSerializer.Serialize(integrationEvent),
-            occurredAt));
+        dbContext.OutboxMessages.Add(DocumentOcrOutboxFactory.CreateCompleted(job, occurredAt));
     }
 
     private Guid RequireTenant() => currentUser.TenantId is { } tenantId && tenantId != Guid.Empty

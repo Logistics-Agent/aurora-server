@@ -1,9 +1,9 @@
 namespace DocumentOcr.Contracts.Events;
 
-public sealed record DocumentOcrCompletedEvent
+public sealed record DocumentOcrRequiresReviewEvent
 {
     public Guid EventId { get; init; } = Guid.CreateVersion7();
-    public int ContractVersion { get; init; } = 2;
+    public int ContractVersion { get; init; } = 1;
     public Guid TenantId { get; init; }
     public Guid JobId { get; init; }
     public Guid? ShipmentId { get; init; }
@@ -14,12 +14,9 @@ public sealed record DocumentOcrCompletedEvent
     public Guid? ExternalShipmentId { get; init; }
     public string? ExternalContextId { get; init; }
     public string DetectedDocumentType { get; init; } = string.Empty;
-    public string NormalizedJson { get; init; } = "{}";
-    public string? ArtifactReference { get; init; }
     public string? NormalizedJsonHash { get; init; }
-    public string ReviewState { get; init; } = "COMPLETED";
-    public string? ExtractionMode { get; init; }
+    public string? ArtifactReference { get; init; }
     public decimal Confidence { get; init; }
-    public bool NeedsReview { get; init; }
+    public string ReviewState { get; init; } = "REQUIRES_REVIEW";
     public DateTimeOffset OccurredAt { get; init; }
 }

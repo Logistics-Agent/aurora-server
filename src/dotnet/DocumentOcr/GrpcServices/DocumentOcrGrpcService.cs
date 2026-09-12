@@ -70,7 +70,8 @@ public sealed class DocumentOcrGrpcService(
                     documentType,
                     extractionMode,
                     externalDocumentId,
-                    request.ExternalContextId),
+                    request.ExternalContextId,
+                    ParseOptionalId(request.ExternalShipmentId, "ExternalShipmentId")),
                 context.CancellationToken);
             return MapJob(job);
         }

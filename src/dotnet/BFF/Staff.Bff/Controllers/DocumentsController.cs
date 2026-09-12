@@ -12,6 +12,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using RegulatoryCompliance.Grpc;
 using Shared.Constants;
+using StaffBff.Services;
 
 namespace StaffBff.Controllers;
 
@@ -26,6 +27,73 @@ public sealed class DocumentsController(
     ILogger<DocumentsController> logger)
     : ControllerBase
 {
+    [HttpPost("uploads")]
+    [RequirePermission(PermissionConstants.Documents.Ingest)]
+    [ProducesResponseType(typeof(DocumentUploadSessionResponse), StatusCodes.Status201Created)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> CreateUploadSession(
+        [FromBody] CreateDocumentUploadSessionRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (request is null || string.IsNullOrWhiteSpace(request.FileName) ||
+            string.IsNullOrWhiteSpace(request.MimeType) || request.SizeBytes <= 0)
+        {
+            return BadRequest(new ProblemDetails
+            {
+                Title = "INVALID_REQUEST",
+                Detail = "FileName, MimeType, and a positive SizeBytes are required.",
+                Status = StatusCodes.Status400BadRequest
+            });
+        }
+
+        try
+        {
+            var receipt = await documentOcrClient.CreateUploadSessionAsync(new CreateUploadSessionRequest
+            {
+                IdempotencyKey = string.IsNullOrWhiteSpace(request.IdempotencyKey)
+                    ? $"upload:{HttpContext.TraceIdentifier}"
+                    : request.IdempotencyKey,
+                FileName = request.FileName,
+                MimeType = request.MimeType,
+                SizeBytes = request.SizeBytes,
+                ContentSha256 = request.ContentSha256 ?? string.Empty
+            }, cancellationToken: cancellationToken);
+
+            var response = new DocumentUploadSessionResponse(
+                Guid.Parse(receipt.UploadId),
+                receipt.StorageReference,
+                receipt.WriteUrl,
+                receipt.RequiredHeaders,
+                receipt.ExpiresAt.ToDateTimeOffset(),
+                receipt.MaximumSizeBytes,
+                receipt.FileName,
+                receipt.MimeType,
+                receipt.SizeBytes,
+                string.IsNullOrWhiteSpace(receipt.ContentSha256) ? null : receipt.ContentSha256,
+                DocumentsContract.MapUploadStatus(receipt.Status));
+
+            return Created($"/api/v1/documents/uploads/{receipt.UploadId}", response);
+        }
+        catch (RpcException exception) when (exception.StatusCode == Grpc.Core.StatusCode.AlreadyExists)
+        {
+            return Conflict(DocumentsContract.CreateProblemDetails(
+                "UPLOAD_IDEMPOTENCY_CONFLICT",
+                "The upload idempotency key was already used with a different request.",
+                StatusCodes.Status409Conflict,
+                retryable: false));
+        }
+        catch (RpcException exception) when (exception.StatusCode is Grpc.Core.StatusCode.InvalidArgument or Grpc.Core.StatusCode.FailedPrecondition)
+        {
+            var code = exception.Trailers.GetValue("document-upload-validation-code") ?? "INVALID_UPLOAD";
+            var status = code == "UPLOAD_EXPIRED" ? StatusCodes.Status409Conflict : StatusCodes.Status422UnprocessableEntity;
+            return StatusCode(status, DocumentsContract.CreateProblemDetails(code, "The upload session request is invalid.", status, retryable: false));
+        }
+        catch (RpcException exception) when (DocumentsContract.IsUnavailable(exception.StatusCode))
+        {
+            return StatusCode(StatusCodes.Status503ServiceUnavailable, DocumentsContract.CreateUnavailableProblemDetails());
+        }
+    }
+
     // ──────────────────────────────────────────────────────────────────────────
     // BOX 1: SHIPMENT DOCUMENTS (Transaction-Only, Structured Extraction)
     // ──────────────────────────────────────────────────────────────────────────
@@ -885,11 +953,32 @@ internal static class DocumentsContract
     internal static bool IsUnavailable(StatusCode statusCode)
         => statusCode is StatusCode.Unavailable or StatusCode.DeadlineExceeded;
 
-    internal static ProblemDetails CreateUnavailableProblemDetails() => new()
+    internal static ProblemDetails CreateUnavailableProblemDetails() => CreateProblemDetails(
+        "DOCUMENT_OCR_UNAVAILABLE",
+        "Document OCR service is temporarily unavailable. Please retry shortly.",
+        StatusCodes.Status503ServiceUnavailable,
+        retryable: true);
+
+    internal static ProblemDetails CreateProblemDetails(string code, string detail, int status, bool retryable)
     {
-        Title = "DOCUMENT_OCR_UNAVAILABLE",
-        Detail = "Document OCR service is temporarily unavailable. Please retry shortly.",
-        Status = StatusCodes.Status503ServiceUnavailable
+        var problem = new ProblemDetails
+        {
+            Title = code,
+            Detail = detail,
+            Status = status
+        };
+        problem.Extensions["code"] = code;
+        problem.Extensions["retryable"] = retryable;
+        return problem;
+    }
+
+    internal static string MapUploadStatus(DocumentUploadStatus status) => status switch
+    {
+        DocumentUploadStatus.Pending => "PENDING",
+        DocumentUploadStatus.Uploaded => "UPLOADED",
+        DocumentUploadStatus.Consumed => "CONSUMED",
+        DocumentUploadStatus.Expired => "EXPIRED",
+        _ => "PENDING"
     };
 
     internal static string MapStatus(DocumentOcrJobStatus status, bool needsReview) => status switch
@@ -942,6 +1031,26 @@ public sealed record SubmitShipmentDocumentRequest(
     int DocumentTypeHint,
     Guid ExternalDocumentId,
     string? ShipmentId);
+
+public sealed record CreateDocumentUploadSessionRequest(
+    string? IdempotencyKey,
+    string FileName,
+    string MimeType,
+    long SizeBytes,
+    string? ContentSha256);
+
+public sealed record DocumentUploadSessionResponse(
+    Guid UploadId,
+    string StorageReference,
+    string WriteUrl,
+    IReadOnlyDictionary<string, string> RequiredHeaders,
+    DateTimeOffset ExpiresAt,
+    long MaximumSizeBytes,
+    string FileName,
+    string MimeType,
+    long SizeBytes,
+    string? ContentSha256,
+    string Status);
 
 public sealed record ListShipmentDocumentsResponse(
     IReadOnlyList<UnifiedDocumentStatusResponse> Items,

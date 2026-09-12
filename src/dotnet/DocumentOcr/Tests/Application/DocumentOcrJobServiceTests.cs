@@ -76,7 +76,8 @@ public sealed class DocumentOcrJobServiceTests
         Assert.True(processed!.NeedsReview);
         Assert.Equal(DocumentOcrJobStatus.RequiresReview, processed.Status);
         Assert.Equal(0.99m, processed.Confidence);
-        Assert.Empty(await context.OutboxMessages.ToListAsync());
+        var outbox = Assert.Single(await context.OutboxMessages.ToListAsync());
+        Assert.Equal("DocumentOcrRequiresReviewEvent", outbox.EventType);
     }
 
     [Fact]
@@ -97,8 +98,10 @@ public sealed class DocumentOcrJobServiceTests
             CancellationToken.None);
 
         Assert.Equal(DocumentOcrJobStatus.Completed, reviewed.Status);
-        var outbox = Assert.Single(await context.OutboxMessages.ToListAsync());
-        Assert.Equal("DocumentOcrCompletedEvent", outbox.EventType);
+        var outbox = await context.OutboxMessages.ToListAsync();
+        Assert.Equal(2, outbox.Count);
+        Assert.Contains(outbox, message => message.EventType == "DocumentOcrRequiresReviewEvent");
+        Assert.Contains(outbox, message => message.EventType == "DocumentOcrCompletedEvent");
     }
 
     [Fact]

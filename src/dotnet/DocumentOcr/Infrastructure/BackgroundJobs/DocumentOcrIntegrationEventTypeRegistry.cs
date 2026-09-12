@@ -9,7 +9,8 @@ public static class DocumentOcrIntegrationEventTypeRegistry
         new Dictionary<string, Type>(StringComparer.Ordinal)
         {
             [nameof(DocumentOcrCompletedEvent)] = typeof(DocumentOcrCompletedEvent),
-            [nameof(DocumentOcrFailedEvent)] = typeof(DocumentOcrFailedEvent)
+            [nameof(DocumentOcrFailedEvent)] = typeof(DocumentOcrFailedEvent),
+            [nameof(DocumentOcrRequiresReviewEvent)] = typeof(DocumentOcrRequiresReviewEvent)
         };
 
     public static bool TryResolve(string eventType, out Type? resolvedType) =>
