@@ -313,6 +313,8 @@ public sealed class ShipmentWorkflowDbContext(
 
             entity.Property(document => document.ExtractedDataJson)
                 .HasColumnType("jsonb");
+
+            entity.Property(document => document.LastOcrEventId);
         });
     }
 

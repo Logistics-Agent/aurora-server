@@ -53,7 +53,11 @@ public class ShipmentsController(
         {
             var result = await documentIntakeOrchestrator.ComposeAsync(
                 shipmentId,
-                new CreateDocumentIntakeRequestModel(uploadId, body.DocumentTypeHint, body.IdempotencyKey),
+                new CreateDocumentIntakeRequestModel(
+                    uploadId,
+                    body.DocumentTypeHint,
+                    body.IdempotencyKey,
+                    HttpContext.TraceIdentifier),
                 ct);
             return StatusCode(StatusCodes.Status202Accepted, result);
         }

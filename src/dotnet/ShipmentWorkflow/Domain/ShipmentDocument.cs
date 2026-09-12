@@ -78,6 +78,7 @@ public class ShipmentDocument : TenantAuditableEntity
     public Guid? UploadedBy { get; private set; }
     public DateTimeOffset UploadedAt { get; private set; }
     public string? ExtractedDataJson { get; private set; }
+    public Guid? LastOcrEventId { get; private set; }
 
     internal void UpdateOcrMetadata(
         OCRStatus ocrStatus,
@@ -91,6 +92,21 @@ public class ShipmentDocument : TenantAuditableEntity
         ExtractedDataJson = string.IsNullOrWhiteSpace(extractedDataJson)
             ? null
             : extractedDataJson.Trim();
+    }
+
+    internal void ApplyOcrEvent(
+        Guid eventId,
+        OCRStatus ocrStatus,
+        decimal? ocrConfidence,
+        string? extractedDataJson)
+    {
+        if (eventId == Guid.Empty)
+            throw new ArgumentException("EventId is required.", nameof(eventId));
+        if (LastOcrEventId == eventId)
+            return;
+
+        UpdateOcrMetadata(ocrStatus, ocrConfidence, extractedDataJson);
+        LastOcrEventId = eventId;
     }
 
     private static void ValidateTenantAndShipment(Guid tenantId, Guid shipmentId)

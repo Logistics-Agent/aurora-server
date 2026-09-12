@@ -2,8 +2,9 @@ using DocumentOcr.Contracts.Events;
 using DocumentOcr.Application.Jobs;
 using DocumentOcr.Grpc;
 using Google.Protobuf.Reflection;
-using System.Text.Json;
 using DocumentOcr.Infrastructure.BackgroundJobs;
+using System.Text.Json;
+using EventPurpose = DocumentOcr.Contracts.Events.DocumentOcrPurpose;
 
 namespace DocumentOcr.Tests;
 
@@ -76,6 +77,45 @@ public sealed class DocumentOcrContractTests
         Assert.NotEqual(Guid.Empty, completed.EventId);
         Assert.NotEqual(Guid.Empty, failed.EventId);
         Assert.NotEqual(completed.EventId, failed.EventId);
+    }
+
+    [Fact]
+    public void Purpose_is_an_explicit_string_contract_and_correlation_is_deterministic()
+    {
+        var traceId = "4bf92f3577b34da6a3ce929d0e0e4736";
+        var first = DocumentOcrCorrelationId.FromTrace(traceId);
+        var replay = DocumentOcrCorrelationId.FromTrace(traceId);
+
+        Assert.NotEqual(Guid.Empty, first);
+        Assert.Equal(first, replay);
+        Assert.NotEqual(Guid.Parse("0190f000-0000-7000-8000-000000000001"), first);
+
+        var json = JsonSerializer.Serialize(new DocumentOcrCompletedEvent
+        {
+            Purpose = EventPurpose.RegulatoryCorpus,
+            CorrelationId = first
+        });
+
+        Assert.Contains("\"Purpose\":\"RegulatoryCorpus\"", json);
+    }
+
+    [Fact]
+    public void Event_contract_rejects_unsupported_versions()
+    {
+        Assert.Throws<NotSupportedException>(() =>
+            DocumentOcrEventContract.ValidateVersion(nameof(DocumentOcrCompletedEvent), 1));
+        Assert.Throws<NotSupportedException>(() =>
+            DocumentOcrEventContract.ValidateVersion(nameof(DocumentOcrRequiresReviewEvent), 2));
+        DocumentOcrEventContract.ValidateVersion(nameof(DocumentOcrFailedEvent), 2);
+    }
+
+    [Fact]
+    public void Outbox_registry_rejects_unsupported_event_version()
+    {
+        var json = JsonSerializer.Serialize(new DocumentOcrCompletedEvent { ContractVersion = 1 });
+
+        Assert.Throws<NotSupportedException>(() =>
+            DocumentOcrIntegrationEventTypeRegistry.Deserialize(nameof(DocumentOcrCompletedEvent), json));
     }
 
     [Fact]

@@ -1,4 +1,5 @@
 using DocumentOcr.Domain.Enums;
+using DocumentOcr.Contracts.Events;
 using Shared.Entity;
 
 namespace DocumentOcr.Domain.Entities;
@@ -37,6 +38,8 @@ public sealed class DocumentOcrJob : TenantAuditableEntity
     public string? FullTextContent { get; private set; }
     public string? ArtifactReference { get; private set; }
     public string? ExternalContextId { get; private set; }
+    public DocumentOcrPurpose Purpose { get; private set; }
+    public Guid InitiatingCorrelationId { get; private set; }
     public Guid? ReviewedBy { get; private set; }
     public DateTimeOffset? ReviewedAt { get; private set; }
     public string? ReviewAction { get; private set; }
@@ -56,11 +59,15 @@ public sealed class DocumentOcrJob : TenantAuditableEntity
         Guid? externalShipmentId,
         DateTimeOffset createdAt,
         OcrExtractionMode extractionMode = OcrExtractionMode.Structured,
-        string? externalContextId = null)
+        string? externalContextId = null,
+        DocumentOcrPurpose purpose = DocumentOcrPurpose.ShipmentDocument,
+        Guid? initiatingCorrelationId = null)
     {
         DocumentOcrValidation.RequiredId(tenantId, nameof(tenantId));
         DocumentOcrValidation.RequiredId(externalDocumentId, nameof(externalDocumentId));
         DocumentOcrValidation.OptionalId(externalShipmentId, nameof(externalShipmentId));
+        if (purpose == DocumentOcrPurpose.Unspecified || !Enum.IsDefined(purpose))
+            throw new ArgumentOutOfRangeException(nameof(purpose));
         if (sizeBytes <= 0)
             throw new ArgumentOutOfRangeException(nameof(sizeBytes), "SizeBytes must be positive.");
         if (!Enum.IsDefined(documentTypeHint))
@@ -81,6 +88,10 @@ public sealed class DocumentOcrJob : TenantAuditableEntity
             ExternalDocumentId = externalDocumentId,
             ExternalShipmentId = externalShipmentId,
             ExternalContextId = externalContextId,
+            Purpose = purpose,
+            InitiatingCorrelationId = initiatingCorrelationId is { } correlationId && correlationId != Guid.Empty
+                ? correlationId
+                : Guid.CreateVersion7(),
             Status = DocumentOcrJobStatus.Queued,
             CreatedAt = createdAt,
             UpdatedAt = createdAt

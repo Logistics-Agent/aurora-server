@@ -3,6 +3,8 @@ using Grpc.Core;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 using ShipmentWorkflow.Grpc;
+using DocumentOcr.Contracts.Events;
+using EventPurpose = DocumentOcr.Contracts.Events.DocumentOcrPurpose;
 
 namespace StaffBff.Services;
 
@@ -17,7 +19,8 @@ public interface IDocumentIntakeOrchestrator
 public sealed record CreateDocumentIntakeRequestModel(
     Guid UploadId,
     string DocumentTypeHint,
-    string IdempotencyKey);
+    string IdempotencyKey,
+    string? InitiatingCorrelationId = null);
 
 public sealed record DocumentIntakeHttpResponse(
     Guid IntakeId,
@@ -208,7 +211,8 @@ public sealed class DocumentIntakeOrchestrator(
                 ExtractionMode = OcrExtractionMode.Structured,
                 ExternalDocumentId = ledger.DocumentId,
                 ExternalShipmentId = shipmentId.ToString(),
-                ExternalContextId = "SHIPMENT_DOCUMENT"
+                Purpose = (DocumentOcr.Grpc.DocumentOcrPurpose)(int)EventPurpose.ShipmentDocument,
+                CorrelationId = DocumentOcrCorrelationId.FromTrace(request.InitiatingCorrelationId).ToString()
             }, cancellationToken);
         }
         catch (RpcException exception) when (DocumentsContract.IsUnavailable(exception.StatusCode))

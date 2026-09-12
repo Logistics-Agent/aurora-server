@@ -5,6 +5,8 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging.Abstractions;
 using ShipmentWorkflow.Grpc;
 using StaffBff.Services;
+using DocumentOcr.Contracts.Events;
+using EventPurpose = DocumentOcr.Contracts.Events.DocumentOcrPurpose;
 
 namespace StaffBff.Tests;
 
@@ -21,7 +23,8 @@ public sealed class DocumentIntakeStatefulFakeTests
         var request = new CreateDocumentIntakeRequestModel(
             fake.UploadId,
             "INVOICE",
-            "stateful-intake-key");
+            "stateful-intake-key",
+            "4bf92f3577b34da6a3ce929d0e0e4736");
 
         await Assert.ThrowsAsync<DocumentIntakeOrchestrationException>(() =>
             orchestrator.ComposeAsync(fake.ShipmentId, request, CancellationToken.None));
@@ -33,6 +36,10 @@ public sealed class DocumentIntakeStatefulFakeTests
         Assert.Equal(fake.IntakeId, result.IntakeId);
         Assert.Equal(fake.DocumentId, result.DocumentId);
         Assert.Equal(fake.JobId, result.OcrJobId);
+        Assert.Equal(
+            DocumentOcrCorrelationId.FromTrace("4bf92f3577b34da6a3ce929d0e0e4736").ToString(),
+            fake.LastSubmit!.CorrelationId);
+        Assert.Equal(DocumentOcr.Grpc.DocumentOcrPurpose.ShipmentDocument, fake.LastSubmit.Purpose);
         Assert.Equal(1, fake.AttachmentCount);
         Assert.Equal(1, fake.JobCount);
         Assert.Equal(2, fake.OutboxCount);
@@ -105,6 +112,7 @@ public sealed class DocumentIntakeStatefulFakeTests
         public int AttachmentCount { get; private set; }
         public int JobCount { get; private set; }
         public int OutboxCount { get; private set; }
+        public SubmitOcrJobRequest? LastSubmit { get; private set; }
         public List<string> Operations { get; } = [];
 
         private string IntakeStatus { get; set; } = "PENDING_ATTACHMENT";
@@ -192,6 +200,7 @@ public sealed class DocumentIntakeStatefulFakeTests
             CancellationToken cancellationToken)
         {
             Operations.Add("submit");
+            LastSubmit = request;
             if (SubmitFailuresRemaining > 0)
             {
                 SubmitFailuresRemaining--;

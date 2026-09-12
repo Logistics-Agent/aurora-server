@@ -21,7 +21,21 @@ public static class DocumentOcrIntegrationEventTypeRegistry
         if (!TryResolve(eventType, out var resolvedType) || resolvedType is null)
             throw new InvalidOperationException($"Unsupported Document OCR outbox event type '{eventType}'.");
 
-        return JsonSerializer.Deserialize(content, resolvedType)
+        var value = JsonSerializer.Deserialize(content, resolvedType)
             ?? throw new JsonException($"Document OCR outbox event '{eventType}' deserialized to null.");
+        switch (value)
+        {
+            case DocumentOcrCompletedEvent completed:
+                DocumentOcrEventContract.ValidateVersion(eventType, completed.ContractVersion);
+                break;
+            case DocumentOcrFailedEvent failed:
+                DocumentOcrEventContract.ValidateVersion(eventType, failed.ContractVersion);
+                break;
+            case DocumentOcrRequiresReviewEvent requiresReview:
+                DocumentOcrEventContract.ValidateVersion(eventType, requiresReview.ContractVersion);
+                break;
+        }
+
+        return value;
     }
 }
