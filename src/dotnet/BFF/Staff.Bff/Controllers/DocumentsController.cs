@@ -357,6 +357,53 @@ public sealed class DocumentsController(
     }
 
     /// <summary>
+    /// Returns a short-lived, tenant-scoped URL for the original document.
+    /// </summary>
+    [HttpGet("shipment-documents/{id}/download")]
+    [RequirePermission(PermissionConstants.Documents.Read)]
+    [ProducesResponseType(typeof(DocumentDownloadResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status503ServiceUnavailable)]
+    [DocumentProblemContract(DocumentEndpointProblemContracts.GetShipmentDocumentDownload)]
+    public async Task<IActionResult> DownloadShipmentDocument(
+        [FromRoute] string id,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var response = await documentOcrClient.CreateDocumentDownloadAsync(
+                new CreateDocumentDownloadRequest
+                {
+                    JobId = id,
+                    ExpiresInSeconds = 900
+                },
+                cancellationToken: cancellationToken);
+
+            return Ok(new DocumentDownloadResponse(
+                response.Url,
+                response.ExpiresAt.ToDateTimeOffset(),
+                response.FileName,
+                response.MimeType));
+        }
+        catch (RpcException ex) when (ex.StatusCode == Grpc.Core.StatusCode.NotFound)
+        {
+            return NotFound(DocumentsContract.CreateProblemDetails(
+                DocumentProblemContractCatalog.DocumentNotFoundCode,
+                $"Shipment document with ID '{id}' was not found.",
+                StatusCodes.Status404NotFound,
+                retryable: false));
+        }
+        catch (RpcException ex) when (
+            DocumentsContract.IsUnavailable(ex.StatusCode) ||
+            ex.StatusCode == Grpc.Core.StatusCode.FailedPrecondition)
+        {
+            return StatusCode(
+                StatusCodes.Status503ServiceUnavailable,
+                DocumentsContract.CreateUnavailableProblemDetails());
+        }
+    }
+
+    /// <summary>
     /// Box 1: List recent shipment document jobs for the current tenant.
     /// </summary>
     [HttpGet("shipment-documents")]
@@ -1196,6 +1243,12 @@ public sealed record DocumentUploadSessionResponse(
     long SizeBytes,
     string? ContentSha256,
     string Status);
+
+public sealed record DocumentDownloadResponse(
+    string Url,
+    DateTimeOffset ExpiresAt,
+    string FileName,
+    string MimeType);
 
 public sealed record ListShipmentDocumentsResponse(
     IReadOnlyList<UnifiedDocumentStatusResponse> Items,

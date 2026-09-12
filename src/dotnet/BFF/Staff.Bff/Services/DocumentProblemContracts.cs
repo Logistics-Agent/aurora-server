@@ -176,6 +176,7 @@ internal static class DocumentEndpointProblemContracts
     internal const string ListShipmentDocuments = "ListShipmentDocuments";
     internal const string GetShipmentDocumentStatus = "GetShipmentDocumentStatus";
     internal const string GetShipmentDocumentStatusAlias = "GetShipmentDocumentStatusAlias";
+    internal const string GetShipmentDocumentDownload = "GetShipmentDocumentDownload";
     internal const string GetShipmentDocumentReview = "GetShipmentDocumentReview";
     internal const string SubmitShipmentDocumentReview = "SubmitShipmentDocumentReview";
     internal const string CancelShipmentDocument = "CancelShipmentDocument";
@@ -234,6 +235,8 @@ internal static class DocumentEndpointProblemContracts
             [GetShipmentDocumentStatus] =
             [DocumentProblemContractCatalog.TenantContextRequired, DocumentProblemContractCatalog.DocumentNotFound, DocumentProblemContractCatalog.DocumentOcrUnavailable],
             [GetShipmentDocumentStatusAlias] =
+            [DocumentProblemContractCatalog.TenantContextRequired, DocumentProblemContractCatalog.DocumentNotFound, DocumentProblemContractCatalog.DocumentOcrUnavailable],
+            [GetShipmentDocumentDownload] =
             [DocumentProblemContractCatalog.TenantContextRequired, DocumentProblemContractCatalog.DocumentNotFound, DocumentProblemContractCatalog.DocumentOcrUnavailable],
             [GetShipmentDocumentReview] =
             [DocumentProblemContractCatalog.TenantContextRequired, DocumentProblemContractCatalog.DocumentNotFound, DocumentProblemContractCatalog.DocumentOcrUnavailable],

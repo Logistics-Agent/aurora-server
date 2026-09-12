@@ -21,6 +21,7 @@ public sealed class DocumentsPublishedContractTests
         new(typeof(DocumentsController), nameof(DocumentsController.ListShipmentDocuments), "/api/v1/documents/shipment-documents", "get", "ListShipmentDocuments", PermissionConstants.Documents.Read, null, typeof(ListShipmentDocumentsResponse)),
         new(typeof(DocumentsController), nameof(DocumentsController.GetShipmentDocumentStatus), "/api/v1/documents/shipment/{id}", "get", "GetShipmentDocumentStatus", PermissionConstants.Documents.Read, null, typeof(UnifiedDocumentStatusResponse)),
         new(typeof(DocumentsController), nameof(DocumentsController.GetShipmentDocumentStatus), "/api/v1/documents/shipment-documents/{id}", "get", "GetShipmentDocumentStatusAlias", PermissionConstants.Documents.Read, null, typeof(UnifiedDocumentStatusResponse)),
+        new(typeof(DocumentsController), nameof(DocumentsController.DownloadShipmentDocument), "/api/v1/documents/shipment-documents/{id}/download", "get", "GetShipmentDocumentDownload", PermissionConstants.Documents.Read, null, typeof(DocumentDownloadResponse)),
         new(typeof(DocumentsController), nameof(DocumentsController.GetShipmentDocumentReview), "/api/v1/documents/shipment-documents/{id}/review", "get", "GetShipmentDocumentReview", PermissionConstants.Ocr.Review, null, typeof(OcrReviewDetailsResponse)),
         new(typeof(DocumentsController), nameof(DocumentsController.SubmitShipmentDocumentReview), "/api/v1/documents/shipment-documents/{id}/review", "post", "SubmitShipmentDocumentReview", PermissionConstants.Ocr.Review, typeof(SubmitOcrReviewRequest), typeof(UnifiedDocumentStatusResponse)),
         new(typeof(DocumentsController), nameof(DocumentsController.CancelShipmentDocument), "/api/v1/documents/shipment-documents/{id}/cancel", "post", "CancelShipmentDocument", PermissionConstants.Documents.Manage, null, typeof(UnifiedDocumentStatusResponse)),
@@ -33,6 +34,7 @@ public sealed class DocumentsPublishedContractTests
     [
         typeof(CreateDocumentUploadSessionRequest),
         typeof(DocumentUploadSessionResponse),
+        typeof(DocumentDownloadResponse),
         typeof(CreateDocumentIntakeBody),
         typeof(SubmitShipmentDocumentRequest),
         typeof(UnifiedDocumentStatusResponse),

@@ -46,7 +46,7 @@ The **Document OCR Service** provides **AI-Driven Document Extraction + Determin
 |---|---|
 | **Runtime & Framework** | .NET 10 (C#), ASP.NET Core gRPC |
 | **Persistence** | Entity Framework Core 10, PostgreSQL 16 (Neon Serverless SSL) |
-| **File Storage** | S3-compatible input storage is supported; staging currently uses filesystem storage and requires object-storage hardening for production |
+| **File Storage** | Cloudflare R2/S3-compatible storage is supported for tenant-partitioned inputs and OCR artifacts; staging defaults to filesystem until R2 credentials are provisioned |
 | **Events & Messaging** | Transactional Outbox Pattern, RabbitMQ (`DocumentOcrCompletedEvent`) |
 | **BFF Client** | `Staff.Bff` (`POST /api/v1/ocr/upload`, `POST /api/v1/ocr/{id}/review`) |
 

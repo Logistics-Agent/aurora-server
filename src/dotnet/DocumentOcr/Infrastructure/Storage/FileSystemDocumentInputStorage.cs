@@ -131,7 +131,8 @@ public sealed class FileSystemDocumentInputStorage : IDocumentInputStorage
         if (uploadId == Guid.Empty)
             throw new ArgumentException("UploadId is required.", nameof(uploadId));
         ValidateKeyPrefix(tenantId, objectKey);
-        if (!objectKey.StartsWith($"objects/{tenantId}/{uploadId}/", StringComparison.Ordinal))
+        if (!objectKey.StartsWith($"tenants/{tenantId}/documents/{uploadId}/", StringComparison.Ordinal) &&
+            !objectKey.StartsWith($"objects/{tenantId}/{uploadId}/", StringComparison.Ordinal))
             throw new ArgumentException("Object key does not match the upload session.", nameof(objectKey));
     }
 
@@ -140,7 +141,8 @@ public sealed class FileSystemDocumentInputStorage : IDocumentInputStorage
         if (tenantId == Guid.Empty)
             throw new ArgumentException("TenantId is required.", nameof(tenantId));
         if (string.IsNullOrWhiteSpace(objectKey) ||
-            !objectKey.StartsWith($"objects/{tenantId}/", StringComparison.Ordinal) ||
+            (!objectKey.StartsWith($"tenants/{tenantId}/documents/", StringComparison.Ordinal) &&
+             !objectKey.StartsWith($"objects/{tenantId}/", StringComparison.Ordinal)) ||
             objectKey.Contains("..", StringComparison.Ordinal) ||
             objectKey.Contains('\\') ||
             objectKey.Split('/').Any(string.IsNullOrEmpty))

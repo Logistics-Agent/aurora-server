@@ -10,14 +10,19 @@
           "https://system.humanak.cyou"
         ],
         "methods": [
-          "PUT"
+          "PUT",
+          "GET",
+          "HEAD"
         ],
         "headers": [
           "Content-Type",
           "x-amz-meta-content-sha256"
         ],
         "exposeHeaders": [
-          "ETag"
+          "ETag",
+          "Content-Disposition",
+          "Content-Type",
+          "Content-Length"
         ],
         "maxAgeSeconds": 600
       }

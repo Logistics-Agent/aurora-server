@@ -59,7 +59,12 @@ public sealed class DocumentInputPolicy
     private static void ValidateStorageReference(string storageReference)
     {
         var value = RequiredText(storageReference, nameof(storageReference), 1_000);
-        if (!value.StartsWith("objects/", StringComparison.Ordinal) ||
+        var segments = value.Split('/');
+        var isTenantDocumentKey = segments.Length >= 4 &&
+            string.Equals(segments[0], "tenants", StringComparison.Ordinal) &&
+            Guid.TryParse(segments[1], out _) &&
+            string.Equals(segments[2], "documents", StringComparison.Ordinal);
+        if ((!value.StartsWith("objects/", StringComparison.Ordinal) && !isTenantDocumentKey) ||
             value.Contains("://", StringComparison.Ordinal) ||
             value.Contains('\\') ||
             Path.IsPathRooted(value) ||

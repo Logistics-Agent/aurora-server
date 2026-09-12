@@ -30,7 +30,7 @@ public sealed class DocumentUploadServiceTests
             "upload-001", "invoice.pdf", "application/pdf", 1_024, null));
 
         Assert.Equal(Now.AddMinutes(15), receipt.ExpiresAt);
-        Assert.Equal($"objects/{TenantId}/{receipt.UploadId}/invoice.pdf", receipt.StorageReference);
+        Assert.Equal($"tenants/{TenantId}/documents/{receipt.UploadId}/invoice.pdf", receipt.StorageReference);
         Assert.Equal(DocumentUploadStatus.Pending, receipt.Status);
         Assert.Equal(10 * 1024 * 1024, receipt.MaximumSizeBytes);
     }
@@ -477,6 +477,37 @@ public sealed class DocumentUploadServiceTests
         Assert.Contains("content-length", target.Url, StringComparison.OrdinalIgnoreCase);
         Assert.Equal("application/pdf", target.RequiredHeaders["Content-Type"]);
         Assert.DoesNotContain("Content-Length", target.RequiredHeaders.Keys, StringComparer.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task S3AdapterCreatesShortLivedSignedReadUrlWithoutExposingCredentials()
+    {
+        var tenantId = Guid.CreateVersion7();
+        var objectKey = $"objects/{tenantId}/{Guid.CreateVersion7()}/invoice.pdf";
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?> { ["Storage:S3:Bucket"] = "documents" })
+            .Build();
+        using var client = new AmazonS3Client(
+            new BasicAWSCredentials("access", "secret"),
+            new AmazonS3Config
+            {
+                ServiceURL = "https://r2.example.test",
+                AuthenticationRegion = "auto"
+            });
+        var storage = new global::DocumentOcr.Infrastructure.Storage.S3DocumentInputStorage(client, configuration);
+
+        var expiresAt = Now.AddMinutes(15);
+        var target = await storage.CreateSignedReadTargetAsync(
+            tenantId,
+            objectKey,
+            "invoice.pdf",
+            "application/pdf",
+            expiresAt);
+
+        Assert.Equal(expiresAt, target.ExpiresAt);
+        Assert.Contains("X-Amz-Signature", target.Url, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("response-content-disposition", target.Url, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("secret", target.Url, StringComparison.OrdinalIgnoreCase);
     }
 
     private static CreateDocumentUploadInput Input() =>

@@ -20,6 +20,9 @@ env:
   RabbitMQ__Host: "rabbitmq.aurora.svc.cluster.local"
   RabbitMQ__Port: "5672"
   RabbitMQ__Username: "aurora_admin"
+  # Staging keeps the filesystem provider until R2 credentials are provisioned.
+  # Enable R2 with deploy/helm/r2-values.example.yaml (copied to a private file).
+  Storage__InputProvider: "FileSystem"
   AzureStorage__AccountName: "stauroradatademo"
   AzureStorage__ContainerName: "ocr-docs"
   Redis__Host: "redis-master.aurora.svc.cluster.local:6379"

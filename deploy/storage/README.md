@@ -7,6 +7,10 @@ It permits only first-party Aurora frontend origins to perform browser `PUT` upl
 - `Content-Type`
 - `x-amz-meta-content-sha256`
 
+New object keys are tenant-partitioned as
+`tenants/{tenantId}/documents/{uploadId}/{fileName}`. OCR artifacts use the
+same tenant prefix with `/artifacts/`; the bucket must remain private.
+
 The browser supplies `Content-Length` for a `Blob` upload. The DocumentOcr S3 adapter signs the declared length into the presigned URL; the frontend must not try to set that forbidden header manually. DocumentOcr still re-reads the object, verifies byte count/MIME/hash, and cleans up expired objects after upload.
 
 ## Apply

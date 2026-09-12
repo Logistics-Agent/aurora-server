@@ -63,7 +63,7 @@ public sealed class DocumentUploadService(
         var fingerprint = Fingerprint(fileName, mimeType, input.SizeBytes, contentSha256);
 
         inputPolicy.ValidateMetadata(
-            $"objects/{tenantId}/pending/{fileName}", fileName, mimeType, input.SizeBytes);
+            $"tenants/{tenantId}/documents/pending/{fileName}", fileName, mimeType, input.SizeBytes);
 
         var existing = await dbContext.UploadSessions.SingleOrDefaultAsync(
             session => session.TenantId == tenantId && session.IdempotencyKey == idempotencyKey,
@@ -72,7 +72,7 @@ public sealed class DocumentUploadService(
             return await ReplayOrConflictAsync(existing, fingerprint, cancellationToken);
 
         var uploadId = Guid.CreateVersion7();
-        var objectKey = $"objects/{tenantId}/{uploadId}/{fileName}";
+        var objectKey = $"tenants/{tenantId}/documents/{uploadId}/{fileName}";
         var createdAt = timeProvider.GetUtcNow();
         var session = DocumentUploadSession.Create(
             tenantId,
@@ -134,7 +134,7 @@ public sealed class DocumentUploadService(
             throw new DocumentUploadValidationException("UPLOAD_EXPIRED", "The upload session has expired.");
         }
 
-        var expectedKey = $"objects/{tenantId}/{session.Id}/{session.FileName}";
+        var expectedKey = $"tenants/{tenantId}/documents/{session.Id}/{session.FileName}";
         if (!IsTenantObjectKey(session.ObjectKey, tenantId) ||
             !string.Equals(session.ObjectKey, expectedKey, StringComparison.Ordinal))
         {
@@ -357,7 +357,8 @@ public sealed class DocumentUploadService(
             $"{fileName}\n{mimeType}\n{sizeBytes}\n{contentSha256 ?? string.Empty}"))).ToLowerInvariant();
 
     private static bool IsTenantObjectKey(string objectKey, Guid tenantId) =>
-        objectKey.StartsWith($"objects/{tenantId}/", StringComparison.Ordinal) &&
+        (objectKey.StartsWith($"tenants/{tenantId}/documents/", StringComparison.Ordinal) ||
+         objectKey.StartsWith($"objects/{tenantId}/", StringComparison.Ordinal)) &&
         !objectKey.Contains("..", StringComparison.Ordinal) &&
         !objectKey.Contains('\\');
 

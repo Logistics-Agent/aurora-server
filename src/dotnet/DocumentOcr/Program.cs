@@ -62,7 +62,6 @@ builder.Services.AddGrpcClient<AiGovernance.Grpc.AiExecutionService.AiExecutionS
     o.Address = new Uri(aiGovernanceUrl);
 });
 
-builder.Services.AddScoped<DocumentOcr.Application.Storage.IArtifactStorageService, DocumentOcr.Infrastructure.Storage.FileSystemArtifactStorageService>();
 var inputStorageProvider = DocumentInputStorageConfiguration.GetProvider(builder.Configuration);
 var usesFileSystemInputStorage = inputStorageProvider == DocumentInputStorageProvider.FileSystem;
 if (usesFileSystemInputStorage)
@@ -78,6 +77,7 @@ if (usesFileSystemInputStorage)
     builder.Services.AddCors(options => DocumentUploadBridgeCorsPolicy.Configure(options, bridgeCorsOptions));
     builder.Services.AddScoped<IDocumentInputStorage, FileSystemDocumentInputStorage>();
     builder.Services.AddScoped<DocumentUploadHttpBridge>();
+    builder.Services.AddScoped<DocumentOcr.Application.Storage.IArtifactStorageService, FileSystemArtifactStorageService>();
 }
 else if (inputStorageProvider == DocumentInputStorageProvider.S3)
 {
@@ -93,6 +93,8 @@ else if (inputStorageProvider == DocumentInputStorageProvider.S3)
         s3Settings.SecretKey,
         s3Config));
     builder.Services.AddScoped<IDocumentInputStorage, S3DocumentInputStorage>();
+    builder.Services.AddScoped<IDocumentDownloadStorage, S3DocumentInputStorage>();
+    builder.Services.AddScoped<DocumentOcr.Application.Storage.IArtifactStorageService, S3ArtifactStorageService>();
 }
 builder.Services.AddScoped<DocumentInputPolicy>();
 builder.Services.AddScoped<DocumentUploadService>();

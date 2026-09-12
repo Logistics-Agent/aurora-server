@@ -52,6 +52,7 @@
 | **Documents/OCR** | `GET` | `/api/v1/documents/shipment/{id}` | Get shipment document/OCR detail | `documents:read` | Tenant document/job | `DocumentOcrService.GetDocumentJob` | `CURRENT` |
 | **Documents/OCR** | `GET` | `/api/v1/documents/shipment-documents/{id}` | Detail route alias retained by the controller | `documents:read` | Tenant document/job | `DocumentOcrService.GetDocumentJob` | `CURRENT` |
 | **Documents/OCR** | `GET` | `/api/v1/documents/shipment-documents/{id}/review` | Get field-level human-review payload | `ocr:review` | Tenant document/job | `DocumentOcrService.GetDocumentJob` | `CURRENT` |
+| **Documents/OCR** | `GET` | `/api/v1/documents/shipment-documents/{id}/download` | Create a short-lived tenant-scoped signed download URL | `documents:read` | Tenant document/job | `DocumentOcrService.CreateDocumentDownload` | `CURRENT` |
 | **Documents/OCR** | `POST` | `/api/v1/documents/shipment-documents/{id}/review` | Confirm, correct or reject OCR extraction | `ocr:review` | Tenant document/job | `DocumentOcrService.ReviewDocumentJob` | `CURRENT` |
 | **Documents/OCR** | `POST` | `/api/v1/documents/shipment-documents/{id}/cancel` | Cancel an active OCR job | `documents:manage` | Tenant document/job | `DocumentOcrService.CancelDocumentJob` | `CURRENT` |
 | **Documents/OCR** | `POST` | `/api/v1/documents/shipment-documents/{id}/retry` | Retry a failed OCR job | `documents:manage` | Tenant document/job | `DocumentOcrService.RetryDocumentJob` | `CURRENT` |
@@ -96,6 +97,8 @@ The browser must use the upload-session flow for new shipment documents. The BFF
    └─ 202 { id, documentType, status, stage, fileName, ... }
 4. GET /api/v1/documents/shipment-documents             [documents:read]
    └─ Poll list/detail until terminal OCR status; use review/manage routes below as needed.
+5. GET /api/v1/documents/shipment-documents/{id}/download [documents:read]
+   └─ { url, expiresAt, fileName, mimeType }; open the short-lived signed URL.
 ```
 
 The intake endpoint verifies the tenant-scoped upload object, creates or replays one DocumentOcr job, and consumes the upload only after the durable job exists. Replaying the same `idempotencyKey` with the same body returns the same job; changing the body returns a conflict. Cross-tenant IDs follow the anti-enumeration policy.

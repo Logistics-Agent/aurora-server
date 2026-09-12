@@ -35,7 +35,12 @@ public sealed class FileSystemArtifactStorageService : IArtifactStorageService
         if (tenantId == Guid.Empty) throw new ArgumentException("TenantId is required.", nameof(tenantId));
         if (jobId == Guid.Empty) throw new ArgumentException("JobId is required.", nameof(jobId));
 
-        var relativePath = Path.Combine(tenantId.ToString(), jobId.ToString(), fileName);
+        var safeFileName = Path.GetFileName(fileName);
+        if (string.IsNullOrWhiteSpace(safeFileName) || safeFileName is "." or "..")
+            throw new ArgumentException("File name is invalid.", nameof(fileName));
+
+        var relativePath = Path.Combine(
+            "tenants", tenantId.ToString(), "documents", jobId.ToString(), "artifacts", safeFileName);
         var fullPath = Path.Combine(_baseDirectory, relativePath);
         var directory = Path.GetDirectoryName(fullPath);
         if (directory != null && !Directory.Exists(directory))
@@ -46,7 +51,7 @@ public sealed class FileSystemArtifactStorageService : IArtifactStorageService
         await File.WriteAllBytesAsync(fullPath, data, cancellationToken);
 
         var sha256 = Convert.ToHexString(SHA256.HashData(data)).ToLowerInvariant();
-        var artifactRef = $"ocr-artifacts/{tenantId}/{jobId}/{fileName}";
+        var artifactRef = $"ocr-artifacts/tenants/{tenantId}/documents/{jobId}/artifacts/{safeFileName}";
 
         _logger.LogInformation("Artifact stored: {Ref}, size: {Size} bytes, sha256: {Hash}",
             artifactRef, data.Length, sha256);

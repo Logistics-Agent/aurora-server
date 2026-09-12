@@ -121,6 +121,7 @@ public sealed class DocumentsControllerContractTests
     [InlineData(nameof(DocumentsController.SubmitKnowledgeDocument))]
     [InlineData(nameof(DocumentsController.ListShipmentDocuments))]
     [InlineData(nameof(DocumentsController.GetShipmentDocumentReview))]
+    [InlineData(nameof(DocumentsController.DownloadShipmentDocument))]
     [InlineData(nameof(DocumentsController.CancelShipmentDocument))]
     [InlineData(nameof(DocumentsController.CreateUploadSession))]
     [InlineData(nameof(DocumentsController.SubmitShipmentDocument))]
