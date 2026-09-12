@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using RegulatoryCompliance.Grpc;
 using Shared.Constants;
+using ShipmentWorkflow.Grpc;
 
 namespace StaffBff.Controllers;
 
@@ -18,6 +19,7 @@ namespace StaffBff.Controllers;
 [RequirePermission(PermissionConstants.Assistant.Query, PermissionConstants.Compliance.Read)]
 public sealed class AssistantController(
     RegulatoryComplianceService.RegulatoryComplianceServiceClient regulatoryClient,
+    ShipmentWorkflowService.ShipmentWorkflowServiceClient shipmentClient,
     ILogger<AssistantController> logger)
     : ControllerBase
 {
@@ -92,6 +94,43 @@ public sealed class AssistantController(
             MinimumRelevanceScore = (double)(request.MinimumScore > 0 ? request.MinimumScore : 0.4m)
         };
 
+        if (request.Context is not null)
+        {
+            if (!TryParseContextId(request.Context.ShipmentId, out var shipmentId) ||
+                !TryParseContextId(request.Context.EvaluationId, out var evaluationId))
+                return BadRequest(new ProblemDetails
+                {
+                    Title = "INVALID_ASSISTANT_CONTEXT",
+                    Detail = "Assistant context identifiers must be valid UUIDs.",
+                    Status = (int)HttpStatusCode.BadRequest
+                });
+
+            if (shipmentId.HasValue)
+            {
+                try
+                {
+                    await shipmentClient.GetShipmentAsync(
+                        new GetShipmentRequest { Id = shipmentId.Value.ToString() },
+                        cancellationToken: cancellationToken);
+                }
+                catch (RpcException ex) when (ex.StatusCode == Grpc.Core.StatusCode.NotFound)
+                {
+                    return NotFound(new ProblemDetails
+                    {
+                        Title = "SHIPMENT_NOT_FOUND",
+                        Detail = "The requested shipment context was not found.",
+                        Status = (int)HttpStatusCode.NotFound
+                    });
+                }
+            }
+
+            rpcRequest.Context = new AssistantContext
+            {
+                ShipmentId = shipmentId?.ToString() ?? string.Empty,
+                EvaluationId = evaluationId?.ToString() ?? string.Empty
+            };
+        }
+
         if (request.RegulationTypes != null)
         {
             foreach (var t in request.RegulationTypes)
@@ -157,6 +196,14 @@ public sealed class AssistantController(
                 CapabilityCode: response.Governance?.CapabilityCode ?? "compliance.answer",
                 TotalTokens: response.Governance?.TotalTokens ?? 0);
 
+            var contextSummary = response.Context is null
+                ? null
+                : new AssistantContextSummary(
+                    ShipmentId: ParseOptionalGuid(response.Context.ShipmentId),
+                    EvaluationId: ParseOptionalGuid(response.Context.EvaluationId),
+                    Freshness: response.Context.Freshness,
+                    SnapshotHash: response.Context.SnapshotHash);
+
             return Ok(new AssistantQueryResponse(
                 Query: response.Query,
                 Answer: response.Answer,
@@ -166,7 +213,8 @@ public sealed class AssistantController(
                 InsufficientEvidence: response.InsufficientEvidence,
                 MissingInformation: response.MissingInformation.ToList(),
                 Governance: governance,
-                RetrievalTraceId: response.RetrievalTraceId));
+                RetrievalTraceId: response.RetrievalTraceId,
+                Context: contextSummary));
         }
         catch (RpcException ex) when (ex.StatusCode == Grpc.Core.StatusCode.PermissionDenied)
         {
@@ -179,11 +227,22 @@ public sealed class AssistantController(
         }
         catch (RpcException ex) when (ex.StatusCode == Grpc.Core.StatusCode.FailedPrecondition)
         {
+            var isContextUnavailable = ex.Status.Detail.StartsWith(
+                "ASSISTANT_CONTEXT_UNAVAILABLE:", StringComparison.OrdinalIgnoreCase);
             return StatusCode((int)HttpStatusCode.PreconditionFailed, new ProblemDetails
             {
-                Title = "GOVERNANCE_BLOCKED",
+                Title = isContextUnavailable ? "ASSISTANT_CONTEXT_UNAVAILABLE" : "GOVERNANCE_BLOCKED",
                 Detail = ex.Status.Detail,
                 Status = (int)HttpStatusCode.PreconditionFailed
+            });
+        }
+        catch (RpcException ex) when (ex.StatusCode == Grpc.Core.StatusCode.Aborted)
+        {
+            return Conflict(new ProblemDetails
+            {
+                Title = "ASSISTANT_CONTEXT_MISMATCH",
+                Detail = ex.Status.Detail,
+                Status = (int)HttpStatusCode.Conflict
             });
         }
         catch (RpcException ex) when (ex.StatusCode == Grpc.Core.StatusCode.InvalidArgument)
@@ -235,6 +294,20 @@ public sealed class AssistantController(
             });
         }
     }
+
+    private static bool TryParseContextId(string? value, out Guid? parsed)
+    {
+        parsed = null;
+        if (string.IsNullOrWhiteSpace(value))
+            return true;
+        if (!Guid.TryParse(value, out var result) || result == Guid.Empty)
+            return false;
+        parsed = result;
+        return true;
+    }
+
+    private static Guid? ParseOptionalGuid(string value) =>
+        Guid.TryParse(value, out var parsed) && parsed != Guid.Empty ? parsed : null;
 }
 
 public sealed record AssistantQueryRequest(
@@ -245,7 +318,10 @@ public sealed record AssistantQueryRequest(
     IReadOnlyList<int>? RegulationTypes,
     IReadOnlyList<int>? Categories,
     int TopK,
-    decimal MinimumScore);
+    decimal MinimumScore,
+    AssistantContextRequest? Context = null);
+
+public sealed record AssistantContextRequest(string? ShipmentId, string? EvaluationId);
 
 public sealed record AssistantQueryResponse(
     string Query,
@@ -256,7 +332,8 @@ public sealed record AssistantQueryResponse(
     bool InsufficientEvidence,
     IReadOnlyList<string> MissingInformation,
     AssistantGovernanceSummary Governance,
-    string RetrievalTraceId);
+    string RetrievalTraceId,
+    AssistantContextSummary? Context = null);
 
 public sealed record AssistantRegulatoryCitation(
     string EvidenceId,
@@ -296,3 +373,9 @@ public sealed record AssistantGovernanceSummary(
     bool RequiresApproval,
     string CapabilityCode,
     long TotalTokens);
+
+public sealed record AssistantContextSummary(
+    Guid? ShipmentId,
+    Guid? EvaluationId,
+    string Freshness,
+    string SnapshotHash);

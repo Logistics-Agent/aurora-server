@@ -357,6 +357,7 @@ public sealed class RegulatoryComplianceGrpcService(
                 .ToList();
 
             var effectiveAt = request.EffectiveAt?.ToDateTimeOffset();
+            var assistantContext = ParseAssistantContext(request.Context);
 
             var result = await groundedAnswerService.GenerateAnswerAsync(
                 new GroundedAnswerInput(
@@ -367,7 +368,8 @@ public sealed class RegulatoryComplianceGrpcService(
                     regTypes,
                     categories,
                     request.TopK > 0 ? request.TopK : 10,
-                    Convert.ToDecimal(request.MinimumRelevanceScore)),
+                    Convert.ToDecimal(request.MinimumRelevanceScore),
+                    assistantContext),
                 context.CancellationToken);
 
             var response = new ComplianceGrpc.GenerateGroundedAnswerResponse
@@ -385,6 +387,17 @@ public sealed class RegulatoryComplianceGrpcService(
                     TotalTokens = result.Governance.TotalTokens
                 }
             };
+
+            if (result.Context is not null)
+            {
+                response.Context = new ComplianceGrpc.AssistantContextSummary
+                {
+                    ShipmentId = result.Context.ShipmentId?.ToString() ?? string.Empty,
+                    EvaluationId = result.Context.EvaluationId?.ToString() ?? string.Empty,
+                    Freshness = result.Context.Freshness,
+                    SnapshotHash = result.Context.SnapshotHash ?? string.Empty
+                };
+            }
 
             response.MissingInformation.AddRange(result.MissingInformation);
 
@@ -441,10 +454,45 @@ public sealed class RegulatoryComplianceGrpcService(
         {
             throw new RpcException(new Status(StatusCode.PermissionDenied, exception.Message));
         }
+        catch (AssistantContextMismatchException exception)
+        {
+            throw new RpcException(new Status(StatusCode.Aborted, exception.Message));
+        }
+        catch (AssistantContextUnavailableException exception)
+        {
+            throw new RpcException(new Status(StatusCode.FailedPrecondition, exception.Message));
+        }
         catch (ArgumentException exception)
         {
             throw InvalidArgument(exception.Message);
         }
+    }
+
+    private static VerifiedAssistantContextInput? ParseAssistantContext(
+        ComplianceGrpc.AssistantContext? context)
+    {
+        if (context is null ||
+            (string.IsNullOrWhiteSpace(context.ShipmentId) &&
+             string.IsNullOrWhiteSpace(context.EvaluationId)))
+            return null;
+
+        Guid? shipmentId = null;
+        Guid? evaluationId = null;
+        if (!string.IsNullOrWhiteSpace(context.ShipmentId))
+        {
+            if (!Guid.TryParse(context.ShipmentId, out var parsedShipmentId))
+                throw InvalidArgument("Assistant context shipmentId must be a valid UUID.");
+            shipmentId = parsedShipmentId;
+        }
+
+        if (!string.IsNullOrWhiteSpace(context.EvaluationId))
+        {
+            if (!Guid.TryParse(context.EvaluationId, out var parsedEvaluationId))
+                throw InvalidArgument("Assistant context evaluationId must be a valid UUID.");
+            evaluationId = parsedEvaluationId;
+        }
+
+        return new VerifiedAssistantContextInput(shipmentId, evaluationId);
     }
 
     public override Task<ComplianceGrpc.ValidateGroundedEvidenceResponse> ValidateGroundedEvidence(

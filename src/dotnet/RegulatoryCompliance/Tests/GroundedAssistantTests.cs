@@ -1,6 +1,7 @@
 using AiGovernance.Grpc;
 using Microsoft.Extensions.Logging.Abstractions;
 using RegulatoryCompliance.Application.Assistant;
+using RegulatoryCompliance.Application.Evaluations;
 using RegulatoryCompliance.Application.Ingestion;
 using RegulatoryCompliance.Application.Retrieval;
 using RegulatoryCompliance.Domain.Entities;
@@ -170,6 +171,39 @@ public sealed class GroundedAssistantTests
     }
 
     [Fact]
+    public void CitationValidator_WithholdsAnswerWhenInlineCitationIsNotRetrieved()
+    {
+        var validator = new DeterministicCitationValidator();
+        var context = new EvidenceContext([
+            new GroundedEvidence(
+                "R1",
+                GroundedEvidenceDomain.Regulatory,
+                Guid.NewGuid(),
+                Guid.NewGuid(),
+                Guid.NewGuid(),
+                "Law",
+                "1",
+                "1",
+                "Known law",
+                0.9m)
+        ], []);
+
+        var result = validator.Validate(
+            new LlmParsedResponse(
+                "This claim is supported by [R99].",
+                [new LlmCitationItem("R1")],
+                [],
+                [],
+                false,
+                []),
+            context);
+
+        Assert.True(result.InsufficientEvidence);
+        Assert.Contains("unverified citation", result.Answer, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(result.MissingInformation, message => message.Contains("not present"));
+    }
+
+    [Fact]
     public async Task GroundedAnswerService_WhenNoEvidence_ReturnsInsufficientEvidenceWithoutCallingGenerate()
     {
         var fakeRetrieval = new FakeRegulationRetrievalService();
@@ -231,6 +265,84 @@ public sealed class GroundedAssistantTests
         Assert.Equal("DETERMINISTIC_FALLBACK", result.Governance.AutomationLevel);
     }
 
+    [Fact]
+    public async Task GroundedAnswerService_RejectsEvaluationFromAnotherShipment()
+    {
+        var evaluation = CreateCompletedEvaluation(Guid.NewGuid());
+        var service = new GroundedAnswerService(
+            new FakeRegulationRetrievalService(),
+            new FakeKnowledgeIngestionService(),
+            null!,
+            new GroundedAnswerPromptBuilder(),
+            new DeterministicCitationValidator(),
+            new FakeCurrentUserService(TenantId, UserId),
+            NullLogger<GroundedAnswerService>.Instance,
+            new FakeComplianceEvaluationService(evaluation));
+
+        await Assert.ThrowsAsync<AssistantContextMismatchException>(() => service.GenerateAnswerAsync(
+            new GroundedAnswerInput(
+                "Why is this shipment high risk?",
+                AssistantSearchMode.All,
+                "VN",
+                DateTimeOffset.UtcNow,
+                null,
+                null,
+                Context: new VerifiedAssistantContextInput(Guid.NewGuid(), evaluation.Id))));
+    }
+
+    [Fact]
+    public async Task GroundedAnswerService_ReturnsVerifiedEvaluationSummaryInFallback()
+    {
+        var shipmentId = Guid.NewGuid();
+        var evaluation = CreateCompletedEvaluation(shipmentId);
+        var service = new GroundedAnswerService(
+            new FakeRegulationRetrievalService(),
+            new FakeKnowledgeWithEvidenceService(),
+            null!,
+            new GroundedAnswerPromptBuilder(),
+            new DeterministicCitationValidator(),
+            new FakeCurrentUserService(TenantId, UserId),
+            NullLogger<GroundedAnswerService>.Instance,
+            new FakeComplianceEvaluationService(evaluation));
+
+        var result = await service.GenerateAnswerAsync(new GroundedAnswerInput(
+            "Why is this shipment high risk?",
+            AssistantSearchMode.Knowledge,
+            "VN",
+            DateTimeOffset.UtcNow,
+            null,
+            null,
+            Context: new VerifiedAssistantContextInput(shipmentId, evaluation.Id)));
+
+        Assert.NotNull(result.Context);
+        Assert.Equal(shipmentId, result.Context!.ShipmentId);
+        Assert.Equal(evaluation.Id, result.Context.EvaluationId);
+        Assert.Equal("CURRENT", result.Context.Freshness);
+        Assert.Contains("Mức rủi ro đã lưu: High", result.Answer);
+    }
+
+    private static ComplianceEvaluation CreateCompletedEvaluation(Guid shipmentId)
+    {
+        var now = DateTimeOffset.UtcNow;
+        var evaluation = ComplianceEvaluation.Create(
+            TenantId,
+            Guid.NewGuid().ToString(),
+            shipmentId,
+            "snapshot",
+            "{}",
+            now,
+            now);
+        evaluation.Start(now);
+        evaluation.Complete(
+            ComplianceRiskLevel.High,
+            EvidenceSufficiency.Sufficient,
+            0.9m,
+            [],
+            [],
+            now);
+        return evaluation;
+    }
+
     private sealed class FakeKnowledgeWithEvidenceService : IKnowledgeIngestionService
     {
         public Task<KnowledgeIngestionResult> IngestAsync(KnowledgeIngestionInput input, CancellationToken cancellationToken = default) =>
@@ -272,5 +384,20 @@ public sealed class GroundedAssistantTests
         public Guid? UserId { get; } = userId;
         public string? Role => RoleConstants.Staff;
         public IReadOnlyList<string> Permissions => [];
+    }
+
+    private sealed class FakeComplianceEvaluationService(ComplianceEvaluation evaluation) : IComplianceEvaluationService
+    {
+        public Task<ComplianceEvaluation> EvaluateAsync(
+            ComplianceEvaluationInput input,
+            CancellationToken cancellationToken = default) =>
+            throw new NotImplementedException();
+
+        public Task<ComplianceEvaluation> GetAsync(
+            Guid evaluationId,
+            CancellationToken cancellationToken = default) =>
+            evaluation.Id == evaluationId
+                ? Task.FromResult(evaluation)
+                : throw new KeyNotFoundException();
     }
 }

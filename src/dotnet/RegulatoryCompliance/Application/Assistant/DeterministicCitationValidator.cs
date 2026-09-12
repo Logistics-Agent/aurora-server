@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using System.Text.Json.Serialization;
 
 namespace RegulatoryCompliance.Application.Assistant;
@@ -51,6 +52,7 @@ public sealed class DeterministicCitationValidator : IDeterministicCitationValid
         var validKnowReferences = new List<GroundedEvidence>();
         var validConflicts = new List<ValidatedConflict>();
         var missingInfo = new List<string>(rawLlm.MissingInformation ?? []);
+        var invalidInlineCitation = false;
 
         // 1. Validate Regulatory Citations
         if (rawLlm.Citations != null)
@@ -92,6 +94,32 @@ public sealed class DeterministicCitationValidator : IDeterministicCitationValid
             }
         }
 
+        // Validate citations written inline in the answer as well as the structured arrays.
+        // The model must not be able to hide an untrusted [R99]/[K99] reference in prose.
+        foreach (Match match in Regex.Matches(answer, @"\[(?<id>[RK]\d+)\]", RegexOptions.IgnoreCase))
+        {
+            var evidenceId = match.Groups["id"].Value;
+            var evidence = context.Find(evidenceId);
+            if (evidence is null)
+            {
+                invalidInlineCitation = true;
+                continue;
+            }
+
+            if (evidence.Domain == GroundedEvidenceDomain.Regulatory &&
+                !validRegCitations.Any(item => item.EvidenceId.Equals(evidence.EvidenceId, StringComparison.OrdinalIgnoreCase)))
+                validRegCitations.Add(evidence);
+            else if (evidence.Domain == GroundedEvidenceDomain.Knowledge &&
+                     !validKnowReferences.Any(item => item.EvidenceId.Equals(evidence.EvidenceId, StringComparison.OrdinalIgnoreCase)))
+                validKnowReferences.Add(evidence);
+        }
+
+        if (invalidInlineCitation)
+        {
+            answer = "The assistant response contained an unverified citation and was withheld.";
+            missingInfo.Add("The answer referenced evidence that was not present in the retrieved context.");
+        }
+
         // 3. Validate Conflicts
         if (rawLlm.Conflicts != null)
         {
@@ -115,7 +143,7 @@ public sealed class DeterministicCitationValidator : IDeterministicCitationValid
             }
         }
 
-        var isInsufficient = rawLlm.InsufficientEvidence;
+        var isInsufficient = rawLlm.InsufficientEvidence || invalidInlineCitation;
         if (string.IsNullOrWhiteSpace(answer) && validRegCitations.Count == 0 && validKnowReferences.Count == 0)
         {
             isInsufficient = true;

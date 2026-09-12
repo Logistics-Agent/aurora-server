@@ -283,6 +283,7 @@ message GenerateGroundedAnswerRequest {
   repeated KnowledgeCategory categories = 6;
   int32 top_k = 7;
   double minimum_relevance_score = 8;
+  AssistantContext context = 9;
 }
 
 message GenerateGroundedAnswerResponse {
@@ -295,6 +296,19 @@ message GenerateGroundedAnswerResponse {
   repeated string missing_information = 7;
   AssistantGovernanceMetadata governance = 8;
   string retrieval_trace_id = 9;
+  AssistantContextSummary context = 10;
+}
+
+message AssistantContext {
+  string shipment_id = 1;
+  string evaluation_id = 2;
+}
+
+message AssistantContextSummary {
+  string shipment_id = 1;
+  string evaluation_id = 2;
+  string freshness = 3;
+  string snapshot_hash = 4;
 }
 
 message RegulatoryCitation {
@@ -373,4 +387,3 @@ message ValidateGroundedEvidenceResponse {
   bool insufficient_evidence = 5;
   repeated string missing_information = 6;
 }
-
