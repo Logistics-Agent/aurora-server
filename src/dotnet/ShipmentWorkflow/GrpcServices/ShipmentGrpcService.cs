@@ -298,10 +298,55 @@ public sealed class ShipmentGrpcService(ISender sender)
                 request.StorageUrl,
                 ParseEnum<OCRStatus>(request.OcrStatus, OCRStatus.Pending),
                 request.HasOcrConfidence ? (decimal)request.OcrConfidence : null,
-                request.ExtractedDataJson),
+                request.ExtractedDataJson,
+                request.IdempotencyKey,
+                ParseOptionalGuid(request.UploadId, "Invalid upload id."),
+                request.StorageReference),
             context.CancellationToken);
 
         return MapToResponse(shipment);
+    }
+
+    public override async Task<DocumentIntakeResponse> CreateDocumentIntake(
+        CreateDocumentIntakeRequest request,
+        ServerCallContext context)
+    {
+        var result = await sender.Send(
+            new CreateDocumentIntakeCommand(
+                ParseGuid(request.ShipmentId, "Invalid shipment id."),
+                ParseGuid(request.UploadId, "Invalid upload id."),
+                request.StorageReference,
+                request.FileName,
+                ParseEnum<DocumentType>(request.DocumentType, DocumentType.Unknown),
+                request.IdempotencyKey),
+            context.CancellationToken);
+
+        return MapToDocumentIntakeResponse(result);
+    }
+
+    public override async Task<DocumentIntakeResponse> MarkDocumentIntakeSubmitted(
+        MarkDocumentIntakeSubmittedRequest request,
+        ServerCallContext context)
+    {
+        var result = await sender.Send(
+            new MarkDocumentIntakeSubmittedCommand(
+                ParseGuid(request.IntakeId, "Invalid intake id.")),
+            context.CancellationToken);
+
+        return MapToDocumentIntakeResponse(result);
+    }
+
+    public override async Task<DocumentIntakeResponse> MarkDocumentIntakeRetryable(
+        MarkDocumentIntakeRetryableRequest request,
+        ServerCallContext context)
+    {
+        var result = await sender.Send(
+            new MarkDocumentIntakeRetryableCommand(
+                ParseGuid(request.IntakeId, "Invalid intake id."),
+                request.FailureReason),
+            context.CancellationToken);
+
+        return MapToDocumentIntakeResponse(result);
     }
 
     public override async Task<ShipmentResponse> UpdateShipmentDocumentOcr(
@@ -395,6 +440,11 @@ public sealed class ShipmentGrpcService(ISender sender)
         return Guid.TryParse(value, out var id)
             ? id
             : throw new RpcException(new Status(StatusCode.InvalidArgument, errorMessage));
+    }
+
+    private static Guid? ParseOptionalGuid(string value, string errorMessage)
+    {
+        return string.IsNullOrWhiteSpace(value) ? null : ParseGuid(value, errorMessage);
     }
 
     private static TEnum ParseEnum<TEnum>(string value, TEnum fallback)
@@ -494,6 +544,37 @@ public sealed class ShipmentGrpcService(ISender sender)
 
         return response;
     }
+
+    private static DocumentIntakeResponse MapToDocumentIntakeResponse(DocumentIntakeDto intake)
+    {
+        var response = new DocumentIntakeResponse
+        {
+            IntakeId = intake.IntakeId.ToString(),
+            ShipmentId = intake.ShipmentId.ToString(),
+            DocumentId = intake.DocumentId.ToString(),
+            UploadId = intake.UploadId.ToString(),
+            StorageReference = intake.StorageReference,
+            FileName = intake.FileName,
+            DocumentType = intake.DocumentType.ToString(),
+            Status = ToContractStatus(intake.Status),
+            Stage = ToContractStatus(intake.Status),
+            CreatedAt = Timestamp.FromDateTimeOffset(intake.CreatedAt)
+        };
+
+        if (intake.UpdatedAt.HasValue)
+            response.UpdatedAt = Timestamp.FromDateTimeOffset(intake.UpdatedAt.Value);
+
+        return response;
+    }
+
+    private static string ToContractStatus(DocumentIntakeStatus status) => status switch
+    {
+        DocumentIntakeStatus.PendingAttachment => "PENDING_ATTACHMENT",
+        DocumentIntakeStatus.PendingOcr => "PENDING_OCR",
+        DocumentIntakeStatus.Submitted => "SUBMITTED",
+        DocumentIntakeStatus.FailedRetryable => "FAILED_RETRYABLE",
+        _ => throw new RpcException(new Status(StatusCode.Internal, "Unknown document intake status."))
+    };
 
     private static void SetOptionalTimestamp(
         ShipmentResponse response,
