@@ -148,13 +148,22 @@ internal static class DocumentProblemContractCatalog
     private static readonly IReadOnlyDictionary<string, Definition> ByCode =
         All.ToDictionary(definition => definition.Code, StringComparer.Ordinal);
 
+    private static readonly IReadOnlySet<string> DeclaredUploadDependencyCodes =
+        new HashSet<string>(StringComparer.Ordinal)
+        {
+            DocumentOcrUnavailableCode,
+            ShipmentWorkflowUnavailableCode
+        };
+
     internal static bool TryGet(string code, out Definition definition) =>
         ByCode.TryGetValue(code, out definition!);
 
     internal static Definition ResolveUploadCode(string code) => code switch
     {
         "UPLOAD_INVALID_REQUEST" => InvalidUploadRequest,
-        _ when TryGet(code, out var definition) && definition.Code.StartsWith("UPLOAD_", StringComparison.Ordinal) => definition,
+        _ when TryGet(code, out var definition) &&
+            (definition.Code.StartsWith("UPLOAD_", StringComparison.Ordinal) ||
+             DeclaredUploadDependencyCodes.Contains(definition.Code)) => definition,
         _ => UploadInvalid
     };
 
@@ -193,6 +202,7 @@ internal static class DocumentEndpointProblemContracts
                 DocumentProblemContractCatalog.UploadIdempotencyConflict,
                 DocumentProblemContractCatalog.UploadNotVerified,
                 DocumentProblemContractCatalog.UploadVerificationInProgress,
+                DocumentProblemContractCatalog.UploadNotReady,
                 DocumentProblemContractCatalog.UploadInvalid,
                 DocumentProblemContractCatalog.UploadMimeMismatch,
                 DocumentProblemContractCatalog.UploadSizeMismatch,
@@ -233,7 +243,7 @@ internal static class DocumentEndpointProblemContracts
             [GetShipmentDocumentStatusAlias] =
             [DocumentProblemContractCatalog.DocumentNotFound, DocumentProblemContractCatalog.DocumentOcrUnavailable],
             [GetShipmentDocumentReview] =
-            [DocumentProblemContractCatalog.DocumentOcrUnavailable],
+            [DocumentProblemContractCatalog.DocumentNotFound, DocumentProblemContractCatalog.DocumentOcrUnavailable],
             [SubmitShipmentDocumentReview] =
             [DocumentProblemContractCatalog.InvalidRequest, DocumentProblemContractCatalog.DocumentNotFound, DocumentProblemContractCatalog.InvalidStateTransition, DocumentProblemContractCatalog.DocumentOcrUnavailable],
             [CancelShipmentDocument] =

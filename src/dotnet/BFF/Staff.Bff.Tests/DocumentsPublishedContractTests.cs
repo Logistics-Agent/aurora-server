@@ -104,6 +104,41 @@ public sealed class DocumentsPublishedContractTests
         Assert.True(schema.GetProperty("properties").GetProperty("retryable").GetProperty("type").GetString() == "boolean");
     }
 
+    [Fact]
+    public void Published_problem_examples_are_nested_under_problem_media_types()
+    {
+        using var document = LoadFixture();
+        var responses = document.RootElement.GetProperty("components").GetProperty("responses");
+
+        foreach (var response in responses.EnumerateObject())
+        {
+            Assert.False(
+                response.Value.TryGetProperty("examples", out _),
+                $"{response.Name} must keep examples under application/problem+json.");
+
+            var mediaType = response.Value
+                .GetProperty("content")
+                .GetProperty("application/problem+json");
+            Assert.True(mediaType.TryGetProperty("examples", out var examples));
+            Assert.NotEmpty(examples.EnumerateObject());
+        }
+    }
+
+    [Fact]
+    public void Published_endpoint_catalog_contains_runtime_document_codes()
+    {
+        var uploadCodes = DocumentEndpointProblemContracts.Get(DocumentEndpointProblemContracts.CreateUploadSession)
+            .Select(contract => contract.Code)
+            .ToHashSet(StringComparer.Ordinal);
+        var reviewCodes = DocumentEndpointProblemContracts.Get(DocumentEndpointProblemContracts.GetShipmentDocumentReview)
+            .Select(contract => contract.Code)
+            .ToHashSet(StringComparer.Ordinal);
+
+        Assert.Contains(DocumentProblemContractCatalog.DocumentOcrUnavailableCode, uploadCodes);
+        Assert.Contains(DocumentProblemContractCatalog.UploadNotReadyCode, uploadCodes);
+        Assert.Contains(DocumentProblemContractCatalog.DocumentNotFoundCode, reviewCodes);
+    }
+
     private static JsonDocument LoadFixture()
     {
         using var stream = typeof(DocumentsPublishedContractTests).Assembly

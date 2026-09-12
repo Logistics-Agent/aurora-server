@@ -98,6 +98,10 @@
             {
               "code": "UPLOAD_VERIFICATION_IN_PROGRESS",
               "retryable": true
+            },
+            {
+              "code": "UPLOAD_NOT_READY",
+              "retryable": false
             }
           ],
           "422": [
@@ -1531,6 +1535,7 @@
                           "enum": [
                             "UPLOAD_EXPIRED",
                             "UPLOAD_IDEMPOTENCY_CONFLICT",
+                            "UPLOAD_NOT_READY",
                             "UPLOAD_NOT_VERIFIED"
                           ]
                         },
@@ -1602,6 +1607,17 @@
                   "status": 409,
                   "detail": "Conflict or invalid state transition. Reconcile the existing resource before retrying.",
                   "code": "UPLOAD_IDEMPOTENCY_CONFLICT",
+                  "retryable": false
+                }
+              },
+              "UPLOAD_NOT_READY": {
+                "summary": "UPLOAD_NOT_READY",
+                "value": {
+                  "type": "https://httpstatuses.io/409",
+                  "title": "UPLOAD_NOT_READY",
+                  "status": 409,
+                  "detail": "Conflict or invalid state transition. Reconcile the existing resource before retrying.",
+                  "code": "UPLOAD_NOT_READY",
                   "retryable": false
                 }
               },
@@ -1965,20 +1981,18 @@
                   "code": "DOCUMENT_INTAKE_NOT_FOUND",
                   "retryable": false
                 }
+              },
+              "DOCUMENT_NOT_FOUND": {
+                "summary": "DOCUMENT_NOT_FOUND",
+                "value": {
+                  "type": "https://httpstatuses.io/404",
+                  "title": "DOCUMENT_NOT_FOUND",
+                  "status": 404,
+                  "detail": "Resource not found or hidden by tenant anti-enumeration policy.",
+                  "code": "DOCUMENT_NOT_FOUND",
+                  "retryable": false
+                }
               }
-            }
-          }
-        },
-        "examples": {
-          "DOCUMENT_NOT_FOUND": {
-            "summary": "DOCUMENT_NOT_FOUND",
-            "value": {
-              "type": "https://httpstatuses.io/404",
-              "title": "DOCUMENT_NOT_FOUND",
-              "status": 404,
-              "detail": "Resource not found or hidden by tenant anti-enumeration policy.",
-              "code": "DOCUMENT_NOT_FOUND",
-              "retryable": false
             }
           }
         }
@@ -2135,20 +2149,18 @@
                   "retryable": true,
                   "retryAfterSeconds": 5
                 }
+              },
+              "UPLOAD_NOT_READY": {
+                "summary": "UPLOAD_NOT_READY",
+                "value": {
+                  "type": "https://httpstatuses.io/409",
+                  "title": "UPLOAD_NOT_READY",
+                  "status": 409,
+                  "detail": "Conflict or invalid state transition. Reconcile the existing resource before retrying.",
+                  "code": "UPLOAD_NOT_READY",
+                  "retryable": false
+                }
               }
-            }
-          }
-        },
-        "examples": {
-          "UPLOAD_NOT_READY": {
-            "summary": "UPLOAD_NOT_READY",
-            "value": {
-              "type": "https://httpstatuses.io/409",
-              "title": "UPLOAD_NOT_READY",
-              "status": 409,
-              "detail": "Conflict or invalid state transition. Reconcile the existing resource before retrying.",
-              "code": "UPLOAD_NOT_READY",
-              "retryable": false
             }
           }
         }
