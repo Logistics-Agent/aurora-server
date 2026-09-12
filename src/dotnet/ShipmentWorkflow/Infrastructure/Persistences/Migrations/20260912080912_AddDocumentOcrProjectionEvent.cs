@@ -12,43 +12,40 @@ namespace ShipmentWorkflow.Infrastructure.Persistences.Migrations
         protected override void Up(MigrationBuilder migrationBuilder)
         {
             migrationBuilder.Sql("""
-                DO $$
-                DECLARE
-                    column_type text;
-                    column_is_nullable boolean;
-                BEGIN
-                    IF to_regclass('public.shipment_documents') IS NULL THEN
-                        RETURN;
-                    END IF;
+                ALTER TABLE IF EXISTS public.shipment_documents
+                    ADD COLUMN IF NOT EXISTS "LastOcrEventId" uuid NULL;
 
-                    SELECT format_type(attribute.atttypid, attribute.atttypmod),
-                           NOT attribute.attnotnull
-                    INTO column_type, column_is_nullable
+                DROP TABLE IF EXISTS pg_temp.aurora_document_ocr_projection_validation;
+
+                CREATE TEMP TABLE aurora_document_ocr_projection_validation
+                ON COMMIT DROP
+                AS
+                WITH column_shape AS (
+                    SELECT format_type(attribute.atttypid, attribute.atttypmod) AS column_type,
+                           NOT attribute.attnotnull AS column_is_nullable
                     FROM pg_attribute attribute
-                    WHERE attribute.attrelid = 'public.shipment_documents'::regclass
+                    WHERE attribute.attrelid = to_regclass('public.shipment_documents')
                       AND attribute.attname = 'LastOcrEventId'
-                      AND NOT attribute.attisdropped;
-
-                    IF NOT FOUND THEN
-                        ALTER TABLE public.shipment_documents ADD COLUMN "LastOcrEventId" uuid NULL;
-                        COMMENT ON COLUMN public.shipment_documents."LastOcrEventId"
-                            IS 'aurora:migration:AddDocumentOcrProjectionEvent:owned';
-                        RETURN;
-                    END IF;
-
-                    IF column_type <> 'uuid' THEN
-                        RAISE EXCEPTION
-                            'shipment_documents.LastOcrEventId has incompatible type %, expected uuid',
-                            column_type
-                            USING ERRCODE = '42804';
-                    END IF;
-
-                    IF NOT column_is_nullable THEN
-                        RAISE EXCEPTION
-                            'shipment_documents.LastOcrEventId has incompatible nullability, expected nullable uuid'
-                            USING ERRCODE = '42804';
-                    END IF;
-                END $$;
+                      AND NOT attribute.attisdropped
+                )
+                SELECT CASE
+                    WHEN to_regclass('public.shipment_documents') IS NULL THEN NULL::uuid
+                    WHEN EXISTS (SELECT 1 FROM column_shape WHERE column_type <> 'uuid') THEN
+                        (
+                            SELECT 'shipment_documents.LastOcrEventId has incompatible type '
+                                || column_type
+                                || ', expected uuid'
+                            FROM column_shape
+                            LIMIT 1
+                        )::uuid
+                    WHEN EXISTS (SELECT 1 FROM column_shape WHERE NOT column_is_nullable) THEN
+                        (
+                            SELECT 'shipment_documents.LastOcrEventId has incompatible nullability, expected nullable uuid'
+                            FROM column_shape
+                            LIMIT 1
+                        )::uuid
+                    ELSE NULL::uuid
+                END AS validation_result;
                 """);
         }
 
@@ -56,25 +53,10 @@ namespace ShipmentWorkflow.Infrastructure.Persistences.Migrations
         protected override void Down(MigrationBuilder migrationBuilder)
         {
             migrationBuilder.Sql("""
-                DO $$
-                DECLARE
-                    column_comment text;
-                BEGIN
-                    IF to_regclass('public.shipment_documents') IS NULL THEN
-                        RETURN;
-                    END IF;
-
-                    SELECT col_description('public.shipment_documents'::regclass, attribute.attnum)
-                    INTO column_comment
-                    FROM pg_attribute attribute
-                    WHERE attribute.attrelid = 'public.shipment_documents'::regclass
-                      AND attribute.attname = 'LastOcrEventId'
-                      AND NOT attribute.attisdropped;
-
-                    IF FOUND AND column_comment = 'aurora:migration:AddDocumentOcrProjectionEvent:owned' THEN
-                        ALTER TABLE public.shipment_documents DROP COLUMN "LastOcrEventId";
-                    END IF;
-                END $$;
+                -- This additive projection column may pre-date this migration or be used by a
+                -- later deployment. Keep Down data-preserving and never infer ownership from a
+                -- mutable PostgreSQL comment.
+                DROP TABLE IF EXISTS pg_temp.aurora_document_ocr_projection_down_noop;
                 """);
         }
     }

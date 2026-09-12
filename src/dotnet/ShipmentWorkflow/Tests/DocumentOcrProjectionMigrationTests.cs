@@ -1,6 +1,12 @@
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Migrations.Operations;
+using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
+using Shared.Interceptors;
+using Shared.Security;
+using ShipmentWorkflow.Infrastructure.Persistences;
 using ShipmentWorkflow.Infrastructure.Persistences.Migrations;
 
 namespace ShipmentWorkflow.Tests;
@@ -15,7 +21,7 @@ public sealed class DocumentOcrProjectionMigrationTests
     private const string OwnershipMarker = "aurora:migration:AddDocumentOcrProjectionEvent:owned";
 
     [Fact]
-    public async Task Up_adds_nullable_uuid_column_and_down_removes_only_owned_column()
+    public async Task Up_adds_nullable_uuid_column_and_down_preserves_column()
     {
         await using var connection = await OpenDatabaseAsync();
         await ResetTableAsync(connection);
@@ -28,11 +34,12 @@ public sealed class DocumentOcrProjectionMigrationTests
             var shape = await ReadColumnShapeAsync(connection);
             Assert.Equal("uuid", shape.DataType);
             Assert.True(shape.IsNullable);
-            Assert.Equal(OwnershipMarker, shape.Comment);
+            Assert.Null(shape.Comment);
 
             await ApplyDownAsync(connection);
 
-            Assert.False(await ColumnExistsAsync(connection));
+            Assert.True(await ColumnExistsAsync(connection));
+            Assert.Equal("uuid", (await ReadColumnShapeAsync(connection)).DataType);
         }
         finally
         {
@@ -46,6 +53,7 @@ public sealed class DocumentOcrProjectionMigrationTests
         await using var connection = await OpenDatabaseAsync();
         await ResetTableAsync(connection);
         await ExecuteAsync(connection, "CREATE TABLE public.shipment_documents (\"Id\" uuid PRIMARY KEY, \"LastOcrEventId\" uuid NULL);");
+        await ExecuteAsync(connection, $"COMMENT ON COLUMN public.shipment_documents.\"LastOcrEventId\" IS '{OwnershipMarker}';");
         var documentId = Guid.CreateVersion7();
         var eventId = Guid.CreateVersion7();
         await ExecuteAsync(connection, "INSERT INTO public.shipment_documents (\"Id\", \"LastOcrEventId\") VALUES (@document_id, @event_id);", ("document_id", documentId), ("event_id", eventId));
@@ -58,7 +66,7 @@ public sealed class DocumentOcrProjectionMigrationTests
             var value = await ExecuteScalarAsync<Guid?>(connection, "SELECT \"LastOcrEventId\" FROM public.shipment_documents WHERE \"Id\" = @document_id;", ("document_id", documentId));
             Assert.Equal(eventId, value);
             Assert.True(await ColumnExistsAsync(connection));
-            Assert.Null((await ReadColumnShapeAsync(connection)).Comment);
+            Assert.Equal(OwnershipMarker, (await ReadColumnShapeAsync(connection)).Comment);
         }
         finally
         {
@@ -106,11 +114,154 @@ public sealed class DocumentOcrProjectionMigrationTests
         }
     }
 
+    [Fact]
+    public async Task Database_migrate_applies_projection_sql_without_nested_block()
+    {
+        await using var connection = await OpenDatabaseAsync();
+        await ResetTableAsync(connection);
+        await PrepareMigrationHistoryAsync(connection);
+        await ExecuteAsync(connection, "CREATE TABLE public.shipment_documents (\"Id\" uuid PRIMARY KEY);");
+
+        try
+        {
+            await ApplyMigrationWithDatabaseAsync();
+
+            var shape = await ReadColumnShapeAsync(connection);
+            Assert.Equal("uuid", shape.DataType);
+            Assert.True(shape.IsNullable);
+        }
+        finally
+        {
+            await ResetTableAsync(connection);
+        }
+    }
+
+    [Fact]
+    public async Task Generated_idempotent_script_adds_absent_column_and_records_migration()
+    {
+        await using var connection = await OpenDatabaseAsync();
+        await ResetTableAsync(connection);
+        await PrepareMigrationHistoryAsync(connection);
+        await ExecuteAsync(connection, "CREATE TABLE public.shipment_documents (\"Id\" uuid PRIMARY KEY);");
+
+        try
+        {
+            await ExecuteAsync(connection, GenerateIdempotentScript());
+
+            var shape = await ReadColumnShapeAsync(connection);
+            Assert.Equal("uuid", shape.DataType);
+            Assert.True(shape.IsNullable);
+            Assert.Equal(
+                1,
+                await ExecuteScalarAsync<long>(
+                    connection,
+                    "SELECT COUNT(*) FROM \"__EFMigrationsHistory\" WHERE \"MigrationId\" = '20260912080912_AddDocumentOcrProjectionEvent';"));
+        }
+        finally
+        {
+            await ResetTableAsync(connection);
+        }
+    }
+
+    [Fact]
+    public async Task Generated_idempotent_script_accepts_pre_existing_compatible_column_and_preserves_data()
+    {
+        await using var connection = await OpenDatabaseAsync();
+        await ResetTableAsync(connection);
+        await PrepareMigrationHistoryAsync(connection);
+        await ExecuteAsync(connection, "CREATE TABLE public.shipment_documents (\"Id\" uuid PRIMARY KEY, \"LastOcrEventId\" uuid NULL);");
+        var documentId = Guid.CreateVersion7();
+        var eventId = Guid.CreateVersion7();
+        await ExecuteAsync(connection, "INSERT INTO public.shipment_documents (\"Id\", \"LastOcrEventId\") VALUES (@document_id, @event_id);", ("document_id", documentId), ("event_id", eventId));
+
+        try
+        {
+            await ExecuteAsync(connection, GenerateIdempotentScript());
+
+            Assert.Equal(
+                eventId,
+                await ExecuteScalarAsync<Guid?>(connection, "SELECT \"LastOcrEventId\" FROM public.shipment_documents WHERE \"Id\" = @document_id;", ("document_id", documentId)));
+            Assert.True(await ColumnExistsAsync(connection));
+        }
+        finally
+        {
+            await ResetTableAsync(connection);
+        }
+    }
+
+    [Fact]
+    public async Task Generated_idempotent_script_rejects_incompatible_schema_without_recording_migration()
+    {
+        await using var connection = await OpenDatabaseAsync();
+        await ResetTableAsync(connection);
+        await PrepareMigrationHistoryAsync(connection);
+        await ExecuteAsync(connection, "CREATE TABLE public.shipment_documents (\"Id\" uuid PRIMARY KEY, \"LastOcrEventId\" text NULL);");
+
+        try
+        {
+            var exception = await Assert.ThrowsAsync<PostgresException>(() => ExecuteAsync(connection, GenerateIdempotentScript()));
+
+            await connection.CloseAsync();
+            await using var verificationConnection = await OpenDatabaseAsync();
+
+            Assert.Contains("LastOcrEventId", exception.Message, StringComparison.Ordinal);
+            Assert.Contains("uuid", exception.Message, StringComparison.OrdinalIgnoreCase);
+            Assert.Equal(
+                0,
+                await ExecuteScalarAsync<long>(
+                    verificationConnection,
+                    "SELECT COUNT(*) FROM \"__EFMigrationsHistory\" WHERE \"MigrationId\" = '20260912080912_AddDocumentOcrProjectionEvent';"));
+            Assert.Equal("text", (await ReadColumnShapeAsync(verificationConnection)).DataType);
+        }
+        finally
+        {
+            await ResetTableAsync(connection);
+        }
+    }
+
     private static async Task ApplyUpAsync(NpgsqlConnection connection) =>
         await ExecuteMigrationSqlAsync(connection, migration => migration.GetUpOperations());
 
     private static async Task ApplyDownAsync(NpgsqlConnection connection) =>
         await ExecuteMigrationSqlAsync(connection, migration => migration.GetDownOperations());
+
+    private static string GenerateIdempotentScript()
+    {
+        var options = new DbContextOptionsBuilder<ShipmentWorkflowDbContext>()
+            .UseNpgsql(
+                ConnectionString,
+                npgsql => npgsql.MigrationsAssembly(typeof(ShipmentWorkflowDbContext).Assembly.FullName))
+            .Options;
+        var currentUser = new CurrentUserService();
+        using var context = new ShipmentWorkflowDbContext(
+            options,
+            currentUser,
+            new AuditSaveChangesInterceptor(currentUser));
+
+        return context.Database
+            .GetInfrastructure()
+            .GetRequiredService<IMigrator>()
+            .GenerateScript(
+                "20260912023814_AddDocumentIntakeLedger",
+                "20260912080912_AddDocumentOcrProjectionEvent",
+                MigrationsSqlGenerationOptions.Idempotent);
+    }
+
+    private static async Task ApplyMigrationWithDatabaseAsync()
+    {
+        var options = new DbContextOptionsBuilder<ShipmentWorkflowDbContext>()
+            .UseNpgsql(
+                ConnectionString,
+                npgsql => npgsql.MigrationsAssembly(typeof(ShipmentWorkflowDbContext).Assembly.FullName))
+            .Options;
+        var currentUser = new CurrentUserService();
+        await using var context = new ShipmentWorkflowDbContext(
+            options,
+            currentUser,
+            new AuditSaveChangesInterceptor(currentUser));
+
+        await context.Database.MigrateAsync("20260912080912_AddDocumentOcrProjectionEvent");
+    }
 
     private static async Task ExecuteMigrationSqlAsync(
         NpgsqlConnection connection,
@@ -142,11 +293,25 @@ public sealed class DocumentOcrProjectionMigrationTests
         await create.ExecuteNonQueryAsync();
     }
 
+    private static async Task PrepareMigrationHistoryAsync(NpgsqlConnection connection)
+    {
+        await ExecuteAsync(
+            connection,
+            "CREATE TABLE IF NOT EXISTS \"__EFMigrationsHistory\" (\"MigrationId\" character varying(150) NOT NULL PRIMARY KEY, \"ProductVersion\" character varying(32) NOT NULL);");
+        await ExecuteAsync(
+            connection,
+            "INSERT INTO \"__EFMigrationsHistory\" (\"MigrationId\", \"ProductVersion\") VALUES ('20260912023814_AddDocumentIntakeLedger', '10.0.9') ON CONFLICT (\"MigrationId\") DO NOTHING;");
+        await ExecuteAsync(
+            connection,
+            "DELETE FROM \"__EFMigrationsHistory\" WHERE \"MigrationId\" = '20260912080912_AddDocumentOcrProjectionEvent';");
+    }
+
     private static async Task ResetTableAsync(NpgsqlConnection connection)
     {
-        if (connection.State != System.Data.ConnectionState.Open)
-            await connection.OpenAsync();
+        await connection.CloseAsync();
+        await connection.OpenAsync();
         await ExecuteAsync(connection, "DROP TABLE IF EXISTS public.shipment_documents;");
+        await ExecuteAsync(connection, "DROP TABLE IF EXISTS \"__EFMigrationsHistory\";");
     }
 
     private static async Task<bool> ColumnExistsAsync(NpgsqlConnection connection) =>
