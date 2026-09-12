@@ -14,6 +14,10 @@ service DocumentOcrService {
   rpc CancelDocumentJob(CancelDocumentJobRequest) returns (DocumentOcrJobResponse);
   rpc RetryDocumentJob(RetryDocumentJobRequest) returns (DocumentOcrJobResponse);
   rpc ReviewDocumentJob(ReviewDocumentJobRequest) returns (DocumentOcrJobResponse);
+  rpc CreateUploadSession(CreateUploadSessionRequest) returns (DocumentUploadReceipt);
+  rpc VerifyUploadSession(VerifyUploadSessionRequest) returns (DocumentUploadReceipt);
+  rpc GetUploadSession(GetUploadSessionRequest) returns (DocumentUploadReceipt);
+  rpc ConsumeUploadSession(ConsumeUploadSessionRequest) returns (DocumentUploadReceipt);
 }
               
 enum DocumentOcrJobStatus {
@@ -45,6 +49,51 @@ enum OcrExtractionMode {
   OCR_EXTRACTION_MODE_BOTH = 3;
 }
 
+enum DocumentUploadStatus {
+  DOCUMENT_UPLOAD_STATUS_UNSPECIFIED = 0;
+  DOCUMENT_UPLOAD_STATUS_PENDING = 1;
+  DOCUMENT_UPLOAD_STATUS_UPLOADED = 2;
+  DOCUMENT_UPLOAD_STATUS_CONSUMED = 3;
+  DOCUMENT_UPLOAD_STATUS_EXPIRED = 4;
+}
+
+message CreateUploadSessionRequest {
+  string idempotency_key = 1;
+  string file_name = 2;
+  string mime_type = 3;
+  int64 size_bytes = 4;
+  string content_sha256 = 5;
+}
+
+message VerifyUploadSessionRequest {
+  string upload_id = 1;
+}
+
+message GetUploadSessionRequest {
+  string upload_id = 1;
+}
+
+message ConsumeUploadSessionRequest {
+  string upload_id = 1;
+}
+
+message DocumentUploadReceipt {
+  string upload_id = 1;
+  string storage_reference = 2;
+  string write_url = 3;
+  map<string, string> required_headers = 4;
+  google.protobuf.Timestamp expires_at = 5;
+  int64 maximum_size_bytes = 6;
+  DocumentUploadStatus status = 7;
+  string file_name = 8;
+  string mime_type = 9;
+  int64 size_bytes = 10;
+  string content_sha256 = 11;
+  string verified_mime_type = 12;
+  int64 verified_size_bytes = 13;
+  string verified_content_sha256 = 14;
+}
+
 message SubmitDocumentJobRequest {
   string idempotency_key = 1;
   string storage_reference = 2;
@@ -66,6 +115,7 @@ message SubmitOcrJobRequest {
   OcrExtractionMode extraction_mode = 7;
   string external_document_id = 8;
   string external_context_id = 9;
+  string external_shipment_id = 10;
 }
 
 message GetDocumentJobRequest {
@@ -127,5 +177,3 @@ message ReviewDocumentJobRequest {
   string corrected_json = 3;
   string comment = 4;
 }
-
-

@@ -257,7 +257,7 @@ public class Shipment : TenantAuditableEntity
             contactPhone));
     }
 
-    public void AddDocumentMetadata(
+    public ShipmentDocument AddDocumentMetadata(
         string fileName,
         DocumentType documentType,
         string storageUrl,
@@ -265,9 +265,14 @@ public class Shipment : TenantAuditableEntity
         DateTimeOffset uploadedAt,
         OCRStatus ocrStatus = OCRStatus.Pending,
         decimal? ocrConfidence = null,
-        string? extractedDataJson = null)
+        string? extractedDataJson = null,
+        string? idempotencyKey = null,
+        Guid? uploadId = null,
+        string? storageReference = null,
+        string? requestHash = null,
+        Guid? documentId = null)
     {
-        Documents.Add(ShipmentDocument.Create(
+        var document = ShipmentDocument.Create(
             TenantId,
             Id,
             fileName,
@@ -277,7 +282,14 @@ public class Shipment : TenantAuditableEntity
             uploadedAt,
             ocrStatus,
             ocrConfidence,
-            extractedDataJson));
+            extractedDataJson,
+            idempotencyKey,
+            uploadId,
+            storageReference,
+            requestHash,
+            documentId);
+        Documents.Add(document);
+        return document;
     }
 
     public void UpdateDocumentOcrMetadata(

@@ -13,6 +13,9 @@ using ShipmentLocationEntity =
 using ShipmentDocumentEntity =
     global::ShipmentWorkflow.Domain.Entities.ShipmentDocument;
 
+using DocumentIntakeEntity =
+    global::ShipmentWorkflow.Domain.Entities.DocumentIntake;
+
 using ShipmentMilestoneEntity =
     global::ShipmentWorkflow.Domain.Entities.ShipmentMilestone;
 
@@ -37,6 +40,7 @@ public sealed class ShipmentWorkflowDbContext(
     public DbSet<CargoItemEntity> CargoItems => Set<CargoItemEntity>();
     public DbSet<ShipmentLocationEntity> ShipmentLocations => Set<ShipmentLocationEntity>();
     public DbSet<ShipmentDocumentEntity> ShipmentDocuments => Set<ShipmentDocumentEntity>();
+    public DbSet<DocumentIntakeEntity> DocumentIntakes => Set<DocumentIntakeEntity>();
     public DbSet<ShipmentMilestoneEntity> ShipmentMilestones => Set<ShipmentMilestoneEntity>();
 
     public DbSet<ShipmentStatusHistoryEntity> ShipmentStatusHistories =>
@@ -57,6 +61,7 @@ public sealed class ShipmentWorkflowDbContext(
         ConfigureCargoItem(modelBuilder);
         ConfigureShipmentLocation(modelBuilder);
         ConfigureShipmentDocument(modelBuilder);
+        ConfigureDocumentIntake(modelBuilder);
         ConfigureShipmentMilestone(modelBuilder);
         ConfigureShipmentStatusHistory(modelBuilder);
         ConfigureOutboxMessage(modelBuilder);
@@ -263,6 +268,16 @@ public sealed class ShipmentWorkflowDbContext(
             entity.HasIndex(document =>
                 new { document.TenantId, document.OCRStatus });
 
+            entity.HasIndex(document =>
+                new { document.TenantId, document.ShipmentId, document.IdempotencyKey })
+                .IsUnique()
+                .HasFilter("\"IdempotencyKey\" IS NOT NULL");
+
+            entity.HasIndex(document =>
+                new { document.TenantId, document.ShipmentId, document.StorageReference })
+                .IsUnique()
+                .HasFilter("\"IdempotencyKey\" IS NOT NULL AND \"StorageReference\" IS NOT NULL");
+
             entity.Property(document => document.FileName)
                 .HasMaxLength(ShipmentDocumentEntity.FileNameMaxLength)
                 .IsRequired();
@@ -275,6 +290,15 @@ public sealed class ShipmentWorkflowDbContext(
             entity.Property(document => document.StorageUrl)
                 .HasMaxLength(ShipmentDocumentEntity.StorageUrlMaxLength)
                 .IsRequired();
+
+            entity.Property(document => document.StorageReference)
+                .HasMaxLength(ShipmentDocumentEntity.StorageUrlMaxLength);
+
+            entity.Property(document => document.IdempotencyKey)
+                .HasMaxLength(ShipmentDocumentEntity.IdempotencyKeyMaxLength);
+
+            entity.Property(document => document.RequestHash)
+                .HasMaxLength(ShipmentDocumentEntity.RequestHashMaxLength);
 
             entity.Property(document => document.OCRStatus)
                 .HasConversion<string>()
@@ -289,6 +313,64 @@ public sealed class ShipmentWorkflowDbContext(
 
             entity.Property(document => document.ExtractedDataJson)
                 .HasColumnType("jsonb");
+        });
+    }
+
+    private void ConfigureDocumentIntake(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<DocumentIntakeEntity>(entity =>
+        {
+            entity.ToTable("document_intakes");
+
+            entity.HasKey(intake => intake.Id);
+
+            entity.HasQueryFilter(intake =>
+                _tenantId.HasValue && intake.TenantId == _tenantId.Value);
+
+            entity.HasIndex(intake =>
+                new { intake.TenantId, intake.ShipmentId, intake.IdempotencyKey })
+                .IsUnique();
+
+            entity.HasIndex(intake =>
+                new { intake.TenantId, intake.ShipmentId, intake.DocumentId })
+                .IsUnique();
+
+            entity.HasOne<ShipmentEntity>()
+                .WithMany()
+                .HasForeignKey(intake => intake.ShipmentId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.Property(intake => intake.StorageReference)
+                .HasMaxLength(DocumentIntakeEntity.StorageReferenceMaxLength)
+                .IsRequired();
+
+            entity.Property(intake => intake.FileName)
+                .HasMaxLength(DocumentIntakeEntity.FileNameMaxLength)
+                .IsRequired();
+
+            entity.Property(intake => intake.DocumentType)
+                .HasConversion<string>()
+                .HasMaxLength(50)
+                .IsRequired();
+
+            entity.Property(intake => intake.IdempotencyKey)
+                .HasMaxLength(DocumentIntakeEntity.IdempotencyKeyMaxLength)
+                .IsRequired();
+
+            entity.Property(intake => intake.RequestHash)
+                .HasMaxLength(DocumentIntakeEntity.RequestHashMaxLength)
+                .IsRequired();
+
+            entity.Property(intake => intake.Status)
+                .HasConversion<string>()
+                .HasMaxLength(50)
+                .IsRequired();
+
+            entity.Property(intake => intake.StateVersion)
+                .IsConcurrencyToken();
+
+            entity.Property(intake => intake.FailureReason)
+                .HasMaxLength(DocumentIntakeEntity.FailureReasonMaxLength);
         });
     }
 

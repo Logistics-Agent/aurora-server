@@ -14,6 +14,8 @@ public sealed class DocumentInputPolicy
         _extensions = options.SupportedExtensions.ToHashSet(StringComparer.OrdinalIgnoreCase);
     }
 
+    public long MaximumSizeBytes => _options.MaxDocumentBytes;
+
     public void ValidateMetadata(
         string storageReference,
         string fileName,
@@ -41,6 +43,18 @@ public sealed class DocumentInputPolicy
         if (!_mimeTypes.Contains(content.MimeType))
             throw new ArgumentException("Document content MIME type is not supported.", nameof(content));
     }
+
+    public bool IsMimeCompatibleWithFileName(string fileName, string mimeType) =>
+        (Path.GetExtension(fileName).ToLowerInvariant(), mimeType.ToLowerInvariant()) switch
+        {
+            (".pdf", "application/pdf") => true,
+            (".jpg", "image/jpeg") => true,
+            (".jpeg", "image/jpeg") => true,
+            (".png", "image/png") => true,
+            (".tif", "image/tiff") => true,
+            (".tiff", "image/tiff") => true,
+            _ => false
+        };
 
     private static void ValidateStorageReference(string storageReference)
     {

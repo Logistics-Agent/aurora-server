@@ -1,6 +1,7 @@
 using BFF.RateLimiting;
 using BuildingBlocks.BFF.Extensions;
 using BuildingBlocks.BFF.Middleware;
+using StaffBff.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 var config = builder.Configuration;
@@ -22,6 +23,9 @@ builder.Services.AddBffRequestProtection();
 builder.Services.AddBffHealthChecks(config);
 builder.Services.AddBffOpenTelemetry(config);
 builder.Services.AddHttpClient();
+builder.Services.AddScoped<IDocumentIntakeOcrGateway, DocumentIntakeOcrGateway>();
+builder.Services.AddScoped<IShipmentDocumentIntakeGateway, ShipmentDocumentIntakeGateway>();
+builder.Services.AddScoped<IDocumentIntakeOrchestrator, DocumentIntakeOrchestrator>();
 
 var app = builder.Build();
 

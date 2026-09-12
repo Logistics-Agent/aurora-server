@@ -18,6 +18,7 @@ public sealed class DocumentOcrDbContext(
     public DbSet<OcrProviderAttempt> ProviderAttempts => Set<OcrProviderAttempt>();
     public DbSet<InboxMessage> InboxMessages => Set<InboxMessage>();
     public DbSet<OutboxMessage> OutboxMessages => Set<OutboxMessage>();
+    public DbSet<DocumentUploadSession> UploadSessions => Set<DocumentUploadSession>();
 
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder) =>
         optionsBuilder.AddInterceptors(_auditInterceptor);
@@ -28,6 +29,7 @@ public sealed class DocumentOcrDbContext(
         ConfigureAttempt(modelBuilder);
         ConfigureInbox(modelBuilder);
         ConfigureOutbox(modelBuilder);
+        ConfigureUploadSession(modelBuilder);
     }
 
     private void ConfigureJob(ModelBuilder modelBuilder)
@@ -117,6 +119,33 @@ public sealed class DocumentOcrDbContext(
             entity.Property(message => message.EventType).HasMaxLength(256).IsRequired();
             entity.Property(message => message.Content).HasColumnType("jsonb").IsRequired();
             entity.Property(message => message.Error).HasMaxLength(2_000);
+            ConfigureAudit(entity);
+        });
+    }
+
+    private void ConfigureUploadSession(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<DocumentUploadSession>(entity =>
+        {
+            entity.ToTable("document_upload_sessions");
+            entity.HasKey(session => session.Id);
+            entity.HasAlternateKey(session => new { session.TenantId, session.Id });
+            entity.HasQueryFilter(session => session.TenantId == _currentUser.TenantId);
+            entity.HasIndex(session => new { session.TenantId, session.IdempotencyKey }).IsUnique();
+            entity.HasIndex(session => new { session.TenantId, session.Status, session.ExpiresAt });
+            entity.HasIndex(session => new { session.TenantId, session.ObjectKey }).IsUnique();
+
+            entity.Property(session => session.IdempotencyKey).HasMaxLength(150).IsRequired();
+            entity.Property(session => session.RequestFingerprint).HasMaxLength(64).IsRequired();
+            entity.Property(session => session.ObjectKey).HasMaxLength(1_000).IsRequired();
+            entity.Property(session => session.FileName).HasMaxLength(255).IsRequired();
+            entity.Property(session => session.DeclaredMimeType).HasMaxLength(150).IsRequired();
+            entity.Property(session => session.DeclaredContentSha256).HasMaxLength(64);
+            entity.Property(session => session.Status).HasConversion<string>().HasMaxLength(20).IsRequired();
+            entity.Property(session => session.CleanupStatus).HasConversion<string>().HasMaxLength(20).IsRequired();
+            entity.Property(session => session.StateVersion).IsConcurrencyToken();
+            entity.Property(session => session.VerifiedMimeType).HasMaxLength(150);
+            entity.Property(session => session.VerifiedContentSha256).HasMaxLength(64);
             ConfigureAudit(entity);
         });
     }

@@ -11,4 +11,8 @@
     <ProjectReference Include="..\BuildingBlocks.BFF\BuildingBlocks.BFF.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="Staff.Bff.Tests" />
+  </ItemGroup>
+
 </Project>
