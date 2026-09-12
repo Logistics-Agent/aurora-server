@@ -197,7 +197,9 @@ public sealed class DocumentsPublishedContractTests
         JsonElement operation)
     {
         var sourceResponses = method.GetCustomAttributes<ProducesResponseTypeAttribute>()
-            .ToDictionary(attribute => attribute.StatusCode);
+            .Concat(contract.Controller.GetCustomAttributes<ProducesResponseTypeAttribute>())
+            .GroupBy(attribute => attribute.StatusCode)
+            .ToDictionary(group => group.Key, group => group.First());
         var publishedResponses = operation.GetProperty("responses");
 
         var successResponse = sourceResponses.Values.Single(response => response.Type != typeof(ProblemDetails));

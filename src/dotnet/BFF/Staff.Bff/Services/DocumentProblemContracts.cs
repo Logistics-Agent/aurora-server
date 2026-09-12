@@ -244,19 +244,19 @@ internal static class DocumentEndpointProblemContracts
                 DocumentProblemContractCatalog.DocumentContractError
             ],
             [ListShipmentDocuments] =
-            [DocumentProblemContractCatalog.DocumentOcrUnavailable],
+            [DocumentProblemContractCatalog.TenantContextRequired, DocumentProblemContractCatalog.DocumentOcrUnavailable],
             [GetShipmentDocumentStatus] =
-            [DocumentProblemContractCatalog.DocumentNotFound, DocumentProblemContractCatalog.DocumentOcrUnavailable],
+            [DocumentProblemContractCatalog.TenantContextRequired, DocumentProblemContractCatalog.DocumentNotFound, DocumentProblemContractCatalog.DocumentOcrUnavailable],
             [GetShipmentDocumentStatusAlias] =
-            [DocumentProblemContractCatalog.DocumentNotFound, DocumentProblemContractCatalog.DocumentOcrUnavailable],
+            [DocumentProblemContractCatalog.TenantContextRequired, DocumentProblemContractCatalog.DocumentNotFound, DocumentProblemContractCatalog.DocumentOcrUnavailable],
             [GetShipmentDocumentReview] =
-            [DocumentProblemContractCatalog.DocumentNotFound, DocumentProblemContractCatalog.DocumentOcrUnavailable],
+            [DocumentProblemContractCatalog.TenantContextRequired, DocumentProblemContractCatalog.DocumentNotFound, DocumentProblemContractCatalog.DocumentOcrUnavailable],
             [SubmitShipmentDocumentReview] =
-            [DocumentProblemContractCatalog.InvalidRequest, DocumentProblemContractCatalog.DocumentNotFound, DocumentProblemContractCatalog.InvalidStateTransition, DocumentProblemContractCatalog.DocumentOcrUnavailable],
+            [DocumentProblemContractCatalog.TenantContextRequired, DocumentProblemContractCatalog.InvalidRequest, DocumentProblemContractCatalog.DocumentNotFound, DocumentProblemContractCatalog.InvalidStateTransition, DocumentProblemContractCatalog.DocumentOcrUnavailable],
             [CancelShipmentDocument] =
-            [DocumentProblemContractCatalog.DocumentNotFound, DocumentProblemContractCatalog.InvalidStateTransition, DocumentProblemContractCatalog.DocumentOcrUnavailable],
+            [DocumentProblemContractCatalog.TenantContextRequired, DocumentProblemContractCatalog.DocumentNotFound, DocumentProblemContractCatalog.InvalidStateTransition, DocumentProblemContractCatalog.DocumentOcrUnavailable],
             [RetryShipmentDocument] =
-            [DocumentProblemContractCatalog.DocumentNotFound, DocumentProblemContractCatalog.InvalidStateTransition, DocumentProblemContractCatalog.DocumentOcrUnavailable],
+            [DocumentProblemContractCatalog.TenantContextRequired, DocumentProblemContractCatalog.DocumentNotFound, DocumentProblemContractCatalog.InvalidStateTransition, DocumentProblemContractCatalog.DocumentOcrUnavailable],
             [SubmitShipmentDocumentLegacyAlias] =
             [DocumentProblemContractCatalog.InvalidFile, DocumentProblemContractCatalog.TenantContextRequired, DocumentProblemContractCatalog.DocumentOcrUnavailable],
             [SubmitShipmentDocumentLegacy] =

@@ -45,11 +45,11 @@
               }
             }
           },
-          "401": {
-            "$ref": "#/components/responses/Problem401_1"
-          },
           "400": {
             "$ref": "#/components/responses/Problem400_1"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem401_1"
           },
           "404": {
             "$ref": "#/components/responses/Problem404_2"
@@ -65,15 +65,15 @@
           }
         },
         "x-error-contract": {
-          "401": [
-            {
-              "code": "TENANT_CONTEXT_REQUIRED",
-              "retryable": false
-            }
-          ],
           "400": [
             {
               "code": "INVALID_UPLOAD_REQUEST",
+              "retryable": false
+            }
+          ],
+          "401": [
+            {
+              "code": "TENANT_CONTEXT_REQUIRED",
               "retryable": false
             }
           ],
@@ -182,11 +182,11 @@
               }
             }
           },
-          "401": {
-            "$ref": "#/components/responses/Problem401_1"
-          },
           "400": {
             "$ref": "#/components/responses/Problem400_6"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem401_1"
           },
           "404": {
             "$ref": "#/components/responses/Problem404_7"
@@ -197,23 +197,23 @@
           "422": {
             "$ref": "#/components/responses/Problem422_4"
           },
-          "503": {
-            "$ref": "#/components/responses/Problem503_9"
-          },
           "500": {
             "$ref": "#/components/responses/Problem500_13"
+          },
+          "503": {
+            "$ref": "#/components/responses/Problem503_9"
           }
         },
         "x-error-contract": {
-          "401": [
-            {
-              "code": "TENANT_CONTEXT_REQUIRED",
-              "retryable": false
-            }
-          ],
           "400": [
             {
               "code": "INVALID_REQUEST",
+              "retryable": false
+            }
+          ],
+          "401": [
+            {
+              "code": "TENANT_CONTEXT_REQUIRED",
               "retryable": false
             }
           ],
@@ -295,6 +295,12 @@
               "retryable": false
             }
           ],
+          "500": [
+            {
+              "code": "DOCUMENT_CONTRACT_ERROR",
+              "retryable": false
+            }
+          ],
           "503": [
             {
               "code": "DOCUMENT_OCR_UNAVAILABLE",
@@ -303,12 +309,6 @@
             {
               "code": "SHIPMENT_WORKFLOW_UNAVAILABLE",
               "retryable": true
-            }
-          ],
-          "500": [
-            {
-              "code": "DOCUMENT_CONTRACT_ERROR",
-              "retryable": false
             }
           ]
         }
@@ -371,11 +371,20 @@
               }
             }
           },
+          "401": {
+            "$ref": "#/components/responses/Problem401_1"
+          },
           "503": {
             "$ref": "#/components/responses/Problem503_5"
           }
         },
         "x-error-contract": {
+          "401": [
+            {
+              "code": "TENANT_CONTEXT_REQUIRED",
+              "retryable": false
+            }
+          ],
           "503": [
             {
               "code": "DOCUMENT_OCR_UNAVAILABLE",
@@ -404,26 +413,26 @@
               }
             }
           },
-          "401": {
-            "$ref": "#/components/responses/Problem401_1"
-          },
           "400": {
             "$ref": "#/components/responses/Problem400_10"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem401_1"
           },
           "503": {
             "$ref": "#/components/responses/Problem503_5"
           }
         },
         "x-error-contract": {
-          "401": [
-            {
-              "code": "TENANT_CONTEXT_REQUIRED",
-              "retryable": false
-            }
-          ],
           "400": [
             {
               "code": "INVALID_FILE",
+              "retryable": false
+            }
+          ],
+          "401": [
+            {
+              "code": "TENANT_CONTEXT_REQUIRED",
               "retryable": false
             }
           ],
@@ -469,6 +478,9 @@
               }
             }
           },
+          "401": {
+            "$ref": "#/components/responses/Problem401_1"
+          },
           "404": {
             "$ref": "#/components/responses/Problem404_11"
           },
@@ -477,6 +489,12 @@
           }
         },
         "x-error-contract": {
+          "401": [
+            {
+              "code": "TENANT_CONTEXT_REQUIRED",
+              "retryable": false
+            }
+          ],
           "404": [
             {
               "code": "DOCUMENT_NOT_FOUND",
@@ -515,6 +533,9 @@
               }
             }
           },
+          "401": {
+            "$ref": "#/components/responses/Problem401_1"
+          },
           "404": {
             "$ref": "#/components/responses/Problem404_11"
           },
@@ -523,6 +544,12 @@
           }
         },
         "x-error-contract": {
+          "401": [
+            {
+              "code": "TENANT_CONTEXT_REQUIRED",
+              "retryable": false
+            }
+          ],
           "404": [
             {
               "code": "DOCUMENT_NOT_FOUND",
@@ -561,6 +588,9 @@
               }
             }
           },
+          "401": {
+            "$ref": "#/components/responses/Problem401_1"
+          },
           "404": {
             "$ref": "#/components/responses/Problem404_11"
           },
@@ -569,6 +599,12 @@
           }
         },
         "x-error-contract": {
+          "401": [
+            {
+              "code": "TENANT_CONTEXT_REQUIRED",
+              "retryable": false
+            }
+          ],
           "404": [
             {
               "code": "DOCUMENT_NOT_FOUND",
@@ -618,6 +654,9 @@
           "400": {
             "$ref": "#/components/responses/Problem400_6"
           },
+          "401": {
+            "$ref": "#/components/responses/Problem401_1"
+          },
           "404": {
             "$ref": "#/components/responses/Problem404_11"
           },
@@ -632,6 +671,12 @@
           "400": [
             {
               "code": "INVALID_REQUEST",
+              "retryable": false
+            }
+          ],
+          "401": [
+            {
+              "code": "TENANT_CONTEXT_REQUIRED",
               "retryable": false
             }
           ],
@@ -679,6 +724,9 @@
               }
             }
           },
+          "401": {
+            "$ref": "#/components/responses/Problem401_1"
+          },
           "404": {
             "$ref": "#/components/responses/Problem404_11"
           },
@@ -690,6 +738,12 @@
           }
         },
         "x-error-contract": {
+          "401": [
+            {
+              "code": "TENANT_CONTEXT_REQUIRED",
+              "retryable": false
+            }
+          ],
           "404": [
             {
               "code": "DOCUMENT_NOT_FOUND",
@@ -734,6 +788,9 @@
               }
             }
           },
+          "401": {
+            "$ref": "#/components/responses/Problem401_1"
+          },
           "404": {
             "$ref": "#/components/responses/Problem404_11"
           },
@@ -745,6 +802,12 @@
           }
         },
         "x-error-contract": {
+          "401": [
+            {
+              "code": "TENANT_CONTEXT_REQUIRED",
+              "retryable": false
+            }
+          ],
           "404": [
             {
               "code": "DOCUMENT_NOT_FOUND",
@@ -787,26 +850,26 @@
               }
             }
           },
-          "401": {
-            "$ref": "#/components/responses/Problem401_1"
-          },
           "400": {
             "$ref": "#/components/responses/Problem400_10"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem401_1"
           },
           "503": {
             "$ref": "#/components/responses/Problem503_5"
           }
         },
         "x-error-contract": {
-          "401": [
-            {
-              "code": "TENANT_CONTEXT_REQUIRED",
-              "retryable": false
-            }
-          ],
           "400": [
             {
               "code": "INVALID_FILE",
+              "retryable": false
+            }
+          ],
+          "401": [
+            {
+              "code": "TENANT_CONTEXT_REQUIRED",
               "retryable": false
             }
           ],
@@ -1386,10 +1449,10 @@
             "type": "integer",
             "format": "int32"
           },
-    "externalDocumentId": {
-      "type": "string",
-      "format": "uuid",
-      "nullable": true
+          "externalDocumentId": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
           },
           "shipmentId": {
             "type": "string",

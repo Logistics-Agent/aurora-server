@@ -5,11 +5,14 @@ using Grpc.Core;
 using Grpc.Net.Client;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.Filters;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using RegulatoryCompliance.Grpc;
 using Shared.Constants;
 using Shared.Security;
+using StaffBff.Attributes;
 using StaffBff.Controllers;
 using StaffBff.Services;
 
@@ -49,6 +52,104 @@ public sealed class DocumentsControllerContractTests
         string expectedStatus)
     {
         Assert.Equal(expectedStatus, DocumentsContract.MapStatus(status, needsReview));
+    }
+
+    [Fact]
+    public void Deterministic_compatibility_document_id_rejects_newline_component_collision()
+    {
+        var left = DocumentsContract.CreateDeterministicCompatibilityDocumentId("a\nb", "c");
+        var right = DocumentsContract.CreateDeterministicCompatibilityDocumentId("a", "b\nc");
+
+        Assert.NotEqual(left, right);
+    }
+
+    [Fact]
+    public void Deterministic_compatibility_document_id_is_stable_for_same_components()
+    {
+        var first = DocumentsContract.CreateDeterministicCompatibilityDocumentId(
+            "legacy-shipment-document", "tenant-a", "shipment-1", "idempotency-1", "objects/invoice.pdf");
+        var second = DocumentsContract.CreateDeterministicCompatibilityDocumentId(
+            "legacy-shipment-document", "tenant-a", "shipment-1", "idempotency-1", "objects/invoice.pdf");
+
+        Assert.Equal(first, second);
+    }
+
+    [Fact]
+    public void Deterministic_compatibility_document_id_preserves_domain_separation()
+    {
+        var shipmentId = DocumentsContract.CreateDeterministicCompatibilityDocumentId(
+            "legacy-shipment-document", "tenant-a", "shipment-1", "idempotency-1", "objects/invoice.pdf");
+        var regulatoryId = DocumentsContract.CreateDeterministicCompatibilityDocumentId(
+            "legacy-regulatory-document", "tenant-a", "shipment-1", "idempotency-1", "objects/invoice.pdf");
+
+        Assert.NotEqual(shipmentId, regulatoryId);
+    }
+
+    [Theory]
+    [InlineData(nameof(DocumentsController.SubmitGeneralDocument))]
+    [InlineData(nameof(DocumentsController.SubmitRegulatorySource))]
+    [InlineData(nameof(DocumentsController.SubmitKnowledgeDocument))]
+    [InlineData(nameof(DocumentsController.ListShipmentDocuments))]
+    [InlineData(nameof(DocumentsController.GetShipmentDocumentReview))]
+    [InlineData(nameof(DocumentsController.CancelShipmentDocument))]
+    [InlineData(nameof(DocumentsController.CreateUploadSession))]
+    [InlineData(nameof(DocumentsController.SubmitShipmentDocument))]
+    public void Documents_controller_routes_are_covered_by_the_tenant_guard(string actionName)
+    {
+        var action = typeof(DocumentsController).GetMethod(actionName, BindingFlags.Public | BindingFlags.Instance);
+
+        Assert.NotNull(action);
+        Assert.NotNull(typeof(DocumentsController).GetCustomAttribute<RequireTenantContextAttribute>());
+    }
+
+    [Fact]
+    public void Document_intake_route_has_its_own_tenant_guard()
+    {
+        var action = typeof(ShipmentsController).GetMethod(nameof(ShipmentsController.CreateDocumentIntake));
+
+        Assert.NotNull(action?.GetCustomAttribute<RequireTenantContextAttribute>());
+    }
+
+    [Fact]
+    public async Task Tenant_guard_returns_canonical_401_before_action_pipeline()
+    {
+        var currentUser = new CurrentUserService();
+        var services = new ServiceCollection()
+            .AddSingleton<ICurrentUserService>(currentUser)
+            .BuildServiceProvider();
+        var httpContext = new DefaultHttpContext { RequestServices = services };
+        var filterContext = new AuthorizationFilterContext(
+            new ActionContext(httpContext, new(), new()),
+            []);
+
+        await new RequireTenantContextAttribute().OnAuthorizationAsync(filterContext);
+
+        var result = Assert.IsType<UnauthorizedObjectResult>(filterContext.Result);
+        var problem = Assert.IsType<ProblemDetails>(result.Value);
+        Assert.Equal(StatusCodes.Status401Unauthorized, result.StatusCode);
+        Assert.Equal("TENANT_CONTEXT_REQUIRED", problem.Extensions["code"]);
+        Assert.False((bool)problem.Extensions["retryable"]!);
+    }
+
+    [Fact]
+    public async Task Tenant_guard_rejects_tenant_null_system_admin()
+    {
+        var currentUser = new CurrentUserService();
+        currentUser.Populate(Guid.CreateVersion7(), null, null, 1, RoleConstants.SystemAdmin, []);
+        var services = new ServiceCollection()
+            .AddSingleton<ICurrentUserService>(currentUser)
+            .BuildServiceProvider();
+        var httpContext = new DefaultHttpContext { RequestServices = services };
+        var filterContext = new AuthorizationFilterContext(
+            new ActionContext(httpContext, new(), new()),
+            []);
+
+        await new RequireTenantContextAttribute().OnAuthorizationAsync(filterContext);
+
+        var result = Assert.IsType<UnauthorizedObjectResult>(filterContext.Result);
+        var problem = Assert.IsType<ProblemDetails>(result.Value);
+        Assert.Equal(StatusCodes.Status401Unauthorized, result.StatusCode);
+        Assert.Equal("TENANT_CONTEXT_REQUIRED", problem.Extensions["code"]);
     }
 
     [Theory]

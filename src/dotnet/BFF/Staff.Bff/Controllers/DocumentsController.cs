@@ -13,6 +13,7 @@ using Microsoft.AspNetCore.Mvc;
 using RegulatoryCompliance.Grpc;
 using Shared.Constants;
 using Shared.Security;
+using StaffBff.Attributes;
 using StaffBff.Services;
 
 namespace StaffBff.Controllers;
@@ -22,6 +23,8 @@ namespace StaffBff.Controllers;
 [Route("api/v{version:apiVersion}/documents")]
 [Route("api")]
 [Authorize]
+[RequireTenantContext]
+[ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status401Unauthorized)]
 public sealed class DocumentsController(
     DocumentOcrService.DocumentOcrServiceClient documentOcrClient,
     RegulatoryComplianceService.RegulatoryComplianceServiceClient regulatoryClient,

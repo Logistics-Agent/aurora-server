@@ -5,6 +5,7 @@ using Grpc.Core;
 using Microsoft.AspNetCore.Mvc;
 using Shared.Constants;
 using Shared.Security;
+using StaffBff.Attributes;
 using ShipmentWorkflow.Grpc;
 using StaffBff.Services;
 
@@ -23,6 +24,7 @@ public class ShipmentsController(
 {
     [HttpPost("{id}/document-intakes")]
     [RequirePermission(PermissionConstants.Documents.Ingest)]
+    [RequireTenantContext]
     [ProducesResponseType(typeof(DocumentIntakeHttpResponse), StatusCodes.Status202Accepted)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status401Unauthorized)]

@@ -1,6 +1,7 @@
 using DocumentOcr.Grpc;
 using Grpc.Core;
 using Microsoft.AspNetCore.Mvc;
+using System.Text.Json;
 
 namespace StaffBff.Services;
 
@@ -20,9 +21,8 @@ internal static class DocumentsContract
 
     internal static Guid CreateDeterministicCompatibilityDocumentId(params string[] components)
     {
-        var payload = string.Join("\n", components);
         var bytes = System.Security.Cryptography.SHA256.HashData(
-            System.Text.Encoding.UTF8.GetBytes(payload));
+            JsonSerializer.SerializeToUtf8Bytes(components));
         bytes[6] = (byte)((bytes[6] & 0x0F) | 0x50);
         bytes[8] = (byte)((bytes[8] & 0x3F) | 0x80);
         return new Guid(bytes.AsSpan(0, 16));

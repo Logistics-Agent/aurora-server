@@ -102,6 +102,8 @@ The intake endpoint verifies the tenant-scoped upload object, creates or replays
 
 Upload/intake failures use `application/problem+json` with `code` and `retryable` extensions. The canonical statuses are:
 
+Every `DocumentsController` route and `POST /api/v1/shipments/{shipmentId}/document-intakes` first requires a trusted tenant context. This includes tenant-null `SYSTEM_ADMIN` requests; system/admin BFF routes outside this controller remain unchanged. Missing context returns `401 TENANT_CONTEXT_REQUIRED` before the downstream OCR, Compliance, or ShipmentWorkflow client is called.
+
 | HTTP status | Stable codes/examples | Client behavior |
 |---:|---|---|
 | `400` | `INVALID_REQUEST`, `INVALID_UPLOAD_REQUEST` | Fix the request; do not retry unchanged. |
