@@ -1,3 +1,5 @@
+using System;
+using System.Security.Cryptography;
 using Asp.Versioning;
 using BuildingBlocks.BFF.Extensions;
 using Google.Protobuf;
@@ -27,6 +29,18 @@ public sealed class SystemIngestionController(
         if (string.IsNullOrWhiteSpace(request.Title) || string.IsNullOrWhiteSpace(request.Authority))
             return BadRequest(new { error = "Title and Authority are required." });
 
+        var content = !string.IsNullOrEmpty(request.RawText)
+            ? ByteString.CopyFromUtf8(request.RawText)
+            : ByteString.Empty;
+
+        var computedSizeBytes = content.Length > 0
+            ? content.Length
+            : (request.SizeBytes > 0 ? request.SizeBytes : 1024);
+
+        var computedSha256 = !string.IsNullOrWhiteSpace(request.ContentSha256)
+            ? request.ContentSha256
+            : Convert.ToHexString(SHA256.HashData(content.ToByteArray())).ToLowerInvariant();
+
         var ingestRequest = new IngestRegulatorySourceRequest
         {
             IdempotencyKey = !string.IsNullOrWhiteSpace(request.IdempotencyKey)
@@ -44,11 +58,9 @@ public sealed class SystemIngestionController(
             ContentReference = request.ContentReference ?? string.Empty,
             FileName = request.FileName ?? "system-law.pdf",
             MimeType = request.MimeType ?? "application/pdf",
-            SizeBytes = request.SizeBytes > 0 ? request.SizeBytes : 1024,
-            ContentSha256 = request.ContentSha256 ?? new string('0', 64),
-            Content = !string.IsNullOrEmpty(request.RawText)
-                ? ByteString.CopyFromUtf8(request.RawText)
-                : ByteString.Empty,
+            SizeBytes = computedSizeBytes,
+            ContentSha256 = computedSha256,
+            Content = content,
             Visibility = RegulatorySourceVisibility.Platform
         };
 
@@ -134,6 +146,18 @@ public sealed class SystemIngestionController(
         if (string.IsNullOrWhiteSpace(request.Title))
             return BadRequest(new { error = "Title is required." });
 
+        var content = !string.IsNullOrEmpty(request.RawText)
+            ? ByteString.CopyFromUtf8(request.RawText)
+            : ByteString.Empty;
+
+        var computedSizeBytes = content.Length > 0
+            ? content.Length
+            : (request.SizeBytes > 0 ? request.SizeBytes : 1024);
+
+        var computedSha256 = !string.IsNullOrWhiteSpace(request.ContentSha256)
+            ? request.ContentSha256
+            : Convert.ToHexString(SHA256.HashData(content.ToByteArray())).ToLowerInvariant();
+
         var ingestRequest = new IngestKnowledgeSourceRequest
         {
             IdempotencyKey = !string.IsNullOrWhiteSpace(request.IdempotencyKey)
@@ -147,11 +171,9 @@ public sealed class SystemIngestionController(
             ContentReference = request.ContentReference ?? string.Empty,
             FileName = request.FileName ?? "system-knowledge.pdf",
             MimeType = request.MimeType ?? "application/pdf",
-            SizeBytes = request.SizeBytes > 0 ? request.SizeBytes : 1024,
-            ContentSha256 = request.ContentSha256 ?? new string('0', 64),
-            Content = !string.IsNullOrEmpty(request.RawText)
-                ? ByteString.CopyFromUtf8(request.RawText)
-                : ByteString.Empty,
+            SizeBytes = computedSizeBytes,
+            ContentSha256 = computedSha256,
+            Content = content,
             Visibility = RegulatorySourceVisibility.Platform
         };
 
