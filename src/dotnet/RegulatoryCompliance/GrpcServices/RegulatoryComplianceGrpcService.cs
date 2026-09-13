@@ -581,7 +581,7 @@ public sealed class RegulatoryComplianceGrpcService(
                     request.TopK > 0 ? request.TopK : 10,
                     Convert.ToDecimal(request.MinimumRelevanceScore),
                     assistantContext),
-                context.CancellationToken);
+                context?.CancellationToken ?? CancellationToken.None);
 
             var response = new ComplianceGrpc.GenerateGroundedAnswerResponse
             {
