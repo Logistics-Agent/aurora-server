@@ -644,7 +644,10 @@ public sealed class RegulatoryComplianceGrpcService(
                 : ComplianceGrpc.EvidenceSufficiency.Unspecified,
             RequestedAt = Timestamp.FromDateTimeOffset(evaluation.RequestedAt),
             ErrorCode = evaluation.ErrorCode ?? string.Empty,
-            ErrorMessage = evaluation.ErrorMessage ?? string.Empty
+            ErrorMessage = evaluation.ErrorMessage ?? string.Empty,
+            Freshness = ComplianceGrpc.ComplianceEvaluationFreshness.Current,
+            SnapshotHash = evaluation.RequestHash,
+            SnapshotVersion = 0
         };
         if (evaluation.CompletedAt.HasValue)
             response.CompletedAt = Timestamp.FromDateTimeOffset(evaluation.CompletedAt.Value);

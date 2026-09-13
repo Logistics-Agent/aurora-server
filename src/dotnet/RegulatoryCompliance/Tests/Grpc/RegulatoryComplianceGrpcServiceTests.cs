@@ -148,15 +148,16 @@ public sealed class RegulatoryComplianceGrpcServiceTests
             {
                 Page = 2,
                 PageSize = 5,
-                ExternalShipmentId = Guid.Empty.ToString()
+                Status = ComplianceGrpc.ComplianceEvaluationStatus.Completed
             },
             TestServerCallContext.Create());
 
         Assert.Equal(2, fake.LastListPage);
         Assert.Equal(5, fake.LastListPageSize);
-        Assert.Equal(ComplianceGrpc.ComplianceEvaluationFreshness.Current, response.Evaluations.Single().Freshness);
-        Assert.Equal(fake.Evaluation.RequestHash, response.Evaluations.Single().SnapshotHash);
-        Assert.Equal(0, response.Evaluations.Single().SnapshotVersion);
+        Assert.Equal(ComplianceEvaluationStatus.Completed, fake.LastListStatus);
+        Assert.Equal(ComplianceGrpc.ComplianceEvaluationFreshness.Current, response.Items.Single().Freshness);
+        Assert.Equal(fake.Evaluation.RequestHash, response.Items.Single().SnapshotHash);
+        Assert.Equal(0, response.Items.Single().SnapshotVersion);
     }
 
     [Fact]
@@ -278,6 +279,7 @@ public sealed class RegulatoryComplianceGrpcServiceTests
         public Guid LastGetId { get; private set; }
         public int LastListPage { get; private set; }
         public int LastListPageSize { get; private set; }
+        public ComplianceEvaluationStatus? LastListStatus { get; private set; }
         public ComplianceEvaluation Evaluation { get; } = CreateEvaluation();
 
         public Task<ComplianceEvaluation> EvaluateAsync(
@@ -299,12 +301,13 @@ public sealed class RegulatoryComplianceGrpcServiceTests
         public Task<ComplianceEvaluationPage> ListAsync(
             int page,
             int pageSize,
-            Guid? externalShipmentId = null,
+            ComplianceEvaluationStatus? status = null,
             CancellationToken cancellationToken = default)
         {
             LastListPage = page;
             LastListPageSize = pageSize;
-            return Task.FromResult(new ComplianceEvaluationPage([Evaluation], page, pageSize, 1, 1));
+            LastListStatus = status;
+            return Task.FromResult(new ComplianceEvaluationPage([Evaluation], page, pageSize, 1));
         }
 
         private static ComplianceEvaluation CreateEvaluation()
@@ -360,7 +363,7 @@ public sealed class RegulatoryComplianceGrpcServiceTests
         public Task<ComplianceEvaluationPage> ListAsync(
             int page,
             int pageSize,
-            Guid? externalShipmentId = null,
+            ComplianceEvaluationStatus? status = null,
             CancellationToken cancellationToken = default) =>
             throw new InvalidOperationException("Tenant context is required.");
     }

@@ -25,6 +25,12 @@ enum ComplianceEvaluationStatus {
   COMPLIANCE_EVALUATION_STATUS_COMPLETED = 3;
   COMPLIANCE_EVALUATION_STATUS_FAILED = 4;
 }
+
+enum ComplianceEvaluationFreshness {
+  COMPLIANCE_EVALUATION_FRESHNESS_UNSPECIFIED = 0;
+  COMPLIANCE_EVALUATION_FRESHNESS_CURRENT = 1;
+  COMPLIANCE_EVALUATION_FRESHNESS_STALE = 2;
+}
     
 enum ComplianceRiskLevel {
   COMPLIANCE_RISK_LEVEL_UNSPECIFIED = 0;
@@ -139,6 +145,11 @@ message ComplianceEvaluationResponse {
   google.protobuf.Timestamp completed_at = 11;
   string error_code = 12;
   string error_message = 13;
+  ComplianceEvaluationFreshness freshness = 14;
+  string snapshot_hash = 15;
+  int32 snapshot_version = 16;
+  google.protobuf.Timestamp stale_at = 17;
+  repeated string stale_reason_codes = 18;
 }
 
 message ComplianceFinding {

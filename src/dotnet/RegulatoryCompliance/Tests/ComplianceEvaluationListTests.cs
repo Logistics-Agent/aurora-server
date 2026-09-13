@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using RegulatoryCompliance.Application.Evaluations;
 using RegulatoryCompliance.Application.Retrieval;
 using RegulatoryCompliance.Domain.Entities;
+using RegulatoryCompliance.Domain.Enums;
 using RegulatoryCompliance.Infrastructure.Persistences;
 using Shared.Interceptors;
 using Shared.Security;
@@ -36,22 +37,31 @@ public sealed class ComplianceEvaluationListTests
 
         Assert.Equal(2, page.Page);
         Assert.Equal(1, page.PageSize);
-        Assert.Equal(3, page.TotalItems);
-        Assert.Equal(3, page.TotalPages);
+        Assert.Equal(3, page.TotalCount);
         Assert.Equal("middle", page.Items.Single().IdempotencyKey);
     }
 
     [Fact]
-    public async Task List_filters_by_shipment_without_cross_tenant_leak()
+    public async Task List_filters_by_status_without_cross_tenant_leak()
     {
         var tenantId = Guid.CreateVersion7();
         var shipmentId = Guid.CreateVersion7();
         var currentUser = new CurrentUserService();
         currentUser.Populate(Guid.CreateVersion7(), tenantId, null, 1, "STAFF", []);
         await using var context = CreateContext(currentUser);
+        var completed = CreateEvaluation(tenantId, "completed", DateTimeOffset.UtcNow, shipmentId);
+        completed.Start(DateTimeOffset.UtcNow);
+        completed.Complete(
+            ComplianceRiskLevel.Low,
+            EvidenceSufficiency.Sufficient,
+            0.9m,
+            [],
+            [],
+            DateTimeOffset.UtcNow);
         context.ComplianceEvaluations.AddRange(
-            CreateEvaluation(tenantId, "match", DateTimeOffset.UtcNow, shipmentId),
-            CreateEvaluation(tenantId, "different", DateTimeOffset.UtcNow, Guid.CreateVersion7()),
+            CreateEvaluation(tenantId, "pending", DateTimeOffset.UtcNow, shipmentId),
+            CreateEvaluation(tenantId, "different-shipment", DateTimeOffset.UtcNow),
+            completed,
             CreateEvaluation(Guid.CreateVersion7(), "other-tenant", DateTimeOffset.UtcNow, shipmentId));
         await context.SaveChangesAsync();
 
@@ -61,10 +71,12 @@ public sealed class ComplianceEvaluationListTests
             currentUser,
             TimeProvider.System);
 
-        var page = await service.ListAsync(1, 20, shipmentId);
+        var page = await service.ListAsync(1, 20, ComplianceEvaluationStatus.Pending);
 
-        Assert.Equal(1, page.TotalItems);
-        Assert.Equal("match", page.Items.Single().IdempotencyKey);
+        Assert.Equal(2, page.TotalCount);
+        Assert.Equal(
+            ["different-shipment", "pending"],
+            page.Items.Select(item => item.IdempotencyKey).OrderBy(key => key).ToArray());
     }
 
     private static ComplianceEvaluation CreateEvaluation(

@@ -10,6 +10,7 @@ using Shared.Constants;
 using Shared.Security;
 using ShipmentWorkflow.Grpc;
 using StaffBff.Controllers;
+using StaffBff.Attributes;
 using StaffBff.Services;
 
 namespace StaffBff.Tests;
@@ -26,6 +27,17 @@ public sealed class ComplianceControllerContractTests
         Assert.Equal(
             "~/api/v{version:apiVersion}/shipments/{shipmentId}/compliance-evaluations",
             ((HttpPostAttribute)route).Template);
+        var permission = Assert.Single(method.GetCustomAttributes(typeof(BuildingBlocks.BFF.Attributes.RequirePermissionAttribute), true));
+        Assert.Equal(PermissionConstants.Compliance.Read, ((BuildingBlocks.BFF.Attributes.RequirePermissionAttribute)permission).RequiredPermission);
+    }
+
+    [Fact]
+    public void List_evaluations_requires_tenant_context_and_compliance_permission()
+    {
+        var method = typeof(ComplianceController).GetMethod(nameof(ComplianceController.ListComplianceEvaluations));
+
+        Assert.NotNull(method);
+        Assert.NotNull(method!.GetCustomAttributes(typeof(RequireTenantContextAttribute), inherit: true).SingleOrDefault());
         var permission = Assert.Single(method.GetCustomAttributes(typeof(BuildingBlocks.BFF.Attributes.RequirePermissionAttribute), true));
         Assert.Equal(PermissionConstants.Compliance.Read, ((BuildingBlocks.BFF.Attributes.RequirePermissionAttribute)permission).RequiredPermission);
     }
@@ -120,28 +132,27 @@ public sealed class ComplianceControllerContractTests
     }
 
     [Fact]
-    public async Task List_evaluations_maps_paging_and_shipment_filter()
+    public async Task List_evaluations_maps_paging_and_status_filter()
     {
         var shipmentClient = CreateClient<ShipmentWorkflowService.ShipmentWorkflowServiceClient>();
         var documentClient = CreateClient<DocumentOcrService.DocumentOcrServiceClient>();
         var complianceClient = CreateClient<RegulatoryComplianceService.RegulatoryComplianceServiceClient>();
-        var shipmentId = Guid.CreateVersion7();
         ListComplianceEvaluationsRequest? captured = null;
         complianceClient
             .Setup(client => client.ListComplianceEvaluationsAsync(
                 It.IsAny<ListComplianceEvaluationsRequest>(), It.IsAny<Metadata>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()))
             .Callback<ListComplianceEvaluationsRequest, Metadata, DateTime?, CancellationToken>((request, _, _, _) => captured = request)
-            .Returns(Success(new ListComplianceEvaluationsResponse { Page = 2, PageSize = 5, TotalItems = 0 }));
+            .Returns(Success(new ListComplianceEvaluationsResponse { Page = 2, PageSize = 5, TotalCount = 0 }));
 
         var controller = CreateController(shipmentClient, documentClient, complianceClient, Guid.CreateVersion7());
 
-        var result = await controller.ListEvaluations(2, 5, shipmentId.ToString());
+        var result = await controller.ListComplianceEvaluations(2, 5, "completed");
 
         Assert.IsType<OkObjectResult>(result);
         Assert.NotNull(captured);
         Assert.Equal(2, captured!.Page);
         Assert.Equal(5, captured.PageSize);
-        Assert.Equal(shipmentId.ToString(), captured.ExternalShipmentId);
+        Assert.Equal(ComplianceEvaluationStatus.Completed, captured.Status);
     }
 
     private static ComplianceController CreateController(

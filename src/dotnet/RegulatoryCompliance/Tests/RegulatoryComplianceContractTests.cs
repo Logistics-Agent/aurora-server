@@ -13,6 +13,7 @@ public sealed class RegulatoryComplianceContractTests
         {
             EvaluateComplianceRequest.Descriptor,
             GetComplianceEvaluationRequest.Descriptor,
+            ListComplianceEvaluationsRequest.Descriptor,
             QueryRegulationsRequest.Descriptor,
             IngestRegulatorySourceRequest.Descriptor
         };
@@ -53,6 +54,8 @@ public sealed class RegulatoryComplianceContractTests
         Assert.NotNull(ComplianceEvaluationResponse.Descriptor.FindFieldByName("snapshot_version"));
         Assert.NotNull(ComplianceEvaluationResponse.Descriptor.FindFieldByName("stale_at"));
         Assert.NotNull(ComplianceEvaluationResponse.Descriptor.FindFieldByName("stale_reason_codes"));
+        Assert.NotNull(ListComplianceEvaluationsResponse.Descriptor.FindFieldByName("items"));
+        Assert.NotNull(ListComplianceEvaluationsResponse.Descriptor.FindFieldByName("total_count"));
     }
 
     [Fact]

@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Mvc;
 using RegulatoryCompliance.Grpc;
 using Shared.Constants;
 using Shared.Security;
+using StaffBff.Attributes;
 using StaffBff.Services;
 
 namespace StaffBff.Controllers;
@@ -122,6 +123,7 @@ public class ComplianceController(
 
     [HttpGet("evaluations")]
     [RequirePermission(PermissionConstants.Compliance.Read)]
+    [RequireTenantContext]
     public async Task<IActionResult> ListComplianceEvaluations(
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 20,
