@@ -118,7 +118,7 @@ public sealed class DocumentOcrIntegrationConsumerTests
     }
 
     [Fact]
-    public async Task Regulatory_completion_passes_event_tenant_to_embedding_provider()
+    public async Task Regulatory_completion_persists_chunks_for_background_embedding()
     {
         var tenantId = Guid.CreateVersion7();
         var currentUser = new CurrentUserService();
@@ -177,8 +177,14 @@ public sealed class DocumentOcrIntegrationConsumerTests
             FullTextContent = "# Trade handling\nImporters must provide a valid customs declaration before release."
         });
 
-        Assert.NotEmpty(provider.Inputs);
-        Assert.All(provider.Inputs, input => Assert.Equal(tenantId, input.TenantId));
+        Assert.Empty(provider.Inputs);
+
+        var savedVersion = await processingContext.RegulatoryDocumentVersions
+            .Include(item => item.Chunks)
+            .SingleAsync();
+        Assert.Equal(RegulatoryIngestionStatus.Completed, savedVersion.IngestionStatus);
+        Assert.NotEmpty(savedVersion.Chunks);
+        Assert.All(savedVersion.Chunks, chunk => Assert.Equal(ChunkEmbeddingStatus.Pending, chunk.EmbeddingStatus));
     }
 
     [Fact]

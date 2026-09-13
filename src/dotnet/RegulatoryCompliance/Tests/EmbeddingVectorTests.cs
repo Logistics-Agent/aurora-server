@@ -137,6 +137,24 @@ public sealed class EmbeddingVectorTests
     }
 
     [Fact]
+    public async Task ProcessorPersistsSuccessfulChunksBeforeLaterEmbeddingFailure()
+    {
+        var tenantId = Guid.CreateVersion7();
+        await using var context = CreateContext(CurrentUser(tenantId));
+        var first = await SeedChunk(context, tenantId, SourceVisibility.Tenant, "first chunk", "partial-first");
+        var second = await SeedChunk(context, tenantId, SourceVisibility.Tenant, "second chunk", "partial-second");
+        var provider = new SucceedsOnceThenFailsEmbeddingProvider();
+        var processor = new EmbeddingBatchProcessor(
+            context, provider, new EfRegulationVectorStore(context), new FixedTimeProvider(Now));
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => processor.ProcessPendingAsync());
+
+        Assert.Equal(ChunkEmbeddingStatus.Completed, first.EmbeddingStatus);
+        Assert.Equal(ChunkEmbeddingStatus.Failed, second.EmbeddingStatus);
+        Assert.NotNull(second.EmbeddingError);
+    }
+
+    [Fact]
     public async Task ProcessorPassesEachChunkTenantContextIncludingPlatformChunks()
     {
         var databaseName = $"embedding-context-{Guid.CreateVersion7()}";
@@ -235,6 +253,24 @@ public sealed class EmbeddingVectorTests
             IReadOnlyList<EmbeddingInput> inputs,
             CancellationToken cancellationToken = default) =>
             throw new InvalidOperationException("Embedding provider failed.");
+    }
+
+    private sealed class SucceedsOnceThenFailsEmbeddingProvider : IEmbeddingProvider
+    {
+        private int calls;
+
+        public EmbeddingModelDescriptor Model { get; } = new("partial", "1", 4);
+
+        public Task<IReadOnlyList<float[]>> GenerateAsync(
+            IReadOnlyList<EmbeddingInput> inputs,
+            CancellationToken cancellationToken = default)
+        {
+            if (calls++ > 0)
+                throw new InvalidOperationException("Embedding provider failed after the first chunk.");
+
+            return Task.FromResult<IReadOnlyList<float[]>>(
+                inputs.Select(_ => new[] { 1f, 0f, 0f, 0f }).ToArray());
+        }
     }
 
     private sealed class CapturingEmbeddingProvider : IEmbeddingProvider

@@ -28,37 +28,41 @@ public sealed class EmbeddingBatchProcessor(
         if (chunks.Count == 0)
             return 0;
 
-        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        timeout.CancelAfter(ProviderTimeout);
-        IReadOnlyList<float[]> vectors;
-        try
+        var processedCount = 0;
+        foreach (var chunk in chunks)
         {
-            vectors = await provider.GenerateAsync(
-                chunks.Select(chunk => new EmbeddingInput(chunk.TenantId, chunk.NormalizedText)).ToArray(),
-                timeout.Token);
-        }
-        catch (Exception exception) when (
-            exception is not OperationCanceledException && !cancellationToken.IsCancellationRequested)
-        {
-            var failedAt = timeProvider.GetUtcNow();
-            foreach (var chunk in chunks)
-                chunk.MarkEmbeddingFailed(exception.Message, failedAt);
-            await dbContext.SaveChangesAsync(cancellationToken);
-            throw;
-        }
-        if (vectors.Count != chunks.Count)
-            throw new InvalidOperationException("Embedding provider returned an unexpected vector count.");
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            timeout.CancelAfter(ProviderTimeout);
 
-        await vectorStore.UpsertAsync(
-            provider.Model,
-            chunks.Select((chunk, index) => new VectorUpsert(
-                chunk.Id,
-                chunk.ScopeKey,
-                chunk.Visibility,
-                chunk.ContentSha256,
-                vectors[index])).ToArray(),
-            timeProvider.GetUtcNow(),
-            cancellationToken);
-        return chunks.Count;
+            try
+            {
+                var vectors = await provider.GenerateAsync(
+                    [new EmbeddingInput(chunk.TenantId, chunk.NormalizedText)],
+                    timeout.Token);
+                if (vectors.Count != 1)
+                    throw new InvalidOperationException("Embedding provider returned an unexpected vector count.");
+
+                await vectorStore.UpsertAsync(
+                    provider.Model,
+                    [new VectorUpsert(
+                        chunk.Id,
+                        chunk.ScopeKey,
+                        chunk.Visibility,
+                        chunk.ContentSha256,
+                        vectors[0])],
+                    timeProvider.GetUtcNow(),
+                    cancellationToken);
+                processedCount++;
+            }
+            catch (Exception exception) when (
+                exception is not OperationCanceledException && !cancellationToken.IsCancellationRequested)
+            {
+                chunk.MarkEmbeddingFailed(exception.Message, timeProvider.GetUtcNow());
+                await dbContext.SaveChangesAsync(cancellationToken);
+                throw;
+            }
+        }
+
+        return processedCount;
     }
 }
