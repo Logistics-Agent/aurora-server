@@ -20,6 +20,13 @@ env:
   RabbitMQ__Host: "rabbitmq.aurora.svc.cluster.local"
   RabbitMQ__Port: "5672"
   RabbitMQ__Username: "aurora_admin"
+  # AKS uses durable Cloudflare R2 storage. Local development remains on the
+  # filesystem provider through appsettings.json.
+  Storage__InputProvider: "S3"
+  Storage__S3__Bucket: "aurora-document-ocr"
+  Storage__S3__ServiceUrl: "https://0e000fc3102c5511f71eaab39664a054.r2.cloudflarestorage.com"
+  Storage__S3__Region: "auto"
+  Storage__S3__ForcePathStyle: "true"
   AzureStorage__AccountName: "stauroradatademo"
   AzureStorage__ContainerName: "ocr-docs"
   Redis__Host: "redis-master.aurora.svc.cluster.local:6379"
@@ -41,6 +48,12 @@ externalSecret:
     - secretKey: Redis__Password
       remoteRef:
         key: redis-password
+    - secretKey: Storage__S3__AccessKey
+      remoteRef:
+        key: aurora-document-ocr-r2-access-key
+    - secretKey: Storage__S3__SecretKey
+      remoteRef:
+        key: aurora-document-ocr-r2-secret-key
 
 resources:
   requests:
@@ -82,3 +95,7 @@ readinessProbe:
   timeoutSeconds: 3
   failureThreshold: 6
 
+# R2 stores upload inputs and generated OCR artifacts durably, so no pod-local
+# writable volume is required.
+volumeMounts: []
+volumes: []

@@ -126,6 +126,24 @@ public class MailAdminController(
         }
     }
 
+    [HttpDelete("aliases/{id}")]
+    [RequirePermission(PermissionConstants.Mail.MailboxManage, "mail:delete", "mail:manage")]
+    public async Task<IActionResult> DeleteAlias([FromRoute] string id)
+    {
+        try
+        {
+            var result = await mailClient.DeleteAliasAsync(id, HttpContext.RequestAborted);
+            logger.LogInformation("Alias {AliasId} deleted for tenant {TenantId} by {UserId}",
+                id, currentUser.TenantId, currentUser.UserId);
+            return Ok(result);
+        }
+        catch (RpcException ex)
+        {
+            logger.LogWarning(ex, "gRPC error in DeleteAlias: {Detail}", ex.Status.Detail);
+            return ex.ToActionResult();
+        }
+    }
+
     [HttpPost("mailboxes/{id}/reset-password")]
     [RequirePermission(PermissionConstants.Mail.MailboxManage, "mail:update")]
     public async Task<IActionResult> ResetPassword([FromRoute] string id)

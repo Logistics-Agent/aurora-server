@@ -514,3 +514,5 @@ $RECYCLE.BIN/
 docs/walkthroughfeatnestjs/walkthrough feat financial.md
 docs/walkthroughfeatnestjs/walkthrough billing.md
 docs/report/
+*.jar
+docs/tools/*.jar

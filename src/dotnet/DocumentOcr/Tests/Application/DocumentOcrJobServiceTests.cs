@@ -3,6 +3,9 @@ using DocumentOcr.Application.Providers;
 using DocumentOcr.Domain.Enums;
 using DocumentOcr.Infrastructure.Persistences;
 using DocumentOcr.Infrastructure.Providers;
+using DocumentOcr.Contracts.Events;
+using EventPurpose = DocumentOcr.Contracts.Events.DocumentOcrPurpose;
+using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Shared.Exceptions;
 using Shared.Interceptors;
@@ -63,6 +66,44 @@ public sealed class DocumentOcrJobServiceTests
     }
 
     [Fact]
+    public async Task ReloadedJobPublishesPersistedPurposeAndInitiatingCorrelation()
+    {
+        var tenantId = Guid.CreateVersion7();
+        var correlationId = Guid.CreateVersion7();
+        var currentUser = CreateCurrentUser(tenantId);
+        await using var context = CreateContext(currentUser);
+        var service = CreateService(context, currentUser);
+
+        var job = await service.SubmitOcrAsync(new SubmitOcrJobInput(
+            "request-purpose-001",
+            "objects/tenant/invoice.pdf",
+            "invoice.pdf",
+            "application/pdf",
+            1_024,
+            OcrDocumentType.CommercialInvoice,
+            OcrExtractionMode.Structured,
+            Guid.CreateVersion7(),
+            "resource-001",
+            Guid.CreateVersion7(),
+            EventPurpose.KnowledgeCorpus,
+            correlationId));
+
+        context.ChangeTracker.Clear();
+        var reloaded = await context.Jobs.SingleAsync(item => item.Id == job.Id);
+        Assert.Equal(EventPurpose.KnowledgeCorpus, reloaded.Purpose);
+        Assert.Equal(correlationId, reloaded.InitiatingCorrelationId);
+
+        var processed = await service.ProcessAsync(tenantId, reloaded.Id);
+        var message = Assert.Single(await context.OutboxMessages.ToListAsync());
+        var published = JsonSerializer.Deserialize<DocumentOcrCompletedEvent>(message.Content);
+
+        Assert.Equal(DocumentOcrJobStatus.Completed, processed!.Status);
+        Assert.Equal(EventPurpose.KnowledgeCorpus, published!.Purpose);
+        Assert.Equal(correlationId, published.CorrelationId);
+        Assert.Equal("resource-001", published.ExternalContextId);
+    }
+
+    [Fact]
     public async Task RequiredFieldRuleMarksOtherwiseConfidentResultForReview()
     {
         var tenantId = Guid.CreateVersion7();
@@ -76,7 +117,8 @@ public sealed class DocumentOcrJobServiceTests
         Assert.True(processed!.NeedsReview);
         Assert.Equal(DocumentOcrJobStatus.RequiresReview, processed.Status);
         Assert.Equal(0.99m, processed.Confidence);
-        Assert.Empty(await context.OutboxMessages.ToListAsync());
+        var outbox = Assert.Single(await context.OutboxMessages.ToListAsync());
+        Assert.Equal("DocumentOcrRequiresReviewEvent", outbox.EventType);
     }
 
     [Fact]
@@ -97,8 +139,10 @@ public sealed class DocumentOcrJobServiceTests
             CancellationToken.None);
 
         Assert.Equal(DocumentOcrJobStatus.Completed, reviewed.Status);
-        var outbox = Assert.Single(await context.OutboxMessages.ToListAsync());
-        Assert.Equal("DocumentOcrCompletedEvent", outbox.EventType);
+        var outbox = await context.OutboxMessages.ToListAsync();
+        Assert.Equal(2, outbox.Count);
+        Assert.Contains(outbox, message => message.EventType == "DocumentOcrRequiresReviewEvent");
+        Assert.Contains(outbox, message => message.EventType == "DocumentOcrCompletedEvent");
     }
 
     [Fact]

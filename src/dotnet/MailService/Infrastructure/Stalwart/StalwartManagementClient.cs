@@ -88,6 +88,20 @@ public class StalwartManagementClient : IStalwartManagementClient
         }
     }
 
+    public async Task<bool> DeleteAliasAsync(string aliasAddress, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var response = await _httpClient.DeleteAsync($"/api/management/aliases/{Uri.EscapeDataString(aliasAddress)}", cancellationToken);
+            return response.IsSuccessStatusCode;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Stalwart management API delete alias failed for {Alias}", aliasAddress);
+            return false;
+        }
+    }
+
     public async Task<byte[]> GetMessageEmlAsync(string messageId, CancellationToken cancellationToken = default)
     {
         try

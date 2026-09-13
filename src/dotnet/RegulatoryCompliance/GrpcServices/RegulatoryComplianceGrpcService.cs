@@ -18,7 +18,8 @@ public sealed class RegulatoryComplianceGrpcService(
     IRegulationRetrievalService retrievalService,
     IComplianceEvaluationService evaluationService,
     IGroundedAnswerService? groundedAnswerService = null,
-    IDeterministicCitationValidator? citationValidator = null)
+    IDeterministicCitationValidator? citationValidator = null,
+    ICorpusCatalogService? corpusCatalogService = null)
     : ComplianceGrpc.RegulatoryComplianceService.RegulatoryComplianceServiceBase
 {
     public override async Task<ComplianceGrpc.ComplianceEvaluationResponse> EvaluateCompliance(
@@ -199,6 +200,64 @@ public sealed class RegulatoryComplianceGrpcService(
         }
     }
 
+    public override async Task<ComplianceGrpc.IngestRegulatorySourceResponse> CreateRegulatoryCorpusVersion(
+        ComplianceGrpc.CreateRegulatoryCorpusVersionRequest request,
+        ServerCallContext context)
+    {
+        if (request.PublishedAt is null || request.EffectiveFrom is null)
+            throw InvalidArgument("PublishedAt and EffectiveFrom are required.");
+
+        try
+        {
+            var result = await ingestionService.CreatePendingOcrAsync(
+                new RegulatoryPendingOcrInput(
+                    request.IdempotencyKey,
+                    request.Authority,
+                    request.Title,
+                    request.CanonicalSourceUri,
+                    request.JurisdictionCode,
+                    MapRegulationType(request.RegulationType),
+                    request.LanguageCode,
+                    request.VersionLabel,
+                    request.PublishedAt.ToDateTimeOffset(),
+                    request.EffectiveFrom.ToDateTimeOffset(),
+                    request.EffectiveTo?.ToDateTimeOffset(),
+                    request.ContentReference,
+                    request.FileName,
+                    request.MimeType,
+                    request.SizeBytes,
+                    request.ContentSha256,
+                    MapVisibility(request.Visibility)),
+                context.CancellationToken);
+            return new ComplianceGrpc.IngestRegulatorySourceResponse
+            {
+                RegulatoryDocumentId = result.RegulatoryDocumentId.ToString(),
+                DocumentVersionId = result.DocumentVersionId.ToString(),
+                Status = (ComplianceGrpc.RegulatoryIngestionStatus)(int)result.Status,
+                ChunkCount = result.ChunkCount,
+                Replayed = result.Replayed,
+                ReceivedAt = Timestamp.FromDateTimeOffset(result.ReceivedAt)
+            };
+        }
+        catch (UnauthorizedAccessException exception)
+        {
+            throw new RpcException(new Status(StatusCode.PermissionDenied, exception.Message));
+        }
+        catch (InvalidOperationException exception) when (
+            exception.Message.Contains("Tenant context", StringComparison.Ordinal))
+        {
+            throw new RpcException(new Status(StatusCode.Unauthenticated, exception.Message));
+        }
+        catch (InvalidOperationException exception)
+        {
+            throw new RpcException(new Status(StatusCode.AlreadyExists, exception.Message));
+        }
+        catch (ArgumentException exception)
+        {
+            throw InvalidArgument(exception.Message);
+        }
+    }
+
     public override async Task<ComplianceGrpc.IngestKnowledgeSourceResponse> IngestKnowledgeDocument(
         ComplianceGrpc.IngestKnowledgeSourceRequest request,
         ServerCallContext context)
@@ -252,6 +311,158 @@ public sealed class RegulatoryComplianceGrpcService(
         }
     }
 
+    public override async Task<ComplianceGrpc.IngestKnowledgeSourceResponse> CreateKnowledgeCorpusVersion(
+        ComplianceGrpc.CreateKnowledgeCorpusVersionRequest request,
+        ServerCallContext context)
+    {
+        try
+        {
+            var result = await knowledgeIngestionService.CreatePendingOcrAsync(
+                new KnowledgePendingOcrInput(
+                    request.IdempotencyKey,
+                    request.Title,
+                    (RegulatoryCompliance.Domain.Enums.KnowledgeCategory)(int)request.Category,
+                    request.SourceReference,
+                    request.LanguageCode,
+                    request.VersionLabel,
+                    request.ContentReference,
+                    request.FileName,
+                    request.MimeType,
+                    request.SizeBytes,
+                    request.ContentSha256,
+                    MapVisibility(request.Visibility)),
+                context.CancellationToken);
+
+            return new ComplianceGrpc.IngestKnowledgeSourceResponse
+            {
+                KnowledgeDocumentId = result.KnowledgeDocumentId.ToString(),
+                DocumentVersionId = result.DocumentVersionId.ToString(),
+                Status = (ComplianceGrpc.RegulatoryIngestionStatus)(int)result.Status,
+                ChunkCount = result.ChunkCount,
+                Replayed = result.Replayed,
+                ReceivedAt = Timestamp.FromDateTimeOffset(result.ReceivedAt)
+            };
+        }
+        catch (UnauthorizedAccessException exception)
+        {
+            throw new RpcException(new Status(StatusCode.PermissionDenied, exception.Message));
+        }
+        catch (InvalidOperationException exception) when (
+            exception.Message.Contains("Tenant context", StringComparison.Ordinal) ||
+            exception.Message.Contains("Tenant ID", StringComparison.Ordinal))
+        {
+            throw new RpcException(new Status(StatusCode.Unauthenticated, exception.Message));
+        }
+        catch (InvalidOperationException exception)
+        {
+            throw new RpcException(new Status(StatusCode.AlreadyExists, exception.Message));
+        }
+        catch (ArgumentException exception)
+        {
+            throw InvalidArgument(exception.Message);
+        }
+    }
+
+    public override async Task<ComplianceGrpc.ListRegulatorySourcesResponse> ListRegulatorySources(
+        ComplianceGrpc.ListRegulatorySourcesRequest request,
+        ServerCallContext context)
+    {
+        var catalog = RequireCorpusCatalog();
+        try
+        {
+            var result = await catalog.ListRegulatorySourcesAsync(
+                request.Page,
+                request.PageSize,
+                request.Status == ComplianceGrpc.RegulatoryIngestionStatus.Unspecified
+                    ? null
+                    : MapIngestionStatus(request.Status),
+                string.IsNullOrWhiteSpace(request.JurisdictionCode) ? null : request.JurisdictionCode,
+                context.CancellationToken);
+
+            var response = new ComplianceGrpc.ListRegulatorySourcesResponse
+            {
+                Page = result.Page,
+                PageSize = result.PageSize,
+                TotalCount = result.TotalCount
+            };
+            response.Sources.AddRange(result.Items.Select(MapRegulatorySummary));
+            return response;
+        }
+        catch (ArgumentException exception)
+        {
+            throw InvalidArgument(exception.Message);
+        }
+    }
+
+    public override async Task<ComplianceGrpc.RegulatorySourceDetails> GetRegulatorySource(
+        ComplianceGrpc.GetRegulatorySourceRequest request,
+        ServerCallContext context)
+    {
+        var result = await RequireCorpusCatalog().GetRegulatorySourceAsync(
+            ParseRequiredId(request.RegulatoryDocumentId, "RegulatoryDocumentId"),
+            context.CancellationToken);
+        if (result is null)
+            throw new RpcException(new Status(StatusCode.NotFound, "Regulatory source was not found."));
+
+        var response = new ComplianceGrpc.RegulatorySourceDetails
+        {
+            Summary = MapRegulatorySummary(result.Summary)
+        };
+        response.Versions.AddRange(result.Versions.Select(MapRegulatoryVersion));
+        return response;
+    }
+
+    public override async Task<ComplianceGrpc.ListKnowledgeDocumentsResponse> ListKnowledgeDocuments(
+        ComplianceGrpc.ListKnowledgeDocumentsRequest request,
+        ServerCallContext context)
+    {
+        var catalog = RequireCorpusCatalog();
+        try
+        {
+            var result = await catalog.ListKnowledgeDocumentsAsync(
+                request.Page,
+                request.PageSize,
+                request.Status == ComplianceGrpc.RegulatoryIngestionStatus.Unspecified
+                    ? null
+                    : MapIngestionStatus(request.Status),
+                request.Category == ComplianceGrpc.KnowledgeCategory.Unspecified
+                    ? null
+                    : MapKnowledgeCategory(request.Category),
+                context.CancellationToken);
+
+            var response = new ComplianceGrpc.ListKnowledgeDocumentsResponse
+            {
+                Page = result.Page,
+                PageSize = result.PageSize,
+                TotalCount = result.TotalCount
+            };
+            response.Documents.AddRange(result.Items.Select(MapKnowledgeSummary));
+            return response;
+        }
+        catch (ArgumentException exception)
+        {
+            throw InvalidArgument(exception.Message);
+        }
+    }
+
+    public override async Task<ComplianceGrpc.KnowledgeDocumentDetails> GetKnowledgeDocument(
+        ComplianceGrpc.GetKnowledgeDocumentRequest request,
+        ServerCallContext context)
+    {
+        var result = await RequireCorpusCatalog().GetKnowledgeDocumentAsync(
+            ParseRequiredId(request.KnowledgeDocumentId, "KnowledgeDocumentId"),
+            context.CancellationToken);
+        if (result is null)
+            throw new RpcException(new Status(StatusCode.NotFound, "Knowledge document was not found."));
+
+        var response = new ComplianceGrpc.KnowledgeDocumentDetails
+        {
+            Summary = MapKnowledgeSummary(result.Summary)
+        };
+        response.Versions.AddRange(result.Versions.Select(MapKnowledgeVersion));
+        return response;
+    }
+
     public override async Task<ComplianceGrpc.QueryKnowledgeResponse> QueryKnowledge(
         ComplianceGrpc.QueryKnowledgeRequest request,
         ServerCallContext context)
@@ -286,7 +497,8 @@ public sealed class RegulatoryComplianceGrpcService(
                     SectionLabel = item.SectionLabel ?? string.Empty,
                     PageLabel = item.PageLabel ?? string.Empty,
                     Excerpt = item.Excerpt,
-                    RelevanceScore = Convert.ToDouble(item.RelevanceScore)
+                    RelevanceScore = Convert.ToDouble(item.RelevanceScore),
+                    SourceReference = item.SourceReference ?? string.Empty
                 });
             }
 
@@ -356,6 +568,7 @@ public sealed class RegulatoryComplianceGrpcService(
                 .ToList();
 
             var effectiveAt = request.EffectiveAt?.ToDateTimeOffset();
+            var assistantContext = ParseAssistantContext(request.Context);
 
             var result = await groundedAnswerService.GenerateAnswerAsync(
                 new GroundedAnswerInput(
@@ -366,8 +579,9 @@ public sealed class RegulatoryComplianceGrpcService(
                     regTypes,
                     categories,
                     request.TopK > 0 ? request.TopK : 10,
-                    Convert.ToDecimal(request.MinimumRelevanceScore)),
-                context.CancellationToken);
+                    Convert.ToDecimal(request.MinimumRelevanceScore),
+                    assistantContext),
+                context?.CancellationToken ?? CancellationToken.None);
 
             var response = new ComplianceGrpc.GenerateGroundedAnswerResponse
             {
@@ -384,6 +598,17 @@ public sealed class RegulatoryComplianceGrpcService(
                     TotalTokens = result.Governance.TotalTokens
                 }
             };
+
+            if (result.Context is not null)
+            {
+                response.Context = new ComplianceGrpc.AssistantContextSummary
+                {
+                    ShipmentId = result.Context.ShipmentId?.ToString() ?? string.Empty,
+                    EvaluationId = result.Context.EvaluationId?.ToString() ?? string.Empty,
+                    Freshness = result.Context.Freshness,
+                    SnapshotHash = result.Context.SnapshotHash ?? string.Empty
+                };
+            }
 
             response.MissingInformation.AddRange(result.MissingInformation);
 
@@ -440,10 +665,45 @@ public sealed class RegulatoryComplianceGrpcService(
         {
             throw new RpcException(new Status(StatusCode.PermissionDenied, exception.Message));
         }
+        catch (AssistantContextMismatchException exception)
+        {
+            throw new RpcException(new Status(StatusCode.Aborted, exception.Message));
+        }
+        catch (AssistantContextUnavailableException exception)
+        {
+            throw new RpcException(new Status(StatusCode.FailedPrecondition, exception.Message));
+        }
         catch (ArgumentException exception)
         {
             throw InvalidArgument(exception.Message);
         }
+    }
+
+    private static VerifiedAssistantContextInput? ParseAssistantContext(
+        ComplianceGrpc.AssistantContext? context)
+    {
+        if (context is null ||
+            (string.IsNullOrWhiteSpace(context.ShipmentId) &&
+             string.IsNullOrWhiteSpace(context.EvaluationId)))
+            return null;
+
+        Guid? shipmentId = null;
+        Guid? evaluationId = null;
+        if (!string.IsNullOrWhiteSpace(context.ShipmentId))
+        {
+            if (!Guid.TryParse(context.ShipmentId, out var parsedShipmentId))
+                throw InvalidArgument("Assistant context shipmentId must be a valid UUID.");
+            shipmentId = parsedShipmentId;
+        }
+
+        if (!string.IsNullOrWhiteSpace(context.EvaluationId))
+        {
+            if (!Guid.TryParse(context.EvaluationId, out var parsedEvaluationId))
+                throw InvalidArgument("Assistant context evaluationId must be a valid UUID.");
+            evaluationId = parsedEvaluationId;
+        }
+
+        return new VerifiedAssistantContextInput(shipmentId, evaluationId);
     }
 
     public override Task<ComplianceGrpc.ValidateGroundedEvidenceResponse> ValidateGroundedEvidence(
@@ -566,6 +826,106 @@ public sealed class RegulatoryComplianceGrpcService(
             ? mapped
             : throw InvalidArgument("RegulationType is invalid.");
     }
+
+    private ICorpusCatalogService RequireCorpusCatalog() =>
+        corpusCatalogService ?? throw new RpcException(
+            new Status(StatusCode.Unimplemented, "Corpus catalog is not configured."));
+
+    private static RegulatoryCompliance.Domain.Enums.RegulatoryIngestionStatus MapIngestionStatus(
+        ComplianceGrpc.RegulatoryIngestionStatus value)
+    {
+        var mapped = (RegulatoryCompliance.Domain.Enums.RegulatoryIngestionStatus)(int)value;
+        return System.Enum.IsDefined(mapped)
+            ? mapped
+            : throw InvalidArgument("Ingestion status is invalid.");
+    }
+
+    private static RegulatoryCompliance.Domain.Enums.KnowledgeCategory MapKnowledgeCategory(
+        ComplianceGrpc.KnowledgeCategory value)
+    {
+        var mapped = (RegulatoryCompliance.Domain.Enums.KnowledgeCategory)(int)value;
+        return System.Enum.IsDefined(mapped)
+            ? mapped
+            : throw InvalidArgument("Knowledge category is invalid.");
+    }
+
+    private static ComplianceGrpc.RegulatorySourceSummary MapRegulatorySummary(
+        RegulatorySourceCatalogItem item)
+    {
+        var response = new ComplianceGrpc.RegulatorySourceSummary
+        {
+            Id = item.Id.ToString(),
+            Title = item.Title,
+            Authority = item.Authority,
+            JurisdictionCode = item.JurisdictionCode,
+            RegulationType = (ComplianceGrpc.RegulationType)(int)item.RegulationType,
+            LanguageCode = item.LanguageCode,
+            Visibility = (ComplianceGrpc.RegulatorySourceVisibility)(int)item.Visibility,
+            CreatedAt = Timestamp.FromDateTimeOffset(item.CreatedAt)
+        };
+        if (item.LatestVersion is not null)
+            response.LatestVersion = MapRegulatoryVersion(item.LatestVersion);
+        return response;
+    }
+
+    private static ComplianceGrpc.KnowledgeDocumentSummary MapKnowledgeSummary(
+        KnowledgeDocumentCatalogItem item)
+    {
+        var response = new ComplianceGrpc.KnowledgeDocumentSummary
+        {
+            Id = item.Id.ToString(),
+            Title = item.Title,
+            Category = (ComplianceGrpc.KnowledgeCategory)(int)item.Category,
+            SourceReference = item.SourceReference,
+            LanguageCode = item.LanguageCode,
+            Visibility = (ComplianceGrpc.RegulatorySourceVisibility)(int)item.Visibility,
+            CreatedAt = Timestamp.FromDateTimeOffset(item.CreatedAt)
+        };
+        if (item.LatestVersion is not null)
+            response.LatestVersion = MapKnowledgeVersion(item.LatestVersion);
+        return response;
+    }
+
+    private static ComplianceGrpc.RegulatorySourceVersionSummary MapRegulatoryVersion(CorpusVersionStatus version) =>
+        new()
+        {
+            Id = version.Id.ToString(),
+            VersionLabel = version.VersionLabel,
+            Status = (ComplianceGrpc.RegulatoryIngestionStatus)(int)version.Status,
+            ChunkCount = version.ChunkCount,
+            EmbeddedChunkCount = version.EmbeddedChunkCount,
+            FileName = version.FileName,
+            MimeType = version.MimeType,
+            SizeBytes = version.SizeBytes,
+            ContentSha256 = version.ContentSha256,
+            CreatedAt = Timestamp.FromDateTimeOffset(version.CreatedAt),
+            UpdatedAt = version.UpdatedAt is null ? null : Timestamp.FromDateTimeOffset(version.UpdatedAt.Value),
+            CompletedAt = version.CompletedAt is null ? null : Timestamp.FromDateTimeOffset(version.CompletedAt.Value),
+            FailedAt = version.FailedAt is null ? null : Timestamp.FromDateTimeOffset(version.FailedAt.Value),
+            ErrorCode = version.ErrorCode ?? string.Empty,
+            ErrorMessage = version.ErrorMessage ?? string.Empty
+        };
+
+    private static ComplianceGrpc.KnowledgeDocumentVersionSummary MapKnowledgeVersion(
+        CorpusVersionStatus version) =>
+        new()
+        {
+            Id = version.Id.ToString(),
+            VersionLabel = version.VersionLabel,
+            Status = (ComplianceGrpc.RegulatoryIngestionStatus)(int)version.Status,
+            ChunkCount = version.ChunkCount,
+            EmbeddedChunkCount = version.EmbeddedChunkCount,
+            FileName = version.FileName,
+            MimeType = version.MimeType,
+            SizeBytes = version.SizeBytes,
+            ContentSha256 = version.ContentSha256,
+            CreatedAt = Timestamp.FromDateTimeOffset(version.CreatedAt),
+            UpdatedAt = version.UpdatedAt is null ? null : Timestamp.FromDateTimeOffset(version.UpdatedAt.Value),
+            CompletedAt = version.CompletedAt is null ? null : Timestamp.FromDateTimeOffset(version.CompletedAt.Value),
+            FailedAt = version.FailedAt is null ? null : Timestamp.FromDateTimeOffset(version.FailedAt.Value),
+            ErrorCode = version.ErrorCode ?? string.Empty,
+            ErrorMessage = version.ErrorMessage ?? string.Empty
+        };
 
     private static ComplianceGrpc.RegulationEvidence MapEvidence(RegulationEvidenceResult evidence)
     {

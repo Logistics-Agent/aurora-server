@@ -1,0 +1,61 @@
+@startuml
+title Hình 3.2.1 - Kiến trúc logic nền tảng Aurora Logistics SaaS
+left to right direction
+skinparam shadowing false
+skinparam componentStyle rectangle
+skinparam packageStyle rectangle
+skinparam linetype ortho
+
+actor "Người dùng hệ thống\nSystem Admin | Tenant Admin | Nhân viên vận hành" as User
+rectangle "Ứng dụng web / cổng thông tin\n(Frontend)" as FE #EAF2F8
+rectangle "Cloudflare + Azure Application Gateway\nYARP API Gateway" as Edge #D6EAF8
+package "BFF theo vai trò" #EBF5FB {
+  component "System.Bff" as SysBff
+  component "Admin.Bff" as AdminBff
+  component "Staff.Bff" as StaffBff
+}
+package "Dịch vụ nghiệp vụ" #E8F8F5 {
+  component "IAM & Tenant" as Iam
+  component "Shipment Workflow" as Ship
+  component "Route Planning" as Route
+  component "Financial" as Fin
+  component "Billing" as Bill
+  component "GPS Tracking" as Gps
+  component "Notification" as Noti
+  component "Document OCR" as Ocr
+  component "Regulatory Compliance" as Comp
+}
+package "Dịch vụ AI và hỗ trợ" #FEF9E7 {
+  component "Customer Assistant" as Assistant
+  component "Negotiation Agent" as Negotiation
+  component "Mail Service" as Mail
+  component "Realtime Hub" as Realtime
+  component "AI Governance" as AiGov
+  component "DevOps Agent" as DevOps
+}
+
+User --> FE
+FE --> Edge
+Edge --> SysBff
+Edge --> AdminBff
+Edge --> StaffBff
+SysBff --> Iam
+AdminBff --> Iam
+StaffBff --> Ship
+StaffBff --> Route
+StaffBff --> Fin
+StaffBff --> Bill
+StaffBff --> Comp
+StaffBff --> Assistant
+Ship --> Ocr
+Ship --> Gps
+Route --> Comp
+Assistant --> AiGov
+Negotiation --> AiGov
+Ocr --> AiGov
+Comp --> AiGov
+Mail --> AiGov
+DevOps --> AiGov
+Noti --> Realtime
+scale 2
+@enduml

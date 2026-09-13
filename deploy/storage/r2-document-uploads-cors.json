@@ -1,0 +1,31 @@
+{
+  "rules": [
+    {
+      "allowed": {
+        "origins": [
+          "http://localhost:3000",
+          "https://humanak.cyou",
+          "https://www.humanak.cyou",
+          "https://admin.humanak.cyou",
+          "https://system.humanak.cyou"
+        ],
+        "methods": [
+          "PUT",
+          "GET",
+          "HEAD"
+        ],
+        "headers": [
+          "Content-Type",
+          "x-amz-meta-content-sha256"
+        ],
+        "exposeHeaders": [
+          "ETag",
+          "Content-Disposition",
+          "Content-Type",
+          "Content-Length"
+        ],
+        "maxAgeSeconds": 600
+      }
+    }
+  ]
+}

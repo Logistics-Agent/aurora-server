@@ -9,8 +9,8 @@ public interface ICognitoAuthService
     Task<AuthResult> InitiateAuthAsync(string clientId, string email, string password, CancellationToken ct = default);
     Task<AuthResult> CompleteNewPasswordChallengeAsync(string email, string newPassword, string session, CancellationToken ct = default);
     Task<AuthResult> CompleteNewPasswordChallengeAsync(string clientId, string email, string newPassword, string session, CancellationToken ct = default);
-    Task<AuthResult> RefreshTokenAsync(string refreshToken, CancellationToken ct = default);
-    Task<AuthResult> RefreshTokenAsync(string? clientId, string refreshToken, CancellationToken ct = default);
+    Task<AuthResult> RefreshTokenAsync(string refreshToken, string refreshTokenSubject, CancellationToken ct = default);
+    Task<AuthResult> RefreshTokenAsync(string? clientId, string refreshToken, string refreshTokenSubject, CancellationToken ct = default);
     Task ForgotPasswordAsync(string email, CancellationToken ct = default);
     Task ForgotPasswordAsync(string clientId, string email, CancellationToken ct = default);
     Task ConfirmForgotPasswordAsync(string email, string newPassword, string confirmationCode, CancellationToken ct = default);
@@ -34,4 +34,5 @@ public class AuthResult
     public string RefreshToken { get; set; } = string.Empty;
     public int ExpiresIn { get; set; }
     public string? Session { get; set; } // Used for challenge responses like NEW_PASSWORD_REQUIRED
+    public string RefreshTokenSubject { get; set; } = string.Empty;
 }

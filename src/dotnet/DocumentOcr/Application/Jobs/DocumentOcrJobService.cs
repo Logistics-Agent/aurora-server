@@ -19,7 +19,9 @@ public sealed record SubmitDocumentJobInput(
     long SizeBytes,
     OcrDocumentType DocumentTypeHint,
     Guid ExternalDocumentId,
-    Guid? ExternalShipmentId);
+    Guid? ExternalShipmentId,
+    DocumentOcrPurpose Purpose = DocumentOcrPurpose.ShipmentDocument,
+    Guid? InitiatingCorrelationId = null);
 
 public sealed record SubmitOcrJobInput(
     string IdempotencyKey,
@@ -31,7 +33,9 @@ public sealed record SubmitOcrJobInput(
     OcrExtractionMode ExtractionMode,
     Guid ExternalDocumentId,
     string? ExternalContextId = null,
-    Guid? ExternalShipmentId = null);
+    Guid? ExternalShipmentId = null,
+    DocumentOcrPurpose Purpose = DocumentOcrPurpose.ShipmentDocument,
+    Guid? InitiatingCorrelationId = null);
 
 public sealed record ListDocumentJobsInput(
     int Page,
@@ -109,7 +113,9 @@ public sealed class DocumentOcrJobService(
                 OcrExtractionMode.Structured,
                 input.ExternalDocumentId,
                 null,
-                input.ExternalShipmentId),
+                input.ExternalShipmentId,
+                input.Purpose,
+                input.InitiatingCorrelationId),
             cancellationToken);
     }
 
@@ -119,6 +125,12 @@ public sealed class DocumentOcrJobService(
     {
         ArgumentNullException.ThrowIfNull(input);
         var tenantId = RequireTenant();
+        var purpose = input.Purpose;
+        if (purpose == DocumentOcrPurpose.Unspecified || !Enum.IsDefined(purpose))
+            throw new ArgumentOutOfRangeException(nameof(input.Purpose), "Purpose is invalid.");
+        var initiatingCorrelationId = input.InitiatingCorrelationId is { } suppliedCorrelationId && suppliedCorrelationId != Guid.Empty
+            ? suppliedCorrelationId
+            : DocumentOcrCorrelationId.FromTrace(currentUser.TraceId);
         inputPolicy.ValidateMetadata(
             input.StorageReference, input.FileName, input.MimeType, input.SizeBytes);
         var idempotencyKey = Required(input.IdempotencyKey, nameof(input.IdempotencyKey), 150);
@@ -141,7 +153,9 @@ public sealed class DocumentOcrJobService(
             input.ExternalShipmentId,
             timeProvider.GetUtcNow(),
             input.ExtractionMode,
-            input.ExternalContextId);
+            input.ExternalContextId,
+            purpose,
+            initiatingCorrelationId);
         dbContext.Jobs.Add(job);
 
         try
@@ -392,7 +406,11 @@ public sealed class DocumentOcrJobService(
                 artifactRef);
             if (job.Status == DocumentOcrJobStatus.Completed)
             {
-                AddCompletedOutbox(job, completedAt);
+                dbContext.OutboxMessages.Add(DocumentOcrOutboxFactory.CreateCompleted(job, completedAt));
+            }
+            else if (job.Status == DocumentOcrJobStatus.RequiresReview)
+            {
+                dbContext.OutboxMessages.Add(DocumentOcrOutboxFactory.CreateRequiresReview(job, completedAt));
             }
             await dbContext.SaveChangesAsync(cancellationToken);
         }
@@ -454,27 +472,7 @@ public sealed class DocumentOcrJobService(
 
     private void AddCompletedOutbox(DocumentOcrJob job, DateTimeOffset occurredAt)
     {
-        var integrationEvent = new DocumentOcrCompletedEvent
-        {
-            TenantId = job.TenantId,
-            JobId = job.Id,
-            ExternalDocumentId = job.ExternalDocumentId,
-            ExternalShipmentId = job.ExternalShipmentId,
-            ExternalContextId = job.ExternalContextId,
-            DetectedDocumentType = job.DetectedDocumentType?.ToString() ?? string.Empty,
-            NormalizedJson = job.NormalizedJson ?? "{}",
-            ArtifactReference = job.ArtifactReference,
-            ExtractionMode = job.ExtractionMode.ToString(),
-            Confidence = job.Confidence ?? 0m,
-            NeedsReview = job.NeedsReview ?? false,
-            OccurredAt = occurredAt
-        };
-        dbContext.OutboxMessages.Add(OutboxMessage.Create(
-            job.TenantId,
-            integrationEvent.EventId,
-            nameof(DocumentOcrCompletedEvent),
-            JsonSerializer.Serialize(integrationEvent),
-            occurredAt));
+        dbContext.OutboxMessages.Add(DocumentOcrOutboxFactory.CreateCompleted(job, occurredAt));
     }
 
     private Guid RequireTenant() => currentUser.TenantId is { } tenantId && tenantId != Guid.Empty

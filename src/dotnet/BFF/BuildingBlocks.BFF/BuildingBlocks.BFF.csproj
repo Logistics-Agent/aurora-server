@@ -56,6 +56,7 @@
     <Protobuf Include="../../../../protos/financial.proto" GrpcServices="Client" />
     <Protobuf Include="../../../../protos/negotiation.proto" GrpcServices="Client" />
     <Protobuf Include="../../../../protos/audit.proto" GrpcServices="Client" />
+    <Protobuf Include="../../../../protos/ai_governance.proto" GrpcServices="Client" />
     <Protobuf Include="../../../../protos/common.proto" GrpcServices="None" />
   </ItemGroup>
 

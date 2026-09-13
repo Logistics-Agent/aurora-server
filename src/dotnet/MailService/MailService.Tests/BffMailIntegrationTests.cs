@@ -9,6 +9,7 @@ using Moq;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Caching.Distributed;
 using Grpc.Core;
 using StaffBff.Controllers;
 using AdminBff.Controllers;
@@ -26,6 +27,7 @@ public class BffMailIntegrationTests
 {
     private readonly Mock<IMailServiceClient> _mockMailClient = new();
     private readonly Mock<ICurrentUserService> _mockCurrentUser = new();
+    private readonly Mock<IDistributedCache> _mockCache = new();
     private readonly Mock<ILogger<MailController>> _mockStaffLogger = new();
     private readonly Mock<ILogger<MailAdminController>> _mockAdminLogger = new();
     private readonly Mock<ILogger<MailSystemController>> _mockSystemLogger = new();
@@ -52,7 +54,7 @@ public class BffMailIntegrationTests
     [Fact]
     public async Task StaffBff_CreateDraft_ValidRequest_ReturnsCreated()
     {
-        var controller = new MailController(_mockMailClient.Object, _mockCurrentUser.Object, _mockStaffLogger.Object);
+        var controller = new MailController(_mockMailClient.Object, _mockCurrentUser.Object, _mockCache.Object, _mockStaffLogger.Object);
         SetupControllerContext(controller);
 
         var draftId = Guid.NewGuid().ToString();
@@ -87,7 +89,7 @@ public class BffMailIntegrationTests
     [Fact]
     public async Task StaffBff_CreateDraft_InvalidRequest_ReturnsBadRequest()
     {
-        var controller = new MailController(_mockMailClient.Object, _mockCurrentUser.Object, _mockStaffLogger.Object);
+        var controller = new MailController(_mockMailClient.Object, _mockCurrentUser.Object, _mockCache.Object, _mockStaffLogger.Object);
         SetupControllerContext(controller);
 
         // MailboxId is not a valid GUID and subject is empty
@@ -102,7 +104,7 @@ public class BffMailIntegrationTests
     [Fact]
     public async Task StaffBff_SubmitOutboundMessage_Valid_ReturnsOk()
     {
-        var controller = new MailController(_mockMailClient.Object, _mockCurrentUser.Object, _mockStaffLogger.Object);
+        var controller = new MailController(_mockMailClient.Object, _mockCurrentUser.Object, _mockCache.Object, _mockStaffLogger.Object);
         SetupControllerContext(controller);
 
         var request = new SubmitOutboundMessageRequest(
@@ -131,7 +133,7 @@ public class BffMailIntegrationTests
     [Fact]
     public async Task StaffBff_SubmitOutboundMessage_ExceedsTotalAttachmentLimit_ReturnsBadRequest()
     {
-        var controller = new MailController(_mockMailClient.Object, _mockCurrentUser.Object, _mockStaffLogger.Object);
+        var controller = new MailController(_mockMailClient.Object, _mockCurrentUser.Object, _mockCache.Object, _mockStaffLogger.Object);
         SetupControllerContext(controller);
 
         // 3 attachments of 20MB each = 60MB total (exceeds 50MB MaxTotalAttachmentBytes)
@@ -158,7 +160,7 @@ public class BffMailIntegrationTests
     [Fact]
     public async Task StaffBff_ReleaseQuarantine_ReturnsOk()
     {
-        var controller = new MailController(_mockMailClient.Object, _mockCurrentUser.Object, _mockStaffLogger.Object);
+        var controller = new MailController(_mockMailClient.Object, _mockCurrentUser.Object, _mockCache.Object, _mockStaffLogger.Object);
         SetupControllerContext(controller);
 
         var quarantineId = Guid.NewGuid().ToString();
@@ -176,7 +178,7 @@ public class BffMailIntegrationTests
     [Fact]
     public async Task StaffBff_GrpcNotFound_MapsToHttp404()
     {
-        var controller = new MailController(_mockMailClient.Object, _mockCurrentUser.Object, _mockStaffLogger.Object);
+        var controller = new MailController(_mockMailClient.Object, _mockCurrentUser.Object, _mockCache.Object, _mockStaffLogger.Object);
         SetupControllerContext(controller);
 
         var missingDraftId = Guid.NewGuid().ToString();
@@ -192,7 +194,7 @@ public class BffMailIntegrationTests
     [Fact]
     public async Task StaffBff_GrpcPermissionDenied_MapsToHttp403()
     {
-        var controller = new MailController(_mockMailClient.Object, _mockCurrentUser.Object, _mockStaffLogger.Object);
+        var controller = new MailController(_mockMailClient.Object, _mockCurrentUser.Object, _mockCache.Object, _mockStaffLogger.Object);
         SetupControllerContext(controller);
 
         var request = new SubmitOutboundMessageRequest(
@@ -563,7 +565,7 @@ public class BffMailIntegrationTests
     [Fact]
     public async Task StaffBff_GetThread_ValidId_ReturnsOk()
     {
-        var controller = new MailController(_mockMailClient.Object, _mockCurrentUser.Object, _mockStaffLogger.Object);
+        var controller = new MailController(_mockMailClient.Object, _mockCurrentUser.Object, _mockCache.Object, _mockStaffLogger.Object);
         SetupControllerContext(controller);
 
         var threadId = Guid.NewGuid().ToString();
@@ -591,7 +593,7 @@ public class BffMailIntegrationTests
     [Fact]
     public async Task StaffBff_ListThreads_ReturnsOk()
     {
-        var controller = new MailController(_mockMailClient.Object, _mockCurrentUser.Object, _mockStaffLogger.Object);
+        var controller = new MailController(_mockMailClient.Object, _mockCurrentUser.Object, _mockCache.Object, _mockStaffLogger.Object);
         SetupControllerContext(controller);
 
         var summaries = new List<ThreadSummaryResponse>

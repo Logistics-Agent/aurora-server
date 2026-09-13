@@ -1,0 +1,79 @@
+@startuml
+skinparam dpi 180
+title ER Diagram - IAM and Tenant Database
+hide methods
+
+entity Tenant {
+  *Id : Guid <<PK>>
+  --
+  Name : string
+  Domain : string
+  Status : TenantStatus
+  PlanType : string
+  CognitoUserPoolId : string
+  CreatedAt : DateTime
+  UpdatedAt : DateTime
+}
+
+entity User {
+  *Id : Guid <<PK>>
+  --
+  TenantId : Guid <<FK>>
+  Email : string
+  FullName : string
+  CognitoSub : string
+  BaseRole : BaseRole
+  Status : UserStatus
+  PermissionVersion : int
+  CreatedAt : DateTime
+  UpdatedAt : DateTime
+}
+
+entity Permission {
+  *Code : string <<PK>>
+  --
+  Name : string
+  Category : string
+  Description : string
+}
+
+entity UserPermission {
+  *Id : Guid <<PK>>
+  --
+  UserId : Guid <<FK>>
+  PermissionCode : string <<FK>>
+  GrantedBy : Guid
+  GrantedAt : DateTime
+}
+
+entity Group {
+  *Id : Guid <<PK>>
+  --
+  TenantId : Guid <<FK>>
+  Name : string
+  Description : string
+}
+
+entity GroupUser {
+  *GroupId : Guid <<PK, FK>>
+  *UserId : Guid <<PK, FK>>
+  --
+  AssignedAt : DateTime
+}
+
+entity OutboxMessage {
+  *Id : Guid <<PK>>
+  --
+  OccurredOn : DateTime
+  Type : string
+  Payload : string
+  ProcessedOn : DateTime?
+}
+
+Tenant ||--o{ User
+Tenant ||--o{ Group
+User ||--o{ UserPermission
+Permission ||--o{ UserPermission
+Group ||--o{ GroupUser
+User ||--o{ GroupUser
+@enduml

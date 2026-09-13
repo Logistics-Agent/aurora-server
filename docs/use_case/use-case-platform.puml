@@ -1,0 +1,44 @@
+@startuml
+title Hình 3.3.1 - Use Case tổng quát của nền tảng Aurora
+left to right direction
+skinparam shadowing false
+skinparam packageStyle rectangle
+
+actor "Quản trị viên\nhệ thống" as SystemAdmin
+actor "Quản trị viên\ntenant" as TenantAdmin
+actor "Nhân viên vận hành" as Staff
+rectangle "Aurora Logistics Platform" {
+  package "Quản trị" {
+    usecase "Quản lý tenant" as UC_Tenant
+    usecase "Nạp nguồn quy định\nvà tri thức" as UC_Ingest
+    usecase "Quản lý người dùng,\nvai trò và quyền" as UC_User
+    usecase "Cấu hình quy tắc\nvà năng lực AI" as UC_Config
+  }
+  package "Vận hành logistics" {
+    usecase "Tạo và gửi shipment" as UC_Ship
+    usecase "Quản lý hàng hóa,\nđịa điểm, chứng từ, mốc" as UC_ShipDetail
+    usecase "Tạo và tối ưu route" as UC_Route
+    usecase "Duyệt / từ chối route" as UC_Approve
+    usecase "Ước tính chi phí\nvà phát hành hóa đơn" as UC_Billing
+    usecase "Đánh giá tuân thủ\nvà tra cứu trợ lý" as UC_Compliance
+  }
+}
+rectangle "OSRM" <<hệ thống định tuyến ngoài>> as OSRM #FDEBD0
+rectangle "VROOM" <<máy tối ưu ngoài>> as VROOM #FDEBD0
+
+SystemAdmin --> UC_Tenant
+SystemAdmin --> UC_Ingest
+TenantAdmin --> UC_User
+TenantAdmin --> UC_Config
+Staff --> UC_Ship
+Staff --> UC_ShipDetail
+Staff --> UC_Route
+Staff --> UC_Approve
+Staff --> UC_Billing
+Staff --> UC_Compliance
+UC_ShipDetail .> UC_Ship : <<mở rộng>>
+UC_Approve .> UC_Route : <<mở rộng>>
+UC_Route ..> OSRM : lấy ma trận/đường đi
+UC_Route ..> VROOM : tối ưu lộ trình
+scale 2
+@enduml

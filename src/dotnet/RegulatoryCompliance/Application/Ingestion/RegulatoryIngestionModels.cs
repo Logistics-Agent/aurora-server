@@ -30,6 +30,25 @@ public sealed record RegulatoryIngestionResult(
     bool Replayed,
     DateTimeOffset ReceivedAt);
 
+public sealed record RegulatoryPendingOcrInput(
+    string IdempotencyKey,
+    string Authority,
+    string Title,
+    string CanonicalSourceUri,
+    string JurisdictionCode,
+    RegulationType RegulationType,
+    string LanguageCode,
+    string VersionLabel,
+    DateTimeOffset PublishedAt,
+    DateTimeOffset EffectiveFrom,
+    DateTimeOffset? EffectiveTo,
+    string ContentReference,
+    string FileName,
+    string MimeType,
+    long SizeBytes,
+    string ContentSha256,
+    SourceVisibility Visibility);
+
 public sealed record RegulatoryChunkDraft(
     int Sequence,
     string? SectionLabel,
@@ -44,6 +63,10 @@ public interface IRegulatoryIngestionService
 {
     Task<RegulatoryIngestionResult> IngestAsync(
         RegulatoryIngestionInput input,
+        CancellationToken cancellationToken = default);
+
+    Task<RegulatoryIngestionResult> CreatePendingOcrAsync(
+        RegulatoryPendingOcrInput input,
         CancellationToken cancellationToken = default);
 }
 

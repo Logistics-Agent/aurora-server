@@ -24,6 +24,11 @@ env:
   Redis__Ssl: "false"
   Redis__AbortConnect: "false"
   Grpc__AiGovernance__Url: "http://ai-governance:9090"
+  # Production RAG retrieval must use the governed semantic embedding provider.
+  RegulatoryCompliance__EmbeddingProvider: "AiGovernance"
+  RegulatoryCompliance__EmbeddingModel: "gemini-embedding-2"
+  RegulatoryCompliance__EmbeddingModelVersion: "v1"
+  RegulatoryCompliance__EmbeddingDimension: "768"
 
 externalSecret:
   enabled: true

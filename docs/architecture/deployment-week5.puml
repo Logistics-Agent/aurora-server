@@ -1,0 +1,55 @@
+@startuml
+title Kiến trúc triển khai nền tảng Aurora
+top to bottom direction
+skinparam shadowing false
+skinparam componentStyle rectangle
+skinparam linetype ortho
+scale 2
+
+rectangle "Git repository\nsource + descriptor.yaml" as Git #EAF2F8
+rectangle "Argo CD\nApplicationSet + tự đồng bộ" as Argo #D6EAF8
+rectangle "Azure Container Registry\nACR" as Acr #D6EAF8
+rectangle "Azure Application Gateway v2\nWAF / ingress" as AppGw #D6EAF8
+
+package "Azure Core" #E8F8F5 {
+  node "AKS Core" as AksCore {
+    component "API Gateway và BFF" as Bff
+    component "IAM, Shipment, GPS, Billing,\nFinancial, Notification, Mail" as CoreSvc
+  }
+}
+package "Azure AI" #FEF9E7 {
+  node "AKS AI" as AksAi {
+    component "AI Governance, DevOps, OCR,\nCompliance, Route Planning" as AiSvc
+    component "OSRM và VROOM" as Routing
+  }
+}
+package "Shared Infrastructure" #F5EEF8 {
+  component "Azure Key Vault\nExternal Secrets" as Kv
+  component "Managed Redis" as Redis
+  component "Blob Storage\nosrm, ocr-docs" as Storage
+  component "RabbitMQ / Observability" as Ops
+}
+
+Git --> Argo : ApplicationSet đọc descriptor
+Git --> Acr : build/push image
+Argo --> AksCore : Helm values
+Argo --> AksAi : Helm values
+Acr --> AksCore : image pull
+Acr --> AksAi : image pull
+AppGw --> Bff : HTTPS ingress
+Bff --> CoreSvc : gRPC/nội bộ
+CoreSvc --> AiSvc : gRPC/event
+AiSvc --> Routing : tối ưu tuyến
+Kv --> AksCore : secret runtime
+Kv --> AksAi : secret runtime
+Redis --> AksCore
+Redis --> AksAi
+Storage --> Routing : dữ liệu OSRM
+Storage --> AiSvc : tài liệu OCR
+Ops --> CoreSvc : event/metric
+Ops --> AiSvc : event/metric
+note bottom
+Mô hình triển khai được thiết kế cho môi trường demo.
+Core và AI sử dụng các cụm AKS riêng.
+end note
+@enduml

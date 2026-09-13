@@ -185,6 +185,20 @@ public class GrpcMailServiceClient : IMailServiceClient
             response.NextPageToken);
     }
 
+    public async Task<BffModels.DeleteAliasResponse> DeleteAliasAsync(string aliasId, CancellationToken cancellationToken = default)
+    {
+        var protoReq = new GrpcModels.DeleteAliasRequest
+        {
+            AliasId = aliasId
+        };
+
+        var response = await _managementClient.DeleteAliasAsync(protoReq, cancellationToken: cancellationToken);
+
+        return new BffModels.DeleteAliasResponse(
+            response.Success,
+            response.AliasId);
+    }
+
     public async Task<BffModels.ResetPasswordResponse> ResetPasswordAsync(string mailboxId, CancellationToken cancellationToken = default)
     {
         var protoReq = new GrpcModels.ResetPasswordRequest
@@ -293,27 +307,56 @@ public class GrpcMailServiceClient : IMailServiceClient
 
     public async Task<BffModels.SubmitOutboundMessageResponse> SubmitOutboundMessageAsync(BffModels.SubmitOutboundMessageRequest request, CancellationToken cancellationToken = default)
     {
+        var bodyText = request.BodyText ?? string.Empty;
+        var bodyHtml = !string.IsNullOrWhiteSpace(request.BodyHtml)
+            ? request.BodyHtml
+            : ConvertTextToHtml(request.BodyText);
+
+
+
+        if (string.IsNullOrWhiteSpace(bodyText) && !string.IsNullOrWhiteSpace(bodyHtml))
+        {
+            bodyText = System.Text.RegularExpressions.Regex.Replace(bodyHtml, "<.*?>", string.Empty);
+        }
+
         var protoReq = new GrpcModels.SubmitOutboundMessageRequest
         {
-            SenderAddress = request.SenderAddress,
-            Subject = request.Subject,
-            BodyText = request.BodyText,
-            BodyHtml = request.BodyHtml,
+            SenderAddress = request.SenderAddress ?? string.Empty,
+            Subject = request.Subject ?? string.Empty,
+            BodyText = bodyText,
+            BodyHtml = bodyHtml,
             IdempotencyKey = request.IdempotencyKey ?? string.Empty,
-            DraftRootId = request.DraftRootId,
-            ThreadId = request.ThreadId,
-            ReplyToMessageId = request.ReplyToMessageId
         };
-        protoReq.RecipientAddresses.AddRange(request.RecipientAddresses);
+
+        if (!string.IsNullOrWhiteSpace(request.DraftRootId))
+        {
+            protoReq.DraftRootId = request.DraftRootId;
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.ThreadId))
+        {
+            protoReq.ThreadId = request.ThreadId;
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.ReplyToMessageId))
+        {
+            protoReq.ReplyToMessageId = request.ReplyToMessageId;
+        }
+
+        if (request.RecipientAddresses != null)
+        {
+            protoReq.RecipientAddresses.AddRange(request.RecipientAddresses.Where(r => !string.IsNullOrWhiteSpace(r)));
+        }
 
         if (request.Attachments != null)
         {
             foreach (var att in request.Attachments)
             {
+                if (string.IsNullOrWhiteSpace(att.ContentBase64)) continue;
                 var attDto = new GrpcModels.AttachmentDto
                 {
-                    Filename = att.Filename,
-                    ContentType = att.ContentType,
+                    Filename = att.Filename ?? "attachment",
+                    ContentType = att.ContentType ?? "application/octet-stream",
                     Content = ByteString.CopyFrom(Convert.FromBase64String(att.ContentBase64))
                 };
                 protoReq.Attachments.Add(attDto);
@@ -602,4 +645,13 @@ public class GrpcMailServiceClient : IMailServiceClient
             string.IsNullOrEmpty(rec.ReviewedBy) ? null : rec.ReviewedBy,
             SafeToNullableDateTimeOffset(rec.ReviewedAt));
     }
+
+    private static string ConvertTextToHtml(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return "<p></p>";
+        var encoded = System.Net.WebUtility.HtmlEncode(text);
+        return $"<div style=\"font-family: Arial, sans-serif; font-size: 14px; line-height: 1.6; color: #333333; white-space: pre-wrap;\">{encoded.Replace("\n", "<br/>")}</div>";
+    }
 }
+
+

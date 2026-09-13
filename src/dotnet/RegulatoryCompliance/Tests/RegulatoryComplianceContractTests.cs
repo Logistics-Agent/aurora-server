@@ -14,7 +14,9 @@ public sealed class RegulatoryComplianceContractTests
             EvaluateComplianceRequest.Descriptor,
             GetComplianceEvaluationRequest.Descriptor,
             QueryRegulationsRequest.Descriptor,
-            IngestRegulatorySourceRequest.Descriptor
+            IngestRegulatorySourceRequest.Descriptor,
+            CreateRegulatoryCorpusVersionRequest.Descriptor,
+            CreateKnowledgeCorpusVersionRequest.Descriptor
         };
 
         var forbiddenNames = new[]
@@ -35,7 +37,7 @@ public sealed class RegulatoryComplianceContractTests
             .ToArray();
 
         Assert.Equal(
-            ["EvaluateCompliance", "GenerateGroundedAnswer", "GetComplianceEvaluation", "IngestKnowledgeDocument", "IngestRegulatorySource", "QueryKnowledge", "QueryRegulations", "ValidateGroundedEvidence"],
+            ["CreateKnowledgeCorpusVersion", "CreateRegulatoryCorpusVersion", "EvaluateCompliance", "GenerateGroundedAnswer", "GetComplianceEvaluation", "GetKnowledgeDocument", "GetRegulatorySource", "IngestKnowledgeDocument", "IngestRegulatorySource", "ListKnowledgeDocuments", "ListRegulatorySources", "QueryKnowledge", "QueryRegulations", "ValidateGroundedEvidence"],
             methods);
     }
 

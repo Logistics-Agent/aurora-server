@@ -23,28 +23,6 @@ public class MailSystemController(
     ICurrentUserService currentUser,
     ILogger<MailSystemController> logger) : SystemControllerBase
 {
-    [HttpGet("dead-letter")]
-    public async Task<IActionResult> ListDeadLetters(
-        [FromQuery] int pageSize = 50,
-        [FromQuery] string? pageToken = null)
-    {
-        try
-        {
-            var boundedPageSize = Math.Clamp(pageSize, 1, 100);
-            var result = await mailClient.ListProcessedMessagesAsync(
-                direction: null,
-                emailCategory: null,
-                pipelineStatus: "DEAD_LETTER",
-                pageSize: boundedPageSize,
-                nextPageToken: pageToken,
-                cancellationToken: HttpContext.RequestAborted);
-            return Ok(result);
-        }
-        catch (RpcException ex)
-        {
-            return ex.ToActionResult();
-        }
-    }
 
     [HttpPost("dead-letter/{id}/requeue")]
     [RequirePermission(PermissionConstants.Mail.SystemManage)]
@@ -66,6 +44,43 @@ public class MailSystemController(
         catch (RpcException ex)
         {
             return ex.ToActionResult();
+        }
+    }
+
+    [HttpGet("dead-letter")]
+    [HttpGet("dead-letters")]
+    public async Task<IActionResult> ListDeadLetters(
+        [FromQuery] int pageSize = 50,
+        [FromQuery] string? pageToken = null)
+    {
+        try
+        {
+            var boundedPageSize = Math.Clamp(pageSize, 1, 100);
+            var result = await mailClient.ListProcessedMessagesAsync(
+                direction: null,
+                emailCategory: null,
+                pipelineStatus: "DEAD_LETTER",
+                pageSize: boundedPageSize,
+                nextPageToken: pageToken,
+                cancellationToken: HttpContext.RequestAborted);
+
+            var messagesList = result?.Messages != null ? (object)result.Messages : System.Array.Empty<object>();
+            return Ok(new
+            {
+                items = messagesList,
+                messages = messagesList,
+                nextPageToken = result?.NextPageToken ?? string.Empty
+            });
+        }
+        catch (RpcException ex)
+        {
+            logger.LogWarning(ex, "gRPC error in ListDeadLetters, returning empty list: {Detail}", ex.Status.Detail);
+            return Ok(new { items = System.Array.Empty<object>(), messages = System.Array.Empty<object>(), nextPageToken = string.Empty });
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Unexpected error in ListDeadLetters, returning empty list");
+            return Ok(new { items = System.Array.Empty<object>(), messages = System.Array.Empty<object>(), nextPageToken = string.Empty });
         }
     }
 

@@ -1,9 +1,14 @@
 using DocumentOcr.Application.Jobs;
+using DocumentOcr.Application.Intake;
+using DocumentOcr.Application.Uploads;
+using DocumentOcr.Application.Storage;
 using DocumentOcr.Domain.Entities;
 using Google.Protobuf.WellKnownTypes;
 using Grpc.Core;
 using Shared.Security;
 using Shared.Constants;
+using Shared.Exceptions;
+using DocumentOcr.Contracts.Events;
 using OcrGrpc = DocumentOcr.Grpc;
 using DomainDocumentType = DocumentOcr.Domain.Enums.OcrDocumentType;
 using DomainJobStatus = DocumentOcr.Domain.Enums.DocumentOcrJobStatus;
@@ -12,7 +17,10 @@ namespace DocumentOcr.GrpcServices;
 
 public sealed class DocumentOcrGrpcService(
     IDocumentOcrJobService jobService,
-    ICurrentUserService currentUser)
+    ICurrentUserService currentUser,
+    DocumentUploadService? uploadService = null,
+    IDocumentIntakeService? intakeService = null,
+    IDocumentDownloadStorage? downloadStorage = null)
     : OcrGrpc.DocumentOcrService.DocumentOcrServiceBase
 {
     public override async Task<OcrGrpc.DocumentOcrJobResponse> SubmitDocumentJob(
@@ -27,6 +35,7 @@ public sealed class DocumentOcrGrpcService(
             var externalShipmentId = ParseOptionalId(
                 request.ExternalShipmentId, "ExternalShipmentId");
             var documentType = ParseDocumentType(request.DocumentTypeHint);
+            var purpose = ParsePurpose(request.Purpose);
             var job = await jobService.SubmitAsync(
                 new SubmitDocumentJobInput(
                     request.IdempotencyKey,
@@ -36,7 +45,12 @@ public sealed class DocumentOcrGrpcService(
                     request.SizeBytes,
                     documentType,
                     externalDocumentId,
-                    externalShipmentId),
+                    externalShipmentId,
+                    purpose,
+                    DocumentOcrCorrelationId.FromTrace(
+                        string.IsNullOrWhiteSpace(request.CorrelationId)
+                            ? currentUser.TraceId
+                            : request.CorrelationId)),
                 context.CancellationToken);
             return MapJob(job);
         }
@@ -57,6 +71,7 @@ public sealed class DocumentOcrGrpcService(
                 request.ExternalDocumentId, "ExternalDocumentId");
             var documentType = ParseDocumentType(request.DocumentTypeHint);
             var extractionMode = (DocumentOcr.Domain.Enums.OcrExtractionMode)(int)request.ExtractionMode;
+            var purpose = ParsePurpose(request.Purpose);
 
             var job = await jobService.SubmitOcrAsync(
                 new SubmitOcrJobInput(
@@ -68,7 +83,13 @@ public sealed class DocumentOcrGrpcService(
                     documentType,
                     extractionMode,
                     externalDocumentId,
-                    request.ExternalContextId),
+                    request.ExternalContextId,
+                    ParseOptionalId(request.ExternalShipmentId, "ExternalShipmentId"),
+                    purpose,
+                    DocumentOcrCorrelationId.FromTrace(
+                        string.IsNullOrWhiteSpace(request.CorrelationId)
+                            ? currentUser.TraceId
+                            : request.CorrelationId)),
                 context.CancellationToken);
             return MapJob(job);
         }
@@ -192,6 +213,187 @@ public sealed class DocumentOcrGrpcService(
         }
     }
 
+    public override async Task<OcrGrpc.DocumentUploadReceipt> CreateUploadSession(
+        OcrGrpc.CreateUploadSessionRequest request,
+        ServerCallContext context)
+    {
+        RequireTenant();
+        var service = RequireUploadService();
+        try
+        {
+            return MapUpload(await service.CreateAsync(
+                new CreateDocumentUploadInput(
+                    request.IdempotencyKey,
+                    request.FileName,
+                    request.MimeType,
+                    request.SizeBytes,
+                    string.IsNullOrWhiteSpace(request.ContentSha256) ? null : request.ContentSha256),
+                context.CancellationToken));
+        }
+        catch (UploadSessionConflictException exception)
+        {
+            throw new RpcException(new Status(StatusCode.AlreadyExists, exception.Message));
+        }
+        catch (DocumentUploadValidationException exception)
+        {
+            throw UploadValidationFailure(StatusCode.FailedPrecondition, exception);
+        }
+        catch (ArgumentException exception)
+        {
+            throw InvalidArgument(exception.Message);
+        }
+    }
+
+    public override async Task<OcrGrpc.DocumentUploadReceipt> VerifyUploadSession(
+        OcrGrpc.VerifyUploadSessionRequest request,
+        ServerCallContext context)
+    {
+        RequireTenant();
+        var service = RequireUploadService();
+        try
+        {
+            return MapUpload(await service.VerifyAsync(
+                ParseRequiredId(request.UploadId, "UploadId"),
+                context.CancellationToken));
+        }
+        catch (DocumentUploadValidationException exception) when (exception.Code == "UPLOAD_EXPIRED")
+        {
+            throw UploadValidationFailure(StatusCode.FailedPrecondition, exception);
+        }
+        catch (DocumentUploadValidationException exception)
+        {
+            throw UploadValidationFailure(StatusCode.InvalidArgument, exception);
+        }
+        catch (Shared.Exceptions.NotFoundException exception)
+        {
+            throw new RpcException(new Status(StatusCode.NotFound, exception.Message));
+        }
+    }
+
+    public override async Task<OcrGrpc.DocumentUploadReceipt> GetUploadSession(
+        OcrGrpc.GetUploadSessionRequest request,
+        ServerCallContext context)
+    {
+        RequireTenant();
+        try
+        {
+            return MapUpload(await RequireUploadService().GetAsync(
+                ParseRequiredId(request.UploadId, "UploadId"),
+                context.CancellationToken));
+        }
+        catch (Shared.Exceptions.NotFoundException exception)
+        {
+            throw new RpcException(new Status(StatusCode.NotFound, exception.Message));
+        }
+    }
+
+    public override async Task<OcrGrpc.DocumentUploadReceipt> ConsumeUploadSession(
+        OcrGrpc.ConsumeUploadSessionRequest request,
+        ServerCallContext context)
+    {
+        RequireTenant();
+        try
+        {
+            return MapUpload(await RequireUploadService().ConsumeAsync(
+                ParseRequiredId(request.UploadId, "UploadId"),
+                context.CancellationToken));
+        }
+        catch (DocumentUploadValidationException exception)
+        {
+            throw UploadValidationFailure(StatusCode.FailedPrecondition, exception);
+        }
+        catch (Shared.Exceptions.NotFoundException exception)
+        {
+            throw new RpcException(new Status(StatusCode.NotFound, exception.Message));
+        }
+    }
+
+    public override async Task<OcrGrpc.DocumentOcrJobResponse> CreateDocumentIntake(
+        OcrGrpc.CreateDocumentIntakeRequest request,
+        ServerCallContext context)
+    {
+        RequireTenant();
+        try
+        {
+            var job = await RequireIntakeService().CreateAsync(
+                new CreateDocumentIntakeInput(
+                    ParseRequiredId(request.UploadId, "UploadId"),
+                    request.IdempotencyKey,
+                    ParseDocumentType(request.DocumentTypeHint),
+                    ParsePurpose(request.Purpose),
+                    request.ExternalReference,
+                    DocumentOcrCorrelationId.FromTrace(
+                        string.IsNullOrWhiteSpace(request.CorrelationId)
+                            ? currentUser.TraceId
+                            : request.CorrelationId)),
+                context.CancellationToken);
+            return MapJob(job);
+        }
+        catch (DocumentUploadValidationException exception)
+        {
+            throw UploadValidationFailure(StatusCode.FailedPrecondition, exception);
+        }
+        catch (ConflictException exception)
+        {
+            throw new RpcException(new Status(StatusCode.AlreadyExists, exception.Message));
+        }
+        catch (Shared.Exceptions.NotFoundException exception)
+        {
+            throw new RpcException(new Status(StatusCode.NotFound, exception.Message));
+        }
+        catch (ArgumentException exception)
+        {
+            throw InvalidArgument(exception.Message);
+        }
+    }
+
+    public override async Task<OcrGrpc.DocumentDownloadResponse> CreateDocumentDownload(
+        OcrGrpc.CreateDocumentDownloadRequest request,
+        ServerCallContext context)
+    {
+        RequireTenant();
+        if (downloadStorage is null)
+            throw new RpcException(new Status(StatusCode.FailedPrecondition, "Document download storage is not configured."));
+
+        try
+        {
+            var job = await jobService.GetAsync(
+                ParseRequiredId(request.JobId, "JobId"),
+                context.CancellationToken);
+            var expiresInSeconds = Math.Clamp(
+                request.ExpiresInSeconds <= 0 ? 900 : request.ExpiresInSeconds,
+                60,
+                900);
+            var target = await downloadStorage.CreateSignedReadTargetAsync(
+                currentUser.TenantId!.Value,
+                job.StorageReference,
+                job.FileName,
+                job.MimeType,
+                DateTimeOffset.UtcNow.AddSeconds(expiresInSeconds),
+                context.CancellationToken);
+
+            return new OcrGrpc.DocumentDownloadResponse
+            {
+                Url = target.Url,
+                ExpiresAt = Timestamp.FromDateTimeOffset(target.ExpiresAt),
+                FileName = job.FileName,
+                MimeType = job.MimeType
+            };
+        }
+        catch (Shared.Exceptions.NotFoundException exception)
+        {
+            throw new RpcException(new Status(StatusCode.NotFound, exception.Message));
+        }
+        catch (ArgumentException exception)
+        {
+            throw InvalidArgument(exception.Message);
+        }
+        catch (NotSupportedException exception)
+        {
+            throw new RpcException(new Status(StatusCode.FailedPrecondition, exception.Message));
+        }
+    }
+
     internal static OcrGrpc.DocumentOcrJobResponse MapJob(DocumentOcrJob job)
     {
         var response = new OcrGrpc.DocumentOcrJobResponse
@@ -228,8 +430,39 @@ public sealed class DocumentOcrGrpcService(
         if (!string.IsNullOrEmpty(job.ArtifactReference))
             response.ArtifactReference = job.ArtifactReference;
         response.ExtractionMode = (OcrGrpc.OcrExtractionMode)(int)job.ExtractionMode;
+        response.Purpose = (OcrGrpc.DocumentOcrPurpose)(int)job.Purpose;
+        response.CorrelationId = job.InitiatingCorrelationId.ToString();
         return response;
     }
+
+    internal static OcrGrpc.DocumentUploadReceipt MapUpload(DocumentUploadReceipt receipt)
+    {
+        var response = new OcrGrpc.DocumentUploadReceipt
+        {
+            UploadId = receipt.UploadId.ToString(),
+            StorageReference = receipt.StorageReference,
+            WriteUrl = receipt.WriteUrl,
+            ExpiresAt = Timestamp.FromDateTimeOffset(receipt.ExpiresAt),
+            MaximumSizeBytes = receipt.MaximumSizeBytes,
+            Status = (OcrGrpc.DocumentUploadStatus)(int)receipt.Status,
+            FileName = receipt.FileName,
+            MimeType = receipt.MimeType,
+            SizeBytes = receipt.SizeBytes,
+            ContentSha256 = receipt.ContentSha256 ?? string.Empty,
+            VerifiedMimeType = receipt.VerifiedMimeType ?? string.Empty,
+            VerifiedSizeBytes = receipt.VerifiedSizeBytes ?? 0,
+            VerifiedContentSha256 = receipt.VerifiedContentSha256 ?? string.Empty
+        };
+        foreach (var header in receipt.RequiredHeaders)
+            response.RequiredHeaders[header.Key] = header.Value;
+        return response;
+    }
+
+    private DocumentUploadService RequireUploadService() =>
+        uploadService ?? throw new InvalidOperationException("Document upload service is not configured.");
+
+    private IDocumentIntakeService RequireIntakeService() =>
+        intakeService ?? throw new InvalidOperationException("Document intake service is not configured.");
 
     private void RequireTenant()
     {
@@ -263,6 +496,17 @@ public sealed class DocumentOcrGrpcService(
             : throw InvalidArgument("DocumentTypeHint is invalid.");
     }
 
+    private static DocumentOcrPurpose ParsePurpose(OcrGrpc.DocumentOcrPurpose value)
+    {
+        if (value == OcrGrpc.DocumentOcrPurpose.Unspecified)
+            return DocumentOcrPurpose.ShipmentDocument;
+
+        var parsed = (DocumentOcrPurpose)(int)value;
+        return System.Enum.IsDefined(parsed)
+            ? parsed
+            : throw InvalidArgument("Purpose is invalid.");
+    }
+
     private static DomainJobStatus? ParseStatus(OcrGrpc.DocumentOcrJobStatus value)
     {
         if (value == OcrGrpc.DocumentOcrJobStatus.Unspecified)
@@ -275,4 +519,12 @@ public sealed class DocumentOcrGrpcService(
 
     private static RpcException InvalidArgument(string message) =>
         new(new Status(StatusCode.InvalidArgument, message));
+
+    private static RpcException UploadValidationFailure(
+        StatusCode statusCode,
+        DocumentUploadValidationException exception)
+    {
+        var trailers = new Metadata { { "document-upload-validation-code", exception.Code } };
+        return new RpcException(new Status(statusCode, "Document upload validation failed."), trailers);
+    }
 }

@@ -8,10 +8,14 @@ using DocumentOcr.Grpc;
 using Google.Protobuf;
 using Google.Protobuf.WellKnownTypes;
 using Grpc.Core;
+using GrpcStatusCode = Grpc.Core.StatusCode;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using RegulatoryCompliance.Grpc;
 using Shared.Constants;
+using Shared.Security;
+using StaffBff.Attributes;
+using StaffBff.Services;
 
 namespace StaffBff.Controllers;
 
@@ -20,11 +24,405 @@ namespace StaffBff.Controllers;
 [Route("api/v{version:apiVersion}/documents")]
 [Route("api")]
 [Authorize]
+[RequireTenantContext]
+[ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status401Unauthorized)]
 public sealed class DocumentsController(
     DocumentOcrService.DocumentOcrServiceClient documentOcrClient,
-    RegulatoryComplianceService.RegulatoryComplianceServiceClient regulatoryClient)
+    RegulatoryComplianceService.RegulatoryComplianceServiceClient regulatoryClient,
+    ICurrentUserService currentUser,
+    ILogger<DocumentsController> logger)
     : ControllerBase
 {
+    [HttpPost("uploads")]
+    [RequirePermission(PermissionConstants.Documents.Ingest)]
+    [ProducesResponseType(typeof(DocumentUploadSessionResponse), StatusCodes.Status201Created)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status422UnprocessableEntity)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status503ServiceUnavailable)]
+    [DocumentProblemContract(DocumentEndpointProblemContracts.CreateUploadSession)]
+    public async Task<IActionResult> CreateUploadSession(
+        [FromBody] CreateDocumentUploadSessionRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (!HasTrustedTenant())
+            return Unauthorized(DocumentsContract.CreateTenantContextRequiredProblemDetails());
+
+        if (request is null || string.IsNullOrWhiteSpace(request.FileName) ||
+            string.IsNullOrWhiteSpace(request.MimeType) || request.SizeBytes <= 0 ||
+            string.IsNullOrWhiteSpace(request.IdempotencyKey))
+        {
+            return BadRequest(DocumentsContract.CreateProblemDetails(
+                "INVALID_UPLOAD_REQUEST",
+                "FileName, MimeType, and a positive SizeBytes are required.",
+                StatusCodes.Status400BadRequest,
+                retryable: false));
+        }
+
+        try
+        {
+            var receipt = await documentOcrClient.CreateUploadSessionAsync(new CreateUploadSessionRequest
+            {
+                IdempotencyKey = request.IdempotencyKey.Trim(),
+                FileName = request.FileName,
+                MimeType = request.MimeType,
+                SizeBytes = request.SizeBytes,
+                ContentSha256 = request.ContentSha256 ?? string.Empty
+            }, cancellationToken: cancellationToken);
+
+            if (!Guid.TryParse(receipt.UploadId, out var uploadId) || uploadId == Guid.Empty)
+            {
+                return BadRequest(DocumentsContract.CreateProblemDetails(
+                    "INVALID_UPLOAD_REQUEST",
+                    "The upload service returned an invalid upload id.",
+                    StatusCodes.Status400BadRequest,
+                    retryable: false));
+            }
+
+            var response = new DocumentUploadSessionResponse(
+                uploadId,
+                receipt.StorageReference,
+                receipt.WriteUrl,
+                receipt.RequiredHeaders,
+                receipt.ExpiresAt.ToDateTimeOffset(),
+                receipt.MaximumSizeBytes,
+                receipt.FileName,
+                receipt.MimeType,
+                receipt.SizeBytes,
+                string.IsNullOrWhiteSpace(receipt.ContentSha256) ? null : receipt.ContentSha256,
+                DocumentsContract.MapUploadStatus(receipt.Status));
+
+            return Created($"/api/v1/documents/uploads/{receipt.UploadId}", response);
+        }
+        catch (RpcException exception)
+        {
+            var error = DocumentUploadErrorMapper.Map(exception);
+            return StatusCode(error.StatusCode, DocumentsContract.CreateProblemDetails(error));
+        }
+    }
+
+    [HttpPost("intakes")]
+    [RequirePermission(PermissionConstants.Documents.Ingest)]
+    [ProducesResponseType(typeof(UnifiedDocumentStatusResponse), StatusCodes.Status202Accepted)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status422UnprocessableEntity)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status503ServiceUnavailable)]
+    [DocumentProblemContract(DocumentEndpointProblemContracts.CreateDocumentIntake)]
+    public async Task<IActionResult> CreateDocumentIntake(
+        [FromBody] CreateDocumentIntakeBody request,
+        CancellationToken cancellationToken)
+    {
+        if (!HasTrustedTenant())
+            return Unauthorized(DocumentsContract.CreateTenantContextRequiredProblemDetails());
+
+        if (request is null)
+        {
+            return BadRequest(DocumentsContract.CreateProblemDetails(
+                DocumentProblemContractCatalog.InvalidRequestCode,
+                "The document intake request is required.",
+                StatusCodes.Status400BadRequest,
+                retryable: false));
+        }
+
+        if (!Guid.TryParse(request.UploadId, out var uploadId) || uploadId == Guid.Empty ||
+            string.IsNullOrWhiteSpace(request.IdempotencyKey) ||
+            !DocumentsContract.TryParseDocumentType(request.DocumentTypeHint, out var documentType))
+        {
+            return BadRequest(DocumentsContract.CreateProblemDetails(
+                DocumentProblemContractCatalog.InvalidRequestCode,
+                "UploadId, IdempotencyKey, and a valid DocumentTypeHint are required.",
+                StatusCodes.Status400BadRequest,
+                retryable: false));
+        }
+
+        var purpose = string.IsNullOrWhiteSpace(request.Purpose)
+            ? DocumentOcrPurpose.GeneralDocument
+            : DocumentsContract.TryParsePurpose(request.Purpose, out var parsedPurpose)
+                ? parsedPurpose
+                : DocumentOcrPurpose.Unspecified;
+        if (purpose == DocumentOcrPurpose.Unspecified)
+        {
+            return BadRequest(DocumentsContract.CreateProblemDetails(
+                DocumentProblemContractCatalog.InvalidRequestCode,
+                "Purpose is invalid.",
+                StatusCodes.Status400BadRequest,
+                retryable: false));
+        }
+
+        try
+        {
+            var response = await documentOcrClient.CreateDocumentIntakeAsync(
+                new CreateDocumentIntakeRequest
+                {
+                    UploadId = uploadId.ToString(),
+                    IdempotencyKey = request.IdempotencyKey.Trim(),
+                    DocumentTypeHint = documentType,
+                    Purpose = purpose,
+                    ExternalReference = request.ExternalReference?.Trim() ?? string.Empty,
+                    CorrelationId = HttpContext.TraceIdentifier
+                },
+                cancellationToken: cancellationToken);
+
+            return Accepted(new UnifiedDocumentStatusResponse(
+                response.JobId,
+                "DOCUMENT",
+                MapOcrStatus(response.Status, response.NeedsReview),
+                MapOcrStage(response.Status),
+                response.FileName,
+                response.NeedsReview,
+                response.Confidence,
+                response.NormalizedJson,
+                response.ErrorCode,
+                response.ErrorMessage,
+                response.CreatedAt?.ToDateTimeOffset(),
+                response.CompletedAt?.ToDateTimeOffset()));
+        }
+        catch (RpcException exception) when (DocumentsContract.IsUnavailable(exception.StatusCode))
+        {
+            return StatusCode(
+                StatusCodes.Status503ServiceUnavailable,
+                DocumentsContract.CreateUnavailableProblemDetails());
+        }
+        catch (RpcException exception) when (exception.StatusCode == Grpc.Core.StatusCode.AlreadyExists)
+        {
+            return Conflict(DocumentsContract.CreateProblemDetails(
+                DocumentProblemContractCatalog.IdempotencyConflict));
+        }
+        catch (RpcException exception) when (exception.StatusCode == Grpc.Core.StatusCode.NotFound)
+        {
+            return NotFound(DocumentsContract.CreateProblemDetails(
+                DocumentProblemContractCatalog.UploadNotFound));
+        }
+        catch (RpcException exception) when (exception.StatusCode == Grpc.Core.StatusCode.FailedPrecondition)
+        {
+            var error = DocumentUploadErrorMapper.Map(exception);
+            return StatusCode(error.StatusCode, DocumentsContract.CreateProblemDetails(error));
+        }
+        catch (RpcException exception) when (exception.StatusCode == Grpc.Core.StatusCode.InvalidArgument)
+        {
+            return BadRequest(DocumentsContract.CreateProblemDetails(
+                DocumentProblemContractCatalog.InvalidRequestCode,
+                exception.Status.Detail,
+                StatusCodes.Status400BadRequest,
+                retryable: false));
+        }
+    }
+
+    [HttpPost("corpus-intakes")]
+    [RequirePermission(PermissionConstants.Documents.Ingest)]
+    [ProducesResponseType(typeof(CorpusIntakeResponse), StatusCodes.Status202Accepted)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status503ServiceUnavailable)]
+    [DocumentProblemContract(DocumentEndpointProblemContracts.CreateDocumentIntake)]
+    public async Task<IActionResult> CreateCorpusIntake(
+        [FromBody] CreateCorpusIntakeBody request,
+        CancellationToken cancellationToken)
+    {
+        if (!HasTrustedTenant())
+            return Unauthorized(DocumentsContract.CreateTenantContextRequiredProblemDetails());
+
+        if (request is null)
+            return BadRequest(DocumentsContract.CreateProblemDetails(
+                DocumentProblemContractCatalog.InvalidRequestCode,
+                "The corpus intake request is required.",
+                StatusCodes.Status400BadRequest,
+                retryable: false));
+
+        if (!TryParseCorpusPurpose(request.Purpose, out var purpose) ||
+            !Guid.TryParse(request.UploadId, out var uploadId) || uploadId == Guid.Empty ||
+            string.IsNullOrWhiteSpace(request.IdempotencyKey) || string.IsNullOrWhiteSpace(request.Title) ||
+            string.IsNullOrWhiteSpace(request.VersionLabel) ||
+            (purpose == DocumentOcrPurpose.KnowledgeCorpus &&
+                (!System.Enum.IsDefined(typeof(KnowledgeCategory), request.Category) ||
+                 request.Category == 0 || string.IsNullOrWhiteSpace(request.SourceReference))) ||
+            (purpose == DocumentOcrPurpose.RegulatoryCorpus &&
+                (!System.Enum.IsDefined(typeof(RegulationType), request.RegulationType) ||
+                 request.RegulationType == 0 || string.IsNullOrWhiteSpace(request.CanonicalSourceUri))))
+        {
+            return BadRequest(DocumentsContract.CreateProblemDetails(
+                DocumentProblemContractCatalog.InvalidRequestCode,
+                "UploadId, purpose, idempotency key, title, version label, and valid corpus metadata are required.",
+                StatusCodes.Status400BadRequest,
+                retryable: false));
+        }
+
+        try
+        {
+            var receipt = await documentOcrClient.VerifyUploadSessionAsync(
+                new VerifyUploadSessionRequest { UploadId = uploadId.ToString() },
+                cancellationToken: cancellationToken);
+            if (receipt.Status is not (DocumentUploadStatus.Uploaded or DocumentUploadStatus.Consumed))
+                return Conflict(DocumentsContract.CreateProblemDetails(
+                    DocumentProblemContractCatalog.UploadNotVerified));
+
+            var contentReference = receipt.StorageReference;
+            var fileName = receipt.FileName;
+            var mimeType = string.IsNullOrWhiteSpace(receipt.VerifiedMimeType)
+                ? receipt.MimeType
+                : receipt.VerifiedMimeType;
+            var sizeBytes = receipt.VerifiedSizeBytes > 0 ? receipt.VerifiedSizeBytes : receipt.SizeBytes;
+            var contentSha256 = string.IsNullOrWhiteSpace(receipt.VerifiedContentSha256)
+                ? receipt.ContentSha256
+                : receipt.VerifiedContentSha256;
+            if (string.IsNullOrWhiteSpace(contentReference) || string.IsNullOrWhiteSpace(fileName) ||
+                string.IsNullOrWhiteSpace(mimeType) || sizeBytes <= 0 || string.IsNullOrWhiteSpace(contentSha256))
+            {
+                return UnprocessableEntity(DocumentsContract.CreateProblemDetails(
+                    DocumentProblemContractCatalog.UploadInvalid));
+            }
+
+            var corpusVersionId = purpose == DocumentOcrPurpose.RegulatoryCorpus
+                ? await CreateRegulatoryCorpusVersionAsync(request, contentReference, fileName, mimeType,
+                    sizeBytes, contentSha256, cancellationToken)
+                : await CreateKnowledgeCorpusVersionAsync(request, contentReference, fileName, mimeType,
+                    sizeBytes, contentSha256, cancellationToken);
+
+            var ocrJob = await documentOcrClient.CreateDocumentIntakeAsync(
+                new CreateDocumentIntakeRequest
+                {
+                    UploadId = uploadId.ToString(),
+                    IdempotencyKey = request.IdempotencyKey.Trim(),
+                    DocumentTypeHint = OcrDocumentType.Other,
+                    Purpose = purpose,
+                    ExternalReference = corpusVersionId.VersionId.ToString(),
+                    CorrelationId = HttpContext.TraceIdentifier
+                },
+                cancellationToken: cancellationToken);
+
+            return Accepted(new CorpusIntakeResponse(
+                corpusVersionId.DocumentId,
+                corpusVersionId.VersionId,
+                purpose == DocumentOcrPurpose.RegulatoryCorpus ? "REGULATORY" : "KNOWLEDGE",
+                ParseRequiredGuid(ocrJob.JobId, "OCR job id"),
+                DocumentsContract.MapStatus(ocrJob.Status, ocrJob.NeedsReview),
+                DocumentsContract.MapStage(ocrJob.Status)));
+        }
+        catch (RpcException exception) when (DocumentsContract.IsUnavailable(exception.StatusCode))
+        {
+            return StatusCode(StatusCodes.Status503ServiceUnavailable,
+                DocumentsContract.CreateUnavailableProblemDetails());
+        }
+        catch (RpcException exception) when (exception.StatusCode == GrpcStatusCode.PermissionDenied)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, DocumentsContract.CreateProblemDetails(
+                "CORPUS_INGEST_FORBIDDEN", "Corpus ingestion permission is required.",
+                StatusCodes.Status403Forbidden, retryable: false));
+        }
+        catch (RpcException exception) when (exception.StatusCode == GrpcStatusCode.Unauthenticated)
+        {
+            return Unauthorized(DocumentsContract.CreateTenantContextRequiredProblemDetails());
+        }
+        catch (RpcException exception) when (exception.StatusCode == GrpcStatusCode.AlreadyExists)
+        {
+            return Conflict(DocumentsContract.CreateProblemDetails(
+                DocumentProblemContractCatalog.IdempotencyConflict));
+        }
+        catch (RpcException exception) when (exception.StatusCode == GrpcStatusCode.NotFound)
+        {
+            return NotFound(DocumentsContract.CreateProblemDetails(
+                DocumentProblemContractCatalog.UploadNotFound));
+        }
+        catch (RpcException exception) when (exception.StatusCode == GrpcStatusCode.FailedPrecondition)
+        {
+            var error = DocumentUploadErrorMapper.Map(exception);
+            return StatusCode(error.StatusCode, DocumentsContract.CreateProblemDetails(error));
+        }
+        catch (RpcException exception) when (exception.StatusCode == GrpcStatusCode.InvalidArgument)
+        {
+            return BadRequest(DocumentsContract.CreateProblemDetails(
+                DocumentProblemContractCatalog.InvalidRequestCode, exception.Status.Detail,
+                StatusCodes.Status400BadRequest, retryable: false));
+        }
+    }
+
+    private async Task<(Guid DocumentId, Guid VersionId)> CreateRegulatoryCorpusVersionAsync(
+        CreateCorpusIntakeBody request,
+        string contentReference,
+        string fileName,
+        string mimeType,
+        long sizeBytes,
+        string contentSha256,
+        CancellationToken cancellationToken)
+    {
+        var publishedAt = request.PublishedAt ?? DateTimeOffset.UtcNow;
+        var effectiveFrom = request.EffectiveFrom ?? publishedAt;
+        var response = await regulatoryClient.CreateRegulatoryCorpusVersionAsync(
+            new CreateRegulatoryCorpusVersionRequest
+            {
+                IdempotencyKey = request.IdempotencyKey.Trim(),
+                Authority = request.Authority?.Trim() ?? string.Empty,
+                Title = request.Title.Trim(),
+                CanonicalSourceUri = request.CanonicalSourceUri!.Trim(),
+                JurisdictionCode = request.JurisdictionCode?.Trim() ?? string.Empty,
+                RegulationType = (RegulationType)request.RegulationType,
+                LanguageCode = request.LanguageCode?.Trim() ?? "en",
+                VersionLabel = request.VersionLabel.Trim(),
+                PublishedAt = Timestamp.FromDateTimeOffset(publishedAt),
+                EffectiveFrom = Timestamp.FromDateTimeOffset(effectiveFrom),
+                ContentReference = contentReference,
+                FileName = fileName,
+                MimeType = mimeType,
+                SizeBytes = sizeBytes,
+                ContentSha256 = contentSha256,
+                Visibility = RegulatorySourceVisibility.Tenant
+            },
+            cancellationToken: cancellationToken);
+        return ParseCorpusIds(response.RegulatoryDocumentId, response.DocumentVersionId);
+    }
+
+    private async Task<(Guid DocumentId, Guid VersionId)> CreateKnowledgeCorpusVersionAsync(
+        CreateCorpusIntakeBody request,
+        string contentReference,
+        string fileName,
+        string mimeType,
+        long sizeBytes,
+        string contentSha256,
+        CancellationToken cancellationToken)
+    {
+        var response = await regulatoryClient.CreateKnowledgeCorpusVersionAsync(
+            new CreateKnowledgeCorpusVersionRequest
+            {
+                IdempotencyKey = request.IdempotencyKey.Trim(),
+                Title = request.Title.Trim(),
+                Category = (KnowledgeCategory)request.Category,
+                SourceReference = request.SourceReference?.Trim() ?? string.Empty,
+                LanguageCode = request.LanguageCode?.Trim() ?? "en",
+                VersionLabel = request.VersionLabel.Trim(),
+                ContentReference = contentReference,
+                FileName = fileName,
+                MimeType = mimeType,
+                SizeBytes = sizeBytes,
+                ContentSha256 = contentSha256,
+                Visibility = RegulatorySourceVisibility.Tenant
+            },
+            cancellationToken: cancellationToken);
+        return ParseCorpusIds(response.KnowledgeDocumentId, response.DocumentVersionId);
+    }
+
+    private static (Guid DocumentId, Guid VersionId) ParseCorpusIds(string documentId, string versionId) =>
+        Guid.TryParse(documentId, out var parsedDocumentId) && parsedDocumentId != Guid.Empty &&
+        Guid.TryParse(versionId, out var parsedVersionId) && parsedVersionId != Guid.Empty
+            ? (parsedDocumentId, parsedVersionId)
+            : throw new RpcException(new Status(GrpcStatusCode.InvalidArgument, "Corpus service returned invalid identifiers."));
+
+    private static Guid ParseRequiredGuid(string value, string fieldName) =>
+        Guid.TryParse(value, out var parsed) && parsed != Guid.Empty
+            ? parsed
+            : throw new RpcException(new Status(GrpcStatusCode.InvalidArgument, $"{fieldName} is invalid."));
+
+    private static bool TryParseCorpusPurpose(string? value, out DocumentOcrPurpose purpose) =>
+        DocumentsContract.TryParsePurpose(value, out purpose) &&
+        purpose is DocumentOcrPurpose.RegulatoryCorpus or DocumentOcrPurpose.KnowledgeCorpus;
+
     // ──────────────────────────────────────────────────────────────────────────
     // BOX 1: SHIPMENT DOCUMENTS (Transaction-Only, Structured Extraction)
     // ──────────────────────────────────────────────────────────────────────────
@@ -35,38 +433,69 @@ public sealed class DocumentsController(
     /// </summary>
     [HttpPost("shipment")]
     [HttpPost("shipment-documents")]
-    [RequirePermission(PermissionConstants.Shipment.Create, "documents:create")]
+    [RequirePermission(PermissionConstants.Documents.Ingest)]
     [ProducesResponseType(typeof(UnifiedDocumentStatusResponse), 200)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status503ServiceUnavailable)]
+    [DocumentProblemContract(DocumentEndpointProblemContracts.SubmitShipmentDocumentLegacyAlias, DocumentEndpointProblemContracts.SubmitShipmentDocumentLegacy)]
     public async Task<IActionResult> SubmitShipmentDocument(
         [FromBody] SubmitShipmentDocumentRequest request,
         CancellationToken cancellationToken)
     {
-        if (string.IsNullOrWhiteSpace(request.StorageReference) || string.IsNullOrWhiteSpace(request.FileName))
-            return BadRequest(new ProblemDetails
-            {
-                Title = "INVALID_FILE",
-                Detail = "StorageReference and FileName are required.",
-                Status = (int)HttpStatusCode.BadRequest
-            });
+        if (!HasTrustedTenant())
+            return Unauthorized(DocumentsContract.CreateTenantContextRequiredProblemDetails());
+
+        if (request is null || string.IsNullOrWhiteSpace(request.StorageReference) ||
+            string.IsNullOrWhiteSpace(request.FileName) || string.IsNullOrWhiteSpace(request.IdempotencyKey))
+            return BadRequest(DocumentsContract.CreateProblemDetails(
+                "INVALID_FILE",
+                "StorageReference, FileName, and IdempotencyKey are required.",
+                StatusCodes.Status400BadRequest,
+                retryable: false));
+
+        var idempotencyKey = request.IdempotencyKey.Trim();
+        var externalDocumentId = request.ExternalDocumentId is { } requestedExternalDocumentId && requestedExternalDocumentId != Guid.Empty
+            ? requestedExternalDocumentId
+            : DocumentsContract.CreateDeterministicCompatibilityDocumentId(
+                "legacy-shipment-document",
+                currentUser.TenantId!.Value.ToString("N"),
+                request.ShipmentId ?? "TRANSACTION_ONLY",
+                idempotencyKey,
+                request.StorageReference);
 
         var ocrRequest = new SubmitOcrJobRequest
         {
-            IdempotencyKey = !string.IsNullOrWhiteSpace(request.IdempotencyKey)
-                ? request.IdempotencyKey
-                : Guid.NewGuid().ToString(),
+            IdempotencyKey = idempotencyKey,
             StorageReference = request.StorageReference,
             FileName = request.FileName,
             MimeType = request.MimeType ?? "application/pdf",
             SizeBytes = request.SizeBytes > 0 ? request.SizeBytes : 1024,
             DocumentTypeHint = (OcrDocumentType)(int)request.DocumentTypeHint,
             ExtractionMode = OcrExtractionMode.Structured,
-            ExternalDocumentId = request.ExternalDocumentId != Guid.Empty
-                ? request.ExternalDocumentId.ToString()
-                : Guid.NewGuid().ToString(),
+            ExternalDocumentId = externalDocumentId.ToString(),
             ExternalContextId = request.ShipmentId ?? "TRANSACTION_ONLY"
         };
 
-        var response = await documentOcrClient.SubmitOcrJobAsync(ocrRequest, cancellationToken: cancellationToken);
+        DocumentOcrJobResponse response;
+        try
+        {
+            response = await documentOcrClient.SubmitOcrJobAsync(ocrRequest, cancellationToken: cancellationToken);
+        }
+        catch (RpcException exception) when (DocumentsContract.IsUnavailable(exception.StatusCode))
+        {
+            return StatusCode(
+                StatusCodes.Status503ServiceUnavailable,
+                DocumentsContract.CreateUnavailableProblemDetails());
+        }
+        catch (RpcException exception) when (exception.StatusCode == Grpc.Core.StatusCode.InvalidArgument)
+        {
+            return BadRequest(DocumentsContract.CreateProblemDetails(
+                "INVALID_FILE",
+                exception.Status.Detail,
+                StatusCodes.Status400BadRequest,
+                retryable: false));
+        }
 
         var unifiedStatus = MapOcrStatus(response.Status, response.NeedsReview);
         var unifiedStage = MapOcrStage(response.Status);
@@ -91,8 +520,11 @@ public sealed class DocumentsController(
     /// </summary>
     [HttpGet("shipment/{id}")]
     [HttpGet("shipment-documents/{id}")]
-    [RequirePermission(PermissionConstants.Shipment.Read, "documents:read")]
+    [RequirePermission(PermissionConstants.Documents.Read)]
     [ProducesResponseType(typeof(UnifiedDocumentStatusResponse), 200)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status503ServiceUnavailable)]
+    [DocumentProblemContract(DocumentEndpointProblemContracts.GetShipmentDocumentStatus, DocumentEndpointProblemContracts.GetShipmentDocumentStatusAlias)]
     public async Task<IActionResult> GetShipmentDocumentStatus(
         [FromRoute] string id,
         CancellationToken cancellationToken)
@@ -118,14 +550,66 @@ public sealed class DocumentsController(
                 job.CreatedAt?.ToDateTimeOffset(),
                 job.CompletedAt?.ToDateTimeOffset()));
         }
+        catch (RpcException ex) when (DocumentsContract.IsUnavailable(ex.StatusCode))
+        {
+            return StatusCode(
+                StatusCodes.Status503ServiceUnavailable,
+                DocumentsContract.CreateUnavailableProblemDetails());
+        }
         catch (RpcException ex) when (ex.StatusCode == Grpc.Core.StatusCode.NotFound)
         {
-            return NotFound(new ProblemDetails
-            {
-                Title = "DOCUMENT_NOT_FOUND",
-                Detail = $"Shipment document with ID '{id}' was not found.",
-                Status = (int)HttpStatusCode.NotFound
-            });
+            return NotFound(DocumentsContract.CreateProblemDetails(
+                "DOCUMENT_NOT_FOUND",
+                $"Shipment document with ID '{id}' was not found.",
+                StatusCodes.Status404NotFound,
+                retryable: false));
+        }
+    }
+
+    /// <summary>
+    /// Returns a short-lived, tenant-scoped URL for the original document.
+    /// </summary>
+    [HttpGet("shipment-documents/{id}/download")]
+    [RequirePermission(PermissionConstants.Documents.Read)]
+    [ProducesResponseType(typeof(DocumentDownloadResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status503ServiceUnavailable)]
+    [DocumentProblemContract(DocumentEndpointProblemContracts.GetShipmentDocumentDownload)]
+    public async Task<IActionResult> DownloadShipmentDocument(
+        [FromRoute] string id,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var response = await documentOcrClient.CreateDocumentDownloadAsync(
+                new CreateDocumentDownloadRequest
+                {
+                    JobId = id,
+                    ExpiresInSeconds = 900
+                },
+                cancellationToken: cancellationToken);
+
+            return Ok(new DocumentDownloadResponse(
+                response.Url,
+                response.ExpiresAt.ToDateTimeOffset(),
+                response.FileName,
+                response.MimeType));
+        }
+        catch (RpcException ex) when (ex.StatusCode == Grpc.Core.StatusCode.NotFound)
+        {
+            return NotFound(DocumentsContract.CreateProblemDetails(
+                DocumentProblemContractCatalog.DocumentNotFoundCode,
+                $"Shipment document with ID '{id}' was not found.",
+                StatusCodes.Status404NotFound,
+                retryable: false));
+        }
+        catch (RpcException ex) when (
+            DocumentsContract.IsUnavailable(ex.StatusCode) ||
+            ex.StatusCode == Grpc.Core.StatusCode.FailedPrecondition)
+        {
+            return StatusCode(
+                StatusCodes.Status503ServiceUnavailable,
+                DocumentsContract.CreateUnavailableProblemDetails());
         }
     }
 
@@ -133,8 +617,10 @@ public sealed class DocumentsController(
     /// Box 1: List recent shipment document jobs for the current tenant.
     /// </summary>
     [HttpGet("shipment-documents")]
-    [RequirePermission(PermissionConstants.Shipment.Read, "documents:read")]
+    [RequirePermission(PermissionConstants.Documents.Read)]
     [ProducesResponseType(typeof(ListShipmentDocumentsResponse), 200)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status503ServiceUnavailable)]
+    [DocumentProblemContract(DocumentEndpointProblemContracts.ListShipmentDocuments)]
     public async Task<IActionResult> ListShipmentDocuments(
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 20,
@@ -154,24 +640,34 @@ public sealed class DocumentsController(
             rpcRequest.Status = parsedStatus;
         }
 
-        var response = await documentOcrClient.ListDocumentJobsAsync(rpcRequest, cancellationToken: cancellationToken);
+        try
+        {
+            var response = await documentOcrClient.ListDocumentJobsAsync(rpcRequest, cancellationToken: cancellationToken);
 
-        var items = response.Jobs.Select(job => new UnifiedDocumentStatusResponse(
-            job.JobId,
-            "SHIPMENT",
-            MapOcrStatus(job.Status, job.NeedsReview),
-            MapOcrStage(job.Status),
-            job.FileName,
-            job.NeedsReview,
-            job.Confidence,
-            job.NormalizedJson,
-            job.ErrorCode,
-            job.ErrorMessage,
-            job.CreatedAt?.ToDateTimeOffset(),
-            job.CompletedAt?.ToDateTimeOffset()
-        )).ToList();
+            var items = response.Jobs.Select(job => new UnifiedDocumentStatusResponse(
+                job.JobId,
+                "SHIPMENT",
+                MapOcrStatus(job.Status, job.NeedsReview),
+                MapOcrStage(job.Status),
+                job.FileName,
+                job.NeedsReview,
+                job.Confidence,
+                job.NormalizedJson,
+                job.ErrorCode,
+                job.ErrorMessage,
+                job.CreatedAt?.ToDateTimeOffset(),
+                job.CompletedAt?.ToDateTimeOffset()
+            )).ToList();
 
-        return Ok(new ListShipmentDocumentsResponse(items, response.Page, response.PageSize, response.TotalItems, response.TotalPages));
+            return Ok(new ListShipmentDocumentsResponse(items, response.Page, response.PageSize, response.TotalItems, response.TotalPages));
+        }
+        catch (RpcException ex) when (DocumentsContract.IsUnavailable(ex.StatusCode))
+        {
+            logger.LogWarning("DocumentOcr service unavailable for ListShipmentDocuments: {StatusCode}", ex.StatusCode);
+            return StatusCode(
+                StatusCodes.Status503ServiceUnavailable,
+                DocumentsContract.CreateUnavailableProblemDetails());
+        }
     }
 
     /// <summary>
@@ -180,6 +676,9 @@ public sealed class DocumentsController(
     [HttpGet("shipment-documents/{id}/review")]
     [RequirePermission(PermissionConstants.Ocr.Review)]
     [ProducesResponseType(typeof(OcrReviewDetailsResponse), 200)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status503ServiceUnavailable)]
+    [DocumentProblemContract(DocumentEndpointProblemContracts.GetShipmentDocumentReview)]
     public async Task<IActionResult> GetShipmentDocumentReview(
         [FromRoute] string id,
         CancellationToken cancellationToken)
@@ -236,14 +735,19 @@ public sealed class DocumentsController(
                 reasons,
                 fields));
         }
+        catch (RpcException ex) when (DocumentsContract.IsUnavailable(ex.StatusCode))
+        {
+            return StatusCode(
+                StatusCodes.Status503ServiceUnavailable,
+                DocumentsContract.CreateUnavailableProblemDetails());
+        }
         catch (RpcException ex) when (ex.StatusCode == Grpc.Core.StatusCode.NotFound)
         {
-            return NotFound(new ProblemDetails
-            {
-                Title = "DOCUMENT_NOT_FOUND",
-                Detail = $"Shipment document with ID '{id}' was not found.",
-                Status = (int)HttpStatusCode.NotFound
-            });
+            return NotFound(DocumentsContract.CreateProblemDetails(
+                "DOCUMENT_NOT_FOUND",
+                $"Shipment document with ID '{id}' was not found.",
+                StatusCodes.Status404NotFound,
+                retryable: false));
         }
     }
 
@@ -254,25 +758,46 @@ public sealed class DocumentsController(
     [HttpPost("shipment-documents/{id}/review")]
     [RequirePermission(PermissionConstants.Ocr.Review)]
     [ProducesResponseType(typeof(UnifiedDocumentStatusResponse), 200)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status503ServiceUnavailable)]
+    [DocumentProblemContract(DocumentEndpointProblemContracts.SubmitShipmentDocumentReview)]
     public async Task<IActionResult> SubmitShipmentDocumentReview(
         [FromRoute] string id,
         [FromBody] SubmitOcrReviewRequest request,
         CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(request.Action))
-            return BadRequest(new ProblemDetails { Title = "INVALID_REQUEST", Detail = "Action (CONFIRM, CORRECT, REJECT) is required." });
+            return BadRequest(DocumentsContract.CreateProblemDetails(
+                "INVALID_REQUEST",
+                "Action (CONFIRM, CORRECT, REJECT) is required.",
+                StatusCodes.Status400BadRequest,
+                retryable: false));
 
         var action = request.Action.Trim().ToUpperInvariant();
         if (action is not ("CONFIRM" or "CORRECT" or "REJECT"))
-            return BadRequest(new ProblemDetails { Title = "INVALID_REQUEST", Detail = "Action must be CONFIRM, CORRECT, or REJECT." });
+            return BadRequest(DocumentsContract.CreateProblemDetails(
+                "INVALID_REQUEST",
+                "Action must be CONFIRM, CORRECT, or REJECT.",
+                StatusCodes.Status400BadRequest,
+                retryable: false));
         if (action == "CORRECT" && (request.Fields is null || request.Fields.Count == 0))
-            return BadRequest(new ProblemDetails { Title = "INVALID_REQUEST", Detail = "Fields are required for CORRECT." });
+            return BadRequest(DocumentsContract.CreateProblemDetails(
+                "INVALID_REQUEST",
+                "Fields are required for CORRECT.",
+                StatusCodes.Status400BadRequest,
+                retryable: false));
 
         string? correctedJson = null;
         if (action == "CORRECT" && request.Fields != null)
         {
             if (request.Fields.Any(field => string.IsNullOrWhiteSpace(field.Name)))
-                return BadRequest(new ProblemDetails { Title = "INVALID_REQUEST", Detail = "Every corrected field must have a name." });
+                return BadRequest(DocumentsContract.CreateProblemDetails(
+                    "INVALID_REQUEST",
+                    "Every corrected field must have a name.",
+                    StatusCodes.Status400BadRequest,
+                    retryable: false));
             var dict = request.Fields.ToDictionary(f => f.Name, f => (object)f.Value);
             correctedJson = JsonSerializer.Serialize(dict);
         }
@@ -301,32 +826,37 @@ public sealed class DocumentsController(
                 updatedJob.CreatedAt?.ToDateTimeOffset(),
                 updatedJob.CompletedAt?.ToDateTimeOffset()));
         }
+        catch (RpcException ex) when (DocumentsContract.IsUnavailable(ex.StatusCode))
+        {
+            return StatusCode(
+                StatusCodes.Status503ServiceUnavailable,
+                DocumentsContract.CreateUnavailableProblemDetails());
+        }
         catch (RpcException ex) when (ex.StatusCode == Grpc.Core.StatusCode.FailedPrecondition)
         {
-            return StatusCode((int)HttpStatusCode.Conflict, new ProblemDetails
-            {
-                Title = "INVALID_STATE_TRANSITION",
-                Detail = ex.Status.Detail,
-                Status = (int)HttpStatusCode.Conflict
-            });
+            return StatusCode(
+                StatusCodes.Status409Conflict,
+                DocumentsContract.CreateProblemDetails(
+                    "INVALID_STATE_TRANSITION",
+                    ex.Status.Detail,
+                    StatusCodes.Status409Conflict,
+                    retryable: false));
         }
         catch (RpcException ex) when (ex.StatusCode == Grpc.Core.StatusCode.NotFound)
         {
-            return NotFound(new ProblemDetails
-            {
-                Title = "DOCUMENT_NOT_FOUND",
-                Detail = $"Shipment document with ID '{id}' was not found.",
-                Status = (int)HttpStatusCode.NotFound
-            });
+            return NotFound(DocumentsContract.CreateProblemDetails(
+                "DOCUMENT_NOT_FOUND",
+                $"Shipment document with ID '{id}' was not found.",
+                StatusCodes.Status404NotFound,
+                retryable: false));
         }
         catch (RpcException ex) when (ex.StatusCode == Grpc.Core.StatusCode.InvalidArgument)
         {
-            return BadRequest(new ProblemDetails
-            {
-                Title = "INVALID_REQUEST",
-                Detail = ex.Status.Detail,
-                Status = (int)HttpStatusCode.BadRequest
-            });
+            return BadRequest(DocumentsContract.CreateProblemDetails(
+                "INVALID_REQUEST",
+                ex.Status.Detail,
+                StatusCodes.Status400BadRequest,
+                retryable: false));
         }
     }
 
@@ -334,8 +864,12 @@ public sealed class DocumentsController(
     /// Box 1: Cancel an active shipment document OCR job (Allowed only while RECEIVED or PROCESSING).
     /// </summary>
     [HttpPost("shipment-documents/{id}/cancel")]
-    [RequirePermission(PermissionConstants.Shipment.Update, "documents:update")]
+    [RequirePermission(PermissionConstants.Documents.Manage)]
     [ProducesResponseType(typeof(UnifiedDocumentStatusResponse), 200)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status503ServiceUnavailable)]
+    [DocumentProblemContract(DocumentEndpointProblemContracts.CancelShipmentDocument)]
     public async Task<IActionResult> CancelShipmentDocument(
         [FromRoute] string id,
         CancellationToken cancellationToken)
@@ -360,21 +894,27 @@ public sealed class DocumentsController(
         }
         catch (RpcException ex) when (ex.StatusCode == Grpc.Core.StatusCode.FailedPrecondition)
         {
-            return StatusCode((int)HttpStatusCode.Conflict, new ProblemDetails
-            {
-                Title = "INVALID_STATE_TRANSITION",
-                Detail = "A completed, failed, or already cancelled document cannot be cancelled.",
-                Status = (int)HttpStatusCode.Conflict
-            });
+            return StatusCode(
+                StatusCodes.Status409Conflict,
+                DocumentsContract.CreateProblemDetails(
+                    "INVALID_STATE_TRANSITION",
+                    "A completed, failed, or already cancelled document cannot be cancelled.",
+                    StatusCodes.Status409Conflict,
+                    retryable: false));
         }
         catch (RpcException ex) when (ex.StatusCode == Grpc.Core.StatusCode.NotFound)
         {
-            return NotFound(new ProblemDetails
-            {
-                Title = "DOCUMENT_NOT_FOUND",
-                Detail = $"Shipment document with ID '{id}' was not found.",
-                Status = (int)HttpStatusCode.NotFound
-            });
+            return NotFound(DocumentsContract.CreateProblemDetails(
+                "DOCUMENT_NOT_FOUND",
+                $"Shipment document with ID '{id}' was not found.",
+                StatusCodes.Status404NotFound,
+                retryable: false));
+        }
+        catch (RpcException ex) when (DocumentsContract.IsUnavailable(ex.StatusCode))
+        {
+            return StatusCode(
+                StatusCodes.Status503ServiceUnavailable,
+                DocumentsContract.CreateUnavailableProblemDetails());
         }
     }
 
@@ -382,8 +922,12 @@ public sealed class DocumentsController(
     /// Box 1: Retry a failed shipment document OCR job.
     /// </summary>
     [HttpPost("shipment-documents/{id}/retry")]
-    [RequirePermission(PermissionConstants.Shipment.Update, "documents:update")]
+    [RequirePermission(PermissionConstants.Documents.Manage)]
     [ProducesResponseType(typeof(UnifiedDocumentStatusResponse), 200)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status503ServiceUnavailable)]
+    [DocumentProblemContract(DocumentEndpointProblemContracts.RetryShipmentDocument)]
     public async Task<IActionResult> RetryShipmentDocument(
         [FromRoute] string id,
         CancellationToken cancellationToken)
@@ -408,21 +952,27 @@ public sealed class DocumentsController(
         }
         catch (RpcException ex) when (ex.StatusCode == Grpc.Core.StatusCode.FailedPrecondition)
         {
-            return StatusCode((int)HttpStatusCode.Conflict, new ProblemDetails
-            {
-                Title = "INVALID_STATE_TRANSITION",
-                Detail = ex.Status.Detail,
-                Status = (int)HttpStatusCode.Conflict
-            });
+            return StatusCode(
+                StatusCodes.Status409Conflict,
+                DocumentsContract.CreateProblemDetails(
+                    "INVALID_STATE_TRANSITION",
+                    ex.Status.Detail,
+                    StatusCodes.Status409Conflict,
+                    retryable: false));
         }
         catch (RpcException ex) when (ex.StatusCode == Grpc.Core.StatusCode.NotFound)
         {
-            return NotFound(new ProblemDetails
-            {
-                Title = "DOCUMENT_NOT_FOUND",
-                Detail = $"Shipment document with ID '{id}' was not found.",
-                Status = (int)HttpStatusCode.NotFound
-            });
+            return NotFound(DocumentsContract.CreateProblemDetails(
+                "DOCUMENT_NOT_FOUND",
+                $"Shipment document with ID '{id}' was not found.",
+                StatusCodes.Status404NotFound,
+                retryable: false));
+        }
+        catch (RpcException ex) when (DocumentsContract.IsUnavailable(ex.StatusCode))
+        {
+            return StatusCode(
+                StatusCodes.Status503ServiceUnavailable,
+                DocumentsContract.CreateUnavailableProblemDetails());
         }
     }
 
@@ -436,7 +986,7 @@ public sealed class DocumentsController(
     /// </summary>
     [HttpPost("regulatory")]
     [HttpPost("regulatory-sources")]
-    [RequirePermission(PermissionConstants.Documents.Ingest, "documents:create")]
+    [RequirePermission(PermissionConstants.Documents.Ingest)]
     [ProducesResponseType(typeof(UnifiedDocumentStatusResponse), 200)]
     public async Task<IActionResult> SubmitRegulatorySource(
         [FromBody] SubmitRegulatorySourceRequest request,
@@ -523,7 +1073,7 @@ public sealed class DocumentsController(
     /// Evidence-first response with citations and relevance scores.
     /// </summary>
     [HttpPost("regulatory/query")]
-    [RequirePermission(PermissionConstants.Documents.Read, PermissionConstants.Compliance.Read)]
+    [RequirePermission(PermissionConstants.Documents.Read)]
     [ProducesResponseType(typeof(RegulatoryQueryResponse), 200)]
     public async Task<IActionResult> QueryRegulations(
         [FromBody] RegulatoryQueryRequest request,
@@ -585,7 +1135,7 @@ public sealed class DocumentsController(
     /// </summary>
     [HttpPost("knowledge")]
     [HttpPost("knowledge-documents")]
-    [RequirePermission(PermissionConstants.Documents.Ingest, "documents:create")]
+    [RequirePermission(PermissionConstants.Documents.Ingest)]
     [ProducesResponseType(typeof(UnifiedDocumentStatusResponse), 200)]
     public async Task<IActionResult> SubmitKnowledgeDocument(
         [FromBody] SubmitKnowledgeDocumentRequest request,
@@ -655,11 +1205,150 @@ public sealed class DocumentsController(
             response.Status == RegulatoryIngestionStatus.Completed ? DateTimeOffset.UtcNow : null));
     }
 
+    [HttpGet("regulatory-sources")]
+    [RequirePermission(PermissionConstants.Documents.Read)]
+    [ProducesResponseType(typeof(CorpusCatalogPageResponse<RegulatorySourceCatalogResponse>), 200)]
+    public async Task<IActionResult> ListRegulatorySources(
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20,
+        [FromQuery] string? status = null,
+        [FromQuery] string? jurisdictionCode = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryParseIngestionStatus(status, out var parsedStatus))
+            return BadRequest(DocumentsContract.CreateProblemDetails(
+                "INVALID_STATUS", "Status is invalid.", StatusCodes.Status400BadRequest, retryable: false));
+
+        try
+        {
+            var response = await regulatoryClient.ListRegulatorySourcesAsync(new ListRegulatorySourcesRequest
+            {
+                Page = page,
+                PageSize = pageSize,
+                Status = parsedStatus,
+                JurisdictionCode = jurisdictionCode ?? string.Empty
+            }, cancellationToken: cancellationToken);
+
+            return Ok(new CorpusCatalogPageResponse<RegulatorySourceCatalogResponse>(
+                response.Sources.Select(MapRegulatorySource).ToArray(),
+                response.Page,
+                response.PageSize,
+                response.TotalCount));
+        }
+        catch (RpcException exception)
+        {
+            return MapCorpusRpcError(exception, "Unable to list regulatory sources.");
+        }
+    }
+
+    [HttpGet("regulatory-sources/{id:guid}")]
+    [RequirePermission(PermissionConstants.Documents.Read)]
+    [ProducesResponseType(typeof(RegulatorySourceDetailsResponse), 200)]
+    public async Task<IActionResult> GetRegulatorySource(Guid id, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var response = await regulatoryClient.GetRegulatorySourceAsync(new GetRegulatorySourceRequest
+            {
+                RegulatoryDocumentId = id.ToString()
+            }, cancellationToken: cancellationToken);
+            return Ok(MapRegulatoryDetails(response));
+        }
+        catch (RpcException exception)
+        {
+            return MapCorpusRpcError(exception, "Unable to load regulatory source.");
+        }
+    }
+
+    [HttpGet("regulatory-sources/{id:guid}/status")]
+    [RequirePermission(PermissionConstants.Documents.Read)]
+    [ProducesResponseType(typeof(CorpusVersionStatusResponse), 200)]
+    public async Task<IActionResult> GetRegulatorySourceStatus(Guid id, CancellationToken cancellationToken)
+    {
+        var result = await GetRegulatorySource(id, cancellationToken);
+        if (result is not OkObjectResult { Value: RegulatorySourceDetailsResponse details })
+            return result;
+        return Ok(details.LatestVersion ?? new CorpusVersionStatusResponse(
+            null, null, "UNKNOWN", 0, 0, null, null, 0, null, null, null, null, null, null, null));
+    }
+
+    [HttpGet("knowledge-documents")]
+    [RequirePermission(PermissionConstants.Documents.Read)]
+    [ProducesResponseType(typeof(CorpusCatalogPageResponse<KnowledgeDocumentCatalogResponse>), 200)]
+    public async Task<IActionResult> ListKnowledgeDocuments(
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20,
+        [FromQuery] string? status = null,
+        [FromQuery] int? category = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryParseIngestionStatus(status, out var parsedStatus))
+            return BadRequest(DocumentsContract.CreateProblemDetails(
+                "INVALID_STATUS", "Status is invalid.", StatusCodes.Status400BadRequest, retryable: false));
+        if (category.HasValue && !System.Enum.IsDefined(typeof(KnowledgeCategory), category.Value))
+            return BadRequest(DocumentsContract.CreateProblemDetails(
+                "INVALID_CATEGORY", "Category is invalid.", StatusCodes.Status400BadRequest, retryable: false));
+
+        try
+        {
+            var response = await regulatoryClient.ListKnowledgeDocumentsAsync(new ListKnowledgeDocumentsRequest
+            {
+                Page = page,
+                PageSize = pageSize,
+                Status = parsedStatus,
+                Category = category.HasValue
+                    ? (KnowledgeCategory)category.Value
+                    : KnowledgeCategory.Unspecified
+            }, cancellationToken: cancellationToken);
+
+            return Ok(new CorpusCatalogPageResponse<KnowledgeDocumentCatalogResponse>(
+                response.Documents.Select(MapKnowledgeDocument).ToArray(),
+                response.Page,
+                response.PageSize,
+                response.TotalCount));
+        }
+        catch (RpcException exception)
+        {
+            return MapCorpusRpcError(exception, "Unable to list knowledge documents.");
+        }
+    }
+
+    [HttpGet("knowledge-documents/{id:guid}")]
+    [RequirePermission(PermissionConstants.Documents.Read)]
+    [ProducesResponseType(typeof(KnowledgeDocumentDetailsResponse), 200)]
+    public async Task<IActionResult> GetKnowledgeDocument(Guid id, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var response = await regulatoryClient.GetKnowledgeDocumentAsync(new GetKnowledgeDocumentRequest
+            {
+                KnowledgeDocumentId = id.ToString()
+            }, cancellationToken: cancellationToken);
+            return Ok(MapKnowledgeDetails(response));
+        }
+        catch (RpcException exception)
+        {
+            return MapCorpusRpcError(exception, "Unable to load knowledge document.");
+        }
+    }
+
+    [HttpGet("knowledge-documents/{id:guid}/status")]
+    [RequirePermission(PermissionConstants.Documents.Read)]
+    [ProducesResponseType(typeof(CorpusVersionStatusResponse), 200)]
+    public async Task<IActionResult> GetKnowledgeDocumentStatus(Guid id, CancellationToken cancellationToken)
+    {
+        var result = await GetKnowledgeDocument(id, cancellationToken);
+        if (result is not OkObjectResult { Value: KnowledgeDocumentDetailsResponse details })
+            return result;
+        return Ok(details.LatestVersion ?? new CorpusVersionStatusResponse(
+            null, null, "UNKNOWN", 0, 0, null, null, 0, null, null, null, null, null, null, null));
+    }
+
     /// <summary>
     /// Box 3: Query knowledge corpus (SOPs, Guides, Contracts for PLATFORM + TENANT).
     /// </summary>
     [HttpPost("knowledge/query")]
-    [RequirePermission(PermissionConstants.Documents.Read, PermissionConstants.Compliance.Read)]
+    [RequirePermission(PermissionConstants.Documents.Read)]
     [ProducesResponseType(typeof(KnowledgeQueryResponse), 200)]
     public async Task<IActionResult> QueryKnowledge(
         [FromBody] KnowledgeQueryRequest request,
@@ -711,6 +1400,7 @@ public sealed class DocumentsController(
     /// </summary>
     [HttpPost("general")]
     [HttpPost("general-documents")]
+    [RequirePermission(PermissionConstants.Documents.Ingest)]
     [ProducesResponseType(typeof(UnifiedDocumentStatusResponse), 200)]
     public IActionResult SubmitGeneralDocument([FromBody] SubmitGeneralDocumentRequest request)
     {
@@ -745,6 +1435,7 @@ public sealed class DocumentsController(
     /// Reuses existing StorageReference, triggers text extraction, chunking, knowledge.embed, and pgvector indexing.
     /// </summary>
     [HttpPost("general-documents/{id}/promote-to-knowledge")]
+    [RequirePermission(PermissionConstants.Documents.Manage)]
     [ProducesResponseType(typeof(UnifiedDocumentStatusResponse), 200)]
     public async Task<IActionResult> PromoteGeneralDocumentToKnowledge(
         [FromRoute] string id,
@@ -805,26 +1496,13 @@ public sealed class DocumentsController(
     // STATUS & STAGE HELPERS
     // ──────────────────────────────────────────────────────────────────────────
 
-    private static string MapOcrStatus(DocumentOcrJobStatus status, bool needsReview) => status switch
-    {
-        DocumentOcrJobStatus.Queued => "PROCESSING",
-        DocumentOcrJobStatus.Processing => "PROCESSING",
-        DocumentOcrJobStatus.RequiresReview => "NEEDS_REVIEW",
-        DocumentOcrJobStatus.Completed => needsReview ? "NEEDS_REVIEW" : "READY",
-        DocumentOcrJobStatus.Rejected => "REJECTED",
-        DocumentOcrJobStatus.Failed => "FAILED",
-        DocumentOcrJobStatus.Cancelled => "CANCELLED",
-        _ => "RECEIVED"
-    };
+    private bool HasTrustedTenant() => currentUser.TenantId is { } tenantId && tenantId != Guid.Empty;
 
-    private static string? MapOcrStage(DocumentOcrJobStatus status) => status switch
-    {
-        DocumentOcrJobStatus.Queued => "EXTRACTING",
-        DocumentOcrJobStatus.Processing => "OCR",
-        DocumentOcrJobStatus.RequiresReview => "REVIEW",
-        DocumentOcrJobStatus.Completed => "READY",
-        _ => null
-    };
+    private static string MapOcrStatus(DocumentOcrJobStatus status, bool needsReview)
+        => DocumentsContract.MapStatus(status, needsReview);
+
+    private static string? MapOcrStage(DocumentOcrJobStatus status)
+        => DocumentsContract.MapStage(status);
 
     private static Dictionary<string, double> ParseFieldConfidences(string? fieldConfidenceJson)
     {
@@ -850,12 +1528,125 @@ public sealed class DocumentsController(
         }
     }
 
+    private static bool TryParseIngestionStatus(
+        string? value,
+        out RegulatoryIngestionStatus status)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            status = RegulatoryIngestionStatus.Unspecified;
+            return true;
+        }
+
+        return System.Enum.TryParse(value.Trim(), ignoreCase: true, out status) &&
+               System.Enum.IsDefined(status);
+    }
+
+    private IActionResult MapCorpusRpcError(RpcException exception, string fallbackDetail) =>
+        exception.StatusCode switch
+        {
+            GrpcStatusCode.NotFound => NotFound(DocumentsContract.CreateProblemDetails(
+                "CORPUS_NOT_FOUND", fallbackDetail, StatusCodes.Status404NotFound, retryable: false)),
+            GrpcStatusCode.InvalidArgument => BadRequest(DocumentsContract.CreateProblemDetails(
+                "INVALID_CORPUS_REQUEST", exception.Status.Detail, StatusCodes.Status400BadRequest, retryable: false)),
+            GrpcStatusCode.Unauthenticated => Unauthorized(DocumentsContract.CreateTenantContextRequiredProblemDetails()),
+            GrpcStatusCode.PermissionDenied => StatusCode(StatusCodes.Status403Forbidden, DocumentsContract.CreateProblemDetails(
+                "FORBIDDEN", exception.Status.Detail, StatusCodes.Status403Forbidden, retryable: false)),
+            _ when DocumentsContract.IsUnavailable(exception.StatusCode) => StatusCode(
+                StatusCodes.Status503ServiceUnavailable, DocumentsContract.CreateUnavailableProblemDetails()),
+            _ => StatusCode(StatusCodes.Status500InternalServerError, DocumentsContract.CreateProblemDetails(
+                "CORPUS_UNAVAILABLE", fallbackDetail, StatusCodes.Status500InternalServerError, retryable: true))
+        };
+
+    private static RegulatorySourceCatalogResponse MapRegulatorySource(RegulatorySourceSummary source) =>
+        new(
+            source.Id,
+            source.Title,
+            source.Authority,
+            source.JurisdictionCode,
+            source.RegulationType.ToString(),
+            source.LanguageCode,
+            source.Visibility.ToString(),
+            source.CreatedAt.ToDateTimeOffset(),
+            source.LatestVersion is not null ? MapCorpusVersion(source.LatestVersion) : null);
+
+    private static RegulatorySourceDetailsResponse MapRegulatoryDetails(RegulatorySourceDetails source) =>
+        new(
+            MapRegulatorySource(source.Summary),
+            source.Versions.Select(MapCorpusVersion).ToArray());
+
+    private static KnowledgeDocumentCatalogResponse MapKnowledgeDocument(KnowledgeDocumentSummary document) =>
+        new(
+            document.Id,
+            document.Title,
+            document.Category.ToString(),
+            document.SourceReference,
+            document.LanguageCode,
+            document.Visibility.ToString(),
+            document.CreatedAt.ToDateTimeOffset(),
+            document.LatestVersion is not null ? MapCorpusVersion(document.LatestVersion) : null);
+
+    private static KnowledgeDocumentDetailsResponse MapKnowledgeDetails(KnowledgeDocumentDetails document) =>
+        new(
+            MapKnowledgeDocument(document.Summary),
+            document.Versions.Select(MapCorpusVersion).ToArray());
+
+    private static CorpusVersionStatusResponse MapCorpusVersion(
+        RegulatorySourceVersionSummary version) =>
+        new(
+            version.Id,
+            version.VersionLabel,
+            MapIngestionStatusName(version.Status),
+            version.ChunkCount,
+            version.EmbeddedChunkCount,
+            version.FileName,
+            version.MimeType,
+            version.SizeBytes,
+            version.ContentSha256,
+            version.CreatedAt.ToDateTimeOffset(),
+            version.UpdatedAt?.ToDateTimeOffset(),
+            version.CompletedAt?.ToDateTimeOffset(),
+            version.FailedAt?.ToDateTimeOffset(),
+            string.IsNullOrWhiteSpace(version.ErrorCode) ? null : version.ErrorCode,
+            string.IsNullOrWhiteSpace(version.ErrorMessage) ? null : version.ErrorMessage);
+
+    private static CorpusVersionStatusResponse MapCorpusVersion(
+        KnowledgeDocumentVersionSummary version) =>
+        new(
+            version.Id,
+            version.VersionLabel,
+            MapIngestionStatusName(version.Status),
+            version.ChunkCount,
+            version.EmbeddedChunkCount,
+            version.FileName,
+            version.MimeType,
+            version.SizeBytes,
+            version.ContentSha256,
+            version.CreatedAt.ToDateTimeOffset(),
+            version.UpdatedAt?.ToDateTimeOffset(),
+            version.CompletedAt?.ToDateTimeOffset(),
+            version.FailedAt?.ToDateTimeOffset(),
+            string.IsNullOrWhiteSpace(version.ErrorCode) ? null : version.ErrorCode,
+            string.IsNullOrWhiteSpace(version.ErrorMessage) ? null : version.ErrorMessage);
+
+    private static string MapIngestionStatusName(RegulatoryIngestionStatus status) =>
+        status switch
+        {
+            RegulatoryIngestionStatus.Pending => "PENDING",
+            RegulatoryIngestionStatus.Processing => "PROCESSING",
+            RegulatoryIngestionStatus.Completed => "COMPLETED",
+            RegulatoryIngestionStatus.Failed => "FAILED",
+            RegulatoryIngestionStatus.PendingOcr => "PENDING_OCR",
+            _ => "UNKNOWN"
+        };
+
     private static (string status, string? stage) MapIngestionStatus(RegulatoryIngestionStatus status) => status switch
     {
         RegulatoryIngestionStatus.Pending => ("RECEIVED", "RECEIVING"),
         RegulatoryIngestionStatus.Processing => ("PROCESSING", "EMBEDDING"),
         RegulatoryIngestionStatus.Completed => ("READY", "READY"),
         RegulatoryIngestionStatus.Failed => ("FAILED", null),
+        RegulatoryIngestionStatus.PendingOcr => ("PROCESSING", "OCR"),
         _ => ("PROCESSING", "INDEXING")
     };
 }
@@ -878,15 +1669,131 @@ public sealed record UnifiedDocumentStatusResponse(
     DateTimeOffset? CreatedAt,
     DateTimeOffset? UpdatedAt);
 
+public sealed record CorpusCatalogPageResponse<T>(
+    IReadOnlyList<T> Items,
+    int Page,
+    int PageSize,
+    int TotalCount);
+
+public sealed record CorpusVersionStatusResponse(
+    string? Id,
+    string? VersionLabel,
+    string Status,
+    int ChunkCount,
+    int EmbeddedChunkCount,
+    string? FileName,
+    string? MimeType,
+    long SizeBytes,
+    string? ContentSha256,
+    DateTimeOffset? CreatedAt,
+    DateTimeOffset? UpdatedAt,
+    DateTimeOffset? CompletedAt,
+    DateTimeOffset? FailedAt,
+    string? ErrorCode,
+    string? ErrorMessage);
+
+public sealed record RegulatorySourceCatalogResponse(
+    string Id,
+    string Title,
+    string Authority,
+    string JurisdictionCode,
+    string RegulationType,
+    string LanguageCode,
+    string Visibility,
+    DateTimeOffset CreatedAt,
+    CorpusVersionStatusResponse? LatestVersion);
+
+public sealed record RegulatorySourceDetailsResponse(
+    RegulatorySourceCatalogResponse Summary,
+    IReadOnlyList<CorpusVersionStatusResponse> Versions)
+{
+    public CorpusVersionStatusResponse? LatestVersion => Summary.LatestVersion;
+}
+
+public sealed record KnowledgeDocumentCatalogResponse(
+    string Id,
+    string Title,
+    string Category,
+    string SourceReference,
+    string LanguageCode,
+    string Visibility,
+    DateTimeOffset CreatedAt,
+    CorpusVersionStatusResponse? LatestVersion);
+
+public sealed record KnowledgeDocumentDetailsResponse(
+    KnowledgeDocumentCatalogResponse Summary,
+    IReadOnlyList<CorpusVersionStatusResponse> Versions)
+{
+    public CorpusVersionStatusResponse? LatestVersion => Summary.LatestVersion;
+}
+
 public sealed record SubmitShipmentDocumentRequest(
-    string? IdempotencyKey,
+    string IdempotencyKey,
     string StorageReference,
     string FileName,
     string? MimeType,
     long SizeBytes,
     int DocumentTypeHint,
-    Guid ExternalDocumentId,
+    Guid? ExternalDocumentId,
     string? ShipmentId);
+
+public sealed record CreateDocumentUploadSessionRequest(
+    string IdempotencyKey,
+    string FileName,
+    string MimeType,
+    long SizeBytes,
+    string? ContentSha256);
+
+public sealed record CreateDocumentIntakeBody(
+    string UploadId,
+    string DocumentTypeHint,
+    string IdempotencyKey,
+    string? Purpose = null,
+    string? ExternalReference = null);
+
+public sealed record CreateCorpusIntakeBody(
+    string UploadId,
+    string Purpose,
+    string IdempotencyKey,
+    string Title,
+    string? Authority = null,
+    string? CanonicalSourceUri = null,
+    string? JurisdictionCode = null,
+    int RegulationType = 0,
+    int Category = 0,
+    string? SourceReference = null,
+    string? LanguageCode = null,
+    string VersionLabel = "1.0",
+    DateTimeOffset? PublishedAt = null,
+    DateTimeOffset? EffectiveFrom = null,
+    DateTimeOffset? EffectiveTo = null);
+
+public sealed record CorpusIntakeResponse(
+    Guid CorpusDocumentId,
+    Guid CorpusVersionId,
+    string CorpusType,
+    Guid OcrJobId,
+    string Status,
+    string? Stage);
+
+public sealed record DocumentUploadSessionResponse(
+    Guid UploadId,
+    string StorageReference,
+    string WriteUrl,
+    IReadOnlyDictionary<string, string> RequiredHeaders,
+    DateTimeOffset ExpiresAt,
+    long MaximumSizeBytes,
+    string FileName,
+    string MimeType,
+    long SizeBytes,
+    string? ContentSha256,
+    string Status);
+
+public sealed record DocumentDownloadResponse(
+    string Url,
+    DateTimeOffset ExpiresAt,
+    string FileName,
+    string MimeType);
 
 public sealed record ListShipmentDocumentsResponse(
     IReadOnlyList<UnifiedDocumentStatusResponse> Items,

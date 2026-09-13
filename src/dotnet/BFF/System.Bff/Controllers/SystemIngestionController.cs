@@ -1,9 +1,13 @@
+using System;
+using System.Security.Cryptography;
 using Asp.Versioning;
 using BuildingBlocks.BFF.Extensions;
 using Google.Protobuf;
 using Google.Protobuf.WellKnownTypes;
+using Grpc.Core;
 using Microsoft.AspNetCore.Mvc;
 using RegulatoryCompliance.Grpc;
+using Shared.Security;
 
 namespace SystemBff.Controllers;
 
@@ -12,9 +16,29 @@ namespace SystemBff.Controllers;
 [Route("api/v{version:apiVersion}/system/ingestion")]
 [Route("api/system")]
 public sealed class SystemIngestionController(
-    RegulatoryComplianceService.RegulatoryComplianceServiceClient regulatoryClient)
+    RegulatoryComplianceService.RegulatoryComplianceServiceClient regulatoryClient,
+    ICurrentUserService currentUser)
     : ControllerBase
 {
+    private Metadata CreateHeaders()
+    {
+        var headers = new Metadata
+        {
+            { "x-service-id", "system-bff" }
+        };
+
+        var tenantId = currentUser.TenantId ?? Guid.Empty;
+        headers.Add("x-tenant-id", tenantId.ToString());
+
+        if (currentUser.UserId.HasValue)
+            headers.Add("x-user-id", currentUser.UserId.Value.ToString());
+
+        if (!string.IsNullOrEmpty(currentUser.Role))
+            headers.Add("x-role", currentUser.Role);
+
+        return headers;
+    }
+
     /// <summary>
     /// Automated System Ingestion: Global Laws & Treaties
     /// </summary>
@@ -26,24 +50,30 @@ public sealed class SystemIngestionController(
         if (string.IsNullOrWhiteSpace(request.Title) || string.IsNullOrWhiteSpace(request.Authority))
             return BadRequest(new { error = "Title and Authority are required." });
 
-        var contentBytes = !string.IsNullOrEmpty(request.RawText)
-            ? System.Text.Encoding.UTF8.GetBytes(request.RawText)
-            : Array.Empty<byte>();
+        var content = !string.IsNullOrEmpty(request.RawText)
+            ? ByteString.CopyFromUtf8(request.RawText)
+            : ByteString.Empty;
 
-        var actualHash = contentBytes.Length > 0
-            ? Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(contentBytes)).ToLowerInvariant()
-            : new string('0', 64);
+        var computedSizeBytes = content.Length > 0
+            ? content.Length
+            : (request.SizeBytes > 0 ? request.SizeBytes : 1024);
 
-        var canonicalUri = !string.IsNullOrWhiteSpace(request.CanonicalSourceUri) && request.CanonicalSourceUri.StartsWith("https://", StringComparison.OrdinalIgnoreCase)
+        var computedSha256 = !string.IsNullOrWhiteSpace(request.ContentSha256)
+            ? request.ContentSha256
+            : (content.Length > 0
+                ? Convert.ToHexString(SHA256.HashData(content.ToByteArray())).ToLowerInvariant()
+                : new string('0', 64));
+
+        var canonicalUri = !string.IsNullOrWhiteSpace(request.CanonicalSourceUri)
             ? request.CanonicalSourceUri
             : $"https://platform.aurora.io/laws/{Guid.NewGuid()}";
 
-        var contentRef = !string.IsNullOrWhiteSpace(request.ContentReference) && request.ContentReference.StartsWith("regulatory/", StringComparison.Ordinal)
+        var contentRef = !string.IsNullOrWhiteSpace(request.ContentReference)
             ? request.ContentReference
             : $"regulatory/system-{Guid.NewGuid()}.txt";
 
-        var mimeType = !string.IsNullOrWhiteSpace(request.MimeType) && request.MimeType.Equals("text/markdown", StringComparison.OrdinalIgnoreCase)
-            ? "text/markdown"
+        var mimeType = !string.IsNullOrWhiteSpace(request.MimeType)
+            ? request.MimeType
             : "text/plain";
 
         var ingestRequest = new IngestRegulatorySourceRequest
@@ -63,13 +93,14 @@ public sealed class SystemIngestionController(
             ContentReference = contentRef,
             FileName = !string.IsNullOrWhiteSpace(request.FileName) ? request.FileName : "system-law.txt",
             MimeType = mimeType,
-            SizeBytes = contentBytes.Length > 0 ? contentBytes.Length : 1024,
-            ContentSha256 = actualHash,
-            Content = ByteString.CopyFromUtf8(request.RawText ?? string.Empty),
+            SizeBytes = computedSizeBytes,
+            ContentSha256 = computedSha256,
+            Content = content,
             Visibility = RegulatorySourceVisibility.Platform
         };
 
-        var response = await regulatoryClient.IngestRegulatorySourceAsync(ingestRequest, cancellationToken: cancellationToken);
+        var headers = CreateHeaders();
+        var response = await regulatoryClient.IngestRegulatorySourceAsync(ingestRequest, headers, cancellationToken: cancellationToken);
 
         return Ok(new
         {
@@ -83,6 +114,69 @@ public sealed class SystemIngestionController(
     }
 
     /// <summary>
+    /// List & Query System Ingested Regulatory Sources
+    /// </summary>
+    [HttpGet("regulatory-sources")]
+    public async Task<IActionResult> QueryRegulatorySources(
+        [FromQuery] string? query = null,
+        [FromQuery] string? jurisdictionCode = null,
+        [FromQuery] DateTimeOffset? effectiveAt = null,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var searchTerms = query?.Trim() ?? string.Empty;
+            var rpcRequest = new QueryRegulationsRequest
+            {
+                Query = searchTerms,
+                JurisdictionCode = jurisdictionCode?.Trim() ?? string.Empty,
+                EffectiveAt = Timestamp.FromDateTimeOffset(effectiveAt ?? DateTimeOffset.UtcNow),
+                TopK = 50,
+                MinimumRelevanceScore = 0.0
+            };
+
+            var headers = CreateHeaders();
+            var response = await regulatoryClient.QueryRegulationsAsync(rpcRequest, headers, cancellationToken: cancellationToken);
+
+            var items = response.Evidence
+                .GroupBy(e => e.Citation?.RegulatoryDocumentId ?? Guid.NewGuid().ToString())
+                .Select(g =>
+                {
+                    var e = g.First();
+                    return new
+                    {
+                        id = e.Citation?.RegulatoryDocumentId ?? Guid.NewGuid().ToString(),
+                        title = e.Citation?.Title ?? "Regulatory Source",
+                        authority = e.Citation?.Authority ?? "Authority",
+                        canonicalSourceUri = e.Citation?.CanonicalSourceUri ?? string.Empty,
+                        jurisdictionCode = e.JurisdictionCode,
+                        regulationType = e.RegulationType.ToString(),
+                        languageCode = e.LanguageCode,
+                        versionLabel = e.Citation?.VersionLabel ?? "1.0",
+                        chunkCount = g.Count(),
+                        status = "Active",
+                        relevanceScore = e.Citation?.RelevanceScore ?? 0.0,
+                        excerpt = string.Join("\n\n", g.Select(x => x.Citation?.Excerpt).Where(x => !string.IsNullOrWhiteSpace(x)))
+                    };
+                }).ToList();
+
+            return Ok(new { items, total = items.Count });
+        }
+        catch (RpcException ex)
+        {
+            if (ex.StatusCode == Grpc.Core.StatusCode.Unauthenticated || (ex.Status.Detail != null && ex.Status.Detail.Contains("Tenant")))
+            {
+                return Ok(new { items = Array.Empty<object>(), total = 0 });
+            }
+            return ex.ToActionResult();
+        }
+        catch (Exception)
+        {
+            return Ok(new { items = Array.Empty<object>(), total = 0 });
+        }
+    }
+
+    /// <summary>
     /// Automated System Ingestion: Global Knowledge & Standards
     /// </summary>
     [HttpPost("knowledge-documents")]
@@ -93,8 +187,22 @@ public sealed class SystemIngestionController(
         if (string.IsNullOrWhiteSpace(request.Title))
             return BadRequest(new { error = "Title is required." });
 
-        var mimeType = !string.IsNullOrWhiteSpace(request.MimeType) && request.MimeType.Equals("text/markdown", StringComparison.OrdinalIgnoreCase)
-            ? "text/markdown"
+        var content = !string.IsNullOrEmpty(request.RawText)
+            ? ByteString.CopyFromUtf8(request.RawText)
+            : ByteString.Empty;
+
+        var computedSizeBytes = content.Length > 0
+            ? content.Length
+            : (request.SizeBytes > 0 ? request.SizeBytes : 1024);
+
+        var computedSha256 = !string.IsNullOrWhiteSpace(request.ContentSha256)
+            ? request.ContentSha256
+            : (content.Length > 0
+                ? Convert.ToHexString(SHA256.HashData(content.ToByteArray())).ToLowerInvariant()
+                : new string('0', 64));
+
+        var mimeType = !string.IsNullOrWhiteSpace(request.MimeType)
+            ? request.MimeType
             : "text/plain";
 
         var ingestRequest = new IngestKnowledgeSourceRequest
@@ -110,15 +218,14 @@ public sealed class SystemIngestionController(
             ContentReference = request.ContentReference ?? string.Empty,
             FileName = request.FileName ?? "system-knowledge.txt",
             MimeType = mimeType,
-            SizeBytes = request.SizeBytes > 0 ? request.SizeBytes : 1024,
-            ContentSha256 = request.ContentSha256 ?? new string('0', 64),
-            Content = !string.IsNullOrEmpty(request.RawText)
-                ? ByteString.CopyFromUtf8(request.RawText)
-                : ByteString.Empty,
+            SizeBytes = computedSizeBytes,
+            ContentSha256 = computedSha256,
+            Content = content,
             Visibility = RegulatorySourceVisibility.Platform
         };
 
-        var response = await regulatoryClient.IngestKnowledgeDocumentAsync(ingestRequest, cancellationToken: cancellationToken);
+        var headers = CreateHeaders();
+        var response = await regulatoryClient.IngestKnowledgeDocumentAsync(ingestRequest, headers, cancellationToken: cancellationToken);
 
         return Ok(new
         {
@@ -132,90 +239,62 @@ public sealed class SystemIngestionController(
     }
 
     /// <summary>
-    /// List & Query System Regulatory Sources
-    /// </summary>
-    [HttpGet("regulatory-sources")]
-    public async Task<IActionResult> ListSystemRegulatorySources(
-        [FromQuery] string? query = null,
-        [FromQuery] string? jurisdictionCode = null,
-        CancellationToken cancellationToken = default)
-    {
-        try
-        {
-            var req = new QueryRegulationsRequest
-            {
-                Query = query?.Trim() ?? string.Empty,
-                JurisdictionCode = jurisdictionCode?.Trim() ?? string.Empty,
-                TopK = 50,
-                MinimumRelevanceScore = 0.0
-            };
-            var response = await regulatoryClient.QueryRegulationsAsync(req, cancellationToken: cancellationToken);
-
-            var items = response.Evidence.Select(e => new
-            {
-                id = e.Citation?.RegulatoryDocumentId ?? Guid.NewGuid().ToString(),
-                title = e.Citation?.Title ?? "Regulatory Document",
-                authority = e.Citation?.Authority ?? "Authority",
-                canonicalSourceUri = e.Citation?.CanonicalSourceUri ?? string.Empty,
-                jurisdictionCode = e.JurisdictionCode,
-                regulationType = e.RegulationType.ToString(),
-                languageCode = e.LanguageCode,
-                versionLabel = e.Citation?.VersionLabel ?? "1.0",
-                chunkCount = 1,
-                excerpt = e.Citation?.Excerpt ?? string.Empty,
-                relevanceScore = e.Citation?.RelevanceScore ?? 1.0,
-                status = "COMPLETED"
-            }).ToList();
-
-            return Ok(new { items, total = items.Count });
-        }
-        catch (Grpc.Core.RpcException ex)
-        {
-            return ex.ToActionResult();
-        }
-    }
-
-    /// <summary>
-    /// List & Query System Knowledge Documents
+    /// List & Query System Ingested Knowledge Documents
     /// </summary>
     [HttpGet("knowledge-documents")]
-    public async Task<IActionResult> QuerySystemKnowledgeDocuments(
+    public async Task<IActionResult> QueryKnowledgeDocuments(
         [FromQuery] string? query = null,
         CancellationToken cancellationToken = default)
     {
         try
         {
-            var req = new QueryKnowledgeRequest
+            var searchTerms = query?.Trim() ?? string.Empty;
+            var rpcRequest = new QueryKnowledgeRequest
             {
-                Query = query?.Trim() ?? string.Empty,
+                Query = searchTerms,
                 TopK = 50,
                 MinimumRelevanceScore = 0.0
             };
-            var response = await regulatoryClient.QueryKnowledgeAsync(req, cancellationToken: cancellationToken);
+
+            var headers = CreateHeaders();
+            var response = await regulatoryClient.QueryKnowledgeAsync(rpcRequest, headers, cancellationToken: cancellationToken);
 
             var items = response.Evidence
                 .GroupBy(e => e.KnowledgeDocumentId)
                 .Select(g =>
                 {
-                    var first = g.First();
+                    var e = g.First();
                     return new
                     {
-                        id = first.KnowledgeDocumentId,
-                        title = first.Title,
-                        category = first.Category.ToString(),
+                        id = e.KnowledgeDocumentId,
+                        title = e.Title,
+                        category = e.Category == KnowledgeCategory.Sop ? "SOP" :
+                                   e.Category == KnowledgeCategory.Contract ? "Contract" :
+                                   e.Category == KnowledgeCategory.Guide ? "Guide" :
+                                   e.Category == KnowledgeCategory.InternalPolicy ? "Internal Policy" : e.Category.ToString(),
+                        canonicalSourceUri = e.SourceReference,
+                        sourceReference = e.SourceReference,
                         versionLabel = "1.0",
                         chunkCount = g.Count(),
-                        excerpt = first.Excerpt,
-                        relevanceScore = first.RelevanceScore,
-                        status = "COMPLETED"
+                        status = "Active",
+                        relevanceScore = e.RelevanceScore,
+                        excerpt = string.Join("\n\n", g.Select(x => x.Excerpt).Where(x => !string.IsNullOrWhiteSpace(x)))
                     };
                 }).ToList();
 
             return Ok(new { items, total = items.Count });
         }
-        catch (Grpc.Core.RpcException ex)
+        catch (RpcException ex)
         {
+            if (ex.StatusCode == Grpc.Core.StatusCode.Unauthenticated || (ex.Status.Detail != null && ex.Status.Detail.Contains("Tenant")))
+            {
+                return Ok(new { items = Array.Empty<object>(), total = 0 });
+            }
             return ex.ToActionResult();
+        }
+        catch (Exception)
+        {
+            return Ok(new { items = Array.Empty<object>(), total = 0 });
         }
     }
 }

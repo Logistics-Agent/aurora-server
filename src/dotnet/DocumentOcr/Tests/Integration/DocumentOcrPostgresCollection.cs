@@ -50,6 +50,7 @@ public sealed class DocumentOcrPostgresFixture : IAsyncLifetime
         await using var command = connection.CreateCommand();
         command.CommandText = """
             TRUNCATE TABLE
+                document_upload_sessions,
                 ocr_provider_attempts,
                 outbox_messages,
                 inbox_messages,

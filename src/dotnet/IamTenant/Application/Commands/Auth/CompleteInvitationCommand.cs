@@ -81,9 +81,10 @@ public class CompleteInvitationCommandHandler(
         return new LoginResult(
             authResult.AccessToken,
             authResult.RefreshToken,
+            authResult.RefreshTokenSubject,
             authResult.ExpiresIn,
             user.Id.ToString(),
-            user.TenantId == null || user.TenantId == Guid.Empty ? "" : user.TenantId.ToString(),
+            user.TenantId is { } tenantId && tenantId != Guid.Empty ? tenantId.ToString() : string.Empty,
             user.Role.ToCode(),
             userPermissions.Permissions.Select(p => p.Code).ToList());
     }

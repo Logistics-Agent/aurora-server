@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Text;
+using MassTransit;
 using DocumentOcr.Contracts.Events;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -16,77 +17,114 @@ public sealed class DocumentOcrIntegrationConsumer(
     IEmbeddingProvider embeddingProvider,
     IRegulatoryChunker chunker,
     TimeProvider timeProvider,
-    ILogger<DocumentOcrIntegrationConsumer>? logger = null)
+    ILogger<DocumentOcrIntegrationConsumer>? logger = null) :
+    IConsumer<DocumentOcrCompletedEvent>,
+    IConsumer<DocumentOcrFailedEvent>,
+    IConsumer<DocumentOcrRequiresReviewEvent>
 {
     private readonly ILogger<DocumentOcrIntegrationConsumer> _logger = logger ?? NullLogger<DocumentOcrIntegrationConsumer>.Instance;
+
+    public Task Consume(ConsumeContext<DocumentOcrCompletedEvent> context) =>
+        HandleAsync(context.Message, context.CancellationToken);
+
+    public Task Consume(ConsumeContext<DocumentOcrFailedEvent> context) =>
+        HandleAsync(context.Message, context.CancellationToken);
+
+    public Task Consume(ConsumeContext<DocumentOcrRequiresReviewEvent> context) =>
+        HandleAsync(context.Message, context.CancellationToken);
 
     public async Task HandleAsync(DocumentOcrCompletedEvent message, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(message);
+        DocumentOcrEventContract.ValidateVersion(nameof(DocumentOcrCompletedEvent), message.ContractVersion);
         _logger.LogInformation("Processing DocumentOcrCompletedEvent for JobId: {JobId}, Context: {Context}",
             message.JobId, message.ExternalContextId);
 
         var now = timeProvider.GetUtcNow();
-
-        // 1. Check if this is a Knowledge Document
-        if (message.ExternalContextId != null && message.ExternalContextId.StartsWith("knowledge:", StringComparison.OrdinalIgnoreCase))
+        switch (message.Purpose)
         {
-            var versionIdStr = message.ExternalContextId["knowledge:".Length..];
-            if (Guid.TryParse(versionIdStr, out var versionId))
-            {
-                await ProcessKnowledgeDocumentOcrAsync(versionId, message, now, cancellationToken);
+            case DocumentOcrPurpose.ShipmentDocument:
+            case DocumentOcrPurpose.GeneralDocument:
                 return;
-            }
-        }
-
-        // 2. Check if this is a Regulatory Document
-        if (message.ExternalContextId != null && message.ExternalContextId.StartsWith("regulatory:", StringComparison.OrdinalIgnoreCase))
-        {
-            var versionIdStr = message.ExternalContextId["regulatory:".Length..];
-            if (Guid.TryParse(versionIdStr, out var versionId))
-            {
-                await ProcessRegulatoryDocumentOcrAsync(versionId, message, now, cancellationToken);
+            case DocumentOcrPurpose.KnowledgeCorpus:
+                await ProcessKnowledgeDocumentOcrAsync(
+                    DocumentOcrEventContract.ParseResourceId(message.ExternalContextId, nameof(DocumentOcrCompletedEvent)),
+                    message,
+                    now,
+                    cancellationToken);
                 return;
-            }
+            case DocumentOcrPurpose.RegulatoryCorpus:
+                await ProcessRegulatoryDocumentOcrAsync(
+                    DocumentOcrEventContract.ParseResourceId(message.ExternalContextId, nameof(DocumentOcrCompletedEvent)),
+                    message,
+                    now,
+                    cancellationToken);
+                return;
+            default:
+                throw new NotSupportedException($"Unsupported Document OCR purpose '{message.Purpose}'.");
         }
     }
 
     public async Task HandleAsync(DocumentOcrFailedEvent message, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(message);
+        DocumentOcrEventContract.ValidateVersion(nameof(DocumentOcrFailedEvent), message.ContractVersion);
         _logger.LogWarning("Processing DocumentOcrFailedEvent for JobId: {JobId}, Error: {Error}",
             message.JobId, message.ErrorMessage);
 
         var now = timeProvider.GetUtcNow();
 
-        if (message.ExternalContextId != null && message.ExternalContextId.StartsWith("knowledge:", StringComparison.OrdinalIgnoreCase))
+        switch (message.Purpose)
         {
-            var versionIdStr = message.ExternalContextId["knowledge:".Length..];
-            if (Guid.TryParse(versionIdStr, out var versionId))
+            case DocumentOcrPurpose.ShipmentDocument:
+            case DocumentOcrPurpose.GeneralDocument:
+                return;
+            case DocumentOcrPurpose.KnowledgeCorpus:
             {
+                var versionId = DocumentOcrEventContract.ParseResourceId(
+                    message.ExternalContextId, nameof(DocumentOcrFailedEvent));
                 var version = await dbContext.KnowledgeDocumentVersions
-                    .SingleOrDefaultAsync(v => v.Id == versionId, cancellationToken);
+                    .IgnoreQueryFilters()
+                    .SingleOrDefaultAsync(v => v.TenantId == message.TenantId && v.Id == versionId, cancellationToken);
                 if (version != null && version.IngestionStatus == RegulatoryIngestionStatus.PendingOcr)
                 {
                     version.MarkFailed(message.ErrorCode, message.ErrorMessage, now);
                     await dbContext.SaveChangesAsync(cancellationToken);
                 }
+                return;
             }
-        }
-        else if (message.ExternalContextId != null && message.ExternalContextId.StartsWith("regulatory:", StringComparison.OrdinalIgnoreCase))
-        {
-            var versionIdStr = message.ExternalContextId["regulatory:".Length..];
-            if (Guid.TryParse(versionIdStr, out var versionId))
+            case DocumentOcrPurpose.RegulatoryCorpus:
             {
+                var versionId = DocumentOcrEventContract.ParseResourceId(
+                    message.ExternalContextId, nameof(DocumentOcrFailedEvent));
                 var version = await dbContext.RegulatoryDocumentVersions
-                    .SingleOrDefaultAsync(v => v.Id == versionId, cancellationToken);
+                    .IgnoreQueryFilters()
+                    .SingleOrDefaultAsync(v => v.TenantId == message.TenantId && v.Id == versionId, cancellationToken);
                 if (version != null && version.IngestionStatus == RegulatoryIngestionStatus.PendingOcr)
                 {
                     version.FailIngestion(message.ErrorCode, message.ErrorMessage, now);
                     await dbContext.SaveChangesAsync(cancellationToken);
                 }
+                return;
             }
+            default:
+                throw new NotSupportedException($"Unsupported Document OCR purpose '{message.Purpose}'.");
         }
+    }
+
+    public Task HandleAsync(
+        DocumentOcrRequiresReviewEvent message,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(message);
+        DocumentOcrEventContract.ValidateVersion(nameof(DocumentOcrRequiresReviewEvent), message.ContractVersion);
+        if (message.Purpose is not (DocumentOcrPurpose.ShipmentDocument or DocumentOcrPurpose.GeneralDocument or DocumentOcrPurpose.KnowledgeCorpus or DocumentOcrPurpose.RegulatoryCorpus))
+            throw new NotSupportedException($"Unsupported Document OCR purpose '{message.Purpose}'.");
+
+        _logger.LogInformation(
+            "Document OCR requires review for JobId {JobId}; corpus ingestion waits for the reviewed completion event.",
+            message.JobId);
+        return Task.CompletedTask;
     }
 
     private async Task ProcessKnowledgeDocumentOcrAsync(
@@ -96,8 +134,9 @@ public sealed class DocumentOcrIntegrationConsumer(
         CancellationToken cancellationToken)
     {
         var version = await dbContext.KnowledgeDocumentVersions
+            .IgnoreQueryFilters()
             .Include(v => v.Chunks)
-            .SingleOrDefaultAsync(v => v.Id == versionId, cancellationToken);
+            .SingleOrDefaultAsync(v => v.TenantId == message.TenantId && v.Id == versionId, cancellationToken);
 
         if (version == null)
         {
@@ -134,6 +173,7 @@ public sealed class DocumentOcrIntegrationConsumer(
                 draft.EndOffset,
                 draft.ContentSha256,
                 now);
+            dbContext.KnowledgeChunks.Add(chunk);
 
             var embeddings = await embeddingProvider.GenerateAsync([chunk.NormalizedText], cancellationToken);
             if (embeddings.Count > 0)
@@ -154,8 +194,9 @@ public sealed class DocumentOcrIntegrationConsumer(
         CancellationToken cancellationToken)
     {
         var version = await dbContext.RegulatoryDocumentVersions
+            .IgnoreQueryFilters()
             .Include(v => v.Chunks)
-            .SingleOrDefaultAsync(v => v.Id == versionId, cancellationToken);
+            .SingleOrDefaultAsync(v => v.TenantId == message.TenantId && v.Id == versionId, cancellationToken);
 
         if (version == null)
         {
@@ -192,6 +233,7 @@ public sealed class DocumentOcrIntegrationConsumer(
                 draft.EndOffset,
                 draft.ContentSha256,
                 now);
+            dbContext.RegulatoryChunks.Add(chunk);
 
             var embeddings = await embeddingProvider.GenerateAsync([chunk.NormalizedText], cancellationToken);
             if (embeddings.Count > 0)
@@ -207,6 +249,9 @@ public sealed class DocumentOcrIntegrationConsumer(
 
     private static async Task<string> ResolveFullTextAsync(DocumentOcrCompletedEvent message, CancellationToken cancellationToken)
     {
+        if (!string.IsNullOrWhiteSpace(message.FullTextContent))
+            return message.FullTextContent;
+
         if (!string.IsNullOrWhiteSpace(message.ArtifactReference))
         {
             var relative = message.ArtifactReference.StartsWith("ocr-artifacts/", StringComparison.OrdinalIgnoreCase)
@@ -220,6 +265,6 @@ public sealed class DocumentOcrIntegrationConsumer(
             }
         }
 
-        return message.NormalizedJson;
+        return string.Empty;
     }
 }

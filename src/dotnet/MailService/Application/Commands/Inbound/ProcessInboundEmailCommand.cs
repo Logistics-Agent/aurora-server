@@ -76,15 +76,20 @@ public class ProcessInboundEmailCommandHandler : IRequestHandler<ProcessInboundE
 
         string recipientDomain = recipient.Split('@').Last().Trim().ToLowerInvariant();
 
-        // 2. Resolve Domain & Tenant
+        // 2. Resolve Domain & Tenant (Must IgnoreQueryFilters because webhook runs anonymously before TenantId is resolved)
         var domain = await _dbContext.Domains
+            .IgnoreQueryFilters()
             .FirstOrDefaultAsync(d => d.DomainName.ToLower() == recipientDomain && d.Status == DomainStatus.Active, cancellationToken)
-            ?? await _dbContext.Domains.FirstOrDefaultAsync(d => d.DomainName.ToLower() == recipientDomain, cancellationToken);
+            ?? await _dbContext.Domains
+                .IgnoreQueryFilters()
+                .FirstOrDefaultAsync(d => d.DomainName.ToLower() == recipientDomain, cancellationToken);
 
         if (domain == null)
         {
             _logger.LogWarning("Inbound email recipient domain '{Domain}' is not registered in system.", recipientDomain);
-            domain = await _dbContext.Domains.FirstOrDefaultAsync(d => d.Status == DomainStatus.Active, cancellationToken)
+            domain = await _dbContext.Domains
+                .IgnoreQueryFilters()
+                .FirstOrDefaultAsync(d => d.Status == DomainStatus.Active, cancellationToken)
                 ?? throw new KeyNotFoundException($"Domain '{recipientDomain}' is not recognized for any tenant.");
         }
 
@@ -92,25 +97,30 @@ public class ProcessInboundEmailCommandHandler : IRequestHandler<ProcessInboundE
 
         // 3. Resolve Mailbox
         var mailbox = await _dbContext.Mailboxes
+            .IgnoreQueryFilters()
             .FirstOrDefaultAsync(m => m.TenantId == tenantId && m.FullAddress.ToLower() == recipient, cancellationToken);
 
         if (mailbox == null)
         {
             // Check if recipient is an alias
             var alias = await _dbContext.Aliases
+                .IgnoreQueryFilters()
                 .FirstOrDefaultAsync(a => a.TenantId == tenantId && a.AliasAddress.ToLower() == recipient, cancellationToken);
 
             if (alias != null && alias.Targets.Count > 0)
             {
                 var targetAddress = alias.Targets.First().ToLower();
                 mailbox = await _dbContext.Mailboxes
+                    .IgnoreQueryFilters()
                     .FirstOrDefaultAsync(m => m.TenantId == tenantId && m.FullAddress.ToLower() == targetAddress, cancellationToken);
             }
 
             // Fallback to any active mailbox for the domain/tenant
             mailbox ??= await _dbContext.Mailboxes
+                .IgnoreQueryFilters()
                 .FirstOrDefaultAsync(m => m.DomainId == domain.Id, cancellationToken)
                 ?? await _dbContext.Mailboxes
+                    .IgnoreQueryFilters()
                     .FirstOrDefaultAsync(m => m.TenantId == tenantId, cancellationToken);
 
             if (mailbox == null)
@@ -135,14 +145,47 @@ public class ProcessInboundEmailCommandHandler : IRequestHandler<ProcessInboundE
         string subject = mimeMessage.Subject ?? "(No Subject)";
         string cleanSubject = Regex.Replace(subject, @"^(Re|Fwd|Fw):\s*", "", RegexOptions.IgnoreCase).Trim();
 
+        string bodyText = mimeMessage.TextBody ?? string.Empty;
+        string bodyHtml = mimeMessage.HtmlBody ?? string.Empty;
+
+        if (string.IsNullOrWhiteSpace(bodyText) && !string.IsNullOrWhiteSpace(bodyHtml))
+        {
+            bodyText = Regex.Replace(bodyHtml, @"<style.*?</style>", string.Empty, RegexOptions.Singleline | RegexOptions.IgnoreCase);
+            bodyText = Regex.Replace(bodyText, @"<script.*?</script>", string.Empty, RegexOptions.Singleline | RegexOptions.IgnoreCase);
+            bodyText = Regex.Replace(bodyText, @"<.*?>", string.Empty, RegexOptions.Singleline);
+            bodyText = System.Net.WebUtility.HtmlDecode(bodyText).Trim();
+        }
+
+        if (string.IsNullOrWhiteSpace(bodyText) && mimeMessage.Body != null)
+        {
+            if (mimeMessage.Body is TextPart textPart)
+            {
+                bodyText = textPart.Text;
+            }
+            else if (mimeMessage.Body is Multipart multipart)
+            {
+                var textPartFromMulti = multipart.OfType<TextPart>().FirstOrDefault();
+                if (textPartFromMulti != null)
+                {
+                    bodyText = textPartFromMulti.Text;
+                }
+            }
+        }
+
+        string snippet = !string.IsNullOrWhiteSpace(bodyText)
+            ? (bodyText.Length > 150 ? bodyText.Substring(0, 150).Trim() : bodyText.Trim())
+            : subject;
+
         EmailThread? thread = null;
         if (!string.IsNullOrEmpty(mimeMessage.InReplyTo))
         {
             var parentMessage = await _dbContext.ProcessedMessages
+                .IgnoreQueryFilters()
                 .FirstOrDefaultAsync(m => m.TenantId == tenantId && m.MessageId == mimeMessage.InReplyTo, cancellationToken);
             if (parentMessage?.ThreadId != null)
             {
                 thread = await _dbContext.EmailThreads
+                    .IgnoreQueryFilters()
                     .FirstOrDefaultAsync(t => t.Id == parentMessage.ThreadId && t.TenantId == tenantId, cancellationToken);
             }
         }
@@ -150,6 +193,7 @@ public class ProcessInboundEmailCommandHandler : IRequestHandler<ProcessInboundE
         if (thread == null)
         {
             thread = await _dbContext.EmailThreads
+                .IgnoreQueryFilters()
                 .Where(t => t.TenantId == tenantId && t.MailboxId == mailbox.Id && t.Status != ThreadStatus.Resolved)
                 .OrderByDescending(t => t.LastMessageAt)
                 .FirstOrDefaultAsync(t => t.Subject == subject || t.Subject == cleanSubject, cancellationToken);
@@ -162,9 +206,10 @@ public class ProcessInboundEmailCommandHandler : IRequestHandler<ProcessInboundE
                 TenantId = tenantId,
                 MailboxId = mailbox.Id,
                 Subject = subject,
+                Snippet = snippet,
                 Status = ThreadStatus.Unassigned,
                 Priority = ThreadPriority.Normal,
-                MessageCount = 0,
+                MessageCount = 1,
                 LastMessageAt = DateTimeOffset.UtcNow,
                 CreatedAt = DateTimeOffset.UtcNow
             };
@@ -181,14 +226,14 @@ public class ProcessInboundEmailCommandHandler : IRequestHandler<ProcessInboundE
         }
         else
         {
+            thread.Snippet = snippet;
+            thread.MessageCount++;
+            thread.LastMessageAt = DateTimeOffset.UtcNow;
             if (!string.IsNullOrEmpty(sender) && !thread.Participants.Contains(sender))
             {
                 thread.Participants.Add(sender);
             }
         }
-
-        thread.MessageCount++;
-        thread.LastMessageAt = DateTimeOffset.UtcNow;
 
         // 5. Run Inbound Pipeline
         var context = new InboundPipelineContext
@@ -203,8 +248,8 @@ public class ProcessInboundEmailCommandHandler : IRequestHandler<ProcessInboundE
         context.ProcessedMessage.MessageId = mimeMessage.MessageId ?? $"<{Guid.NewGuid():N}@aurora.inbound>";
         context.ProcessedMessage.MailboxId = mailbox.Id;
         context.ProcessedMessage.ThreadId = thread.Id;
-        context.ProcessedMessage.BodyText = mimeMessage.TextBody ?? string.Empty;
-        context.ProcessedMessage.BodyHtml = mimeMessage.HtmlBody ?? string.Empty;
+        context.ProcessedMessage.BodyText = bodyText;
+        context.ProcessedMessage.BodyHtml = bodyHtml;
 
         var executedContext = await _pipelineRunner.RunAsync(context, cancellationToken);
 

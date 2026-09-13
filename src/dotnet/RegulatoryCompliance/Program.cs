@@ -28,7 +28,9 @@ builder.Services.AddDbContext<RegulatoryComplianceDbContext>(options =>
             npgsql.UseVector();
             npgsql.MigrationsAssembly("RegulatoryCompliance");
         }));
-builder.Services.AddSharedMassTransit(builder.Configuration);
+builder.Services.AddSharedMassTransit(
+    builder.Configuration,
+    bus => bus.AddConsumer<RegulatoryCompliance.Application.Events.DocumentOcrIntegrationConsumer>());
 builder.Services.AddSingleton(TimeProvider.System);
 
 var aiGovernanceUrl = builder.Configuration["Grpc:AiGovernance:Url"] ?? "http://localhost:9090";
@@ -46,6 +48,7 @@ builder.Services.AddSingleton(runtimeOptions);
 builder.Services.AddScoped<IRegulatoryChunker, DeterministicRegulatoryChunker>();
 builder.Services.AddScoped<IRegulatoryIngestionService, RegulatoryIngestionService>();
 builder.Services.AddScoped<IKnowledgeIngestionService, KnowledgeIngestionService>();
+builder.Services.AddScoped<ICorpusCatalogService, CorpusCatalogService>();
 
 if (runtimeOptions.EmbeddingProvider.Equals("AiGovernance", StringComparison.OrdinalIgnoreCase))
 {
@@ -72,7 +75,6 @@ builder.Services.AddScoped<IComplianceOutboxBatchStore, ComplianceOutboxBatchSto
 builder.Services.AddScoped<IComplianceIntegrationEventPublisher, ComplianceIntegrationEventPublisher>();
 builder.Services.AddScoped<ComplianceOutboxProcessor>();
 builder.Services.AddHostedService<ComplianceOutboxBackgroundService>();
-builder.Services.AddScoped<RegulatoryCompliance.Application.Events.DocumentOcrIntegrationConsumer>();
 
 builder.Services.AddHealthChecks()
     .AddCheck<RegulatoryComplianceDbHealthCheck>("regulatory-compliance-db");

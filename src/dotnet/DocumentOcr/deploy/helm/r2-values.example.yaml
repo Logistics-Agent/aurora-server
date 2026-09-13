@@ -1,0 +1,25 @@
+# Example overlay for durable Cloudflare R2 storage.
+# Copy this file to a private, ignored values file before deployment and replace
+# the bucket/endpoint names. It contains no credentials.
+
+env:
+  Storage__InputProvider: "S3"
+  Storage__S3__Bucket: "aurora-document-ocr"
+  Storage__S3__ServiceUrl: "https://0e000fc3102c5511f71eaab39664a054.r2.cloudflarestorage.com"
+  Storage__S3__Region: "auto"
+  Storage__S3__ForcePathStyle: "true"
+
+externalSecret:
+  enabled: true
+  data:
+    - secretKey: Storage__S3__AccessKey
+      remoteRef:
+        key: aurora-document-ocr-r2-access-key
+    - secretKey: Storage__S3__SecretKey
+      remoteRef:
+        key: aurora-document-ocr-r2-secret-key
+
+# R2 makes the pod-local writable volume unnecessary. Remove it from the
+# rendered Deployment when this overlay is applied.
+volumeMounts: []
+volumes: []

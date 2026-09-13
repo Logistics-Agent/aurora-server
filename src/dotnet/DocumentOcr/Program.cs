@@ -1,9 +1,14 @@
+using Amazon.S3;
 using DocumentOcr.Application.Jobs;
+using DocumentOcr.Application.Intake;
 using DocumentOcr.Application.Providers;
+using DocumentOcr.Application.Storage;
+using DocumentOcr.Application.Uploads;
 using DocumentOcr.GrpcServices;
 using DocumentOcr.Infrastructure.BackgroundJobs;
 using DocumentOcr.Infrastructure.Persistences;
 using DocumentOcr.Infrastructure.Providers;
+using DocumentOcr.Infrastructure.Storage;
 using Microsoft.EntityFrameworkCore;
 using Shared.Extensions;
 using Shared.Interceptors;
@@ -26,6 +31,12 @@ builder.Services.AddDbContext<DocumentOcrDbContext>(options =>
 
 builder.Services.AddSharedMassTransit(builder.Configuration);
 builder.Services.AddSingleton(TimeProvider.System);
+
+var uploadOptions = builder.Configuration
+    .GetSection(DocumentUploadOptions.SectionName)
+    .Get<DocumentUploadOptions>() ?? new DocumentUploadOptions();
+uploadOptions.Validate();
+builder.Services.AddSingleton(uploadOptions);
 
 var processingOptions = builder.Configuration
     .GetSection(DocumentProcessingOptions.SectionName)
@@ -51,8 +62,44 @@ builder.Services.AddGrpcClient<AiGovernance.Grpc.AiExecutionService.AiExecutionS
     o.Address = new Uri(aiGovernanceUrl);
 });
 
-builder.Services.AddScoped<DocumentOcr.Application.Storage.IArtifactStorageService, DocumentOcr.Infrastructure.Storage.FileSystemArtifactStorageService>();
+var inputStorageProvider = DocumentInputStorageConfiguration.GetProvider(builder.Configuration);
+var usesFileSystemInputStorage = inputStorageProvider == DocumentInputStorageProvider.FileSystem;
+if (usesFileSystemInputStorage)
+{
+    var bridgeOptions = DocumentUploadBridgeOptions.FromConfiguration(builder.Configuration);
+    var bridgeCorsOptions = DocumentUploadBridgeCorsOptions.FromConfiguration(builder.Configuration);
+    bridgeOptions.GetPublicBaseUri();
+    bridgeOptions.GetSigningKey();
+    bridgeCorsOptions.GetValidatedOrigins();
+    builder.Services.AddSingleton(bridgeOptions);
+    builder.Services.AddSingleton(bridgeCorsOptions);
+    builder.Services.AddSingleton<DocumentUploadBridgeTokenService>();
+    builder.Services.AddCors(options => DocumentUploadBridgeCorsPolicy.Configure(options, bridgeCorsOptions));
+    builder.Services.AddScoped<IDocumentInputStorage, FileSystemDocumentInputStorage>();
+    builder.Services.AddScoped<DocumentUploadHttpBridge>();
+    builder.Services.AddScoped<DocumentOcr.Application.Storage.IArtifactStorageService, FileSystemArtifactStorageService>();
+}
+else if (inputStorageProvider == DocumentInputStorageProvider.S3)
+{
+    var s3Settings = DocumentInputStorageConfiguration.GetS3Settings(builder.Configuration);
+    var s3Config = new AmazonS3Config
+    {
+        ServiceURL = s3Settings.ServiceUrl,
+        ForcePathStyle = builder.Configuration.GetValue("Storage:S3:ForcePathStyle", true),
+        AuthenticationRegion = s3Settings.Region
+    };
+    builder.Services.AddSingleton<IAmazonS3>(_ => new AmazonS3Client(
+        s3Settings.AccessKey,
+        s3Settings.SecretKey,
+        s3Config));
+    builder.Services.AddScoped<IDocumentInputStorage, S3DocumentInputStorage>();
+    builder.Services.AddScoped<IDocumentDownloadStorage, S3DocumentInputStorage>();
+    builder.Services.AddScoped<DocumentOcr.Application.Storage.IArtifactStorageService, S3ArtifactStorageService>();
+}
 builder.Services.AddScoped<DocumentInputPolicy>();
+builder.Services.AddScoped<DocumentUploadService>();
+builder.Services.AddScoped<IDocumentIntakeService, DocumentIntakeService>();
+builder.Services.AddHostedService<ExpiredUploadCleanupService>();
 builder.Services.AddScoped<IDocumentContentReader, DeterministicDocumentContentReader>();
 builder.Services.AddScoped<IOcrProvider>(services =>
     processingOptions.Provider.Equals("AiGovernance", StringComparison.OrdinalIgnoreCase)
@@ -74,7 +121,18 @@ builder.Services.AddHostedService<DocumentOcrOutboxPublisherBackgroundService>()
 
 var app = builder.Build();
 
+if (usesFileSystemInputStorage)
+    app.UseCors();
+
 app.MapGrpcService<DocumentOcrGrpcService>();
+if (usesFileSystemInputStorage)
+{
+    app.MapPut("/api/internal/document-uploads/{tenantId:guid}/{uploadId:guid}",
+        (Guid tenantId, Guid uploadId, string? token, HttpRequest request,
+            DocumentUploadHttpBridge bridge, CancellationToken cancellationToken) =>
+            bridge.PutAsync(tenantId, uploadId, token, request, cancellationToken))
+        .RequireCors(DocumentUploadBridgeCorsPolicy.Name);
+}
 app.MapGet("/", () => "Document OCR gRPC Service");
 app.MapGet("/healthz", () => Results.Ok("Healthy"));
 
