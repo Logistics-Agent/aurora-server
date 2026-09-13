@@ -12,6 +12,7 @@ import com.aurora.aigovernance.shared.domain.TokenBudget;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.util.*;
@@ -61,6 +62,7 @@ public class GovernancePolicyService {
      * @param tokenBudget      token budget for quota checks
      * @return GovernanceDecision — always returns, never throws for policy denial
      */
+    @Transactional(readOnly = true)
     public GovernanceDecision evaluate(
             UUID tenantId,
             String callerServiceId,
