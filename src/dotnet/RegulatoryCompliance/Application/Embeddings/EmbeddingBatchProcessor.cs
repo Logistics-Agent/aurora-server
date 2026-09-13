@@ -34,7 +34,8 @@ public sealed class EmbeddingBatchProcessor(
         try
         {
             vectors = await provider.GenerateAsync(
-                chunks.Select(chunk => chunk.NormalizedText).ToArray(), timeout.Token);
+                chunks.Select(chunk => new EmbeddingInput(chunk.TenantId, chunk.NormalizedText)).ToArray(),
+                timeout.Token);
         }
         catch (Exception exception) when (
             exception is not OperationCanceledException && !cancellationToken.IsCancellationRequested)
