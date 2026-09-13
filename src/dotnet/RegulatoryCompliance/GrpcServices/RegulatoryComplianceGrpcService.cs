@@ -891,7 +891,7 @@ public sealed class RegulatoryComplianceGrpcService(
             JurisdictionCode = item.JurisdictionCode,
             RegulationType = (ComplianceGrpc.RegulationType)(int)item.RegulationType,
             LanguageCode = item.LanguageCode,
-            Visibility = (ComplianceGrpc.RegulatorySourceVisibility)(int)item.Visibility,
+            Visibility = MapVisibility(item.Visibility),
             CreatedAt = Timestamp.FromDateTimeOffset(item.CreatedAt)
         };
         if (item.LatestVersion is not null)
@@ -909,7 +909,7 @@ public sealed class RegulatoryComplianceGrpcService(
             Category = (ComplianceGrpc.KnowledgeCategory)(int)item.Category,
             SourceReference = item.SourceReference,
             LanguageCode = item.LanguageCode,
-            Visibility = (ComplianceGrpc.RegulatorySourceVisibility)(int)item.Visibility,
+            Visibility = MapVisibility(item.Visibility),
             CreatedAt = Timestamp.FromDateTimeOffset(item.CreatedAt)
         };
         if (item.LatestVersion is not null)
@@ -1066,6 +1066,14 @@ public sealed class RegulatoryComplianceGrpcService(
             ComplianceGrpc.RegulatorySourceVisibility.Tenant => DomainVisibility.Tenant,
             ComplianceGrpc.RegulatorySourceVisibility.Platform => DomainVisibility.Platform,
             _ => throw InvalidArgument("Visibility is invalid.")
+        };
+
+    private static ComplianceGrpc.RegulatorySourceVisibility MapVisibility(DomainVisibility value) =>
+        value switch
+        {
+            DomainVisibility.Tenant => ComplianceGrpc.RegulatorySourceVisibility.Tenant,
+            DomainVisibility.Platform => ComplianceGrpc.RegulatorySourceVisibility.Platform,
+            _ => throw new InvalidOperationException($"Unsupported source visibility '{value}'.")
         };
 
     private static RpcException InvalidArgument(string message) =>
