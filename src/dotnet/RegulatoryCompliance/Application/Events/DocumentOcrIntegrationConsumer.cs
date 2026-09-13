@@ -173,6 +173,7 @@ public sealed class DocumentOcrIntegrationConsumer(
                 draft.EndOffset,
                 draft.ContentSha256,
                 now);
+            dbContext.KnowledgeChunks.Add(chunk);
 
             var embeddings = await embeddingProvider.GenerateAsync([chunk.NormalizedText], cancellationToken);
             if (embeddings.Count > 0)
@@ -232,6 +233,7 @@ public sealed class DocumentOcrIntegrationConsumer(
                 draft.EndOffset,
                 draft.ContentSha256,
                 now);
+            dbContext.RegulatoryChunks.Add(chunk);
 
             var embeddings = await embeddingProvider.GenerateAsync([chunk.NormalizedText], cancellationToken);
             if (embeddings.Count > 0)
@@ -247,6 +249,9 @@ public sealed class DocumentOcrIntegrationConsumer(
 
     private static async Task<string> ResolveFullTextAsync(DocumentOcrCompletedEvent message, CancellationToken cancellationToken)
     {
+        if (!string.IsNullOrWhiteSpace(message.FullTextContent))
+            return message.FullTextContent;
+
         if (!string.IsNullOrWhiteSpace(message.ArtifactReference))
         {
             var relative = message.ArtifactReference.StartsWith("ocr-artifacts/", StringComparison.OrdinalIgnoreCase)
@@ -260,6 +265,6 @@ public sealed class DocumentOcrIntegrationConsumer(
             }
         }
 
-        return message.NormalizedJson;
+        return string.Empty;
     }
 }

@@ -15,6 +15,7 @@ public sealed record DocumentOcrCompletedEvent
     public string? ExternalContextId { get; init; }
     public string DetectedDocumentType { get; init; } = string.Empty;
     public string NormalizedJson { get; init; } = "{}";
+    public string? FullTextContent { get; init; }
     public string? ArtifactReference { get; init; }
     public string? NormalizedJsonHash { get; init; }
     public string ReviewState { get; init; } = "COMPLETED";

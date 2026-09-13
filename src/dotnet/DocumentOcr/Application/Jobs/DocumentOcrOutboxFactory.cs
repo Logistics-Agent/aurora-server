@@ -27,7 +27,7 @@ public static class DocumentOcrOutboxFactory
         RequiresReview(Input(job), occurredAt, job);
 
     public static OutboxMessage Completed(DocumentOcrEventInput input, DateTimeOffset? occurredAt = null) =>
-        Completed(input, occurredAt ?? DateTimeOffset.UtcNow, input.DocumentId, input.ShipmentId, input.ExternalContextId, string.Empty, "{}", null, string.Empty, 0m, false);
+        Completed(input, occurredAt ?? DateTimeOffset.UtcNow, input.DocumentId, input.ShipmentId, input.ExternalContextId, string.Empty, "{}", null, null, string.Empty, 0m, false);
 
     public static OutboxMessage Failed(DocumentOcrEventInput input, DateTimeOffset? occurredAt = null) =>
         Failed(input, occurredAt ?? DateTimeOffset.UtcNow, "document_processing_failed", "Document processing failed.", 0m, null, null);
@@ -36,7 +36,7 @@ public static class DocumentOcrOutboxFactory
         RequiresReview(input, occurredAt ?? DateTimeOffset.UtcNow, input.DocumentId, input.ShipmentId, input.ExternalContextId, string.Empty, "{}", null, 0m);
 
     private static OutboxMessage Completed(DocumentOcrEventInput input, DateTimeOffset occurredAt, DocumentOcrJob job) =>
-        Completed(input, occurredAt, job.ExternalDocumentId, job.ExternalShipmentId, input.ExternalContextId, job.DetectedDocumentType?.ToString() ?? string.Empty, job.NormalizedJson ?? "{}", job.ArtifactReference, job.ExtractionMode.ToString(), job.Confidence ?? 0m, job.NeedsReview ?? false);
+        Completed(input, occurredAt, job.ExternalDocumentId, job.ExternalShipmentId, input.ExternalContextId, job.DetectedDocumentType?.ToString() ?? string.Empty, job.NormalizedJson ?? "{}", job.FullTextContent, job.ArtifactReference, job.ExtractionMode.ToString(), job.Confidence ?? 0m, job.NeedsReview ?? false);
 
     private static OutboxMessage Completed(
         DocumentOcrEventInput input,
@@ -46,6 +46,7 @@ public static class DocumentOcrOutboxFactory
         string? externalContextId,
         string detectedDocumentType,
         string normalizedJson,
+        string? fullTextContent,
         string? artifactReference,
         string extractionMode,
         decimal confidence,
@@ -64,6 +65,7 @@ public static class DocumentOcrOutboxFactory
             ExternalContextId = externalContextId,
             DetectedDocumentType = detectedDocumentType,
             NormalizedJson = normalizedJson,
+            FullTextContent = fullTextContent,
             NormalizedJsonHash = Hash(normalizedJson),
             ArtifactReference = artifactReference,
             ExtractionMode = extractionMode,

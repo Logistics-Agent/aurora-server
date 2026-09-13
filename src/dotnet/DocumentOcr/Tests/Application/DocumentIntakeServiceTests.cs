@@ -68,6 +68,17 @@ public sealed class DocumentIntakeServiceTests
     }
 
     [Fact]
+    public async Task CorpusPurposesRequestBothStructuredAndFullTextExtraction()
+    {
+        var fixture = await CreateFixtureAsync(verify: true);
+
+        var job = await fixture.Intake.CreateAsync(Input(
+            fixture.Receipt.UploadId, "corpus-intake-001", DocumentOcrPurpose.KnowledgeCorpus));
+
+        Assert.Equal(OcrExtractionMode.Both, job.ExtractionMode);
+    }
+
+    [Fact]
     public async Task RejectsADifferentRequestThatReusesAnIdempotencyKey()
     {
         var fixture = await CreateFixtureAsync(verify: true);
@@ -80,12 +91,15 @@ public sealed class DocumentIntakeServiceTests
             }));
     }
 
-    private static CreateDocumentIntakeInput Input(Guid uploadId, string idempotencyKey) =>
+    private static CreateDocumentIntakeInput Input(
+        Guid uploadId,
+        string idempotencyKey,
+        DocumentOcrPurpose purpose = DocumentOcrPurpose.ShipmentDocument) =>
         new(
             uploadId,
             idempotencyKey,
             OcrDocumentType.CommercialInvoice,
-            DocumentOcrPurpose.ShipmentDocument,
+            purpose,
             "external-reference-001");
 
     private static async Task<Fixture> CreateFixtureAsync(bool verify = false, bool objectExists = true)
