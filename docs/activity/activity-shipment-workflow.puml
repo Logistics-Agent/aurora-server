@@ -1,0 +1,43 @@
+@startuml
+skinparam dpi 180
+title Activity Diagram - Shipment Lifecycle Workflow
+
+start
+
+:Khách hàng / Nhân viên tạo Shipment Draft (Người gửi, Người nhận, Điểm lấy/giao);
+:Khai báo danh mục hàng hóa (CargoItems: trọng lượng, kích thước, phân loại);
+:Đính kèm tài liệu vận chuyển (vận đơn, hóa đơn, giấy phép);
+
+if (Tài liệu cần quét OCR?) then (yes)
+  :Gửi tài liệu sang Document OCR Service;
+  :Trích xuất và tự động điền metadata vận đơn;
+else (no)
+endif
+
+:Submit Shipment;
+:Kiểm tra quy chuẩn pháp lý và điều kiện vận tải (Regulatory Compliance);
+
+if (Hợp lệ?) then (yes)
+  :Cập nhật trạng thái Shipment = SUBMITTED;
+  :Ghi Outbox Message (ShipmentSubmittedEvent);
+  :Outbox Worker đẩy Event lên RabbitMQ;
+  
+  fork
+    :Notification Service gửi email/FCM xác nhận cho khách hàng;
+  fork again
+    :Đưa đơn hàng vào hàng đợi chờ gom chuyến (Route Planning Pool);
+  end fork
+  
+  :Ghép đơn vào Lộ trình (Route Assigned);
+  :Tài xế nhận hàng và cập nhật mốc lộ trình (IN_TRANSIT);
+  :Hệ thống GPS Tracking ghi nhận vị trí thời gian thực;
+  :Giao hàng thành công (DELIVERED) & Ký nhận POD;
+  :Kích hoạt Billing Service tạo hóa đơn & quyết toán;
+  stop
+else (no)
+  :Cập nhật trạng thái REJECTED hoặc yêu cầu bổ sung;
+  :Thông báo lý do từ chối cho người tạo đơn;
+  stop
+endif
+
+@enduml

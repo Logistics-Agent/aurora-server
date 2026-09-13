@@ -1,0 +1,32 @@
+@startuml
+title Hình 3.3.3 - Use Case vận hành shipment, route và tài chính
+left to right direction
+skinparam shadowing false
+actor "Nhân viên vận hành" as Staff
+rectangle "Aurora Platform - Vận hành" {
+ usecase "Tạo / cập nhật / gửi shipment" as A
+ usecase "Quản lý cargo, địa điểm,\nchứng từ và mốc" as B
+ usecase "Tạo route" as C
+ usecase "Tối ưu route" as D
+ usecase "Duyệt / từ chối route" as E
+ usecase "Ước tính chi phí\nvà thuế" as F
+ usecase "Tạo và quản lý hóa đơn" as G
+ usecase "Kiểm tra tuân thủ" as H
+}
+rectangle "OSRM" <<hệ thống định tuyến ngoài>> as OSRM #FDEBD0
+rectangle "VROOM" <<máy tối ưu ngoài>> as VROOM #FDEBD0
+Staff --> A
+Staff --> B
+Staff --> C
+Staff --> D
+Staff --> E
+Staff --> F
+Staff --> G
+Staff --> H
+B .> A : <<mở rộng>>
+D .> C : <<mở rộng>>
+E .> C : <<mở rộng>>
+D ..> OSRM : dữ liệu đường đi
+D ..> VROOM : bài toán tối ưu
+scale 2
+@enduml

@@ -1,0 +1,22 @@
+@startuml
+title Hình 3.3.2 - Use Case quản trị tenant và danh tính
+left to right direction
+skinparam shadowing false
+actor "Quản trị viên\nhệ thống" as SA
+actor "Quản trị viên\ntenant" as TA
+rectangle "Aurora Platform - IAM" {
+ usecase "Tạo / cập nhật / khóa tenant" as A
+ usecase "Nạp nguồn quy định\nvà tri thức hệ thống" as B
+ usecase "Mời và kích hoạt người dùng" as C
+ usecase "Gán vai trò và quyền" as D
+ usecase "Đặt lại mật khẩu" as E
+ usecase "Cấu hình quy tắc tuyến\nvà năng lực AI" as F
+}
+SA --> A
+SA --> B
+TA --> C
+TA --> D
+TA --> E
+TA --> F
+scale 2
+@enduml

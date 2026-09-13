@@ -1,0 +1,25 @@
+@startuml
+skinparam dpi 180
+title Sequence Diagram - Create and Submit Shipment
+actor Staff
+participant "Staff.Bff" as BFF
+participant "ShipmentWorkflow GrpcService" as Grpc
+participant "Command Handler" as Handler
+database "Shipment DB" as DB
+participant "Outbox Publisher" as Publisher
+queue "RabbitMQ" as MQ
+Staff -> BFF : POST /shipments
+BFF -> Grpc : CreateShipment(request, tenant context)
+Grpc -> Handler : CreateShipmentCommand
+Handler -> DB : Save Shipment + OutboxMessage
+DB --> Handler : Commit
+Handler --> Grpc : ShipmentResponse
+Grpc --> BFF : ShipmentResponse
+BFF --> Staff : 201 Created
+Staff -> BFF : POST /shipments/{id}/submit
+BFF -> Grpc : SubmitShipment(id)
+Grpc -> Handler : SubmitShipmentCommand
+Handler -> DB : Update status + OutboxMessage
+Publisher -> DB : Read outbox
+Publisher -> MQ : Publish ShipmentSubmitted
+@enduml
