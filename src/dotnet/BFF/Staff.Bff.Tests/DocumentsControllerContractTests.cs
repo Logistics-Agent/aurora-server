@@ -124,6 +124,7 @@ public sealed class DocumentsControllerContractTests
     [InlineData(nameof(DocumentsController.DownloadShipmentDocument))]
     [InlineData(nameof(DocumentsController.CancelShipmentDocument))]
     [InlineData(nameof(DocumentsController.CreateUploadSession))]
+    [InlineData(nameof(DocumentsController.CreateCorpusIntake))]
     [InlineData(nameof(DocumentsController.SubmitShipmentDocument))]
     public void Documents_controller_routes_are_covered_by_the_tenant_guard(string actionName)
     {
@@ -144,6 +145,20 @@ public sealed class DocumentsControllerContractTests
             action.GetCustomAttributes<HttpPostAttribute>(),
             attribute => string.Equals(attribute.Template, "intakes", StringComparison.Ordinal));
         Assert.Null(typeof(ShipmentsController).GetMethod("CreateDocumentIntake"));
+    }
+
+    [Fact]
+    public void Corpus_intake_route_is_tenant_scoped_and_uses_canonical_permission()
+    {
+        var action = typeof(DocumentsController).GetMethod(nameof(DocumentsController.CreateCorpusIntake));
+
+        Assert.NotNull(action);
+        Assert.Contains(action.GetCustomAttributes<HttpPostAttribute>(), attribute =>
+            string.Equals(attribute.Template, "corpus-intakes", StringComparison.Ordinal));
+        Assert.Equal(
+            PermissionConstants.Documents.Ingest,
+            action.GetCustomAttribute<RequirePermissionAttribute>()?.RequiredPermission);
+        Assert.NotNull(typeof(DocumentsController).GetCustomAttribute<RequireTenantContextAttribute>());
     }
 
     [Fact]
@@ -202,6 +217,7 @@ public sealed class DocumentsControllerContractTests
     [InlineData(nameof(DocumentsController.QueryKnowledge), PermissionConstants.Documents.Read)]
     [InlineData(nameof(DocumentsController.SubmitGeneralDocument), PermissionConstants.Documents.Ingest)]
     [InlineData(nameof(DocumentsController.CreateDocumentIntake), PermissionConstants.Documents.Ingest)]
+    [InlineData(nameof(DocumentsController.CreateCorpusIntake), PermissionConstants.Documents.Ingest)]
     [InlineData(nameof(DocumentsController.PromoteGeneralDocumentToKnowledge), PermissionConstants.Documents.Manage)]
     public void Document_endpoints_require_only_the_canonical_capability(
         string methodName,
@@ -248,6 +264,66 @@ public sealed class DocumentsControllerContractTests
         Assert.NotNull(captured);
         Assert.Equal(OcrDocumentType.CommercialInvoice, captured.DocumentTypeHint);
         Assert.Equal(DocumentOcrPurpose.GeneralDocument, captured.Purpose);
+    }
+
+    [Fact]
+    public async Task Corpus_intake_verifies_upload_creates_pending_version_and_starts_ocr()
+    {
+        var fixture = CreateFixture();
+        var uploadId = Guid.CreateVersion7();
+        var corpusDocumentId = Guid.CreateVersion7();
+        var corpusVersionId = Guid.CreateVersion7();
+        var ocrJobId = Guid.CreateVersion7();
+
+        fixture.DocumentOcrClient
+            .Setup(client => client.VerifyUploadSessionAsync(
+                It.IsAny<VerifyUploadSessionRequest>(), It.IsAny<Metadata>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()))
+            .Returns(CreateSuccessfulCall(new DocumentUploadReceipt
+            {
+                UploadId = uploadId.ToString(),
+                StorageReference = $"tenants/{fixture.TenantId}/documents/{uploadId}/policy.pdf",
+                Status = DocumentUploadStatus.Uploaded,
+                FileName = "policy.pdf",
+                MimeType = "application/pdf",
+                VerifiedMimeType = "application/pdf",
+                SizeBytes = 128,
+                VerifiedSizeBytes = 128,
+                ContentSha256 = new string('a', 64),
+                VerifiedContentSha256 = new string('a', 64)
+            }));
+        fixture.RegulatoryClient
+            .Setup(client => client.CreateKnowledgeCorpusVersionAsync(
+                It.IsAny<CreateKnowledgeCorpusVersionRequest>(), It.IsAny<Metadata>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()))
+            .Returns(CreateSuccessfulCall(new IngestKnowledgeSourceResponse
+            {
+                KnowledgeDocumentId = corpusDocumentId.ToString(),
+                DocumentVersionId = corpusVersionId.ToString(),
+                Status = RegulatoryIngestionStatus.PendingOcr
+            }));
+        fixture.DocumentOcrClient
+            .Setup(client => client.CreateDocumentIntakeAsync(
+                It.IsAny<CreateDocumentIntakeRequest>(), It.IsAny<Metadata>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()))
+            .Returns(CreateSuccessfulCall(new DocumentOcrJobResponse
+            {
+                JobId = ocrJobId.ToString(),
+                Status = DocumentOcrJobStatus.Queued
+            }));
+
+        var result = await fixture.Controller.CreateCorpusIntake(new CreateCorpusIntakeBody(
+            uploadId.ToString(), "KNOWLEDGE_CORPUS", "corpus-001", "Warehouse SOP",
+            Category: 1, SourceReference: "https://docs.example.test/sop", LanguageCode: "en"), default);
+
+        var accepted = Assert.IsType<AcceptedResult>(result);
+        var response = Assert.IsType<CorpusIntakeResponse>(accepted.Value);
+        Assert.Equal(corpusVersionId, response.CorpusVersionId);
+        Assert.Equal(ocrJobId, response.OcrJobId);
+        fixture.DocumentOcrClient.Verify(client => client.VerifyUploadSessionAsync(
+            It.IsAny<VerifyUploadSessionRequest>(), It.IsAny<Metadata>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()), Times.Once);
+        fixture.DocumentOcrClient.Verify(client => client.CreateDocumentIntakeAsync(
+            It.Is<CreateDocumentIntakeRequest>(request =>
+                request.Purpose == DocumentOcrPurpose.KnowledgeCorpus &&
+                request.ExternalReference == corpusVersionId.ToString()),
+            It.IsAny<Metadata>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Theory]
@@ -425,17 +501,18 @@ public sealed class DocumentsControllerContractTests
         {
             GrpcChannel.ForAddress("http://localhost:54322")
         });
+        var currentUser = CreateTenantUser();
         var controller = new DocumentsController(
             documentOcrClient.Object,
             regulatoryClient.Object,
-            CreateTenantUser(),
+            currentUser,
             NullLogger<DocumentsController>.Instance);
         controller.ControllerContext = new ControllerContext
         {
             HttpContext = new DefaultHttpContext()
         };
 
-        return new ControllerFixture(documentOcrClient, controller);
+        return new ControllerFixture(documentOcrClient, regulatoryClient, controller, currentUser.TenantId!.Value);
     }
 
     private static ICurrentUserService CreateTenantUser()
@@ -519,5 +596,7 @@ public sealed class DocumentsControllerContractTests
 
     private sealed record ControllerFixture(
         Mock<DocumentOcrService.DocumentOcrServiceClient> DocumentOcrClient,
-        DocumentsController Controller);
+        Mock<RegulatoryComplianceService.RegulatoryComplianceServiceClient> RegulatoryClient,
+        DocumentsController Controller,
+        Guid TenantId);
 }

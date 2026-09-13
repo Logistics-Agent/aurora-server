@@ -2,9 +2,12 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using AiGovernance.Grpc;
 using Grpc.Core;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using RegulatoryCompliance.Application.Ingestion;
 using RegulatoryCompliance.Application.Retrieval;
+using RegulatoryCompliance.Application.Evaluations;
+using RegulatoryCompliance.Domain.Entities;
 using RegulatoryCompliance.Domain.Enums;
 using RegulatoryCompliance.Infrastructure.Persistences;
 using Shared.Security;
@@ -26,7 +29,35 @@ public sealed record GroundedAnswerInput(
     IReadOnlyCollection<RegulationType>? RegulationTypes,
     IReadOnlyCollection<KnowledgeCategory>? KnowledgeCategories,
     int TopK = 10,
-    decimal MinimumRelevanceScore = 0.4m);
+    decimal MinimumRelevanceScore = 0.4m,
+    VerifiedAssistantContextInput? Context = null);
+
+public sealed record VerifiedAssistantContextInput(Guid? ShipmentId, Guid? EvaluationId);
+
+public sealed record VerifiedAssistantContextSummary(
+    Guid? ShipmentId,
+    Guid? EvaluationId,
+    string Freshness,
+    string? SnapshotHash);
+
+public sealed record VerifiedAssistantFinding(
+    string Code,
+    string Title,
+    string Description,
+    string Severity);
+
+public sealed record VerifiedAssistantContext(
+    Guid? ShipmentId,
+    Guid? EvaluationId,
+    string Freshness,
+    string? SnapshotHash,
+    ComplianceRiskLevel? RiskLevel,
+    EvidenceSufficiency? EvidenceSufficiency,
+    IReadOnlyList<VerifiedAssistantFinding> Findings);
+
+public sealed class AssistantContextMismatchException(string message) : Exception(message);
+
+public sealed class AssistantContextUnavailableException(string message) : Exception(message);
 
 public sealed record GroundedAnswerResult(
     string Query,
@@ -37,7 +68,8 @@ public sealed record GroundedAnswerResult(
     bool InsufficientEvidence,
     IReadOnlyList<string> MissingInformation,
     AssistantGovernanceResult Governance,
-    Guid RetrievalTraceId);
+    Guid RetrievalTraceId,
+    VerifiedAssistantContextSummary? Context = null);
 
 public sealed record RegulatoryCitationResult(
     string EvidenceId,
@@ -92,7 +124,9 @@ public sealed class GroundedAnswerService(
     IGroundedAnswerPromptBuilder promptBuilder,
     IDeterministicCitationValidator citationValidator,
     ICurrentUserService currentUser,
-    ILogger<GroundedAnswerService> logger) : IGroundedAnswerService
+    ILogger<GroundedAnswerService> logger,
+    IComplianceEvaluationService? complianceEvaluationService = null,
+    RegulatoryComplianceDbContext? dbContext = null) : IGroundedAnswerService
 {
     private const string CapabilityCode = "compliance.answer";
 
@@ -109,6 +143,7 @@ public sealed class GroundedAnswerService(
         var minScore = input.MinimumRelevanceScore > 0 ? input.MinimumRelevanceScore : 0.4m;
         var effectiveAt = input.EffectiveAt ?? DateTimeOffset.UtcNow;
         var jurisdiction = input.JurisdictionCode ?? string.Empty;
+        var verifiedContext = await ResolveContextAsync(input.Context, cancellationToken);
 
         Task<RegulationQueryResult>? regTask = null;
         Task<IReadOnlyList<KnowledgeEvidenceResult>>? knowTask = null;
@@ -198,6 +233,9 @@ public sealed class GroundedAnswerService(
         // 3. Short-circuit if No Evidence Exists (Cost Optimization & Anti-Hallucination)
         if (evidenceContext.IsEmpty)
         {
+            if (verifiedContext is not null)
+                return BuildDeterministicFallback(input.Query, evidenceContext, traceId, verifiedContext);
+
             logger.LogInformation("No evidence found for query '{Query}'. Skipping LLM generation.", input.Query);
 
             return new GroundedAnswerResult(
@@ -209,11 +247,12 @@ public sealed class GroundedAnswerService(
                 InsufficientEvidence: true,
                 MissingInformation: ["No applicable regulatory source or company SOP found matching the specified parameters."],
                 Governance: new AssistantGovernanceResult("none", "DETERMINISTIC_FALLBACK", false, CapabilityCode, 0),
-                RetrievalTraceId: traceId);
+                RetrievalTraceId: traceId,
+                Context: null);
         }
 
         // 4. Construct Governed Prompt
-        var prompt = promptBuilder.BuildPrompt(input.Query, evidenceContext);
+        var prompt = promptBuilder.BuildPrompt(input.Query, evidenceContext, verifiedContext);
 
         // 5. Call AiGovernance.Generate
         var generateRequest = new AiGenerateRequest
@@ -315,17 +354,123 @@ public sealed class GroundedAnswerService(
                 InsufficientEvidence: validated.InsufficientEvidence,
                 MissingInformation: validated.MissingInformation,
                 Governance: governanceResult,
-                RetrievalTraceId: traceId);
+                RetrievalTraceId: traceId,
+                Context: ToSummary(verifiedContext));
         }
 
         // Fallback: Deterministic grounding directly synthesized from evidenceContext
-        return BuildDeterministicFallback(input.Query, evidenceContext, traceId);
+        return BuildDeterministicFallback(input.Query, evidenceContext, traceId, verifiedContext);
     }
+
+    private async Task<VerifiedAssistantContext?> ResolveContextAsync(
+        VerifiedAssistantContextInput? input,
+        CancellationToken cancellationToken)
+    {
+        if (input is null || (input.ShipmentId is null && input.EvaluationId is null))
+            return null;
+
+        if (input.ShipmentId is Guid shipmentId && shipmentId == Guid.Empty ||
+            input.EvaluationId is Guid evaluationId && evaluationId == Guid.Empty)
+            throw new AssistantContextMismatchException("Assistant context identifiers must not be empty.");
+
+        if (input.EvaluationId is not Guid requestedEvaluationId)
+        {
+            return new VerifiedAssistantContext(
+                input.ShipmentId,
+                null,
+                "CURRENT",
+                null,
+                null,
+                null,
+                []);
+        }
+
+        if (complianceEvaluationService is null)
+            throw new AssistantContextUnavailableException(
+                "ASSISTANT_CONTEXT_UNAVAILABLE: Verified compliance context is unavailable.");
+
+        ComplianceEvaluation evaluation;
+        try
+        {
+            evaluation = await complianceEvaluationService.GetAsync(requestedEvaluationId, cancellationToken);
+        }
+        catch (KeyNotFoundException)
+        {
+            throw new AssistantContextUnavailableException(
+                "ASSISTANT_CONTEXT_UNAVAILABLE: Verified compliance evaluation was not found.");
+        }
+
+        if (evaluation.Status != ComplianceEvaluationStatus.Completed)
+            throw new AssistantContextUnavailableException(
+                "ASSISTANT_CONTEXT_UNAVAILABLE: The compliance evaluation is not completed.");
+
+        if (input.ShipmentId is Guid requestedShipmentId &&
+            evaluation.ExternalShipmentId != requestedShipmentId)
+            throw new AssistantContextMismatchException(
+                "The compliance evaluation does not belong to the requested shipment.");
+
+        return new VerifiedAssistantContext(
+            input.ShipmentId ?? evaluation.ExternalShipmentId,
+            evaluation.Id,
+            await ResolveEvaluationFreshnessAsync(evaluation, cancellationToken),
+            evaluation.RequestHash,
+            evaluation.RiskLevel,
+            evaluation.EvidenceSufficiency,
+            evaluation.Findings
+                .Select(finding => new VerifiedAssistantFinding(
+                    finding.Code,
+                    finding.Title,
+                    finding.Description,
+                    finding.Severity.ToString()))
+                .ToArray());
+    }
+
+    private async Task<string> ResolveEvaluationFreshnessAsync(
+        ComplianceEvaluation evaluation,
+        CancellationToken cancellationToken)
+    {
+        var citations = evaluation.Findings
+            .SelectMany(finding => finding.Citations)
+            .ToArray();
+        if (citations.Length == 0 || dbContext is null)
+            return citations.Length == 0 ? "UNKNOWN" : "CURRENT";
+
+        var documentIds = citations
+            .Select(citation => citation.RegulatoryDocumentId)
+            .Distinct()
+            .ToArray();
+        var latestVersions = await dbContext.RegulatoryDocumentVersions
+            .AsNoTracking()
+            .Where(version => documentIds.Contains(version.RegulatoryDocumentId))
+            .OrderByDescending(version => version.EffectiveFrom)
+            .ThenByDescending(version => version.CreatedAt)
+            .ToListAsync(cancellationToken);
+        var latestByDocument = latestVersions
+            .GroupBy(version => version.RegulatoryDocumentId)
+            .ToDictionary(group => group.Key, group => group.First());
+
+        return citations.All(citation =>
+                latestByDocument.TryGetValue(citation.RegulatoryDocumentId, out var latest) &&
+                latest.Id == citation.RegulatoryDocumentVersionId &&
+                latest.IngestionStatus == RegulatoryIngestionStatus.Completed)
+            ? "CURRENT"
+            : "STALE";
+    }
+
+    private static VerifiedAssistantContextSummary? ToSummary(VerifiedAssistantContext? context) =>
+        context is null
+            ? null
+            : new VerifiedAssistantContextSummary(
+                context.ShipmentId,
+                context.EvaluationId,
+                context.Freshness,
+                context.SnapshotHash);
 
     private static GroundedAnswerResult BuildDeterministicFallback(
         string query,
         EvidenceContext evidenceContext,
-        Guid traceId)
+        Guid traceId,
+        VerifiedAssistantContext? verifiedContext = null)
     {
         var regCitations = evidenceContext.RegulatoryEvidence.Select(r => new RegulatoryCitationResult(
             EvidenceId: r.EvidenceId,
@@ -357,6 +502,15 @@ public sealed class GroundedAnswerService(
         var sb = new System.Text.StringBuilder();
         sb.AppendLine("Dưới đây là các tài liệu và bằng chứng đã được tìm thấy liên quan đến câu hỏi của bạn:\n");
 
+        if (verifiedContext is not null)
+        {
+            sb.AppendLine($"Đánh giá tuân thủ đã xác minh: {verifiedContext.EvaluationId?.ToString() ?? "chưa có"}.");
+            sb.AppendLine($"Mức rủi ro đã lưu: {verifiedContext.RiskLevel?.ToString() ?? "chưa xác định"}; trạng thái dữ liệu: {verifiedContext.Freshness}.");
+            foreach (var finding in verifiedContext.Findings)
+                sb.AppendLine($"- {finding.Code}: {finding.Title} — {finding.Description}");
+            sb.AppendLine();
+        }
+
         if (knowReferences.Count > 0)
         {
             sb.AppendLine("### Tài liệu & Quy trình nội bộ (Knowledge Base):");
@@ -383,10 +537,11 @@ public sealed class GroundedAnswerService(
             RegulatoryCitations: regCitations,
             KnowledgeReferences: knowReferences,
             Conflicts: [],
-            InsufficientEvidence: false,
+            InsufficientEvidence: evidenceContext.IsEmpty,
             MissingInformation: [],
             Governance: new AssistantGovernanceResult("deterministic-fallback-" + traceId.ToString("N"), "DETERMINISTIC_FALLBACK", false, CapabilityCode, 0),
-            RetrievalTraceId: traceId);
+            RetrievalTraceId: traceId,
+            Context: ToSummary(verifiedContext));
     }
 
     private static LlmParsedResponse ParseLlmResponse(string rawContent)

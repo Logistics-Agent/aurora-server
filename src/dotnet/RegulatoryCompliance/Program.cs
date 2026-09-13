@@ -48,6 +48,7 @@ builder.Services.AddSingleton(runtimeOptions);
 builder.Services.AddScoped<IRegulatoryChunker, DeterministicRegulatoryChunker>();
 builder.Services.AddScoped<IRegulatoryIngestionService, RegulatoryIngestionService>();
 builder.Services.AddScoped<IKnowledgeIngestionService, KnowledgeIngestionService>();
+builder.Services.AddScoped<ICorpusCatalogService, CorpusCatalogService>();
 
 if (runtimeOptions.EmbeddingProvider.Equals("AiGovernance", StringComparison.OrdinalIgnoreCase))
 {

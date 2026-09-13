@@ -67,6 +67,9 @@ public sealed class DocumentIntakeService(
                     "UPLOAD_NOT_VERIFIED", "The upload session must be verified before it is consumed.");
 
             var now = timeProvider.GetUtcNow();
+            var extractionMode = input.Purpose is DocumentOcrPurpose.RegulatoryCorpus or DocumentOcrPurpose.KnowledgeCorpus
+                ? OcrExtractionMode.Both
+                : OcrExtractionMode.Structured;
             var job = DocumentOcrJob.Create(
                 tenantId,
                 idempotencyKey,
@@ -78,7 +81,7 @@ public sealed class DocumentIntakeService(
                 uploadId,
                 null,
                 now,
-                OcrExtractionMode.Structured,
+                extractionMode,
                 externalReference,
                 input.Purpose,
                 input.InitiatingCorrelationId ?? DocumentOcrCorrelationId.FromTrace(currentUser.TraceId),

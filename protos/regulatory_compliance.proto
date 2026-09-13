@@ -11,7 +11,13 @@ service RegulatoryComplianceService {
   rpc GetComplianceEvaluation(GetComplianceEvaluationRequest) returns (ComplianceEvaluationResponse);
   rpc QueryRegulations(QueryRegulationsRequest) returns (QueryRegulationsResponse);
   rpc IngestRegulatorySource(IngestRegulatorySourceRequest) returns (IngestRegulatorySourceResponse);
+  rpc CreateRegulatoryCorpusVersion(CreateRegulatoryCorpusVersionRequest) returns (IngestRegulatorySourceResponse);
+  rpc ListRegulatorySources(ListRegulatorySourcesRequest) returns (ListRegulatorySourcesResponse);
+  rpc GetRegulatorySource(GetRegulatorySourceRequest) returns (RegulatorySourceDetails);
   rpc IngestKnowledgeDocument(IngestKnowledgeSourceRequest) returns (IngestKnowledgeSourceResponse);
+  rpc CreateKnowledgeCorpusVersion(CreateKnowledgeCorpusVersionRequest) returns (IngestKnowledgeSourceResponse);
+  rpc ListKnowledgeDocuments(ListKnowledgeDocumentsRequest) returns (ListKnowledgeDocumentsResponse);
+  rpc GetKnowledgeDocument(GetKnowledgeDocumentRequest) returns (KnowledgeDocumentDetails);
   rpc QueryKnowledge(QueryKnowledgeRequest) returns (QueryKnowledgeResponse);
   rpc GenerateGroundedAnswer(GenerateGroundedAnswerRequest) returns (GenerateGroundedAnswerResponse);
   rpc ValidateGroundedEvidence(ValidateGroundedEvidenceRequest) returns (ValidateGroundedEvidenceResponse);
@@ -66,6 +72,7 @@ enum RegulatoryIngestionStatus {
   REGULATORY_INGESTION_STATUS_PROCESSING = 2;
   REGULATORY_INGESTION_STATUS_COMPLETED = 3;
   REGULATORY_INGESTION_STATUS_FAILED = 4;
+  REGULATORY_INGESTION_STATUS_PENDING_OCR = 5;
 }
 
 enum RegulatorySourceVisibility {
@@ -207,6 +214,79 @@ message IngestRegulatorySourceResponse {
   google.protobuf.Timestamp received_at = 6;
 }
 
+message CreateRegulatoryCorpusVersionRequest {
+  string idempotency_key = 1;
+  string authority = 2;
+  string title = 3;
+  string canonical_source_uri = 4;
+  string jurisdiction_code = 5;
+  RegulationType regulation_type = 6;
+  string language_code = 7;
+  string version_label = 8;
+  google.protobuf.Timestamp published_at = 9;
+  google.protobuf.Timestamp effective_from = 10;
+  google.protobuf.Timestamp effective_to = 11;
+  string content_reference = 12;
+  string file_name = 13;
+  string mime_type = 14;
+  int64 size_bytes = 15;
+  string content_sha256 = 16;
+  RegulatorySourceVisibility visibility = 17;
+}
+
+message ListRegulatorySourcesRequest {
+  int32 page = 1;
+  int32 page_size = 2;
+  RegulatoryIngestionStatus status = 3;
+  string jurisdiction_code = 4;
+}
+
+message GetRegulatorySourceRequest {
+  string regulatory_document_id = 1;
+}
+
+message RegulatorySourceVersionSummary {
+  string id = 1;
+  string version_label = 2;
+  RegulatoryIngestionStatus status = 3;
+  int32 chunk_count = 4;
+  int32 embedded_chunk_count = 5;
+  string file_name = 6;
+  string mime_type = 7;
+  int64 size_bytes = 8;
+  string content_sha256 = 9;
+  google.protobuf.Timestamp created_at = 10;
+  google.protobuf.Timestamp updated_at = 11;
+  google.protobuf.Timestamp completed_at = 12;
+  google.protobuf.Timestamp failed_at = 13;
+  string error_code = 14;
+  string error_message = 15;
+}
+
+message RegulatorySourceSummary {
+  string id = 1;
+  string title = 2;
+  string authority = 3;
+  string jurisdiction_code = 4;
+  RegulationType regulation_type = 5;
+  string language_code = 6;
+  RegulatorySourceVisibility visibility = 7;
+  RegulatorySourceVersionSummary latest_version = 8;
+  google.protobuf.Timestamp created_at = 9;
+}
+
+message ListRegulatorySourcesResponse {
+  repeated RegulatorySourceSummary sources = 1;
+  int32 page = 2;
+  int32 page_size = 3;
+  int32 total_count = 4;
+}
+
+message RegulatorySourceDetails {
+  RegulatorySourceSummary summary = 1;
+  repeated RegulatorySourceVersionSummary versions = 2;
+}
+
 enum KnowledgeCategory {
   KNOWLEDGE_CATEGORY_UNSPECIFIED = 0;
   KNOWLEDGE_CATEGORY_SOP = 1;
@@ -240,6 +320,73 @@ message IngestKnowledgeSourceResponse {
   int32 chunk_count = 4;
   bool replayed = 5;
   google.protobuf.Timestamp received_at = 6;
+}
+
+message CreateKnowledgeCorpusVersionRequest {
+  string idempotency_key = 1;
+  string title = 2;
+  KnowledgeCategory category = 3;
+  string source_reference = 4;
+  string language_code = 5;
+  string version_label = 6;
+  string content_reference = 7;
+  string file_name = 8;
+  string mime_type = 9;
+  int64 size_bytes = 10;
+  string content_sha256 = 11;
+  RegulatorySourceVisibility visibility = 12;
+}
+
+message ListKnowledgeDocumentsRequest {
+  int32 page = 1;
+  int32 page_size = 2;
+  RegulatoryIngestionStatus status = 3;
+  KnowledgeCategory category = 4;
+}
+
+message GetKnowledgeDocumentRequest {
+  string knowledge_document_id = 1;
+}
+
+message KnowledgeDocumentVersionSummary {
+  string id = 1;
+  string version_label = 2;
+  RegulatoryIngestionStatus status = 3;
+  int32 chunk_count = 4;
+  int32 embedded_chunk_count = 5;
+  string file_name = 6;
+  string mime_type = 7;
+  int64 size_bytes = 8;
+  string content_sha256 = 9;
+  google.protobuf.Timestamp created_at = 10;
+  google.protobuf.Timestamp updated_at = 11;
+  google.protobuf.Timestamp completed_at = 12;
+  google.protobuf.Timestamp failed_at = 13;
+  string error_code = 14;
+  string error_message = 15;
+}
+
+message KnowledgeDocumentSummary {
+  string id = 1;
+  string title = 2;
+  KnowledgeCategory category = 3;
+  string source_reference = 4;
+  string language_code = 5;
+  RegulatorySourceVisibility visibility = 6;
+  KnowledgeDocumentVersionSummary latest_version = 7;
+  google.protobuf.Timestamp created_at = 8;
+}
+
+message ListKnowledgeDocumentsResponse {
+  repeated KnowledgeDocumentSummary documents = 1;
+  int32 page = 2;
+  int32 page_size = 3;
+  int32 total_count = 4;
+}
+
+message KnowledgeDocumentDetails {
+  KnowledgeDocumentSummary summary = 1;
+  repeated KnowledgeDocumentVersionSummary versions = 2;
 }
 
 message QueryKnowledgeRequest {
@@ -283,6 +430,7 @@ message GenerateGroundedAnswerRequest {
   repeated KnowledgeCategory categories = 6;
   int32 top_k = 7;
   double minimum_relevance_score = 8;
+  AssistantContext context = 9;
 }
 
 message GenerateGroundedAnswerResponse {
@@ -295,6 +443,19 @@ message GenerateGroundedAnswerResponse {
   repeated string missing_information = 7;
   AssistantGovernanceMetadata governance = 8;
   string retrieval_trace_id = 9;
+  AssistantContextSummary context = 10;
+}
+
+message AssistantContext {
+  string shipment_id = 1;
+  string evaluation_id = 2;
+}
+
+message AssistantContextSummary {
+  string shipment_id = 1;
+  string evaluation_id = 2;
+  string freshness = 3;
+  string snapshot_hash = 4;
 }
 
 message RegulatoryCitation {
@@ -373,4 +534,3 @@ message ValidateGroundedEvidenceResponse {
   bool insufficient_evidence = 5;
   repeated string missing_information = 6;
 }
-

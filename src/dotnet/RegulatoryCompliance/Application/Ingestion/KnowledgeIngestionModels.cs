@@ -25,6 +25,20 @@ public sealed record KnowledgeIngestionResult(
     bool Replayed,
     DateTimeOffset ReceivedAt);
 
+public sealed record KnowledgePendingOcrInput(
+    string IdempotencyKey,
+    string Title,
+    KnowledgeCategory Category,
+    string SourceReference,
+    string LanguageCode,
+    string VersionLabel,
+    string ContentReference,
+    string FileName,
+    string MimeType,
+    long SizeBytes,
+    string ContentSha256,
+    SourceVisibility Visibility);
+
 public sealed record KnowledgeEvidenceResult(
     Guid KnowledgeDocumentId,
     Guid DocumentVersionId,
@@ -41,6 +55,10 @@ public interface IKnowledgeIngestionService
 {
     Task<KnowledgeIngestionResult> IngestAsync(
         KnowledgeIngestionInput input,
+        CancellationToken cancellationToken = default);
+
+    Task<KnowledgeIngestionResult> CreatePendingOcrAsync(
+        KnowledgePendingOcrInput input,
         CancellationToken cancellationToken = default);
 
     Task<IReadOnlyList<KnowledgeEvidenceResult>> QueryAsync(

@@ -171,6 +171,61 @@ public sealed class KnowledgeIngestionService(
             now);
     }
 
+    public async Task<KnowledgeIngestionResult> CreatePendingOcrAsync(
+        KnowledgePendingOcrInput input,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(input);
+        Authorize(input.Visibility);
+        ValidatePendingMetadata(input);
+
+        var scopeKey = input.Visibility == SourceVisibility.Platform
+            ? Guid.Empty
+            : currentUser.TenantId!.Value;
+        var now = timeProvider.GetUtcNow();
+        var existing = await dbContext.KnowledgeDocumentVersions
+            .IgnoreQueryFilters()
+            .SingleOrDefaultAsync(version =>
+                version.ScopeKey == scopeKey && version.IngestionKey == input.IdempotencyKey.Trim(),
+                cancellationToken);
+        if (existing is not null)
+        {
+            if (existing.ContentSha256 != input.ContentSha256 ||
+                existing.VersionLabel != input.VersionLabel.Trim() ||
+                existing.FileName != input.FileName.Trim())
+                throw new InvalidOperationException("The idempotency key was already used with different content.");
+            return new KnowledgeIngestionResult(existing.KnowledgeDocumentId, existing.Id,
+                existing.IngestionStatus, existing.ChunkCount, true, now);
+        }
+
+        var document = await dbContext.KnowledgeDocuments
+            .IgnoreQueryFilters()
+            .Include(item => item.Versions)
+            .SingleOrDefaultAsync(item =>
+                item.ScopeKey == scopeKey && item.Title == input.Title.Trim() &&
+                item.Category == input.Category && item.LanguageCode == input.LanguageCode.Trim(),
+                cancellationToken);
+        document ??= input.Visibility == SourceVisibility.Platform
+            ? KnowledgeDocument.CreatePlatform(input.Category, input.Title, input.SourceReference,
+                input.LanguageCode, now)
+            : KnowledgeDocument.CreateTenant(scopeKey, input.Category, input.Title, input.SourceReference,
+                input.LanguageCode, now);
+        if (dbContext.Entry(document).State == EntityState.Detached)
+            dbContext.KnowledgeDocuments.Add(document);
+
+        var version = document.AddVersion(
+            input.IdempotencyKey, input.VersionLabel, input.ContentSha256, input.ContentReference,
+            input.FileName, input.MimeType, input.SizeBytes, now,
+            document.Versions.OrderByDescending(item => item.CreatedAt).FirstOrDefault()?.Id);
+        version.MarkPendingOcr(now);
+        if (dbContext.Entry(version).State == EntityState.Detached)
+            dbContext.KnowledgeDocumentVersions.Add(version);
+
+        await dbContext.SaveChangesAsync(cancellationToken);
+        return new KnowledgeIngestionResult(document.Id, version.Id,
+            version.IngestionStatus, 0, false, now);
+    }
+
     public async Task<IReadOnlyList<KnowledgeEvidenceResult>> QueryAsync(
         string query,
         IReadOnlyList<KnowledgeCategory> categories,
@@ -311,6 +366,10 @@ public sealed class KnowledgeIngestionService(
         if (!Enum.IsDefined(visibility))
             throw new ArgumentOutOfRangeException(nameof(visibility));
 
+        if (visibility == SourceVisibility.Tenant &&
+            (!currentUser.TenantId.HasValue || currentUser.TenantId == Guid.Empty))
+            throw new InvalidOperationException("Tenant ID is required for tenant knowledge.");
+
         if (currentUser.IsSystemAdmin() || currentUser.HasPermission(PlatformIngestionPermission))
             return;
 
@@ -328,8 +387,6 @@ public sealed class KnowledgeIngestionService(
             throw new UnauthorizedAccessException("Knowledge source ingestion permission is required.");
         }
 
-        if (visibility == SourceVisibility.Tenant && (!currentUser.TenantId.HasValue || currentUser.TenantId == Guid.Empty))
-            throw new InvalidOperationException("Tenant ID is required for tenant knowledge.");
     }
 
     private static void ValidateMetadata(KnowledgeIngestionInput input, byte[] contentBytes)
@@ -356,6 +413,48 @@ public sealed class KnowledgeIngestionService(
         var actualHash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(contentBytes)).ToLowerInvariant();
         if (!actualHash.Equals(input.ContentSha256, StringComparison.OrdinalIgnoreCase))
             throw new ArgumentException("ContentSha256 does not match the uploaded content.", nameof(input.ContentSha256));
+    }
+
+    private void ValidatePendingMetadata(KnowledgePendingOcrInput input)
+    {
+        if (string.IsNullOrWhiteSpace(input.IdempotencyKey) || input.IdempotencyKey.Length > 150)
+            throw new ArgumentException("IdempotencyKey is required.", nameof(input.IdempotencyKey));
+        if (string.IsNullOrWhiteSpace(input.Title) || input.Title.Length > 500)
+            throw new ArgumentException("Title is required.", nameof(input.Title));
+        if (!Enum.IsDefined(input.Category) || input.Category == KnowledgeCategory.Unspecified)
+            throw new ArgumentOutOfRangeException(nameof(input.Category));
+        if (string.IsNullOrWhiteSpace(input.SourceReference) || input.SourceReference.Length > 1_000)
+            throw new ArgumentException("SourceReference is required.", nameof(input.SourceReference));
+        if (string.IsNullOrWhiteSpace(input.LanguageCode) || input.LanguageCode.Length > 20)
+            throw new ArgumentException("LanguageCode is required.", nameof(input.LanguageCode));
+        if (string.IsNullOrWhiteSpace(input.VersionLabel) || input.VersionLabel.Length > 100)
+            throw new ArgumentException("VersionLabel is required.", nameof(input.VersionLabel));
+        ValidatePendingFile(input.ContentReference, input.FileName, input.MimeType,
+            input.SizeBytes, input.ContentSha256, input.Visibility, currentUser.TenantId);
+    }
+
+    private static void ValidatePendingFile(
+        string contentReference,
+        string fileName,
+        string mimeType,
+        long sizeBytes,
+        string contentSha256,
+        SourceVisibility visibility,
+        Guid? tenantId)
+    {
+        if (string.IsNullOrWhiteSpace(fileName) || fileName.Length > 255)
+            throw new ArgumentException("FileName is required.", nameof(fileName));
+        if (string.IsNullOrWhiteSpace(contentReference) ||
+            Path.IsPathRooted(contentReference) || contentReference.Contains("..", StringComparison.Ordinal) ||
+            contentReference.Contains("://", StringComparison.Ordinal) ||
+            (visibility == SourceVisibility.Tenant &&
+                (!tenantId.HasValue || !contentReference.StartsWith($"tenants/{tenantId}/documents/", StringComparison.Ordinal))) ||
+            (visibility == SourceVisibility.Platform && !contentReference.StartsWith("platform/", StringComparison.Ordinal)))
+            throw new ArgumentException("ContentReference must be an approved upload storage key.", nameof(contentReference));
+        if (sizeBytes <= 0 || sizeBytes > 100 * 1024 * 1024)
+            throw new ArgumentOutOfRangeException(nameof(sizeBytes));
+        if (contentSha256.Length != 64 || contentSha256.Any(value => !Uri.IsHexDigit(value)))
+            throw new ArgumentException("ContentSha256 must be a 64-character hexadecimal hash.", nameof(contentSha256));
     }
 
     private static void ValidateQuery(

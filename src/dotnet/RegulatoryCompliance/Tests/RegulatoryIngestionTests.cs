@@ -57,6 +57,41 @@ public sealed class RegulatoryIngestionTests
     }
 
     [Fact]
+    public async Task PendingOcrIntakeCreatesVersionAndReplaysSafely()
+    {
+        var tenantId = Guid.CreateVersion7();
+        var currentUser = CurrentUser(tenantId, RegulatoryIngestionService.TenantIngestionPermission);
+        await using var context = CreateContext(currentUser);
+        var service = CreateService(context, currentUser);
+        var input = CreatePendingInput(tenantId);
+
+        var first = await service.CreatePendingOcrAsync(input);
+        var replay = await service.CreatePendingOcrAsync(input);
+
+        Assert.False(first.Replayed);
+        Assert.Equal(RegulatoryIngestionStatus.PendingOcr, first.Status);
+        Assert.Equal(first.DocumentVersionId, replay.DocumentVersionId);
+        Assert.True(replay.Replayed);
+        Assert.Equal(RegulatoryIngestionStatus.PendingOcr,
+            (await context.RegulatoryDocumentVersions.SingleAsync()).IngestionStatus);
+    }
+
+    [Fact]
+    public async Task PendingOcrIntakeRejectsIdempotencyReuseWithDifferentFile()
+    {
+        var tenantId = Guid.CreateVersion7();
+        var currentUser = CurrentUser(tenantId, RegulatoryIngestionService.TenantIngestionPermission);
+        await using var context = CreateContext(currentUser);
+        var service = CreateService(context, currentUser);
+        var input = CreatePendingInput(tenantId);
+
+        await service.CreatePendingOcrAsync(input);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => service.CreatePendingOcrAsync(
+            input with { ContentSha256 = new string('a', 64), SizeBytes = input.SizeBytes + 1 }));
+    }
+
+    [Fact]
     public async Task MissingPermissionTenantAndUnsafeMetadataAreRejected()
     {
         var noPermissionUser = CurrentUser(Guid.CreateVersion7());
@@ -66,8 +101,10 @@ public sealed class RegulatoryIngestionTests
 
         var noTenantUser = CurrentUser(null, RegulatoryIngestionService.TenantIngestionPermission);
         await using var noTenantContext = CreateContext(noTenantUser);
+        var noTenantService = CreateService(noTenantContext, noTenantUser);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => noTenantService.IngestAsync(CreateInput("Rule text.")));
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            CreateService(noTenantContext, noTenantUser).IngestAsync(CreateInput("Rule text.")));
+            noTenantService.CreatePendingOcrAsync(CreatePendingInput(Guid.CreateVersion7())));
 
         var unsafeUser = CurrentUser(
             Guid.CreateVersion7(), RegulatoryIngestionService.TenantIngestionPermission);
@@ -187,6 +224,25 @@ public sealed class RegulatoryIngestionTests
 
     private static string Sha256(byte[] bytes) =>
         Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
+
+    private static RegulatoryPendingOcrInput CreatePendingInput(Guid tenantId) => new(
+        "corpus-001",
+        "Customs Authority",
+        "Dangerous Goods Rule",
+        "https://regulations.example/dangerous-goods",
+        "VN",
+        RegulationType.DangerousGoods,
+        "en",
+        "2026.1",
+        Now.AddDays(-30),
+        Now.AddDays(-1),
+        null,
+        $"tenants/{tenantId}/documents/{Guid.CreateVersion7()}/rule.pdf",
+        "rule.pdf",
+        "application/pdf",
+        128,
+        new string('b', 64),
+        SourceVisibility.Tenant);
 
     private sealed class FailingChunker : IRegulatoryChunker
     {

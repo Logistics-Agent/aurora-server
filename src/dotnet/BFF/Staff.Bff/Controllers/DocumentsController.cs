@@ -8,6 +8,7 @@ using DocumentOcr.Grpc;
 using Google.Protobuf;
 using Google.Protobuf.WellKnownTypes;
 using Grpc.Core;
+using GrpcStatusCode = Grpc.Core.StatusCode;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using RegulatoryCompliance.Grpc;
@@ -212,6 +213,215 @@ public sealed class DocumentsController(
                 retryable: false));
         }
     }
+
+    [HttpPost("corpus-intakes")]
+    [RequirePermission(PermissionConstants.Documents.Ingest)]
+    [ProducesResponseType(typeof(CorpusIntakeResponse), StatusCodes.Status202Accepted)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status503ServiceUnavailable)]
+    [DocumentProblemContract(DocumentEndpointProblemContracts.CreateDocumentIntake)]
+    public async Task<IActionResult> CreateCorpusIntake(
+        [FromBody] CreateCorpusIntakeBody request,
+        CancellationToken cancellationToken)
+    {
+        if (!HasTrustedTenant())
+            return Unauthorized(DocumentsContract.CreateTenantContextRequiredProblemDetails());
+
+        if (request is null)
+            return BadRequest(DocumentsContract.CreateProblemDetails(
+                DocumentProblemContractCatalog.InvalidRequestCode,
+                "The corpus intake request is required.",
+                StatusCodes.Status400BadRequest,
+                retryable: false));
+
+        if (!TryParseCorpusPurpose(request.Purpose, out var purpose) ||
+            !Guid.TryParse(request.UploadId, out var uploadId) || uploadId == Guid.Empty ||
+            string.IsNullOrWhiteSpace(request.IdempotencyKey) || string.IsNullOrWhiteSpace(request.Title) ||
+            string.IsNullOrWhiteSpace(request.VersionLabel) ||
+            (purpose == DocumentOcrPurpose.KnowledgeCorpus &&
+                (!System.Enum.IsDefined(typeof(KnowledgeCategory), request.Category) ||
+                 request.Category == 0 || string.IsNullOrWhiteSpace(request.SourceReference))) ||
+            (purpose == DocumentOcrPurpose.RegulatoryCorpus &&
+                (!System.Enum.IsDefined(typeof(RegulationType), request.RegulationType) ||
+                 request.RegulationType == 0 || string.IsNullOrWhiteSpace(request.CanonicalSourceUri))))
+        {
+            return BadRequest(DocumentsContract.CreateProblemDetails(
+                DocumentProblemContractCatalog.InvalidRequestCode,
+                "UploadId, purpose, idempotency key, title, version label, and valid corpus metadata are required.",
+                StatusCodes.Status400BadRequest,
+                retryable: false));
+        }
+
+        try
+        {
+            var receipt = await documentOcrClient.VerifyUploadSessionAsync(
+                new VerifyUploadSessionRequest { UploadId = uploadId.ToString() },
+                cancellationToken: cancellationToken);
+            if (receipt.Status is not (DocumentUploadStatus.Uploaded or DocumentUploadStatus.Consumed))
+                return Conflict(DocumentsContract.CreateProblemDetails(
+                    DocumentProblemContractCatalog.UploadNotVerified));
+
+            var contentReference = receipt.StorageReference;
+            var fileName = receipt.FileName;
+            var mimeType = string.IsNullOrWhiteSpace(receipt.VerifiedMimeType)
+                ? receipt.MimeType
+                : receipt.VerifiedMimeType;
+            var sizeBytes = receipt.VerifiedSizeBytes > 0 ? receipt.VerifiedSizeBytes : receipt.SizeBytes;
+            var contentSha256 = string.IsNullOrWhiteSpace(receipt.VerifiedContentSha256)
+                ? receipt.ContentSha256
+                : receipt.VerifiedContentSha256;
+            if (string.IsNullOrWhiteSpace(contentReference) || string.IsNullOrWhiteSpace(fileName) ||
+                string.IsNullOrWhiteSpace(mimeType) || sizeBytes <= 0 || string.IsNullOrWhiteSpace(contentSha256))
+            {
+                return UnprocessableEntity(DocumentsContract.CreateProblemDetails(
+                    DocumentProblemContractCatalog.UploadInvalid));
+            }
+
+            var corpusVersionId = purpose == DocumentOcrPurpose.RegulatoryCorpus
+                ? await CreateRegulatoryCorpusVersionAsync(request, contentReference, fileName, mimeType,
+                    sizeBytes, contentSha256, cancellationToken)
+                : await CreateKnowledgeCorpusVersionAsync(request, contentReference, fileName, mimeType,
+                    sizeBytes, contentSha256, cancellationToken);
+
+            var ocrJob = await documentOcrClient.CreateDocumentIntakeAsync(
+                new CreateDocumentIntakeRequest
+                {
+                    UploadId = uploadId.ToString(),
+                    IdempotencyKey = request.IdempotencyKey.Trim(),
+                    DocumentTypeHint = OcrDocumentType.Other,
+                    Purpose = purpose,
+                    ExternalReference = corpusVersionId.VersionId.ToString(),
+                    CorrelationId = HttpContext.TraceIdentifier
+                },
+                cancellationToken: cancellationToken);
+
+            return Accepted(new CorpusIntakeResponse(
+                corpusVersionId.DocumentId,
+                corpusVersionId.VersionId,
+                purpose == DocumentOcrPurpose.RegulatoryCorpus ? "REGULATORY" : "KNOWLEDGE",
+                ParseRequiredGuid(ocrJob.JobId, "OCR job id"),
+                DocumentsContract.MapStatus(ocrJob.Status, ocrJob.NeedsReview),
+                DocumentsContract.MapStage(ocrJob.Status)));
+        }
+        catch (RpcException exception) when (DocumentsContract.IsUnavailable(exception.StatusCode))
+        {
+            return StatusCode(StatusCodes.Status503ServiceUnavailable,
+                DocumentsContract.CreateUnavailableProblemDetails());
+        }
+        catch (RpcException exception) when (exception.StatusCode == GrpcStatusCode.PermissionDenied)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, DocumentsContract.CreateProblemDetails(
+                "CORPUS_INGEST_FORBIDDEN", "Corpus ingestion permission is required.",
+                StatusCodes.Status403Forbidden, retryable: false));
+        }
+        catch (RpcException exception) when (exception.StatusCode == GrpcStatusCode.Unauthenticated)
+        {
+            return Unauthorized(DocumentsContract.CreateTenantContextRequiredProblemDetails());
+        }
+        catch (RpcException exception) when (exception.StatusCode == GrpcStatusCode.AlreadyExists)
+        {
+            return Conflict(DocumentsContract.CreateProblemDetails(
+                DocumentProblemContractCatalog.IdempotencyConflict));
+        }
+        catch (RpcException exception) when (exception.StatusCode == GrpcStatusCode.NotFound)
+        {
+            return NotFound(DocumentsContract.CreateProblemDetails(
+                DocumentProblemContractCatalog.UploadNotFound));
+        }
+        catch (RpcException exception) when (exception.StatusCode == GrpcStatusCode.FailedPrecondition)
+        {
+            var error = DocumentUploadErrorMapper.Map(exception);
+            return StatusCode(error.StatusCode, DocumentsContract.CreateProblemDetails(error));
+        }
+        catch (RpcException exception) when (exception.StatusCode == GrpcStatusCode.InvalidArgument)
+        {
+            return BadRequest(DocumentsContract.CreateProblemDetails(
+                DocumentProblemContractCatalog.InvalidRequestCode, exception.Status.Detail,
+                StatusCodes.Status400BadRequest, retryable: false));
+        }
+    }
+
+    private async Task<(Guid DocumentId, Guid VersionId)> CreateRegulatoryCorpusVersionAsync(
+        CreateCorpusIntakeBody request,
+        string contentReference,
+        string fileName,
+        string mimeType,
+        long sizeBytes,
+        string contentSha256,
+        CancellationToken cancellationToken)
+    {
+        var publishedAt = request.PublishedAt ?? DateTimeOffset.UtcNow;
+        var effectiveFrom = request.EffectiveFrom ?? publishedAt;
+        var response = await regulatoryClient.CreateRegulatoryCorpusVersionAsync(
+            new CreateRegulatoryCorpusVersionRequest
+            {
+                IdempotencyKey = request.IdempotencyKey.Trim(),
+                Authority = request.Authority?.Trim() ?? string.Empty,
+                Title = request.Title.Trim(),
+                CanonicalSourceUri = request.CanonicalSourceUri!.Trim(),
+                JurisdictionCode = request.JurisdictionCode?.Trim() ?? string.Empty,
+                RegulationType = (RegulationType)request.RegulationType,
+                LanguageCode = request.LanguageCode?.Trim() ?? "en",
+                VersionLabel = request.VersionLabel.Trim(),
+                PublishedAt = Timestamp.FromDateTimeOffset(publishedAt),
+                EffectiveFrom = Timestamp.FromDateTimeOffset(effectiveFrom),
+                ContentReference = contentReference,
+                FileName = fileName,
+                MimeType = mimeType,
+                SizeBytes = sizeBytes,
+                ContentSha256 = contentSha256,
+                Visibility = RegulatorySourceVisibility.Tenant
+            },
+            cancellationToken: cancellationToken);
+        return ParseCorpusIds(response.RegulatoryDocumentId, response.DocumentVersionId);
+    }
+
+    private async Task<(Guid DocumentId, Guid VersionId)> CreateKnowledgeCorpusVersionAsync(
+        CreateCorpusIntakeBody request,
+        string contentReference,
+        string fileName,
+        string mimeType,
+        long sizeBytes,
+        string contentSha256,
+        CancellationToken cancellationToken)
+    {
+        var response = await regulatoryClient.CreateKnowledgeCorpusVersionAsync(
+            new CreateKnowledgeCorpusVersionRequest
+            {
+                IdempotencyKey = request.IdempotencyKey.Trim(),
+                Title = request.Title.Trim(),
+                Category = (KnowledgeCategory)request.Category,
+                SourceReference = request.SourceReference?.Trim() ?? string.Empty,
+                LanguageCode = request.LanguageCode?.Trim() ?? "en",
+                VersionLabel = request.VersionLabel.Trim(),
+                ContentReference = contentReference,
+                FileName = fileName,
+                MimeType = mimeType,
+                SizeBytes = sizeBytes,
+                ContentSha256 = contentSha256,
+                Visibility = RegulatorySourceVisibility.Tenant
+            },
+            cancellationToken: cancellationToken);
+        return ParseCorpusIds(response.KnowledgeDocumentId, response.DocumentVersionId);
+    }
+
+    private static (Guid DocumentId, Guid VersionId) ParseCorpusIds(string documentId, string versionId) =>
+        Guid.TryParse(documentId, out var parsedDocumentId) && parsedDocumentId != Guid.Empty &&
+        Guid.TryParse(versionId, out var parsedVersionId) && parsedVersionId != Guid.Empty
+            ? (parsedDocumentId, parsedVersionId)
+            : throw new RpcException(new Status(GrpcStatusCode.InvalidArgument, "Corpus service returned invalid identifiers."));
+
+    private static Guid ParseRequiredGuid(string value, string fieldName) =>
+        Guid.TryParse(value, out var parsed) && parsed != Guid.Empty
+            ? parsed
+            : throw new RpcException(new Status(GrpcStatusCode.InvalidArgument, $"{fieldName} is invalid."));
+
+    private static bool TryParseCorpusPurpose(string? value, out DocumentOcrPurpose purpose) =>
+        DocumentsContract.TryParsePurpose(value, out purpose) &&
+        purpose is DocumentOcrPurpose.RegulatoryCorpus or DocumentOcrPurpose.KnowledgeCorpus;
 
     // ──────────────────────────────────────────────────────────────────────────
     // BOX 1: SHIPMENT DOCUMENTS (Transaction-Only, Structured Extraction)
@@ -995,6 +1205,145 @@ public sealed class DocumentsController(
             response.Status == RegulatoryIngestionStatus.Completed ? DateTimeOffset.UtcNow : null));
     }
 
+    [HttpGet("regulatory-sources")]
+    [RequirePermission(PermissionConstants.Documents.Read)]
+    [ProducesResponseType(typeof(CorpusCatalogPageResponse<RegulatorySourceCatalogResponse>), 200)]
+    public async Task<IActionResult> ListRegulatorySources(
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20,
+        [FromQuery] string? status = null,
+        [FromQuery] string? jurisdictionCode = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryParseIngestionStatus(status, out var parsedStatus))
+            return BadRequest(DocumentsContract.CreateProblemDetails(
+                "INVALID_STATUS", "Status is invalid.", StatusCodes.Status400BadRequest, retryable: false));
+
+        try
+        {
+            var response = await regulatoryClient.ListRegulatorySourcesAsync(new ListRegulatorySourcesRequest
+            {
+                Page = page,
+                PageSize = pageSize,
+                Status = parsedStatus,
+                JurisdictionCode = jurisdictionCode ?? string.Empty
+            }, cancellationToken: cancellationToken);
+
+            return Ok(new CorpusCatalogPageResponse<RegulatorySourceCatalogResponse>(
+                response.Sources.Select(MapRegulatorySource).ToArray(),
+                response.Page,
+                response.PageSize,
+                response.TotalCount));
+        }
+        catch (RpcException exception)
+        {
+            return MapCorpusRpcError(exception, "Unable to list regulatory sources.");
+        }
+    }
+
+    [HttpGet("regulatory-sources/{id:guid}")]
+    [RequirePermission(PermissionConstants.Documents.Read)]
+    [ProducesResponseType(typeof(RegulatorySourceDetailsResponse), 200)]
+    public async Task<IActionResult> GetRegulatorySource(Guid id, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var response = await regulatoryClient.GetRegulatorySourceAsync(new GetRegulatorySourceRequest
+            {
+                RegulatoryDocumentId = id.ToString()
+            }, cancellationToken: cancellationToken);
+            return Ok(MapRegulatoryDetails(response));
+        }
+        catch (RpcException exception)
+        {
+            return MapCorpusRpcError(exception, "Unable to load regulatory source.");
+        }
+    }
+
+    [HttpGet("regulatory-sources/{id:guid}/status")]
+    [RequirePermission(PermissionConstants.Documents.Read)]
+    [ProducesResponseType(typeof(CorpusVersionStatusResponse), 200)]
+    public async Task<IActionResult> GetRegulatorySourceStatus(Guid id, CancellationToken cancellationToken)
+    {
+        var result = await GetRegulatorySource(id, cancellationToken);
+        if (result is not OkObjectResult { Value: RegulatorySourceDetailsResponse details })
+            return result;
+        return Ok(details.LatestVersion ?? new CorpusVersionStatusResponse(
+            null, null, "UNKNOWN", 0, 0, null, null, 0, null, null, null, null, null, null, null));
+    }
+
+    [HttpGet("knowledge-documents")]
+    [RequirePermission(PermissionConstants.Documents.Read)]
+    [ProducesResponseType(typeof(CorpusCatalogPageResponse<KnowledgeDocumentCatalogResponse>), 200)]
+    public async Task<IActionResult> ListKnowledgeDocuments(
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20,
+        [FromQuery] string? status = null,
+        [FromQuery] int? category = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryParseIngestionStatus(status, out var parsedStatus))
+            return BadRequest(DocumentsContract.CreateProblemDetails(
+                "INVALID_STATUS", "Status is invalid.", StatusCodes.Status400BadRequest, retryable: false));
+        if (category.HasValue && !System.Enum.IsDefined(typeof(KnowledgeCategory), category.Value))
+            return BadRequest(DocumentsContract.CreateProblemDetails(
+                "INVALID_CATEGORY", "Category is invalid.", StatusCodes.Status400BadRequest, retryable: false));
+
+        try
+        {
+            var response = await regulatoryClient.ListKnowledgeDocumentsAsync(new ListKnowledgeDocumentsRequest
+            {
+                Page = page,
+                PageSize = pageSize,
+                Status = parsedStatus,
+                Category = category.HasValue
+                    ? (KnowledgeCategory)category.Value
+                    : KnowledgeCategory.Unspecified
+            }, cancellationToken: cancellationToken);
+
+            return Ok(new CorpusCatalogPageResponse<KnowledgeDocumentCatalogResponse>(
+                response.Documents.Select(MapKnowledgeDocument).ToArray(),
+                response.Page,
+                response.PageSize,
+                response.TotalCount));
+        }
+        catch (RpcException exception)
+        {
+            return MapCorpusRpcError(exception, "Unable to list knowledge documents.");
+        }
+    }
+
+    [HttpGet("knowledge-documents/{id:guid}")]
+    [RequirePermission(PermissionConstants.Documents.Read)]
+    [ProducesResponseType(typeof(KnowledgeDocumentDetailsResponse), 200)]
+    public async Task<IActionResult> GetKnowledgeDocument(Guid id, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var response = await regulatoryClient.GetKnowledgeDocumentAsync(new GetKnowledgeDocumentRequest
+            {
+                KnowledgeDocumentId = id.ToString()
+            }, cancellationToken: cancellationToken);
+            return Ok(MapKnowledgeDetails(response));
+        }
+        catch (RpcException exception)
+        {
+            return MapCorpusRpcError(exception, "Unable to load knowledge document.");
+        }
+    }
+
+    [HttpGet("knowledge-documents/{id:guid}/status")]
+    [RequirePermission(PermissionConstants.Documents.Read)]
+    [ProducesResponseType(typeof(CorpusVersionStatusResponse), 200)]
+    public async Task<IActionResult> GetKnowledgeDocumentStatus(Guid id, CancellationToken cancellationToken)
+    {
+        var result = await GetKnowledgeDocument(id, cancellationToken);
+        if (result is not OkObjectResult { Value: KnowledgeDocumentDetailsResponse details })
+            return result;
+        return Ok(details.LatestVersion ?? new CorpusVersionStatusResponse(
+            null, null, "UNKNOWN", 0, 0, null, null, 0, null, null, null, null, null, null, null));
+    }
+
     /// <summary>
     /// Box 3: Query knowledge corpus (SOPs, Guides, Contracts for PLATFORM + TENANT).
     /// </summary>
@@ -1179,12 +1528,125 @@ public sealed class DocumentsController(
         }
     }
 
+    private static bool TryParseIngestionStatus(
+        string? value,
+        out RegulatoryIngestionStatus status)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            status = RegulatoryIngestionStatus.Unspecified;
+            return true;
+        }
+
+        return System.Enum.TryParse(value.Trim(), ignoreCase: true, out status) &&
+               System.Enum.IsDefined(status);
+    }
+
+    private IActionResult MapCorpusRpcError(RpcException exception, string fallbackDetail) =>
+        exception.StatusCode switch
+        {
+            GrpcStatusCode.NotFound => NotFound(DocumentsContract.CreateProblemDetails(
+                "CORPUS_NOT_FOUND", fallbackDetail, StatusCodes.Status404NotFound, retryable: false)),
+            GrpcStatusCode.InvalidArgument => BadRequest(DocumentsContract.CreateProblemDetails(
+                "INVALID_CORPUS_REQUEST", exception.Status.Detail, StatusCodes.Status400BadRequest, retryable: false)),
+            GrpcStatusCode.Unauthenticated => Unauthorized(DocumentsContract.CreateTenantContextRequiredProblemDetails()),
+            GrpcStatusCode.PermissionDenied => StatusCode(StatusCodes.Status403Forbidden, DocumentsContract.CreateProblemDetails(
+                "FORBIDDEN", exception.Status.Detail, StatusCodes.Status403Forbidden, retryable: false)),
+            _ when DocumentsContract.IsUnavailable(exception.StatusCode) => StatusCode(
+                StatusCodes.Status503ServiceUnavailable, DocumentsContract.CreateUnavailableProblemDetails()),
+            _ => StatusCode(StatusCodes.Status500InternalServerError, DocumentsContract.CreateProblemDetails(
+                "CORPUS_UNAVAILABLE", fallbackDetail, StatusCodes.Status500InternalServerError, retryable: true))
+        };
+
+    private static RegulatorySourceCatalogResponse MapRegulatorySource(RegulatorySourceSummary source) =>
+        new(
+            source.Id,
+            source.Title,
+            source.Authority,
+            source.JurisdictionCode,
+            source.RegulationType.ToString(),
+            source.LanguageCode,
+            source.Visibility.ToString(),
+            source.CreatedAt.ToDateTimeOffset(),
+            source.LatestVersion is not null ? MapCorpusVersion(source.LatestVersion) : null);
+
+    private static RegulatorySourceDetailsResponse MapRegulatoryDetails(RegulatorySourceDetails source) =>
+        new(
+            MapRegulatorySource(source.Summary),
+            source.Versions.Select(MapCorpusVersion).ToArray());
+
+    private static KnowledgeDocumentCatalogResponse MapKnowledgeDocument(KnowledgeDocumentSummary document) =>
+        new(
+            document.Id,
+            document.Title,
+            document.Category.ToString(),
+            document.SourceReference,
+            document.LanguageCode,
+            document.Visibility.ToString(),
+            document.CreatedAt.ToDateTimeOffset(),
+            document.LatestVersion is not null ? MapCorpusVersion(document.LatestVersion) : null);
+
+    private static KnowledgeDocumentDetailsResponse MapKnowledgeDetails(KnowledgeDocumentDetails document) =>
+        new(
+            MapKnowledgeDocument(document.Summary),
+            document.Versions.Select(MapCorpusVersion).ToArray());
+
+    private static CorpusVersionStatusResponse MapCorpusVersion(
+        RegulatorySourceVersionSummary version) =>
+        new(
+            version.Id,
+            version.VersionLabel,
+            MapIngestionStatusName(version.Status),
+            version.ChunkCount,
+            version.EmbeddedChunkCount,
+            version.FileName,
+            version.MimeType,
+            version.SizeBytes,
+            version.ContentSha256,
+            version.CreatedAt.ToDateTimeOffset(),
+            version.UpdatedAt?.ToDateTimeOffset(),
+            version.CompletedAt?.ToDateTimeOffset(),
+            version.FailedAt?.ToDateTimeOffset(),
+            string.IsNullOrWhiteSpace(version.ErrorCode) ? null : version.ErrorCode,
+            string.IsNullOrWhiteSpace(version.ErrorMessage) ? null : version.ErrorMessage);
+
+    private static CorpusVersionStatusResponse MapCorpusVersion(
+        KnowledgeDocumentVersionSummary version) =>
+        new(
+            version.Id,
+            version.VersionLabel,
+            MapIngestionStatusName(version.Status),
+            version.ChunkCount,
+            version.EmbeddedChunkCount,
+            version.FileName,
+            version.MimeType,
+            version.SizeBytes,
+            version.ContentSha256,
+            version.CreatedAt.ToDateTimeOffset(),
+            version.UpdatedAt?.ToDateTimeOffset(),
+            version.CompletedAt?.ToDateTimeOffset(),
+            version.FailedAt?.ToDateTimeOffset(),
+            string.IsNullOrWhiteSpace(version.ErrorCode) ? null : version.ErrorCode,
+            string.IsNullOrWhiteSpace(version.ErrorMessage) ? null : version.ErrorMessage);
+
+    private static string MapIngestionStatusName(RegulatoryIngestionStatus status) =>
+        status switch
+        {
+            RegulatoryIngestionStatus.Pending => "PENDING",
+            RegulatoryIngestionStatus.Processing => "PROCESSING",
+            RegulatoryIngestionStatus.Completed => "COMPLETED",
+            RegulatoryIngestionStatus.Failed => "FAILED",
+            RegulatoryIngestionStatus.PendingOcr => "PENDING_OCR",
+            _ => "UNKNOWN"
+        };
+
     private static (string status, string? stage) MapIngestionStatus(RegulatoryIngestionStatus status) => status switch
     {
         RegulatoryIngestionStatus.Pending => ("RECEIVED", "RECEIVING"),
         RegulatoryIngestionStatus.Processing => ("PROCESSING", "EMBEDDING"),
         RegulatoryIngestionStatus.Completed => ("READY", "READY"),
         RegulatoryIngestionStatus.Failed => ("FAILED", null),
+        RegulatoryIngestionStatus.PendingOcr => ("PROCESSING", "OCR"),
         _ => ("PROCESSING", "INDEXING")
     };
 }
@@ -1206,6 +1668,64 @@ public sealed record UnifiedDocumentStatusResponse(
     string? ErrorMessage,
     DateTimeOffset? CreatedAt,
     DateTimeOffset? UpdatedAt);
+
+public sealed record CorpusCatalogPageResponse<T>(
+    IReadOnlyList<T> Items,
+    int Page,
+    int PageSize,
+    int TotalCount);
+
+public sealed record CorpusVersionStatusResponse(
+    string? Id,
+    string? VersionLabel,
+    string Status,
+    int ChunkCount,
+    int EmbeddedChunkCount,
+    string? FileName,
+    string? MimeType,
+    long SizeBytes,
+    string? ContentSha256,
+    DateTimeOffset? CreatedAt,
+    DateTimeOffset? UpdatedAt,
+    DateTimeOffset? CompletedAt,
+    DateTimeOffset? FailedAt,
+    string? ErrorCode,
+    string? ErrorMessage);
+
+public sealed record RegulatorySourceCatalogResponse(
+    string Id,
+    string Title,
+    string Authority,
+    string JurisdictionCode,
+    string RegulationType,
+    string LanguageCode,
+    string Visibility,
+    DateTimeOffset CreatedAt,
+    CorpusVersionStatusResponse? LatestVersion);
+
+public sealed record RegulatorySourceDetailsResponse(
+    RegulatorySourceCatalogResponse Summary,
+    IReadOnlyList<CorpusVersionStatusResponse> Versions)
+{
+    public CorpusVersionStatusResponse? LatestVersion => Summary.LatestVersion;
+}
+
+public sealed record KnowledgeDocumentCatalogResponse(
+    string Id,
+    string Title,
+    string Category,
+    string SourceReference,
+    string LanguageCode,
+    string Visibility,
+    DateTimeOffset CreatedAt,
+    CorpusVersionStatusResponse? LatestVersion);
+
+public sealed record KnowledgeDocumentDetailsResponse(
+    KnowledgeDocumentCatalogResponse Summary,
+    IReadOnlyList<CorpusVersionStatusResponse> Versions)
+{
+    public CorpusVersionStatusResponse? LatestVersion => Summary.LatestVersion;
+}
 
 public sealed record SubmitShipmentDocumentRequest(
     string IdempotencyKey,
@@ -1230,6 +1750,31 @@ public sealed record CreateDocumentIntakeBody(
     string IdempotencyKey,
     string? Purpose = null,
     string? ExternalReference = null);
+
+public sealed record CreateCorpusIntakeBody(
+    string UploadId,
+    string Purpose,
+    string IdempotencyKey,
+    string Title,
+    string? Authority = null,
+    string? CanonicalSourceUri = null,
+    string? JurisdictionCode = null,
+    int RegulationType = 0,
+    int Category = 0,
+    string? SourceReference = null,
+    string? LanguageCode = null,
+    string VersionLabel = "1.0",
+    DateTimeOffset? PublishedAt = null,
+    DateTimeOffset? EffectiveFrom = null,
+    DateTimeOffset? EffectiveTo = null);
+
+public sealed record CorpusIntakeResponse(
+    Guid CorpusDocumentId,
+    Guid CorpusVersionId,
+    string CorpusType,
+    Guid OcrJobId,
+    string Status,
+    string? Stage);
 
 public sealed record DocumentUploadSessionResponse(
     Guid UploadId,

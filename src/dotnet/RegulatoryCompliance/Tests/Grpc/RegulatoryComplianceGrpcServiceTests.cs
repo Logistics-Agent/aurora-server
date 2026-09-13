@@ -187,6 +187,12 @@ public sealed class RegulatoryComplianceGrpcServiceTests
 
     private sealed class FakeKnowledgeIngestionService : IKnowledgeIngestionService
     {
+        public Task<KnowledgeIngestionResult> CreatePendingOcrAsync(
+            KnowledgePendingOcrInput input,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(new KnowledgeIngestionResult(
+                Guid.CreateVersion7(), Guid.CreateVersion7(), RegulatoryIngestionStatus.PendingOcr, 0, false, Now));
+
         public Task<KnowledgeIngestionResult> IngestAsync(
             KnowledgeIngestionInput input,
             CancellationToken cancellationToken = default) =>
@@ -215,6 +221,11 @@ public sealed class RegulatoryComplianceGrpcServiceTests
             LastInput = input;
             return Task.FromResult(Result);
         }
+
+        public Task<RegulatoryIngestionResult> CreatePendingOcrAsync(
+            RegulatoryPendingOcrInput input,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(Result with { Status = RegulatoryIngestionStatus.PendingOcr, ChunkCount = 0 });
     }
 
     private sealed class FakeRetrievalService : IRegulationRetrievalService
@@ -298,6 +309,11 @@ public sealed class RegulatoryComplianceGrpcServiceTests
     {
         public Task<RegulatoryIngestionResult> IngestAsync(
             RegulatoryIngestionInput input,
+            CancellationToken cancellationToken = default) =>
+            throw new InvalidOperationException("Tenant context is required.");
+
+        public Task<RegulatoryIngestionResult> CreatePendingOcrAsync(
+            RegulatoryPendingOcrInput input,
             CancellationToken cancellationToken = default) =>
             throw new InvalidOperationException("Tenant context is required.");
     }
