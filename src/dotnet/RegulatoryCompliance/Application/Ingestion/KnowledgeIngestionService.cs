@@ -366,6 +366,10 @@ public sealed class KnowledgeIngestionService(
         if (!Enum.IsDefined(visibility))
             throw new ArgumentOutOfRangeException(nameof(visibility));
 
+        if (visibility == SourceVisibility.Tenant &&
+            (!currentUser.TenantId.HasValue || currentUser.TenantId == Guid.Empty))
+            throw new InvalidOperationException("Tenant ID is required for tenant knowledge.");
+
         if (currentUser.IsSystemAdmin() || currentUser.HasPermission(PlatformIngestionPermission))
             return;
 
@@ -383,8 +387,6 @@ public sealed class KnowledgeIngestionService(
             throw new UnauthorizedAccessException("Knowledge source ingestion permission is required.");
         }
 
-        if (visibility == SourceVisibility.Tenant && (!currentUser.TenantId.HasValue || currentUser.TenantId == Guid.Empty))
-            throw new InvalidOperationException("Tenant ID is required for tenant knowledge.");
     }
 
     private static void ValidateMetadata(KnowledgeIngestionInput input, byte[] contentBytes)

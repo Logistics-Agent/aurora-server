@@ -196,6 +196,10 @@ public sealed class RegulatoryIngestionService(
         if (!Enum.IsDefined(visibility))
             throw new ArgumentOutOfRangeException(nameof(visibility));
 
+        if (visibility == SourceVisibility.Tenant &&
+            (!currentUser.TenantId.HasValue || currentUser.TenantId == Guid.Empty))
+            throw new InvalidOperationException("Tenant context is required for tenant source ingestion.");
+
         if (currentUser.IsSystemAdmin() || currentUser.HasPermission(PlatformIngestionPermission))
             return;
 
@@ -213,9 +217,6 @@ public sealed class RegulatoryIngestionService(
             throw new UnauthorizedAccessException("Regulatory source ingestion permission is required.");
         }
 
-        if (visibility == SourceVisibility.Tenant &&
-            (!currentUser.TenantId.HasValue || currentUser.TenantId == Guid.Empty))
-            throw new InvalidOperationException("Tenant context is required for tenant source ingestion.");
     }
 
     private static void ValidateMetadata(RegulatoryIngestionInput input)

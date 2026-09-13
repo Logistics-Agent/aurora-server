@@ -67,6 +67,30 @@ public sealed class KnowledgeIngestionTests
         Assert.True(replay.Replayed);
     }
 
+    [Fact]
+    public async Task TenantlessUserCannotCreatePendingOcrKnowledgeVersion()
+    {
+        var currentUser = CurrentUser(null, "documents:ingest");
+        await using var context = CreateContext(currentUser);
+        var service = CreateService(context, currentUser);
+        var tenantId = Guid.CreateVersion7();
+        var input = new KnowledgePendingOcrInput(
+            "knowledge-pending-tenantless",
+            "Warehouse SOP",
+            KnowledgeCategory.Sop,
+            "https://docs.example.test/sop/warehouse",
+            "en",
+            "1.0",
+            $"tenants/{tenantId}/documents/{Guid.CreateVersion7()}/warehouse.pdf",
+            "warehouse.pdf",
+            "application/pdf",
+            128,
+            new string('c', 64),
+            SourceVisibility.Tenant);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => service.CreatePendingOcrAsync(input));
+    }
+
     private static KnowledgeIngestionService CreateService(
         RegulatoryComplianceDbContext context,
         ICurrentUserService currentUser) =>

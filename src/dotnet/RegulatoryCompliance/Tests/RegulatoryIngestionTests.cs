@@ -101,8 +101,10 @@ public sealed class RegulatoryIngestionTests
 
         var noTenantUser = CurrentUser(null, RegulatoryIngestionService.TenantIngestionPermission);
         await using var noTenantContext = CreateContext(noTenantUser);
+        var noTenantService = CreateService(noTenantContext, noTenantUser);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => noTenantService.IngestAsync(CreateInput("Rule text.")));
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            CreateService(noTenantContext, noTenantUser).IngestAsync(CreateInput("Rule text.")));
+            noTenantService.CreatePendingOcrAsync(CreatePendingInput(Guid.CreateVersion7())));
 
         var unsafeUser = CurrentUser(
             Guid.CreateVersion7(), RegulatoryIngestionService.TenantIngestionPermission);
