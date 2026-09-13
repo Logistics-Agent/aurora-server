@@ -100,11 +100,14 @@ builder.Services.AddScoped<DocumentInputPolicy>();
 builder.Services.AddScoped<DocumentUploadService>();
 builder.Services.AddScoped<IDocumentIntakeService, DocumentIntakeService>();
 builder.Services.AddHostedService<ExpiredUploadCleanupService>();
-builder.Services.AddScoped<IDocumentContentReader, DeterministicDocumentContentReader>();
+builder.Services.AddScoped<IDocumentContentReader, StorageDocumentContentReader>();
 builder.Services.AddScoped<IOcrProvider>(services =>
-    processingOptions.Provider.Equals("AiGovernance", StringComparison.OrdinalIgnoreCase)
+{
+    IOcrProvider provider = processingOptions.Provider.Equals("AiGovernance", StringComparison.OrdinalIgnoreCase)
         ? ActivatorUtilities.CreateInstance<AiGovernanceOcrProvider>(services)
-        : ActivatorUtilities.CreateInstance<DeterministicOcrProvider>(services));
+        : ActivatorUtilities.CreateInstance<DeterministicOcrProvider>(services);
+    return new MarkdownOcrProvider(provider);
+});
 
 builder.Services.AddScoped<DocumentOcrJobService>();
 builder.Services.AddScoped<IDocumentOcrJobService>(services =>
