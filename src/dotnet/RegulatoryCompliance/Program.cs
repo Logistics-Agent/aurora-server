@@ -30,7 +30,11 @@ builder.Services.AddDbContext<RegulatoryComplianceDbContext>(options =>
         }));
 builder.Services.AddSharedMassTransit(
     builder.Configuration,
-    bus => bus.AddConsumer<RegulatoryCompliance.Application.Events.DocumentOcrIntegrationConsumer>());
+    bus =>
+    {
+        bus.AddConsumer<RegulatoryCompliance.Application.Events.DocumentOcrIntegrationConsumer>();
+        bus.AddConsumer<RegulatoryCompliance.Application.Events.DocumentOcrIntegrationFaultConsumer>();
+    });
 builder.Services.AddSingleton(TimeProvider.System);
 
 var aiGovernanceUrl = builder.Configuration["Grpc:AiGovernance:Url"] ?? "http://localhost:9090";
