@@ -18,6 +18,12 @@ AI Governance evaluates this request against the tenant plan and quota. A
 missing tenant on a tenant chunk is invalid and must not be replaced with a
 different tenant from the process or host context.
 
+The AI Governance deployment must set `IAM_TENANT_GRPC_ADDRESS` to
+`static://iam-tenant.aurora.svc.cluster.local:5000`. The application default is
+for local development only and points to `localhost:5001`; using that default
+in the `aurora-ai` namespace causes tenant policy resolution to return
+`POLICY_ERROR`.
+
 ## Platform embeddings
 
 Platform chunks intentionally have no `TenantId`. They use the dedicated
