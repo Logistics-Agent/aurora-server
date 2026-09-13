@@ -21,6 +21,7 @@ import com.aurora.aigovernance.gateway.domain.valueobject.AiEmbeddingResult;
 import com.aurora.aigovernance.gateway.domain.valueobject.AiGenerateRequest;
 import com.aurora.aigovernance.gateway.domain.valueobject.AiGenerateResult;
 import com.aurora.aigovernance.gateway.infrastructure.credential.CredentialPort;
+import com.aurora.aigovernance.gateway.infrastructure.provider.StructuredOutputSupport;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -94,6 +95,9 @@ public class AzureOpenAiProviderClient implements AiProviderClient {
             body.put("messages", messages);
             if (request.maxOutputTokens() > 0) {
                 body.put("max_tokens", request.maxOutputTokens());
+            }
+            if (StructuredOutputSupport.requiresJsonObject(request)) {
+                body.put("response_format", Map.of("type", "json_object"));
             }
 
             String requestJson = objectMapper.writeValueAsString(body);
@@ -204,6 +208,15 @@ public class AzureOpenAiProviderClient implements AiProviderClient {
     }
 
     private AiGenerateResult simulateGenerate(ProviderSlot slot, AiGenerateRequest request) {
+        if (StructuredOutputSupport.requiresJsonObject(request)) {
+            return new AiGenerateResult(
+                    StructuredOutputSupport.deterministicJsonResponse(),
+                    request.estimatedInputTokens() > 0 ? request.estimatedInputTokens() : 120L,
+                    60L,
+                    slot.getModelName(),
+                    "AZURE_OPENAI");
+        }
+
         long estimatedInput = request.estimatedInputTokens() > 0 ? request.estimatedInputTokens() : 120L;
         long simulatedOutput = 60L;
         String generatedText = String.format(
