@@ -1,4 +1,5 @@
 using AiGovernance.Grpc;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using RegulatoryCompliance.Application.Assistant;
 using RegulatoryCompliance.Application.Evaluations;
@@ -6,7 +7,9 @@ using RegulatoryCompliance.Application.Ingestion;
 using RegulatoryCompliance.Application.Retrieval;
 using RegulatoryCompliance.Domain.Entities;
 using RegulatoryCompliance.Domain.Enums;
+using RegulatoryCompliance.Infrastructure.Persistences;
 using Shared.Constants;
+using Shared.Interceptors;
 using Shared.Security;
 using Xunit;
 
@@ -117,7 +120,7 @@ public sealed class GroundedAssistantTests
         Assert.Single(validated.ValidatedKnowledgeReferences);
         Assert.Equal("K1", validated.ValidatedKnowledgeReferences[0].EvidenceId);
 
-        Assert.False(validated.InsufficientEvidence);
+        Assert.True(validated.InsufficientEvidence);
     }
 
     [Fact]
@@ -317,8 +320,93 @@ public sealed class GroundedAssistantTests
         Assert.NotNull(result.Context);
         Assert.Equal(shipmentId, result.Context!.ShipmentId);
         Assert.Equal(evaluation.Id, result.Context.EvaluationId);
-        Assert.Equal("CURRENT", result.Context.Freshness);
+        Assert.Equal("UNKNOWN", result.Context.Freshness);
         Assert.Contains("Mức rủi ro đã lưu: High", result.Answer);
+    }
+
+    [Fact]
+    public async Task GroundedAnswerServiceMarksEvaluationStaleWhenCitedDocumentHasNewerVersion()
+    {
+        var shipmentId = Guid.NewGuid();
+        var now = DateTimeOffset.UtcNow;
+        var document = RegulatoryDocument.CreateTenant(
+            TenantId,
+            "Customs",
+            "Dangerous Goods Rule",
+            "https://regulations.example/dg",
+            "VN",
+            RegulationType.DangerousGoods,
+            "vi",
+            now.AddMinutes(-5));
+        var firstVersion = document.AddVersion(
+            "rule-1", "1.0", now.AddDays(-2), now.AddDays(-2), null,
+            new string('a', 64), "regulatory/dg-1.md", "dg-1.md", "text/markdown", 10, now.AddDays(-2));
+        firstVersion.StartIngestion(now.AddDays(-2));
+        var firstChunk = firstVersion.AddChunk(
+            1, "Section 1", "1", "Dangerous goods require declaration.", 5, 0, 35,
+            new string('b', 64), now.AddDays(-2));
+        firstVersion.CompleteIngestion(now.AddDays(-2));
+
+        var evaluation = ComplianceEvaluation.Create(
+            TenantId, Guid.NewGuid().ToString(), shipmentId, new string('f', 64), "{}", now.AddDays(-1), now.AddDays(-1));
+        evaluation.Start(now.AddDays(-1));
+        var finding = evaluation.AddFinding(
+            ComplianceFindingType.Requirement, "DG-001", "DangerousGoods", "Declaration required",
+            "A declaration is required.", ComplianceRiskLevel.High, now.AddDays(-1));
+        finding.AddCitation(
+            document.Id, firstVersion.Id, firstChunk.Id, "Customs", "Dangerous Goods Rule",
+            "https://regulations.example/dg", "1.0", "Section 1", "1", now.AddDays(-2), null,
+            "Dangerous goods require declaration.", 0.9m, now.AddDays(-1));
+        evaluation.Complete(
+            ComplianceRiskLevel.High, EvidenceSufficiency.Sufficient, 0.9m, [], [], now.AddDays(-1));
+
+        var secondVersion = document.AddVersion(
+            "rule-2", "2.0", now, now, null,
+            new string('c', 64), "regulatory/dg-2.md", "dg-2.md", "text/markdown", 10, now);
+        secondVersion.StartIngestion(now);
+        secondVersion.AddChunk(
+            1, "Section 1", "1", "Dangerous goods require updated declaration.", 6, 0, 43,
+            new string('d', 64), now);
+        secondVersion.CompleteIngestion(now);
+
+        await using var context = CreateContext();
+        context.RegulatoryDocuments.Add(document);
+        await context.SaveChangesAsync();
+        Assert.Equal(2, await context.RegulatoryDocumentVersions.CountAsync());
+        Assert.Equal(secondVersion.Id, (await context.RegulatoryDocumentVersions
+            .OrderByDescending(version => version.EffectiveFrom)
+            .FirstAsync()).Id);
+        Assert.Single(evaluation.Findings);
+        Assert.Single(evaluation.Findings.First().Citations);
+
+        var service = new GroundedAnswerService(
+            new FakeRegulationRetrievalService(),
+            new FakeKnowledgeWithEvidenceService(),
+            null!,
+            new GroundedAnswerPromptBuilder(),
+            new DeterministicCitationValidator(),
+            new FakeCurrentUserService(TenantId, UserId),
+            NullLogger<GroundedAnswerService>.Instance,
+            new FakeComplianceEvaluationService(evaluation),
+            context);
+
+        var result = await service.GenerateAnswerAsync(new GroundedAnswerInput(
+            "Why is this shipment high risk?", AssistantSearchMode.Knowledge, "VN", now,
+            null, null, Context: new VerifiedAssistantContextInput(shipmentId, evaluation.Id)));
+
+        Assert.NotNull(result.Context);
+        Assert.Equal("STALE", result.Context!.Freshness);
+    }
+
+    private static RegulatoryComplianceDbContext CreateContext()
+    {
+        var currentUser = new CurrentUserService();
+        currentUser.Populate(UserId, TenantId, null, null, null, []);
+        var options = new DbContextOptionsBuilder<RegulatoryComplianceDbContext>()
+            .UseInMemoryDatabase(Guid.NewGuid().ToString())
+            .Options;
+        return new RegulatoryComplianceDbContext(
+            options, currentUser, new AuditSaveChangesInterceptor(currentUser));
     }
 
     private static ComplianceEvaluation CreateCompletedEvaluation(Guid shipmentId)
@@ -328,7 +416,7 @@ public sealed class GroundedAssistantTests
             TenantId,
             Guid.NewGuid().ToString(),
             shipmentId,
-            "snapshot",
+            new string('e', 64),
             "{}",
             now,
             now);

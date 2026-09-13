@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using AiGovernance.Grpc;
 using Grpc.Core;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using RegulatoryCompliance.Application.Ingestion;
 using RegulatoryCompliance.Application.Retrieval;
@@ -124,7 +125,8 @@ public sealed class GroundedAnswerService(
     IDeterministicCitationValidator citationValidator,
     ICurrentUserService currentUser,
     ILogger<GroundedAnswerService> logger,
-    IComplianceEvaluationService? complianceEvaluationService = null) : IGroundedAnswerService
+    IComplianceEvaluationService? complianceEvaluationService = null,
+    RegulatoryComplianceDbContext? dbContext = null) : IGroundedAnswerService
 {
     private const string CapabilityCode = "compliance.answer";
 
@@ -410,7 +412,7 @@ public sealed class GroundedAnswerService(
         return new VerifiedAssistantContext(
             input.ShipmentId ?? evaluation.ExternalShipmentId,
             evaluation.Id,
-            "CURRENT",
+            await ResolveEvaluationFreshnessAsync(evaluation, cancellationToken),
             evaluation.RequestHash,
             evaluation.RiskLevel,
             evaluation.EvidenceSufficiency,
@@ -421,6 +423,38 @@ public sealed class GroundedAnswerService(
                     finding.Description,
                     finding.Severity.ToString()))
                 .ToArray());
+    }
+
+    private async Task<string> ResolveEvaluationFreshnessAsync(
+        ComplianceEvaluation evaluation,
+        CancellationToken cancellationToken)
+    {
+        var citations = evaluation.Findings
+            .SelectMany(finding => finding.Citations)
+            .ToArray();
+        if (citations.Length == 0 || dbContext is null)
+            return citations.Length == 0 ? "UNKNOWN" : "CURRENT";
+
+        var documentIds = citations
+            .Select(citation => citation.RegulatoryDocumentId)
+            .Distinct()
+            .ToArray();
+        var latestVersions = await dbContext.RegulatoryDocumentVersions
+            .AsNoTracking()
+            .Where(version => documentIds.Contains(version.RegulatoryDocumentId))
+            .OrderByDescending(version => version.EffectiveFrom)
+            .ThenByDescending(version => version.CreatedAt)
+            .ToListAsync(cancellationToken);
+        var latestByDocument = latestVersions
+            .GroupBy(version => version.RegulatoryDocumentId)
+            .ToDictionary(group => group.Key, group => group.First());
+
+        return citations.All(citation =>
+                latestByDocument.TryGetValue(citation.RegulatoryDocumentId, out var latest) &&
+                latest.Id == citation.RegulatoryDocumentVersionId &&
+                latest.IngestionStatus == RegulatoryIngestionStatus.Completed)
+            ? "CURRENT"
+            : "STALE";
     }
 
     private static VerifiedAssistantContextSummary? ToSummary(VerifiedAssistantContext? context) =>
@@ -503,7 +537,7 @@ public sealed class GroundedAnswerService(
             RegulatoryCitations: regCitations,
             KnowledgeReferences: knowReferences,
             Conflicts: [],
-            InsufficientEvidence: verifiedContext?.EvaluationId is null,
+            InsufficientEvidence: evidenceContext.IsEmpty,
             MissingInformation: [],
             Governance: new AssistantGovernanceResult("deterministic-fallback-" + traceId.ToString("N"), "DETERMINISTIC_FALLBACK", false, CapabilityCode, 0),
             RetrievalTraceId: traceId,
