@@ -60,7 +60,21 @@ public sealed class SystemIngestionController(
 
         var computedSha256 = !string.IsNullOrWhiteSpace(request.ContentSha256)
             ? request.ContentSha256
-            : Convert.ToHexString(SHA256.HashData(content.ToByteArray())).ToLowerInvariant();
+            : (content.Length > 0
+                ? Convert.ToHexString(SHA256.HashData(content.ToByteArray())).ToLowerInvariant()
+                : new string('0', 64));
+
+        var canonicalUri = !string.IsNullOrWhiteSpace(request.CanonicalSourceUri)
+            ? request.CanonicalSourceUri
+            : $"https://platform.aurora.io/laws/{Guid.NewGuid()}";
+
+        var contentRef = !string.IsNullOrWhiteSpace(request.ContentReference)
+            ? request.ContentReference
+            : $"regulatory/system-{Guid.NewGuid()}.txt";
+
+        var mimeType = !string.IsNullOrWhiteSpace(request.MimeType)
+            ? request.MimeType
+            : "text/plain";
 
         var ingestRequest = new IngestRegulatorySourceRequest
         {
@@ -69,18 +83,16 @@ public sealed class SystemIngestionController(
                 : Guid.NewGuid().ToString(),
             Authority = request.Authority,
             Title = request.Title,
-            CanonicalSourceUri = !string.IsNullOrWhiteSpace(request.CanonicalSourceUri)
-                ? request.CanonicalSourceUri
-                : $"urn:system:law:{Guid.NewGuid()}",
+            CanonicalSourceUri = canonicalUri,
             JurisdictionCode = request.JurisdictionCode ?? "GLOBAL",
             RegulationType = (RegulationType)(int)request.RegulationType,
             LanguageCode = request.LanguageCode ?? "en",
             VersionLabel = request.VersionLabel ?? "1.0",
             PublishedAt = Timestamp.FromDateTimeOffset(request.PublishedAt ?? DateTimeOffset.UtcNow),
             EffectiveFrom = Timestamp.FromDateTimeOffset(request.EffectiveFrom ?? DateTimeOffset.UtcNow),
-            ContentReference = request.ContentReference ?? string.Empty,
-            FileName = request.FileName ?? "system-law.pdf",
-            MimeType = request.MimeType ?? "application/pdf",
+            ContentReference = contentRef,
+            FileName = !string.IsNullOrWhiteSpace(request.FileName) ? request.FileName : "system-law.txt",
+            MimeType = mimeType,
             SizeBytes = computedSizeBytes,
             ContentSha256 = computedSha256,
             Content = content,
@@ -117,7 +129,7 @@ public sealed class SystemIngestionController(
             var rpcRequest = new QueryRegulationsRequest
             {
                 Query = searchTerms,
-                JurisdictionCode = jurisdictionCode ?? string.Empty,
+                JurisdictionCode = jurisdictionCode?.Trim() ?? string.Empty,
                 EffectiveAt = Timestamp.FromDateTimeOffset(effectiveAt ?? DateTimeOffset.UtcNow),
                 TopK = 50,
                 MinimumRelevanceScore = 0.0
@@ -185,7 +197,13 @@ public sealed class SystemIngestionController(
 
         var computedSha256 = !string.IsNullOrWhiteSpace(request.ContentSha256)
             ? request.ContentSha256
-            : Convert.ToHexString(SHA256.HashData(content.ToByteArray())).ToLowerInvariant();
+            : (content.Length > 0
+                ? Convert.ToHexString(SHA256.HashData(content.ToByteArray())).ToLowerInvariant()
+                : new string('0', 64));
+
+        var mimeType = !string.IsNullOrWhiteSpace(request.MimeType)
+            ? request.MimeType
+            : "text/plain";
 
         var ingestRequest = new IngestKnowledgeSourceRequest
         {
@@ -198,8 +216,8 @@ public sealed class SystemIngestionController(
             LanguageCode = request.LanguageCode ?? "en",
             VersionLabel = request.VersionLabel ?? "1.0",
             ContentReference = request.ContentReference ?? string.Empty,
-            FileName = request.FileName ?? "system-knowledge.pdf",
-            MimeType = request.MimeType ?? "application/pdf",
+            FileName = request.FileName ?? "system-knowledge.txt",
+            MimeType = mimeType,
             SizeBytes = computedSizeBytes,
             ContentSha256 = computedSha256,
             Content = content,
