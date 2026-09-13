@@ -241,8 +241,9 @@ public sealed class DocumentsController(
             !Guid.TryParse(request.UploadId, out var uploadId) || uploadId == Guid.Empty ||
             string.IsNullOrWhiteSpace(request.IdempotencyKey) || string.IsNullOrWhiteSpace(request.Title) ||
             string.IsNullOrWhiteSpace(request.VersionLabel) ||
-            !System.Enum.IsDefined(typeof(KnowledgeCategory), request.Category) ||
-            request.Category == 0 ||
+            (purpose == DocumentOcrPurpose.KnowledgeCorpus &&
+                (!System.Enum.IsDefined(typeof(KnowledgeCategory), request.Category) ||
+                 request.Category == 0 || string.IsNullOrWhiteSpace(request.SourceReference))) ||
             (purpose == DocumentOcrPurpose.RegulatoryCorpus &&
                 (!System.Enum.IsDefined(typeof(RegulationType), request.RegulationType) ||
                  request.RegulationType == 0 || string.IsNullOrWhiteSpace(request.CanonicalSourceUri))))
