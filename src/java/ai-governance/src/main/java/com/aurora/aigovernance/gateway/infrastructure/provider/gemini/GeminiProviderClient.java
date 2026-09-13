@@ -22,6 +22,7 @@ import com.aurora.aigovernance.gateway.domain.valueobject.AiGenerateRequest;
 import com.aurora.aigovernance.gateway.domain.valueobject.AiGenerateResult;
 import com.aurora.aigovernance.gateway.domain.valueobject.MultimodalPart;
 import com.aurora.aigovernance.gateway.infrastructure.credential.CredentialPort;
+import com.aurora.aigovernance.gateway.infrastructure.provider.StructuredOutputSupport;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -100,7 +101,13 @@ public class GeminiProviderClient implements AiProviderClient {
             body.put("contents", contents);
 
             if (request.maxOutputTokens() > 0) {
-                body.put("generationConfig", Map.of("maxOutputTokens", request.maxOutputTokens(), "temperature", 0.1));
+                Map<String, Object> generationConfig = new HashMap<>();
+                generationConfig.put("maxOutputTokens", request.maxOutputTokens());
+                generationConfig.put("temperature", 0.1);
+                if (StructuredOutputSupport.requiresJsonObject(request)) {
+                    generationConfig.put("responseMimeType", "application/json");
+                }
+                body.put("generationConfig", generationConfig);
             }
 
             String requestJson = objectMapper.writeValueAsString(body);
@@ -212,6 +219,15 @@ public class GeminiProviderClient implements AiProviderClient {
     }
 
     private AiGenerateResult simulateGenerate(ProviderSlot slot, AiGenerateRequest request) {
+        if (StructuredOutputSupport.requiresJsonObject(request)) {
+            return new AiGenerateResult(
+                    StructuredOutputSupport.deterministicJsonResponse(),
+                    request.estimatedInputTokens() > 0 ? request.estimatedInputTokens() : 100L,
+                    50L,
+                    slot.getModelName(),
+                    "GEMINI");
+        }
+
         long estimatedInput = request.estimatedInputTokens() > 0 ? request.estimatedInputTokens() : 100L;
         long simulatedOutput = 50L;
         String generatedText = String.format(
