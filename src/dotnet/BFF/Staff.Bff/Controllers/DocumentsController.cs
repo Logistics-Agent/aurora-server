@@ -214,6 +214,199 @@ public sealed class DocumentsController(
         }
     }
 
+    [HttpPost("corpus-intakes")]
+    [RequirePermission(PermissionConstants.Documents.Ingest)]
+    [ProducesResponseType(typeof(CorpusIntakeResponse), StatusCodes.Status202Accepted)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status503ServiceUnavailable)]
+    [DocumentProblemContract(DocumentEndpointProblemContracts.CreateDocumentIntake)]
+    public async Task<IActionResult> CreateCorpusIntake(
+        [FromBody] CreateCorpusIntakeBody request,
+        CancellationToken cancellationToken)
+    {
+        if (!HasTrustedTenant())
+            return Unauthorized(DocumentsContract.CreateTenantContextRequiredProblemDetails());
+
+        if (request is null)
+            return BadRequest(DocumentsContract.CreateProblemDetails(
+                DocumentProblemContractCatalog.InvalidRequestCode,
+                "The corpus intake request is required.",
+                StatusCodes.Status400BadRequest,
+                retryable: false));
+
+        if (!TryParseCorpusPurpose(request.Purpose, out var purpose) ||
+            !Guid.TryParse(request.UploadId, out var uploadId) || uploadId == Guid.Empty ||
+            string.IsNullOrWhiteSpace(request.IdempotencyKey) || string.IsNullOrWhiteSpace(request.Title) ||
+            string.IsNullOrWhiteSpace(request.VersionLabel) ||
+            !System.Enum.IsDefined(typeof(KnowledgeCategory), request.Category) ||
+            request.Category == 0 ||
+            (purpose == DocumentOcrPurpose.RegulatoryCorpus &&
+                (!System.Enum.IsDefined(typeof(RegulationType), request.RegulationType) ||
+                 request.RegulationType == 0 || string.IsNullOrWhiteSpace(request.CanonicalSourceUri))))
+        {
+            return BadRequest(DocumentsContract.CreateProblemDetails(
+                DocumentProblemContractCatalog.InvalidRequestCode,
+                "UploadId, purpose, idempotency key, title, version label, and valid corpus metadata are required.",
+                StatusCodes.Status400BadRequest,
+                retryable: false));
+        }
+
+        try
+        {
+            var receipt = await documentOcrClient.VerifyUploadSessionAsync(
+                new VerifyUploadSessionRequest { UploadId = uploadId.ToString() },
+                cancellationToken: cancellationToken);
+            if (receipt.Status != DocumentUploadStatus.Uploaded)
+                return Conflict(DocumentsContract.CreateProblemDetails(
+                    DocumentProblemContractCatalog.UploadNotVerified));
+
+            var contentReference = receipt.StorageReference;
+            var fileName = receipt.FileName;
+            var mimeType = string.IsNullOrWhiteSpace(receipt.VerifiedMimeType)
+                ? receipt.MimeType
+                : receipt.VerifiedMimeType;
+            var sizeBytes = receipt.VerifiedSizeBytes > 0 ? receipt.VerifiedSizeBytes : receipt.SizeBytes;
+            var contentSha256 = string.IsNullOrWhiteSpace(receipt.VerifiedContentSha256)
+                ? receipt.ContentSha256
+                : receipt.VerifiedContentSha256;
+            if (string.IsNullOrWhiteSpace(contentReference) || string.IsNullOrWhiteSpace(fileName) ||
+                string.IsNullOrWhiteSpace(mimeType) || sizeBytes <= 0 || string.IsNullOrWhiteSpace(contentSha256))
+            {
+                return UnprocessableEntity(DocumentsContract.CreateProblemDetails(
+                    DocumentProblemContractCatalog.UploadInvalid));
+            }
+
+            var corpusVersionId = purpose == DocumentOcrPurpose.RegulatoryCorpus
+                ? await CreateRegulatoryCorpusVersionAsync(request, contentReference, fileName, mimeType,
+                    sizeBytes, contentSha256, cancellationToken)
+                : await CreateKnowledgeCorpusVersionAsync(request, contentReference, fileName, mimeType,
+                    sizeBytes, contentSha256, cancellationToken);
+
+            var ocrJob = await documentOcrClient.CreateDocumentIntakeAsync(
+                new CreateDocumentIntakeRequest
+                {
+                    UploadId = uploadId.ToString(),
+                    IdempotencyKey = request.IdempotencyKey.Trim(),
+                    DocumentTypeHint = OcrDocumentType.Other,
+                    Purpose = purpose,
+                    ExternalReference = corpusVersionId.VersionId.ToString(),
+                    CorrelationId = HttpContext.TraceIdentifier
+                },
+                cancellationToken: cancellationToken);
+
+            return Accepted(new CorpusIntakeResponse(
+                corpusVersionId.DocumentId,
+                corpusVersionId.VersionId,
+                purpose == DocumentOcrPurpose.RegulatoryCorpus ? "REGULATORY" : "KNOWLEDGE",
+                Guid.Parse(ocrJob.JobId),
+                DocumentsContract.MapStatus(ocrJob.Status, ocrJob.NeedsReview),
+                DocumentsContract.MapStage(ocrJob.Status)));
+        }
+        catch (RpcException exception) when (DocumentsContract.IsUnavailable(exception.StatusCode))
+        {
+            return StatusCode(StatusCodes.Status503ServiceUnavailable,
+                DocumentsContract.CreateUnavailableProblemDetails());
+        }
+        catch (RpcException exception) when (exception.StatusCode == GrpcStatusCode.PermissionDenied)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, DocumentsContract.CreateProblemDetails(
+                "CORPUS_INGEST_FORBIDDEN", "Corpus ingestion permission is required.",
+                StatusCodes.Status403Forbidden, retryable: false));
+        }
+        catch (RpcException exception) when (exception.StatusCode == GrpcStatusCode.Unauthenticated)
+        {
+            return Unauthorized(DocumentsContract.CreateTenantContextRequiredProblemDetails());
+        }
+        catch (RpcException exception) when (exception.StatusCode == GrpcStatusCode.AlreadyExists)
+        {
+            return Conflict(DocumentsContract.CreateProblemDetails(
+                DocumentProblemContractCatalog.IdempotencyConflict));
+        }
+        catch (RpcException exception) when (exception.StatusCode == GrpcStatusCode.InvalidArgument)
+        {
+            return BadRequest(DocumentsContract.CreateProblemDetails(
+                DocumentProblemContractCatalog.InvalidRequestCode, exception.Status.Detail,
+                StatusCodes.Status400BadRequest, retryable: false));
+        }
+    }
+
+    private async Task<(Guid DocumentId, Guid VersionId)> CreateRegulatoryCorpusVersionAsync(
+        CreateCorpusIntakeBody request,
+        string contentReference,
+        string fileName,
+        string mimeType,
+        long sizeBytes,
+        string contentSha256,
+        CancellationToken cancellationToken)
+    {
+        var publishedAt = request.PublishedAt ?? DateTimeOffset.UtcNow;
+        var effectiveFrom = request.EffectiveFrom ?? publishedAt;
+        var response = await regulatoryClient.CreateRegulatoryCorpusVersionAsync(
+            new CreateRegulatoryCorpusVersionRequest
+            {
+                IdempotencyKey = request.IdempotencyKey.Trim(),
+                Authority = request.Authority?.Trim() ?? string.Empty,
+                Title = request.Title.Trim(),
+                CanonicalSourceUri = request.CanonicalSourceUri!.Trim(),
+                JurisdictionCode = request.JurisdictionCode?.Trim() ?? string.Empty,
+                RegulationType = (RegulationType)request.RegulationType,
+                LanguageCode = request.LanguageCode?.Trim() ?? "en",
+                VersionLabel = request.VersionLabel.Trim(),
+                PublishedAt = Timestamp.FromDateTimeOffset(publishedAt),
+                EffectiveFrom = Timestamp.FromDateTimeOffset(effectiveFrom),
+                ContentReference = contentReference,
+                FileName = fileName,
+                MimeType = mimeType,
+                SizeBytes = sizeBytes,
+                ContentSha256 = contentSha256,
+                Visibility = RegulatorySourceVisibility.Tenant
+            },
+            cancellationToken: cancellationToken);
+        return ParseCorpusIds(response.RegulatoryDocumentId, response.DocumentVersionId);
+    }
+
+    private async Task<(Guid DocumentId, Guid VersionId)> CreateKnowledgeCorpusVersionAsync(
+        CreateCorpusIntakeBody request,
+        string contentReference,
+        string fileName,
+        string mimeType,
+        long sizeBytes,
+        string contentSha256,
+        CancellationToken cancellationToken)
+    {
+        var response = await regulatoryClient.CreateKnowledgeCorpusVersionAsync(
+            new CreateKnowledgeCorpusVersionRequest
+            {
+                IdempotencyKey = request.IdempotencyKey.Trim(),
+                Title = request.Title.Trim(),
+                Category = (KnowledgeCategory)request.Category,
+                SourceReference = request.SourceReference?.Trim() ?? string.Empty,
+                LanguageCode = request.LanguageCode?.Trim() ?? "en",
+                VersionLabel = request.VersionLabel.Trim(),
+                ContentReference = contentReference,
+                FileName = fileName,
+                MimeType = mimeType,
+                SizeBytes = sizeBytes,
+                ContentSha256 = contentSha256,
+                Visibility = RegulatorySourceVisibility.Tenant
+            },
+            cancellationToken: cancellationToken);
+        return ParseCorpusIds(response.KnowledgeDocumentId, response.DocumentVersionId);
+    }
+
+    private static (Guid DocumentId, Guid VersionId) ParseCorpusIds(string documentId, string versionId) =>
+        Guid.TryParse(documentId, out var parsedDocumentId) && parsedDocumentId != Guid.Empty &&
+        Guid.TryParse(versionId, out var parsedVersionId) && parsedVersionId != Guid.Empty
+            ? (parsedDocumentId, parsedVersionId)
+            : throw new RpcException(new Status(GrpcStatusCode.InvalidArgument, "Corpus service returned invalid identifiers."));
+
+    private static bool TryParseCorpusPurpose(string? value, out DocumentOcrPurpose purpose) =>
+        DocumentsContract.TryParsePurpose(value, out purpose) &&
+        purpose is DocumentOcrPurpose.RegulatoryCorpus or DocumentOcrPurpose.KnowledgeCorpus;
+
     // ──────────────────────────────────────────────────────────────────────────
     // BOX 1: SHIPMENT DOCUMENTS (Transaction-Only, Structured Extraction)
     // ──────────────────────────────────────────────────────────────────────────
@@ -1541,6 +1734,31 @@ public sealed record CreateDocumentIntakeBody(
     string IdempotencyKey,
     string? Purpose = null,
     string? ExternalReference = null);
+
+public sealed record CreateCorpusIntakeBody(
+    string UploadId,
+    string Purpose,
+    string IdempotencyKey,
+    string Title,
+    string? Authority = null,
+    string? CanonicalSourceUri = null,
+    string? JurisdictionCode = null,
+    int RegulationType = 0,
+    int Category = 0,
+    string? SourceReference = null,
+    string? LanguageCode = null,
+    string VersionLabel = "1.0",
+    DateTimeOffset? PublishedAt = null,
+    DateTimeOffset? EffectiveFrom = null,
+    DateTimeOffset? EffectiveTo = null);
+
+public sealed record CorpusIntakeResponse(
+    Guid CorpusDocumentId,
+    Guid CorpusVersionId,
+    string CorpusType,
+    Guid OcrJobId,
+    string Status,
+    string? Stage);
 
 public sealed record DocumentUploadSessionResponse(
     Guid UploadId,
