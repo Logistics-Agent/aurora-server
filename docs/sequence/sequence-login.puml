@@ -1,0 +1,40 @@
+@startuml
+skinparam dpi 180
+title Sequence Diagram - Authentication and Login Flow
+autonumber
+
+actor User
+participant "Client / Frontend" as FE
+participant "YARP API Gateway / BFF" as BFF
+participant "IamTenant Service" as IAM
+participant "AWS Cognito" as Cognito
+database "PostgreSQL (IAM DB)" as DB
+database "Redis Cache" as Redis
+
+User -> FE : Submit Login credentials (Email, Password)
+FE -> BFF : POST /api/v1/auth/login
+BFF -> IAM : gRPC AuthenticateUser(email, password)
+IAM -> Cognito : AdminInitiateAuth(USER_PASSWORD_AUTH)
+Cognito --> IAM : ID Token, Access Token, Refresh Token
+
+alt Authentication Success
+    IAM -> DB : Query User, Tenant & BaseRole by CognitoSub
+    DB --> IAM : User profile, TenantId, BaseRole, PermissionVersion
+    
+    IAM -> Redis : GET user:{userId}:permissions
+    alt Cache Miss
+        IAM -> DB : Query User Direct Permissions
+        DB --> IAM : List<PermissionCode>
+        IAM -> Redis : SET user:{userId}:permissions (TTL 15m)
+    end
+    
+    IAM --> BFF : AuthResult(Tokens, Profile, Permissions)
+    BFF --> FE : 200 OK (Set HttpOnly Cookie & Return User Context)
+    FE --> User : Redirect to Dashboard (Role/Permission bounded)
+else Invalid Credentials
+    Cognito --> IAM : NotAuthorizedException
+    IAM --> BFF : 401 Unauthorized
+    BFF --> FE : 401 Unauthorized
+    FE --> User : Display login error
+end
+@enduml

@@ -1,0 +1,37 @@
+@startuml
+skinparam dpi 180
+title Class Diagram - IAM and Tenant
+hide empty members
+abstract class TenantAuditableEntity {
+  +Id : Guid
+  +TenantId : Guid
+  +CreatedAt : DateTimeOffset
+}
+class Tenant {
+  +Name : string
+  +TenantCode : string
+  +Status : TenantStatus
+}
+class User {
+  +Email : string
+  +Role : UserRole
+  +PermissionVersion : int
+}
+class Permission {
+  +Code : string
+  +Module : string
+}
+class UserPermission {
+  +UserId : Guid
+  +PermissionId : Guid
+}
+class AuditLog {
+  +Action : string
+  +Resource : string
+}
+TenantAuditableEntity <|-- User
+Tenant ||--o{ User
+User ||--o{ UserPermission
+Permission ||--o{ UserPermission
+Tenant ||--o{ AuditLog
+@enduml

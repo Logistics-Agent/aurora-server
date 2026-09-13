@@ -1,0 +1,20 @@
+@startuml
+skinparam dpi 180
+title Event-Driven Architecture and Transactional Outbox
+left to right direction
+actor "Staff / Operator" as user
+[Staff.Bff] as bff
+[ShipmentWorkflowService] as service
+database "Shipment DB" as db
+[Shipment Outbox Publisher] as publisher
+queue "RabbitMQ" as mq
+[Billing consumer] as billing
+[Notification / Compliance consumer] as consumer
+user -> bff : Submit shipment
+bff -> service : gRPC SubmitShipment
+service -> db : Persist status + OutboxMessage\n(single transaction)
+publisher -> db : Poll unprocessed outbox
+publisher -> mq : Publish ShipmentSubmitted
+mq -> billing : Consume event
+mq -> consumer : Consume event
+@enduml
