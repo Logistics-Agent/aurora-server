@@ -35,7 +35,11 @@ public sealed class S3ArtifactStorageService(
             Key = objectKey,
             InputStream = new MemoryStream(data, writable: false),
             ContentType = contentType,
-            AutoCloseStream = true
+            AutoCloseStream = true,
+            // Cloudflare R2 does not implement AWS's streaming SigV4 payload.
+            // Send a fixed-length, unsigned payload instead of chunked streaming.
+            UseChunkEncoding = false,
+            DisablePayloadSigning = true
         }, cancellationToken);
 
         var hash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(data)).ToLowerInvariant();
