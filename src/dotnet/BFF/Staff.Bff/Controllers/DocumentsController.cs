@@ -260,7 +260,7 @@ public sealed class DocumentsController(
             var receipt = await documentOcrClient.VerifyUploadSessionAsync(
                 new VerifyUploadSessionRequest { UploadId = uploadId.ToString() },
                 cancellationToken: cancellationToken);
-            if (receipt.Status != DocumentUploadStatus.Uploaded)
+            if (receipt.Status is not (DocumentUploadStatus.Uploaded or DocumentUploadStatus.Consumed))
                 return Conflict(DocumentsContract.CreateProblemDetails(
                     DocumentProblemContractCatalog.UploadNotVerified));
 
@@ -302,7 +302,7 @@ public sealed class DocumentsController(
                 corpusVersionId.DocumentId,
                 corpusVersionId.VersionId,
                 purpose == DocumentOcrPurpose.RegulatoryCorpus ? "REGULATORY" : "KNOWLEDGE",
-                Guid.Parse(ocrJob.JobId),
+                ParseRequiredGuid(ocrJob.JobId, "OCR job id"),
                 DocumentsContract.MapStatus(ocrJob.Status, ocrJob.NeedsReview),
                 DocumentsContract.MapStage(ocrJob.Status)));
         }
@@ -325,6 +325,16 @@ public sealed class DocumentsController(
         {
             return Conflict(DocumentsContract.CreateProblemDetails(
                 DocumentProblemContractCatalog.IdempotencyConflict));
+        }
+        catch (RpcException exception) when (exception.StatusCode == GrpcStatusCode.NotFound)
+        {
+            return NotFound(DocumentsContract.CreateProblemDetails(
+                DocumentProblemContractCatalog.UploadNotFound));
+        }
+        catch (RpcException exception) when (exception.StatusCode == GrpcStatusCode.FailedPrecondition)
+        {
+            var error = DocumentUploadErrorMapper.Map(exception);
+            return StatusCode(error.StatusCode, DocumentsContract.CreateProblemDetails(error));
         }
         catch (RpcException exception) when (exception.StatusCode == GrpcStatusCode.InvalidArgument)
         {
@@ -403,6 +413,11 @@ public sealed class DocumentsController(
         Guid.TryParse(versionId, out var parsedVersionId) && parsedVersionId != Guid.Empty
             ? (parsedDocumentId, parsedVersionId)
             : throw new RpcException(new Status(GrpcStatusCode.InvalidArgument, "Corpus service returned invalid identifiers."));
+
+    private static Guid ParseRequiredGuid(string value, string fieldName) =>
+        Guid.TryParse(value, out var parsed) && parsed != Guid.Empty
+            ? parsed
+            : throw new RpcException(new Status(GrpcStatusCode.InvalidArgument, $"{fieldName} is invalid."));
 
     private static bool TryParseCorpusPurpose(string? value, out DocumentOcrPurpose purpose) =>
         DocumentsContract.TryParsePurpose(value, out purpose) &&
