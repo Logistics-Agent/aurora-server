@@ -21,7 +21,7 @@ additionalPorts: []
 env:
   NODE_ENV: "production"
   PORT: "8080"
-  REDIS_HOST: "redis-master.aurora.svc.cluster.local"
+  REDIS_HOST: "redis.aurora.svc.cluster.local"
   REDIS_PORT: "6379"
   REDIS_TLS: "false"
   REGULATORY_COMPLIANCE_GRPC_URL: "regulatory-compliance:5000"
