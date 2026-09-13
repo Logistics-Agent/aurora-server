@@ -249,7 +249,8 @@ public sealed class RegulationRetrievalService(
     {
         try
         {
-            return await embeddingProvider.GenerateAsync([query.Trim()], cancellationToken);
+            return await embeddingProvider.GenerateAsync(
+                [new EmbeddingInput(currentUser.TenantId, query.Trim())], cancellationToken);
         }
         catch (Exception) when (!cancellationToken.IsCancellationRequested)
         {

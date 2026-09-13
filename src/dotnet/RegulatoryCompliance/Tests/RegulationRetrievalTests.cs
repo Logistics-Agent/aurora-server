@@ -276,7 +276,7 @@ public sealed class RegulationRetrievalTests
         public EmbeddingModelDescriptor Model { get; } = new("empty", "1", 768);
 
         public Task<IReadOnlyList<float[]>> GenerateAsync(
-            IReadOnlyList<string> texts,
+            IReadOnlyList<EmbeddingInput> inputs,
             CancellationToken cancellationToken = default) =>
             Task.FromResult<IReadOnlyList<float[]>>([]);
     }

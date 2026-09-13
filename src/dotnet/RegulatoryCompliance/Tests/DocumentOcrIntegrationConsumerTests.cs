@@ -116,4 +116,84 @@ public sealed class DocumentOcrIntegrationConsumerTests
         Assert.NotEmpty(savedVersion.Chunks);
         Assert.All(savedVersion.Chunks, chunk => Assert.Equal(ChunkEmbeddingStatus.Completed, chunk.EmbeddingStatus));
     }
+
+    [Fact]
+    public async Task Regulatory_completion_passes_event_tenant_to_embedding_provider()
+    {
+        var tenantId = Guid.CreateVersion7();
+        var currentUser = new CurrentUserService();
+        currentUser.Populate(Guid.CreateVersion7(), tenantId, null, null, null, ["documents:ingest"]);
+        var databaseName = Guid.CreateVersion7().ToString();
+        var options = new DbContextOptionsBuilder<RegulatoryComplianceDbContext>()
+            .UseInMemoryDatabase(databaseName).Options;
+        await using var context = new RegulatoryComplianceDbContext(
+            options,
+            currentUser,
+            new AuditSaveChangesInterceptor(currentUser));
+        var document = RegulatoryDocument.CreateTenant(
+            tenantId,
+            "GuardM Authority",
+            "Trade Handling Standard",
+            "https://docs.example.test/trade-handling",
+            "VN",
+            RegulationType.ImportRestriction,
+            "vi",
+            DateTimeOffset.UtcNow);
+        var version = document.AddVersion(
+            "ocr-regulatory-001",
+            "1.0",
+            DateTimeOffset.UtcNow,
+            DateTimeOffset.UtcNow,
+            null,
+            new string('e', 64),
+            $"tenants/{tenantId}/documents/{Guid.CreateVersion7()}/regulation.md",
+            "regulation.md",
+            "text/markdown",
+            256,
+            DateTimeOffset.UtcNow,
+            null);
+        version.MarkPendingOcr(DateTimeOffset.UtcNow);
+        context.RegulatoryDocuments.Add(document);
+        await context.SaveChangesAsync();
+
+        await using var processingContext = new RegulatoryComplianceDbContext(
+            new DbContextOptionsBuilder<RegulatoryComplianceDbContext>()
+                .UseInMemoryDatabase(databaseName).Options,
+            currentUser,
+            new AuditSaveChangesInterceptor(currentUser));
+        var provider = new CapturingEmbeddingProvider();
+        var consumer = new DocumentOcrIntegrationConsumer(
+            processingContext,
+            provider,
+            new DeterministicRegulatoryChunker(),
+            TimeProvider.System,
+            NullLogger<DocumentOcrIntegrationConsumer>.Instance);
+
+        await consumer.HandleAsync(new DocumentOcrCompletedEvent
+        {
+            TenantId = tenantId,
+            Purpose = DocumentOcrPurpose.RegulatoryCorpus,
+            ExternalContextId = version.Id.ToString(),
+            FullTextContent = "# Trade handling\nImporters must provide a valid customs declaration before release."
+        });
+
+        Assert.NotEmpty(provider.Inputs);
+        Assert.All(provider.Inputs, input => Assert.Equal(tenantId, input.TenantId));
+    }
+
+    private sealed class CapturingEmbeddingProvider : IEmbeddingProvider
+    {
+        public EmbeddingModelDescriptor Model { get; } = new("capturing", "1", 4);
+
+        public List<EmbeddingInput> Inputs { get; } = [];
+
+        public Task<IReadOnlyList<float[]>> GenerateAsync(
+            IReadOnlyList<EmbeddingInput> inputs,
+            CancellationToken cancellationToken = default)
+        {
+            Inputs.AddRange(inputs);
+            return Task.FromResult<IReadOnlyList<float[]>>(
+                inputs.Select(_ => new[] { 1f, 0f, 0f, 0f }).ToArray());
+        }
+    }
 }

@@ -10,22 +10,29 @@ public sealed class AiGovernanceEmbeddingProvider(
     ICurrentUserService currentUser,
     string capabilityCode = "compliance.embed") : IEmbeddingProvider
 {
+    private const string TenantServiceId = "regulatory-compliance-rag";
+    private const string PlatformServiceId = "regulatory-compliance-platform-rag";
+
     public EmbeddingModelDescriptor Model { get; } = new("gemini-embedding-2", "v1", 768);
 
     public async Task<IReadOnlyList<float[]>> GenerateAsync(
-        IReadOnlyList<string> texts,
+        IReadOnlyList<EmbeddingInput> inputs,
         CancellationToken cancellationToken = default)
     {
-        ArgumentNullException.ThrowIfNull(texts);
-        if (texts.Count == 0)
+        ArgumentNullException.ThrowIfNull(inputs);
+        if (inputs.Count == 0)
             return [];
+        if (inputs.Count > EmbeddingBatchProcessor.MaximumBatchSize)
+            throw new ArgumentOutOfRangeException(nameof(inputs));
 
-        var results = new List<float[]>(texts.Count);
+        var results = new List<float[]>(inputs.Count);
 
-        foreach (var text in texts)
+        foreach (var input in inputs)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            ArgumentNullException.ThrowIfNull(input);
 
+            var text = input.Text;
             var estimatedTokens = Math.Max(1, text.Length / 4);
 
             var request = new AiEmbedRequest
@@ -38,11 +45,11 @@ public sealed class AiGovernanceEmbeddingProvider(
 
             var headers = new Metadata
             {
-                { "x-service-id", "regulatory-compliance-rag" }
+                { "x-service-id", input.TenantId.HasValue ? TenantServiceId : PlatformServiceId }
             };
 
-            if (currentUser.TenantId.HasValue)
-                headers.Add("x-tenant-id", currentUser.TenantId.Value.ToString());
+            if (input.TenantId.HasValue)
+                headers.Add("x-tenant-id", input.TenantId.Value.ToString());
 
             if (currentUser.UserId.HasValue)
                 headers.Add("x-user-id", currentUser.UserId.Value.ToString());
