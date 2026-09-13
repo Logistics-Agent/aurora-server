@@ -6,6 +6,10 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <InternalsVisibleTo Include="DocumentOcr.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <Compile Remove="Tests/**/*.cs" />
     <Content Remove="Tests/**/*" />
     <EmbeddedResource Remove="Tests/**/*" />

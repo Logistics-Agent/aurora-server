@@ -1,4 +1,6 @@
+using System.Text;
 using DocumentOcr.Application.Providers;
+using DocumentOcr.Application.Storage;
 using DocumentOcr.Domain.Enums;
 using DocumentOcr.Infrastructure.Providers;
 
@@ -17,6 +19,66 @@ public sealed class OcrProviderAbstractionTests
             "application/pdf",
             1_024);
         _policy.ValidateContent(DocumentContent.Create([1, 2, 3], "application/pdf", 1));
+    }
+
+    [Fact]
+    public void PolicyAcceptsMarkdownCorpusDocuments()
+    {
+        _policy.ValidateMetadata(
+            "objects/tenant/corpus.md",
+            "corpus.md",
+            "text/markdown",
+            1_024);
+    }
+
+    [Fact]
+    public async Task ObjectInspectorDetectsUtf8Markdown()
+    {
+        await using var stream = new MemoryStream(Encoding.UTF8.GetBytes("# Customs rule\n\nImport is restricted."));
+
+        var metadata = await DocumentObjectInspector.InspectAsync(
+            "objects/tenant/corpus.md",
+            stream,
+            CancellationToken.None,
+            "text/markdown");
+
+        Assert.Equal("text/markdown", metadata.ContentType);
+        Assert.NotNull(metadata.ContentSha256);
+    }
+
+    [Fact]
+    public async Task ObjectInspectorDoesNotClassifyBinaryDataAsMarkdown()
+    {
+        await using var stream = new MemoryStream([0x00, 0xFF, 0x01, 0xFE]);
+
+        var metadata = await DocumentObjectInspector.InspectAsync(
+            "objects/tenant/corpus.md",
+            stream,
+            CancellationToken.None,
+            "text/markdown");
+
+        Assert.Equal("application/octet-stream", metadata.ContentType);
+    }
+
+    [Fact]
+    public void BothParserPreservesFullTextForCorpusIngestion()
+    {
+        var request = CreateProviderRequest() with
+        {
+            FileName = "corpus.md",
+            MimeType = "text/markdown",
+            ExtractionMode = OcrExtractionMode.Both
+        };
+
+        var result = AiGovernanceOcrResponseParser.Parse(
+            "{\"detected_type\":\"Other\",\"fields\":[{\"name\":\"title\",\"value\":\"Customs\",\"confidence\":0.9}],\"full_text\":\"# Customs rule\"}",
+            request,
+            "decision-1",
+            "test-provider",
+            "test-model");
+
+        Assert.Equal(OcrExtractionMode.Both, result.ExtractionMode);
+        Assert.Equal("# Customs rule", result.FullTextContent);
     }
 
     [Theory]
