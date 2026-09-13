@@ -10,11 +10,11 @@ public sealed class DocumentProcessingOptions
     public string Provider { get; init; } = "AiGovernance";
     public string[] SupportedMimeTypes { get; init; } =
     [
-        "application/pdf", "image/jpeg", "image/png", "image/tiff"
+        "application/pdf", "image/jpeg", "image/png", "image/tiff", "text/markdown"
     ];
     public string[] SupportedExtensions { get; init; } =
     [
-        ".pdf", ".jpg", ".jpeg", ".png", ".tif", ".tiff"
+        ".pdf", ".jpg", ".jpeg", ".png", ".tif", ".tiff", ".md"
     ];
 
     public void Validate()

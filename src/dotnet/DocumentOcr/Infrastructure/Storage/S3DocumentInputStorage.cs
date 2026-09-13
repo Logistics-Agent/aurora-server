@@ -68,7 +68,7 @@ public sealed class S3DocumentInputStorage(IAmazonS3 client, IConfiguration conf
                 Key = objectKey
             }, cancellationToken);
             return await DocumentObjectInspector.InspectAsync(
-                objectKey, response.ResponseStream, cancellationToken);
+                objectKey, response.ResponseStream, cancellationToken, response.Headers.ContentType);
         }
         catch (AmazonS3Exception exception) when (exception.StatusCode == System.Net.HttpStatusCode.NotFound)
         {
