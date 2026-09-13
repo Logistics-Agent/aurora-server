@@ -15,6 +15,7 @@ env:
   SPRING_RABBITMQ_HOST: "rabbitmq.aurora.svc.cluster.local"
   SPRING_RABBITMQ_PORT: "5672"
   SPRING_RABBITMQ_USERNAME: "aurora_admin"
+  IAM_TENANT_GRPC_ADDRESS: "static://iam-tenant.aurora.svc.cluster.local:5000"
 
 externalSecret:
   enabled: true
