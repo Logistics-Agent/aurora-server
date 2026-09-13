@@ -38,6 +38,35 @@ public sealed class KnowledgeIngestionTests
             service.IngestAsync(CreateInput() with { ContentSha256 = new string('0', 64) }));
     }
 
+    [Fact]
+    public async Task PendingOcrKnowledgeIntakeCreatesAndReplaysVersion()
+    {
+        var tenantId = Guid.CreateVersion7();
+        var currentUser = CurrentUser(tenantId, "documents:ingest");
+        await using var context = CreateContext(currentUser);
+        var service = CreateService(context, currentUser);
+        var input = new KnowledgePendingOcrInput(
+            "knowledge-pending-001",
+            "Warehouse SOP",
+            KnowledgeCategory.Sop,
+            "https://docs.example.test/sop/warehouse",
+            "en",
+            "1.0",
+            $"tenants/{tenantId}/documents/{Guid.CreateVersion7()}/warehouse.pdf",
+            "warehouse.pdf",
+            "application/pdf",
+            128,
+            new string('c', 64),
+            SourceVisibility.Tenant);
+
+        var first = await service.CreatePendingOcrAsync(input);
+        var replay = await service.CreatePendingOcrAsync(input);
+
+        Assert.Equal(RegulatoryIngestionStatus.PendingOcr, first.Status);
+        Assert.Equal(first.DocumentVersionId, replay.DocumentVersionId);
+        Assert.True(replay.Replayed);
+    }
+
     private static KnowledgeIngestionService CreateService(
         RegulatoryComplianceDbContext context,
         ICurrentUserService currentUser) =>

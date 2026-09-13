@@ -140,6 +140,57 @@ public sealed class RegulatoryIngestionService(
         }
     }
 
+    public async Task<RegulatoryIngestionResult> CreatePendingOcrAsync(
+        RegulatoryPendingOcrInput input,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(input);
+        Authorize(input.Visibility);
+        ValidatePendingMetadata(input);
+
+        var scopeKey = input.Visibility == SourceVisibility.Platform
+            ? Guid.Empty
+            : currentUser.TenantId!.Value;
+        var now = timeProvider.GetUtcNow();
+        var existing = await dbContext.RegulatoryDocumentVersions
+            .IgnoreQueryFilters()
+            .SingleOrDefaultAsync(version =>
+                version.ScopeKey == scopeKey && version.IngestionKey == input.IdempotencyKey.Trim(),
+                cancellationToken);
+        if (existing is not null)
+            return ReplayPending(existing, input, now);
+
+        var document = await dbContext.RegulatoryDocuments
+            .IgnoreQueryFilters()
+            .Include(item => item.Versions)
+            .SingleOrDefaultAsync(item =>
+                item.ScopeKey == scopeKey &&
+                item.CanonicalSourceUri == input.CanonicalSourceUri.Trim() &&
+                item.JurisdictionCode == input.JurisdictionCode.Trim().ToUpperInvariant() &&
+                item.LanguageCode == input.LanguageCode.Trim().ToLowerInvariant(),
+                cancellationToken);
+        document ??= input.Visibility == SourceVisibility.Platform
+            ? RegulatoryDocument.CreatePlatform(input.Authority, input.Title, input.CanonicalSourceUri,
+                input.JurisdictionCode, input.RegulationType, input.LanguageCode, now)
+            : RegulatoryDocument.CreateTenant(scopeKey, input.Authority, input.Title, input.CanonicalSourceUri,
+                input.JurisdictionCode, input.RegulationType, input.LanguageCode, now);
+        if (dbContext.Entry(document).State == EntityState.Detached)
+            dbContext.RegulatoryDocuments.Add(document);
+
+        var version = document.AddVersion(
+            input.IdempotencyKey, input.VersionLabel, input.PublishedAt, input.EffectiveFrom,
+            input.EffectiveTo, input.ContentSha256, input.ContentReference, input.FileName,
+            input.MimeType, input.SizeBytes, now,
+            document.Versions.OrderByDescending(item => item.EffectiveFrom).FirstOrDefault()?.Id);
+        version.MarkPendingOcr(now);
+        if (dbContext.Entry(version).State == EntityState.Detached)
+            dbContext.RegulatoryDocumentVersions.Add(version);
+
+        await dbContext.SaveChangesAsync(cancellationToken);
+        return new RegulatoryIngestionResult(
+            document.Id, version.Id, version.IngestionStatus, 0, false, now);
+    }
+
     private void Authorize(SourceVisibility visibility)
     {
         if (!Enum.IsDefined(visibility))
@@ -187,6 +238,66 @@ public sealed class RegulatoryIngestionService(
             throw new ArgumentException("PublishedAt and EffectiveFrom are required.");
         if (input.EffectiveTo.HasValue && input.EffectiveTo <= input.EffectiveFrom)
             throw new ArgumentOutOfRangeException(nameof(input.EffectiveTo));
+    }
+
+    private void ValidatePendingMetadata(RegulatoryPendingOcrInput input)
+    {
+        if (string.IsNullOrWhiteSpace(input.IdempotencyKey) || input.IdempotencyKey.Length > 150)
+            throw new ArgumentException("IdempotencyKey is required.", nameof(input.IdempotencyKey));
+        if (!Uri.TryCreate(input.CanonicalSourceUri, UriKind.Absolute, out var sourceUri) ||
+            sourceUri.Scheme != Uri.UriSchemeHttps || !string.IsNullOrEmpty(sourceUri.UserInfo))
+            throw new ArgumentException("CanonicalSourceUri must be an HTTPS provenance URI.", nameof(input.CanonicalSourceUri));
+        if (!Enum.IsDefined(input.RegulationType))
+            throw new ArgumentOutOfRangeException(nameof(input.RegulationType));
+        if (input.PublishedAt == default || input.EffectiveFrom == default)
+            throw new ArgumentException("PublishedAt and EffectiveFrom are required.");
+        if (input.EffectiveTo.HasValue && input.EffectiveTo <= input.EffectiveFrom)
+            throw new ArgumentOutOfRangeException(nameof(input.EffectiveTo));
+        ValidatePendingFile(input.ContentReference, input.FileName, input.MimeType,
+            input.SizeBytes, input.ContentSha256, input.Visibility, currentUser.TenantId);
+    }
+
+    private static void ValidatePendingFile(
+        string contentReference,
+        string fileName,
+        string mimeType,
+        long sizeBytes,
+        string contentSha256,
+        SourceVisibility visibility,
+        Guid? tenantId)
+    {
+        if (string.IsNullOrWhiteSpace(fileName) || fileName.Length > 255)
+            throw new ArgumentException("FileName is required.", nameof(fileName));
+        if (string.IsNullOrWhiteSpace(contentReference) ||
+            Path.IsPathRooted(contentReference) ||
+            contentReference.Contains("..", StringComparison.Ordinal) ||
+            contentReference.Contains("://", StringComparison.Ordinal) ||
+            (visibility == SourceVisibility.Tenant &&
+                (!tenantId.HasValue || !contentReference.StartsWith($"tenants/{tenantId}/documents/", StringComparison.Ordinal))) ||
+            (visibility == SourceVisibility.Platform && !contentReference.StartsWith("platform/", StringComparison.Ordinal)))
+            throw new ArgumentException("ContentReference must be an approved upload storage key.", nameof(contentReference));
+        if (sizeBytes <= 0 || sizeBytes > 100 * 1024 * 1024)
+            throw new ArgumentOutOfRangeException(nameof(sizeBytes));
+        if (contentSha256.Length != 64 || contentSha256.Any(value => !Uri.IsHexDigit(value)))
+            throw new ArgumentException("ContentSha256 must be a 64-character hexadecimal hash.", nameof(contentSha256));
+        var allowedMimeTypes = new[] { "text/plain", "text/markdown", "application/pdf", "application/msword",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "application/octet-stream" };
+        if (!allowedMimeTypes.Contains(mimeType, StringComparer.OrdinalIgnoreCase))
+            throw new ArgumentException("The uploaded MIME type is not supported for OCR corpus ingestion.", nameof(mimeType));
+    }
+
+    private static RegulatoryIngestionResult ReplayPending(
+        RegulatoryDocumentVersion existing,
+        RegulatoryPendingOcrInput input,
+        DateTimeOffset now)
+    {
+        if (existing.ContentSha256 != input.ContentSha256 ||
+            existing.VersionLabel != input.VersionLabel.Trim() ||
+            existing.FileName != input.FileName.Trim())
+            throw new InvalidOperationException("The idempotency key was already used with different content.");
+        return new RegulatoryIngestionResult(
+            existing.RegulatoryDocumentId, existing.Id, existing.IngestionStatus,
+            existing.ChunkCount, true, now);
     }
 
     private static bool IsUniqueViolation(DbUpdateException exception) =>

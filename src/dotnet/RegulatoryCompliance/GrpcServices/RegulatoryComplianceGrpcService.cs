@@ -200,6 +200,64 @@ public sealed class RegulatoryComplianceGrpcService(
         }
     }
 
+    public override async Task<ComplianceGrpc.IngestRegulatorySourceResponse> CreateRegulatoryCorpusVersion(
+        ComplianceGrpc.CreateRegulatoryCorpusVersionRequest request,
+        ServerCallContext context)
+    {
+        if (request.PublishedAt is null || request.EffectiveFrom is null)
+            throw InvalidArgument("PublishedAt and EffectiveFrom are required.");
+
+        try
+        {
+            var result = await ingestionService.CreatePendingOcrAsync(
+                new RegulatoryPendingOcrInput(
+                    request.IdempotencyKey,
+                    request.Authority,
+                    request.Title,
+                    request.CanonicalSourceUri,
+                    request.JurisdictionCode,
+                    MapRegulationType(request.RegulationType),
+                    request.LanguageCode,
+                    request.VersionLabel,
+                    request.PublishedAt.ToDateTimeOffset(),
+                    request.EffectiveFrom.ToDateTimeOffset(),
+                    request.EffectiveTo?.ToDateTimeOffset(),
+                    request.ContentReference,
+                    request.FileName,
+                    request.MimeType,
+                    request.SizeBytes,
+                    request.ContentSha256,
+                    MapVisibility(request.Visibility)),
+                context.CancellationToken);
+            return new ComplianceGrpc.IngestRegulatorySourceResponse
+            {
+                RegulatoryDocumentId = result.RegulatoryDocumentId.ToString(),
+                DocumentVersionId = result.DocumentVersionId.ToString(),
+                Status = (ComplianceGrpc.RegulatoryIngestionStatus)(int)result.Status,
+                ChunkCount = result.ChunkCount,
+                Replayed = result.Replayed,
+                ReceivedAt = Timestamp.FromDateTimeOffset(result.ReceivedAt)
+            };
+        }
+        catch (UnauthorizedAccessException exception)
+        {
+            throw new RpcException(new Status(StatusCode.PermissionDenied, exception.Message));
+        }
+        catch (InvalidOperationException exception) when (
+            exception.Message.Contains("Tenant context", StringComparison.Ordinal))
+        {
+            throw new RpcException(new Status(StatusCode.Unauthenticated, exception.Message));
+        }
+        catch (InvalidOperationException exception)
+        {
+            throw new RpcException(new Status(StatusCode.AlreadyExists, exception.Message));
+        }
+        catch (ArgumentException exception)
+        {
+            throw InvalidArgument(exception.Message);
+        }
+    }
+
     public override async Task<ComplianceGrpc.IngestKnowledgeSourceResponse> IngestKnowledgeDocument(
         ComplianceGrpc.IngestKnowledgeSourceRequest request,
         ServerCallContext context)
@@ -220,6 +278,58 @@ public sealed class RegulatoryComplianceGrpcService(
                     request.SizeBytes,
                     request.ContentSha256,
                     request.Content.Memory,
+                    MapVisibility(request.Visibility)),
+                context.CancellationToken);
+
+            return new ComplianceGrpc.IngestKnowledgeSourceResponse
+            {
+                KnowledgeDocumentId = result.KnowledgeDocumentId.ToString(),
+                DocumentVersionId = result.DocumentVersionId.ToString(),
+                Status = (ComplianceGrpc.RegulatoryIngestionStatus)(int)result.Status,
+                ChunkCount = result.ChunkCount,
+                Replayed = result.Replayed,
+                ReceivedAt = Timestamp.FromDateTimeOffset(result.ReceivedAt)
+            };
+        }
+        catch (UnauthorizedAccessException exception)
+        {
+            throw new RpcException(new Status(StatusCode.PermissionDenied, exception.Message));
+        }
+        catch (InvalidOperationException exception) when (
+            exception.Message.Contains("Tenant context", StringComparison.Ordinal) ||
+            exception.Message.Contains("Tenant ID", StringComparison.Ordinal))
+        {
+            throw new RpcException(new Status(StatusCode.Unauthenticated, exception.Message));
+        }
+        catch (InvalidOperationException exception)
+        {
+            throw new RpcException(new Status(StatusCode.AlreadyExists, exception.Message));
+        }
+        catch (ArgumentException exception)
+        {
+            throw InvalidArgument(exception.Message);
+        }
+    }
+
+    public override async Task<ComplianceGrpc.IngestKnowledgeSourceResponse> CreateKnowledgeCorpusVersion(
+        ComplianceGrpc.CreateKnowledgeCorpusVersionRequest request,
+        ServerCallContext context)
+    {
+        try
+        {
+            var result = await knowledgeIngestionService.CreatePendingOcrAsync(
+                new KnowledgePendingOcrInput(
+                    request.IdempotencyKey,
+                    request.Title,
+                    (RegulatoryCompliance.Domain.Enums.KnowledgeCategory)(int)request.Category,
+                    request.SourceReference,
+                    request.LanguageCode,
+                    request.VersionLabel,
+                    request.ContentReference,
+                    request.FileName,
+                    request.MimeType,
+                    request.SizeBytes,
+                    request.ContentSha256,
                     MapVisibility(request.Visibility)),
                 context.CancellationToken);
 

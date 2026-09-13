@@ -433,6 +433,9 @@ public sealed class GroundedAssistantTests
 
     private sealed class FakeKnowledgeWithEvidenceService : IKnowledgeIngestionService
     {
+        public Task<KnowledgeIngestionResult> CreatePendingOcrAsync(KnowledgePendingOcrInput input, CancellationToken cancellationToken = default) =>
+            throw new NotImplementedException();
+
         public Task<KnowledgeIngestionResult> IngestAsync(KnowledgeIngestionInput input, CancellationToken cancellationToken = default) =>
             throw new NotImplementedException();
 
@@ -459,6 +462,9 @@ public sealed class GroundedAssistantTests
 
     private sealed class FakeKnowledgeIngestionService : IKnowledgeIngestionService
     {
+        public Task<KnowledgeIngestionResult> CreatePendingOcrAsync(KnowledgePendingOcrInput input, CancellationToken cancellationToken = default) =>
+            throw new NotImplementedException();
+
         public Task<KnowledgeIngestionResult> IngestAsync(KnowledgeIngestionInput input, CancellationToken cancellationToken = default) =>
             throw new NotImplementedException();
 

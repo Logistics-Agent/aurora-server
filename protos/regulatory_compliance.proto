@@ -11,9 +11,11 @@ service RegulatoryComplianceService {
   rpc GetComplianceEvaluation(GetComplianceEvaluationRequest) returns (ComplianceEvaluationResponse);
   rpc QueryRegulations(QueryRegulationsRequest) returns (QueryRegulationsResponse);
   rpc IngestRegulatorySource(IngestRegulatorySourceRequest) returns (IngestRegulatorySourceResponse);
+  rpc CreateRegulatoryCorpusVersion(CreateRegulatoryCorpusVersionRequest) returns (IngestRegulatorySourceResponse);
   rpc ListRegulatorySources(ListRegulatorySourcesRequest) returns (ListRegulatorySourcesResponse);
   rpc GetRegulatorySource(GetRegulatorySourceRequest) returns (RegulatorySourceDetails);
   rpc IngestKnowledgeDocument(IngestKnowledgeSourceRequest) returns (IngestKnowledgeSourceResponse);
+  rpc CreateKnowledgeCorpusVersion(CreateKnowledgeCorpusVersionRequest) returns (IngestKnowledgeSourceResponse);
   rpc ListKnowledgeDocuments(ListKnowledgeDocumentsRequest) returns (ListKnowledgeDocumentsResponse);
   rpc GetKnowledgeDocument(GetKnowledgeDocumentRequest) returns (KnowledgeDocumentDetails);
   rpc QueryKnowledge(QueryKnowledgeRequest) returns (QueryKnowledgeResponse);
@@ -212,6 +214,26 @@ message IngestRegulatorySourceResponse {
   google.protobuf.Timestamp received_at = 6;
 }
 
+message CreateRegulatoryCorpusVersionRequest {
+  string idempotency_key = 1;
+  string authority = 2;
+  string title = 3;
+  string canonical_source_uri = 4;
+  string jurisdiction_code = 5;
+  RegulationType regulation_type = 6;
+  string language_code = 7;
+  string version_label = 8;
+  google.protobuf.Timestamp published_at = 9;
+  google.protobuf.Timestamp effective_from = 10;
+  google.protobuf.Timestamp effective_to = 11;
+  string content_reference = 12;
+  string file_name = 13;
+  string mime_type = 14;
+  int64 size_bytes = 15;
+  string content_sha256 = 16;
+  RegulatorySourceVisibility visibility = 17;
+}
+
 message ListRegulatorySourcesRequest {
   int32 page = 1;
   int32 page_size = 2;
@@ -298,6 +320,21 @@ message IngestKnowledgeSourceResponse {
   int32 chunk_count = 4;
   bool replayed = 5;
   google.protobuf.Timestamp received_at = 6;
+}
+
+message CreateKnowledgeCorpusVersionRequest {
+  string idempotency_key = 1;
+  string title = 2;
+  KnowledgeCategory category = 3;
+  string source_reference = 4;
+  string language_code = 5;
+  string version_label = 6;
+  string content_reference = 7;
+  string file_name = 8;
+  string mime_type = 9;
+  int64 size_bytes = 10;
+  string content_sha256 = 11;
+  RegulatorySourceVisibility visibility = 12;
 }
 
 message ListKnowledgeDocumentsRequest {
