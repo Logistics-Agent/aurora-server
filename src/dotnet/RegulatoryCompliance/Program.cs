@@ -20,14 +20,17 @@ builder.Services.AddGrpc(options =>
 });
 builder.Services.AddSharedServices(builder.Configuration);
 builder.Services.AddTransient<ExceptionInterceptor>();
-builder.Services.AddDbContext<RegulatoryComplianceDbContext>(options =>
+void ConfigureDbContext(DbContextOptionsBuilder options) =>
     options.UseNpgsql(
         builder.Configuration.GetConnectionString("DefaultConnection"),
         npgsql =>
         {
             npgsql.UseVector();
             npgsql.MigrationsAssembly("RegulatoryCompliance");
-        }));
+        });
+
+builder.Services.AddDbContext<RegulatoryComplianceDbContext>(ConfigureDbContext);
+builder.Services.AddDbContextFactory<RegulatoryComplianceDbContext>(ConfigureDbContext, ServiceLifetime.Scoped);
 builder.Services.AddSharedMassTransit(
     builder.Configuration,
     bus =>

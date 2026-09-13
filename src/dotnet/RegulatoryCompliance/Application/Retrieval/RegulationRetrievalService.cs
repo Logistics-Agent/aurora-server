@@ -56,7 +56,8 @@ public sealed class RegulationRetrievalService(
     IEmbeddingProvider embeddingProvider,
     IRegulationVectorStore vectorStore,
     ICurrentUserService currentUser,
-    TimeProvider timeProvider) : IRegulationRetrievalService
+    TimeProvider timeProvider,
+    IDbContextFactory<RegulatoryComplianceDbContext>? dbContextFactory = null) : IRegulationRetrievalService
 {
     public const int MaximumTopK = 20;
     private const int MaximumCandidateChunks = 2_000;
@@ -65,6 +66,18 @@ public sealed class RegulationRetrievalService(
     public async Task<RegulationQueryResult> QueryAsync(
         RegulationQueryInput input,
         CancellationToken cancellationToken = default)
+    {
+        if (dbContextFactory is null)
+            return await QueryCoreAsync(dbContext, input, cancellationToken);
+
+        await using var ownedDbContext = await dbContextFactory.CreateDbContextAsync(cancellationToken);
+        return await QueryCoreAsync(ownedDbContext, input, cancellationToken);
+    }
+
+    private async Task<RegulationQueryResult> QueryCoreAsync(
+        RegulatoryComplianceDbContext dbContext,
+        RegulationQueryInput input,
+        CancellationToken cancellationToken)
     {
         Validate(input);
         var tenantId = currentUser.TenantId!.Value;
@@ -94,11 +107,11 @@ public sealed class RegulationRetrievalService(
             .ToArrayAsync(cancellationToken);
 
         if (candidateIds.Length == 0)
-            return await BuildResultAsync(input, tenantId, jurisdiction, language, types, [], "Insufficient regulatory evidence was found for the supplied filters.", cancellationToken);
+            return await BuildResultAsync(dbContext, input, tenantId, jurisdiction, language, types, [], "Insufficient regulatory evidence was found for the supplied filters.", cancellationToken);
 
         var embeddings = await TryGenerateEmbeddingAsync(input.Query, cancellationToken);
         if (embeddings.Count == 0)
-            return await QueryByKeywordAsync(input, tenantId, jurisdiction, language, types, cancellationToken);
+            return await QueryByKeywordAsync(dbContext, input, tenantId, jurisdiction, language, types, cancellationToken);
 
         IReadOnlyList<VectorSearchResult> ranked;
         try
@@ -116,7 +129,7 @@ public sealed class RegulationRetrievalService(
         }
         catch (Exception) when (!cancellationToken.IsCancellationRequested)
         {
-            return await QueryByKeywordAsync(input, tenantId, jurisdiction, language, types, cancellationToken);
+            return await QueryByKeywordAsync(dbContext, input, tenantId, jurisdiction, language, types, cancellationToken);
         }
         var selected = ranked
             .OrderByDescending(item => item.Score)
@@ -160,6 +173,7 @@ public sealed class RegulationRetrievalService(
             ? "Insufficient regulatory evidence was found for the supplied filters."
             : $"Retrieved {evidence.Length} evidence passage(s). Conclusions must be limited to the cited source text.";
         return await BuildResultAsync(
+            dbContext,
             input,
             tenantId,
             jurisdiction,
@@ -171,6 +185,7 @@ public sealed class RegulationRetrievalService(
     }
 
     private async Task<RegulationQueryResult> QueryByKeywordAsync(
+        RegulatoryComplianceDbContext dbContext,
         RegulationQueryInput input,
         Guid tenantId,
         string jurisdiction,
@@ -230,6 +245,7 @@ public sealed class RegulationRetrievalService(
             .ToArray();
 
         return await BuildResultAsync(
+            dbContext,
             input,
             tenantId,
             jurisdiction,
@@ -259,6 +275,7 @@ public sealed class RegulationRetrievalService(
     }
 
     private async Task<RegulationQueryResult> BuildResultAsync(
+        RegulatoryComplianceDbContext dbContext,
         RegulationQueryInput input,
         Guid tenantId,
         string jurisdiction,
