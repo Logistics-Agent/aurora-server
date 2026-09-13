@@ -6,6 +6,8 @@ using Microsoft.AspNetCore.Mvc;
 using RegulatoryCompliance.Grpc;
 using Shared.Constants;
 using Shared.Security;
+using StaffBff.Attributes;
+using StaffBff.Services;
 
 namespace StaffBff.Controllers;
 
@@ -16,77 +18,156 @@ namespace StaffBff.Controllers;
 [ApiVersion("1.0")]
 public class ComplianceController(
     RegulatoryComplianceService.RegulatoryComplianceServiceClient complianceClient,
+    ComplianceSnapshotComposer snapshotComposer,
     ICurrentUserService currentUser,
     ILogger<ComplianceController> logger) : StaffControllerBase
 {
-    [HttpPost("evaluations")]
+    [HttpPost("~/api/v{version:apiVersion}/shipments/{shipmentId}/compliance-evaluations")]
     [RequirePermission(PermissionConstants.Compliance.Read)]
-    public async Task<IActionResult> EvaluateCompliance(
-        [FromBody] EvaluateComplianceBody body,
+    public async Task<IActionResult> StartEvaluation(
+        [FromRoute] string shipmentId,
+        [FromBody] StartComplianceEvaluationRequest body,
         CancellationToken ct = default)
     {
         try
         {
-            var shipmentIdStr = Guid.TryParse(body.ExternalShipmentId, out var parsedShipmentGuid) && parsedShipmentGuid != Guid.Empty
-                ? parsedShipmentGuid.ToString()
-                : Guid.NewGuid().ToString();
+            if (string.IsNullOrWhiteSpace(body.IdempotencyKey) || body.IdempotencyKey.Trim().Length > 150)
+                throw new ArgumentException("idempotencyKey is required.", nameof(body.IdempotencyKey));
+
+            var snapshot = await snapshotComposer.ComposeAsync(
+                shipmentId,
+                body.EffectiveAt ?? DateTimeOffset.UtcNow,
+                ct);
 
             var req = new EvaluateComplianceRequest
             {
-                IdempotencyKey = body.IdempotencyKey ?? Guid.NewGuid().ToString(),
-                ExternalShipmentId = shipmentIdStr,
-                OriginCountryCode = body.OriginCountryCode ?? string.Empty,
-                DestinationCountryCode = body.DestinationCountryCode ?? string.Empty,
-                TransportMode = body.TransportMode ?? string.Empty,
-                EffectiveAt = Timestamp.FromDateTimeOffset(body.EffectiveAt ?? DateTimeOffset.UtcNow)
+                IdempotencyKey = body.IdempotencyKey.Trim(),
+                ExternalShipmentId = snapshot.ShipmentId.ToString(),
+                OriginCountryCode = snapshot.OriginCountryCode,
+                DestinationCountryCode = snapshot.DestinationCountryCode,
+                TransportMode = snapshot.TransportMode,
+                EffectiveAt = Timestamp.FromDateTimeOffset(snapshot.EffectiveAt),
+                ShipmentVersion = snapshot.ShipmentVersion
             };
 
-            if (body.JurisdictionCodes != null)
+            req.JurisdictionCodes.AddRange(snapshot.JurisdictionCodes);
+            req.Cargo.AddRange(snapshot.Cargo.Select(c => new CargoSnapshot
             {
-                req.JurisdictionCodes.AddRange(body.JurisdictionCodes);
-            }
-
-            if (body.Cargo != null)
+                Name = c.Name,
+                HsCode = c.HsCode ?? string.Empty,
+                Quantity = c.Quantity,
+                Unit = c.Unit,
+                WeightKg = c.WeightKg,
+                VolumeM3 = c.VolumeM3,
+                IsDangerousGoods = c.IsDangerousGoods,
+                DangerousGoodsCode = c.DangerousGoodsCode ?? string.Empty,
+                PackageType = c.PackageType ?? string.Empty
+            }));
+            req.Documents.AddRange(snapshot.Documents.Select(d => new OcrDocumentSnapshot
             {
-                req.Cargo.AddRange(body.Cargo.Select(c => new CargoSnapshot
-                {
-                    Name = c.Name ?? string.Empty,
-                    HsCode = c.HsCode ?? string.Empty,
-                    Quantity = c.Quantity,
-                    Unit = c.Unit ?? string.Empty,
-                    WeightKg = c.WeightKg,
-                    VolumeM3 = c.VolumeM3,
-                    IsDangerousGoods = c.IsDangerousGoods,
-                    DangerousGoodsCode = c.DangerousGoodsCode ?? string.Empty,
-                    PackageType = c.PackageType ?? string.Empty
-                }));
-            }
-
-            if (body.Documents != null)
-            {
-                req.Documents.AddRange(body.Documents.Select(d =>
-                {
-                    var docIdStr = Guid.TryParse(d.ExternalDocumentId, out var parsedDocGuid) && parsedDocGuid != Guid.Empty
-                        ? parsedDocGuid.ToString()
-                        : Guid.NewGuid().ToString();
-
-                    return new OcrDocumentSnapshot
-                    {
-                        ExternalDocumentId = docIdStr,
-                        DocumentType = d.DocumentType ?? string.Empty,
-                        NormalizedJson = d.NormalizedJson ?? "{}",
-                        ExtractionConfidence = d.ExtractionConfidence,
-                        NeedsReview = d.NeedsReview
-                    };
-                }));
-            }
+                ExternalDocumentId = d.ExternalDocumentId.ToString(),
+                DocumentType = d.DocumentType,
+                NormalizedJson = d.NormalizedJson,
+                ExtractionConfidence = d.ExtractionConfidence,
+                NeedsReview = d.NeedsReview
+            }));
 
             var response = await complianceClient.EvaluateComplianceAsync(req, cancellationToken: ct);
-            return Ok(response);
+            var location = $"/api/v1/compliance/evaluations/{response.EvaluationId}";
+            logger.LogInformation(
+                "Compliance evaluation {EvaluationId} accepted for shipment {ShipmentId} in tenant {TenantId}",
+                response.EvaluationId,
+                snapshot.ShipmentId,
+                currentUser.TenantId);
+            return Accepted(location, response);
         }
         catch (RpcException ex) when (ex.StatusCode == Grpc.Core.StatusCode.InvalidArgument)
         {
-            return BadRequest(new { detail = ex.Status.Detail });
+            return BadRequest(new ProblemDetails
+            {
+                Title = "INVALID_REQUEST",
+                Detail = ex.Status.Detail,
+                Status = StatusCodes.Status400BadRequest
+            });
+        }
+        catch (ComplianceSnapshotIncompleteException ex)
+        {
+            var problem = new ProblemDetails
+            {
+                Title = "SHIPMENT_SNAPSHOT_INCOMPLETE",
+                Detail = "Required shipment data is missing.",
+                Status = StatusCodes.Status409Conflict
+            };
+            problem.Extensions["missingFields"] = ex.MissingFields;
+            return Conflict(problem);
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(new ProblemDetails
+            {
+                Title = "INVALID_REQUEST",
+                Detail = ex.Message,
+                Status = StatusCodes.Status400BadRequest
+            });
+        }
+        catch (KeyNotFoundException ex)
+        {
+            return NotFound(new ProblemDetails
+            {
+                Title = "SHIPMENT_NOT_FOUND",
+                Detail = ex.Message,
+                Status = StatusCodes.Status404NotFound
+            });
+        }
+    }
+
+    [HttpGet("evaluations")]
+    [RequirePermission(PermissionConstants.Compliance.Read)]
+    [RequireTenantContext]
+    public async Task<IActionResult> ListComplianceEvaluations(
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20,
+        [FromQuery] string? status = null,
+        CancellationToken ct = default)
+    {
+        var request = new ListComplianceEvaluationsRequest
+        {
+            Page = page,
+            PageSize = pageSize
+        };
+        if (!string.IsNullOrWhiteSpace(status))
+        {
+            if (!System.Enum.TryParse<ComplianceEvaluationStatus>(status, true, out var parsedStatus))
+                return BadRequest(new ProblemDetails
+                {
+                    Title = "INVALID_REQUEST",
+                    Detail = "status is invalid.",
+                    Status = StatusCodes.Status400BadRequest
+                });
+            request.Status = parsedStatus;
+        }
+
+        try
+        {
+            var response = await complianceClient.ListComplianceEvaluationsAsync(
+                request,
+                cancellationToken: ct);
+            return Ok(new
+            {
+                items = response.Items,
+                page = response.Page,
+                pageSize = response.PageSize,
+                totalCount = response.TotalCount
+            });
+        }
+        catch (RpcException ex) when (ex.StatusCode == Grpc.Core.StatusCode.Unauthenticated)
+        {
+            return Unauthorized(new ProblemDetails
+            {
+                Title = "TENANT_CONTEXT_REQUIRED",
+                Detail = ex.Status.Detail,
+                Status = StatusCodes.Status401Unauthorized
+            });
         }
     }
 
@@ -167,34 +248,7 @@ public class ComplianceController(
 
 // ── DTOs ───────────────────────────────────────────────────────────────────
 
-public record EvaluateComplianceBody(
-    string? IdempotencyKey,
-    string? ExternalShipmentId,
-    string? OriginCountryCode,
-    string? DestinationCountryCode,
-    string? TransportMode,
-    DateTimeOffset? EffectiveAt,
-    List<string>? JurisdictionCodes,
-    List<CargoSnapshotDto>? Cargo,
-    List<OcrDocumentSnapshotDto>? Documents);
-
-public record CargoSnapshotDto(
-    string? Name,
-    string? HsCode,
-    int Quantity,
-    string? Unit,
-    double WeightKg,
-    double VolumeM3,
-    bool IsDangerousGoods,
-    string? DangerousGoodsCode,
-    string? PackageType);
-
-public record OcrDocumentSnapshotDto(
-    string? ExternalDocumentId,
-    string? DocumentType,
-    string? NormalizedJson,
-    double ExtractionConfidence,
-    bool NeedsReview);
+public record StartComplianceEvaluationRequest(string? IdempotencyKey, DateTimeOffset? EffectiveAt);
 
 public record AskComplianceCopilotBody(
     string? Query,

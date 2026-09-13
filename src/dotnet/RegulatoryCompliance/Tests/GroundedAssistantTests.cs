@@ -493,5 +493,12 @@ public sealed class GroundedAssistantTests
             evaluation.Id == evaluationId
                 ? Task.FromResult(evaluation)
                 : throw new KeyNotFoundException();
+
+        public Task<ComplianceEvaluationPage> ListAsync(
+            int page,
+            int pageSize,
+            ComplianceEvaluationStatus? status = null,
+            CancellationToken cancellationToken = default) =>
+            throw new NotImplementedException();
     }
 }

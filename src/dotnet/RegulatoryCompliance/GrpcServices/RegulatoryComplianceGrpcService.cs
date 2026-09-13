@@ -53,7 +53,8 @@ public sealed class RegulatoryComplianceGrpcService(
                     document.NormalizedJson,
                     Convert.ToDecimal(document.ExtractionConfidence),
                     document.NeedsReview)).ToArray(),
-                request.EffectiveAt.ToDateTimeOffset());
+                request.EffectiveAt.ToDateTimeOffset(),
+                request.ShipmentVersion);
             return MapEvaluation(await evaluationService.EvaluateAsync(input, context.CancellationToken));
         }
         catch (InvalidOperationException exception) when (
@@ -96,6 +97,36 @@ public sealed class RegulatoryComplianceGrpcService(
         catch (ArgumentException exception)
         {
             throw InvalidArgument(exception.Message);
+        }
+    }
+
+    public override async Task<ComplianceGrpc.ListComplianceEvaluationsResponse> ListComplianceEvaluations(
+        ComplianceGrpc.ListComplianceEvaluationsRequest request,
+        ServerCallContext context)
+    {
+        try
+        {
+            var status = request.Status == ComplianceGrpc.ComplianceEvaluationStatus.Unspecified
+                ? null
+                : (RegulatoryCompliance.Domain.Enums.ComplianceEvaluationStatus?)
+                    (int)request.Status;
+            var page = await evaluationService.ListAsync(
+                request.Page,
+                request.PageSize,
+                status,
+                context.CancellationToken);
+            var response = new ComplianceGrpc.ListComplianceEvaluationsResponse
+            {
+                Page = page.Page,
+                PageSize = page.PageSize,
+                TotalCount = page.TotalCount
+            };
+            response.Items.AddRange(page.Items.Select(MapEvaluation));
+            return response;
+        }
+        catch (InvalidOperationException exception)
+        {
+            throw new RpcException(new Status(StatusCode.Unauthenticated, exception.Message));
         }
     }
 
@@ -972,7 +1003,10 @@ public sealed class RegulatoryComplianceGrpcService(
                 : ComplianceGrpc.EvidenceSufficiency.Unspecified,
             RequestedAt = Timestamp.FromDateTimeOffset(evaluation.RequestedAt),
             ErrorCode = evaluation.ErrorCode ?? string.Empty,
-            ErrorMessage = evaluation.ErrorMessage ?? string.Empty
+            ErrorMessage = evaluation.ErrorMessage ?? string.Empty,
+            Freshness = ComplianceGrpc.ComplianceEvaluationFreshness.Current,
+            SnapshotHash = evaluation.RequestHash,
+            SnapshotVersion = 0
         };
         if (evaluation.CompletedAt.HasValue)
             response.CompletedAt = Timestamp.FromDateTimeOffset(evaluation.CompletedAt.Value);

@@ -39,7 +39,14 @@ public sealed record ComplianceEvaluationInput(
     IReadOnlyCollection<string> JurisdictionCodes,
     string TransportMode,
     IReadOnlyCollection<OcrEvaluationSnapshot> Documents,
-    DateTimeOffset EffectiveAt);
+    DateTimeOffset EffectiveAt,
+    string ShipmentVersion = "");
+
+public sealed record ComplianceEvaluationPage(
+    IReadOnlyList<ComplianceEvaluation> Items,
+    int Page,
+    int PageSize,
+    int TotalCount);
 
 public interface IComplianceEvaluationService
 {
@@ -49,6 +56,12 @@ public interface IComplianceEvaluationService
 
     Task<ComplianceEvaluation> GetAsync(
         Guid evaluationId,
+        CancellationToken cancellationToken = default);
+
+    Task<ComplianceEvaluationPage> ListAsync(
+        int page,
+        int pageSize,
+        ComplianceEvaluationStatus? status = null,
         CancellationToken cancellationToken = default);
 }
 
@@ -73,8 +86,9 @@ public sealed class ComplianceEvaluationService(
     {
         var tenantId = RequireTenant();
         Validate(input);
-        var snapshotJson = JsonSerializer.Serialize(input);
-        var requestHash = Sha256(snapshotJson);
+        var canonicalSnapshot = ComplianceSnapshotCanonicalizer.Canonicalize(input);
+        var snapshotJson = canonicalSnapshot.Json;
+        var requestHash = canonicalSnapshot.SnapshotHash;
         var existing = await dbContext.ComplianceEvaluations
             .Include(evaluation => evaluation.Findings)
             .ThenInclude(finding => finding.Citations)
@@ -209,6 +223,36 @@ public sealed class ComplianceEvaluationService(
             .Include(evaluation => evaluation.RetrievalTraces)
             .SingleOrDefaultAsync(evaluation => evaluation.Id == evaluationId, cancellationToken)
             ?? throw new KeyNotFoundException("Compliance evaluation was not found.");
+    }
+
+    public async Task<ComplianceEvaluationPage> ListAsync(
+        int page,
+        int pageSize,
+        ComplianceEvaluationStatus? status = null,
+        CancellationToken cancellationToken = default)
+    {
+        RequireTenant();
+        var normalizedPage = Math.Max(page, 1);
+        var normalizedPageSize = Math.Clamp(pageSize, 1, 100);
+        var query = dbContext.ComplianceEvaluations
+            .AsNoTracking()
+            .Include(evaluation => evaluation.Findings)
+            .ThenInclude(finding => finding.Citations)
+            .Include(evaluation => evaluation.RetrievalTraces)
+            .AsQueryable();
+
+        if (status.HasValue)
+            query = query.Where(evaluation => evaluation.Status == status.Value);
+
+        var totalCount = await query.CountAsync(cancellationToken);
+        var items = await query
+            .OrderByDescending(evaluation => evaluation.RequestedAt)
+            .ThenByDescending(evaluation => evaluation.Id)
+            .Skip((normalizedPage - 1) * normalizedPageSize)
+            .Take(normalizedPageSize)
+            .ToListAsync(cancellationToken);
+
+        return new ComplianceEvaluationPage(items, normalizedPage, normalizedPageSize, totalCount);
     }
 
     private static void AddEvidenceFinding(
