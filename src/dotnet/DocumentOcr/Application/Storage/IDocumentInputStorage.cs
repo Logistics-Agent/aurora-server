@@ -121,9 +121,10 @@ public static class DocumentObjectInspector
     {
         try
         {
-            _ = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true)
+            var text = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true)
                 .GetString(content.ToArray());
-            return true;
+            return text.Length > 0 && text.All(character =>
+                !char.IsControl(character) || character is '\r' or '\n' or '\t');
         }
         catch (DecoderFallbackException)
         {

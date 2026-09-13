@@ -61,6 +61,20 @@ public sealed class OcrProviderAbstractionTests
     }
 
     [Fact]
+    public async Task ObjectInspectorDoesNotClassifyControlCharactersAsMarkdown()
+    {
+        await using var stream = new MemoryStream([0x00, 0x01, 0x02]);
+
+        var metadata = await DocumentObjectInspector.InspectAsync(
+            "objects/tenant/corpus.md",
+            stream,
+            CancellationToken.None,
+            "text/markdown");
+
+        Assert.Equal("application/octet-stream", metadata.ContentType);
+    }
+
+    [Fact]
     public void BothParserPreservesFullTextForCorpusIngestion()
     {
         var request = CreateProviderRequest() with
