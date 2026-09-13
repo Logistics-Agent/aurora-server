@@ -1,5 +1,6 @@
 using Amazon.S3;
 using Amazon.S3.Model;
+using DocumentOcr.Application.Providers;
 using DocumentOcr.Application.Storage;
 using Microsoft.Extensions.Configuration;
 using System.Globalization;
@@ -113,6 +114,39 @@ public sealed class S3DocumentInputStorage(IAmazonS3 client, IConfiguration conf
         long maximumSizeBytes,
         CancellationToken cancellationToken = default) =>
         throw new NotSupportedException("The HTTP upload bridge is available only with FileSystem input storage.");
+
+    public async Task<DocumentContent> ReadContentAsync(
+        Guid tenantId,
+        string objectKey,
+        string fileName,
+        string mimeType,
+        long maximumSizeBytes,
+        CancellationToken cancellationToken = default)
+    {
+        ValidateKeyPrefix(tenantId, objectKey);
+        using var response = await client.GetObjectAsync(new GetObjectRequest
+        {
+            BucketName = _bucketName,
+            Key = objectKey
+        }, cancellationToken);
+        if (response.ContentLength <= 0 || response.ContentLength > maximumSizeBytes)
+            throw new DocumentInputTooLargeException();
+
+        await using var buffer = new MemoryStream();
+        await response.ResponseStream.CopyToAsync(buffer, cancellationToken);
+        if (buffer.Length == 0 || buffer.Length > maximumSizeBytes)
+            throw new DocumentInputTooLargeException();
+
+        var bytes = buffer.ToArray();
+        var metadata = await DocumentObjectInspector.InspectAsync(
+            objectKey,
+            new MemoryStream(bytes, writable: false),
+            cancellationToken,
+            response.Headers.ContentType);
+        if (!string.Equals(metadata.ContentType, mimeType, StringComparison.OrdinalIgnoreCase))
+            throw new ArgumentException("Uploaded content MIME type does not match the declared MIME type.", nameof(mimeType));
+        return DocumentContent.Create(bytes, metadata.ContentType, 1);
+    }
 
     public async Task DeleteAsync(
         Guid tenantId,

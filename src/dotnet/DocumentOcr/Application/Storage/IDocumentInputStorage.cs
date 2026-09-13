@@ -1,4 +1,5 @@
 using System.Text;
+using DocumentOcr.Application.Providers;
 
 namespace DocumentOcr.Application.Storage;
 
@@ -31,6 +32,15 @@ public interface IDocumentInputStorage
         Guid tenantId,
         string objectKey,
         CancellationToken cancellationToken = default);
+
+    Task<DocumentContent> ReadContentAsync(
+        Guid tenantId,
+        string objectKey,
+        string fileName,
+        string mimeType,
+        long maximumSizeBytes,
+        CancellationToken cancellationToken = default) =>
+        throw new NotSupportedException("The configured input storage does not support server-side reads.");
 }
 
 public interface IDocumentDownloadStorage
