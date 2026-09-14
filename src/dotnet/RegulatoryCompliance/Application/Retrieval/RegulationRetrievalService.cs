@@ -142,7 +142,7 @@ public sealed class RegulationRetrievalService(
                     fullText,
                     1.0m));
             }
-            return await BuildResultAsync(input, tenantId, jurisdiction, language, types, listResults, "Retrieved all regulatory sources.", cancellationToken);
+            return await BuildResultAsync(dbContext, input, tenantId, jurisdiction, language, types, listResults, "Retrieved all regulatory sources.", cancellationToken);
         }
 
         var candidateIds = await (
