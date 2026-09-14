@@ -175,7 +175,8 @@ public sealed class DocumentOcrIntegrationConsumer(
                 now);
             dbContext.KnowledgeChunks.Add(chunk);
 
-            var embeddings = await embeddingProvider.GenerateAsync([chunk.NormalizedText], cancellationToken);
+            var embeddings = await embeddingProvider.GenerateAsync(
+                [new EmbeddingInput(message.TenantId, chunk.NormalizedText)], cancellationToken);
             if (embeddings.Count > 0)
             {
                 chunk.MarkEmbedded(embeddings[0], embeddingProvider.Model.Name, embeddingProvider.Model.Version, embeddingProvider.Model.Dimension, now);
@@ -234,12 +235,6 @@ public sealed class DocumentOcrIntegrationConsumer(
                 draft.ContentSha256,
                 now);
             dbContext.RegulatoryChunks.Add(chunk);
-
-            var embeddings = await embeddingProvider.GenerateAsync([chunk.NormalizedText], cancellationToken);
-            if (embeddings.Count > 0)
-            {
-                chunk.MarkEmbedded(embeddings[0], embeddingProvider.Model.Name, embeddingProvider.Model.Version, embeddingProvider.Model.Dimension, now);
-            }
         }
 
         version.CompleteIngestion(now);

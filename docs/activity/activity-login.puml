@@ -1,0 +1,38 @@
+@startuml
+skinparam dpi 180
+title Activity Diagram - User Login & Authentication Flow
+
+start
+
+:Người dùng nhập Email & Password trên giao diện Web;
+:Gửi POST /api/v1/auth/login đến Gateway / BFF;
+:BFF chuyển tiếp qua gRPC tới IamTenant Service;
+
+:IamTenant gọi AWS Cognito để xác thực tài khoản;
+
+if (Thông tin đăng nhập hợp lệ?) then (yes)
+  :Truy vấn hồ sơ User & Tenant trong PostgreSQL;
+  if (Tài khoản đang Active & Tenant không bị khoá?) then (yes)
+    :Kiểm tra Direct Permissions trong Redis Cache;
+    if (Cache Miss?) then (yes)
+      :Đọc danh sách PermissionCodes từ DB;
+      :Lưu danh sách quyền vào Redis (TTL 15 phút);
+    else (no)
+    endif
+    :Tạo JWT Token / Session Cookie chứa TenantId & Claims;
+    :Ghi log Audit đăng nhập thành công;
+    :Trả về 200 OK kèm User Profile và Capabilities;
+    :Frontend chuyển hướng vào Dashboard theo vai trò;
+    stop
+  else (no)
+    :Trả về lỗi 403 Forbidden (Tài khoản bị vô hiệu hóa);
+    :Frontend hiển thị thông báo tài khoản bị khóa;
+    stop
+  endif
+else (no)
+  :Trả về lỗi 401 Unauthorized (Sai email hoặc mật khẩu);
+  :Frontend hiển thị lỗi xác thực người dùng;
+  stop
+endif
+
+@enduml

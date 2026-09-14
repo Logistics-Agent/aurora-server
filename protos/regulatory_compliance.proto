@@ -8,6 +8,7 @@ import "google/protobuf/timestamp.proto";
 
 service RegulatoryComplianceService {
   rpc EvaluateCompliance(EvaluateComplianceRequest) returns (ComplianceEvaluationResponse);
+  rpc ListComplianceEvaluations(ListComplianceEvaluationsRequest) returns (ListComplianceEvaluationsResponse);
   rpc GetComplianceEvaluation(GetComplianceEvaluationRequest) returns (ComplianceEvaluationResponse);
   rpc QueryRegulations(QueryRegulationsRequest) returns (QueryRegulationsResponse);
   rpc IngestRegulatorySource(IngestRegulatorySourceRequest) returns (IngestRegulatorySourceResponse);
@@ -29,6 +30,12 @@ enum ComplianceEvaluationStatus {
   COMPLIANCE_EVALUATION_STATUS_PROCESSING = 2;
   COMPLIANCE_EVALUATION_STATUS_COMPLETED = 3;
   COMPLIANCE_EVALUATION_STATUS_FAILED = 4;
+}
+
+enum ComplianceEvaluationFreshness {
+  COMPLIANCE_EVALUATION_FRESHNESS_UNSPECIFIED = 0;
+  COMPLIANCE_EVALUATION_FRESHNESS_CURRENT = 1;
+  COMPLIANCE_EVALUATION_FRESHNESS_STALE = 2;
 }
     
 enum ComplianceRiskLevel {
@@ -91,6 +98,7 @@ message EvaluateComplianceRequest {
   string transport_mode = 7;
   repeated OcrDocumentSnapshot documents = 8;
   google.protobuf.Timestamp effective_at = 9;
+  string shipment_version = 10;
 }
 
 message CargoSnapshot {
@@ -117,6 +125,19 @@ message GetComplianceEvaluationRequest {
   string evaluation_id = 1;
 }
 
+message ListComplianceEvaluationsRequest {
+  int32 page = 1;
+  int32 page_size = 2;
+  ComplianceEvaluationStatus status = 3;
+}
+
+message ListComplianceEvaluationsResponse {
+  repeated ComplianceEvaluationResponse items = 1;
+  int32 page = 2;
+  int32 page_size = 3;
+  int32 total_count = 4;
+}
+
 message ComplianceEvaluationResponse {
   string evaluation_id = 1;
   string external_shipment_id = 2;
@@ -131,6 +152,11 @@ message ComplianceEvaluationResponse {
   google.protobuf.Timestamp completed_at = 11;
   string error_code = 12;
   string error_message = 13;
+  ComplianceEvaluationFreshness freshness = 14;
+  string snapshot_hash = 15;
+  int32 snapshot_version = 16;
+  google.protobuf.Timestamp stale_at = 17;
+  repeated string stale_reason_codes = 18;
 }
 
 message ComplianceFinding {

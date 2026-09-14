@@ -8,19 +8,19 @@ public sealed class DeterministicEmbeddingProvider : IEmbeddingProvider
     public EmbeddingModelDescriptor Model { get; } = new("deterministic-local", "1", 64);
 
     public Task<IReadOnlyList<float[]>> GenerateAsync(
-        IReadOnlyList<string> texts,
+        IReadOnlyList<EmbeddingInput> inputs,
         CancellationToken cancellationToken = default)
     {
-        ArgumentNullException.ThrowIfNull(texts);
-        if (texts.Count is < 1 or > EmbeddingBatchProcessor.MaximumBatchSize)
-            throw new ArgumentOutOfRangeException(nameof(texts));
+        ArgumentNullException.ThrowIfNull(inputs);
+        if (inputs.Count is < 1 or > EmbeddingBatchProcessor.MaximumBatchSize)
+            throw new ArgumentOutOfRangeException(nameof(inputs));
 
-        var vectors = new List<float[]>(texts.Count);
-        foreach (var text in texts)
+        var vectors = new List<float[]>(inputs.Count);
+        foreach (var input in inputs)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            if (string.IsNullOrWhiteSpace(text))
-                throw new ArgumentException("Embedding text is required.", nameof(texts));
+            ArgumentNullException.ThrowIfNull(input);
+            var text = input.Text;
             var vector = new float[Model.Dimension];
             var tokens = text.ToLowerInvariant().Split(
                          [' ', '\r', '\n', '\t', '.', ',', ';', ':', '-', '_', '/', '\\', '(', ')', '[', ']', '{', '}', '|', '*', '=', '#', '`', '~', '!', '?', '@', '$', '%', '^', '&', '+', '<', '>', '"', '\''],

@@ -1,5 +1,5 @@
 # =============================================================================
-# Aurora Core Infrastructure Stack: RabbitMQ, Redis, and Stalwart Mail Server
+# Aurora Core Infrastructure Stack: RabbitMQ and Stalwart Mail Server
 # Namespace: aurora
 # =============================================================================
 
@@ -78,60 +78,7 @@ spec:
 
 ---
 # ─────────────────────────────────────────────────────────────────────────────
-# 2. REDIS
-# ─────────────────────────────────────────────────────────────────────────────
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: redis
-  namespace: aurora
-  labels:
-    app.kubernetes.io/name: redis
-    app: redis
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: redis
-  template:
-    metadata:
-      labels:
-        app: redis
-    spec:
-      containers:
-        - name: redis
-          image: redis:7.2-alpine
-          command: ["redis-server", "--appendonly", "yes"]
-          ports:
-            - name: redis
-              containerPort: 6379
-          resources:
-            requests:
-              cpu: 50m
-              memory: 128Mi
-            limits:
-              cpu: 300m
-              memory: 256Mi
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: redis
-  namespace: aurora
-  labels:
-    app: redis
-spec:
-  type: ClusterIP
-  selector:
-    app: redis
-  ports:
-    - name: redis
-      port: 6379
-      targetPort: 6379
-
----
-# ─────────────────────────────────────────────────────────────────────────────
-# 3. STALWART MAIL SERVER
+# 2. STALWART MAIL SERVER
 # ─────────────────────────────────────────────────────────────────────────────
 apiVersion: apps/v1
 kind: StatefulSet

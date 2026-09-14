@@ -1,0 +1,54 @@
+@startuml
+skinparam dpi 180
+title System Architecture - Aurora Platform
+left to right direction
+actor "System Admin" as sys
+actor "Tenant Admin" as admin
+actor "Staff / Operator" as staff
+cloud "Cloudflare / App Gateway" as edge
+rectangle "YARP API Gateway" as yarp
+package "BFF" {
+  [System.Bff] as sbff
+  [Admin.Bff] as abff
+  [Staff.Bff] as stbf
+}
+package "Domain services" {
+  [IamTenant] as iam
+  [ShipmentWorkflow] as ship
+  [RoutePlanningAgent] as route
+  [Financial] as financial
+  [Billing] as billing
+  [RegulatoryCompliance] as compliance
+}
+database "IAM DB" as idb
+database "Shipment DB" as sdb
+database "Route DB" as rdb
+database "Billing DB" as bdb
+queue "RabbitMQ" as mq
+[Outbox publishers] as pub
+sys --> edge
+admin --> edge
+staff --> edge
+edge --> yarp
+yarp --> sbff
+yarp --> abff
+yarp --> stbf
+sbff --> iam
+abff --> iam
+abff --> route
+stbf --> ship
+stbf --> route
+stbf --> financial
+stbf --> billing
+stbf --> compliance
+iam --> idb
+ship --> sdb
+route --> rdb
+billing --> bdb
+ship --> pub
+route --> pub
+iam --> pub
+pub --> mq
+mq --> billing
+mq --> compliance
+@enduml

@@ -1,0 +1,44 @@
+@startuml
+skinparam dpi 180
+title Class Diagram - Route Planning and Billing
+hide empty members
+class Route {
+  +Name : string
+  +Status : RouteStatus
+  +EstimatedDistanceKm : decimal
+  +EstimatedDurationMinutes : int
+}
+class RouteStop {
+  +Sequence : int
+  +StopType : StopType
+}
+class ApprovalRequest {
+  +Status : ApprovalStatus
+  +Reason : string
+}
+class RouteOptimizationHistory {
+  +OptimizedAt : DateTimeOffset
+}
+class Invoice {
+  +InvoiceNumber : string
+  +Status : string
+  +TotalAmount : float
+}
+class InvoiceItem {
+  +Amount : float
+  +Category : string
+}
+class EscrowWallet {
+  +Balance : float
+  +FrozenAmount : float
+}
+class EscrowTransaction {
+  +Amount : float
+  +Status : string
+}
+Route *-- "1..*" RouteStop
+Route ||--o{ ApprovalRequest
+Route ||--o{ RouteOptimizationHistory
+Invoice *-- "1..*" InvoiceItem
+EscrowWallet *-- "0..*" EscrowTransaction
+@enduml

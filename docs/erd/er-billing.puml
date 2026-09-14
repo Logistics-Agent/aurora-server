@@ -1,0 +1,48 @@
+@startuml
+skinparam dpi 180
+title ER Diagram - Billing Database
+hide methods
+entity Invoice {
+  *id : string <<PK>>
+  --
+  tenantId : string
+  shipmentId : string <<external ref>>
+  totalAmount : float
+  status : string
+}
+entity InvoiceItem {
+  *id : string <<PK>>
+  --
+  invoiceId : string <<FK>>
+  amount : float
+}
+entity PaymentRecord {
+  *id : string <<PK>>
+  --
+  invoiceId : string <<FK>>
+  amountPaid : float
+}
+entity AdjustmentNote {
+  *id : string <<PK>>
+  --
+  invoiceId : string <<FK>>
+  amount : float
+}
+entity EscrowWallet {
+  *id : string <<PK>>
+  --
+  tenantId : string
+  balance : float
+}
+entity EscrowTransaction {
+  *id : string <<PK>>
+  --
+  walletId : string <<FK>>
+  shipmentId : string <<external ref>>
+  amount : float
+}
+Invoice ||--o{ InvoiceItem
+Invoice ||--o{ PaymentRecord
+Invoice ||--o{ AdjustmentNote
+EscrowWallet ||--o{ EscrowTransaction
+@enduml

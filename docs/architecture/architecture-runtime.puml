@@ -1,0 +1,58 @@
+@startuml
+title Hình 3.2.2 - Luồng giao tiếp và dữ liệu của Aurora
+top to bottom direction
+skinparam shadowing false
+skinparam componentStyle rectangle
+skinparam linetype ortho
+
+rectangle "Frontend / Portal" as FE #EAF2F8
+rectangle "Cloudflare + Application Gateway + YARP" as Edge #D6EAF8
+rectangle "System.Bff | Admin.Bff | Staff.Bff" as Bff #D6EAF8
+cloud "RabbitMQ / MassTransit" as Broker #FDEDEC
+database "Redis" as Redis #F5EEF8
+
+package "Mỗi bounded context sở hữu dữ liệu riêng" #E8F8F5 {
+  component "IAM & Tenant" as Iam
+  database "IAM DB" as IamDb
+  component "Shipment Workflow" as Ship
+  database "Shipment DB\n+ Outbox" as ShipDb
+  component "Route Planning" as Route
+  database "Route DB\n+ Outbox" as RouteDb
+  component "Financial / Billing" as Finance
+  database "Financial & Billing DB" as FinDb
+  component "OCR / Compliance / GPS / Notification" as Support
+  database "Service-owned DB\n+ Outbox" as SupportDb
+}
+rectangle "Outbox Publisher" as Publisher #FCF3CF
+rectangle "VROOM" <<external optimization engine>> as Vroom #FDEBD0
+rectangle "OSRM" <<external routing engine>> as Osrm #FDEBD0
+rectangle "AI Governance\nModel providers / pgvector" as Ai #FEF9E7
+
+FE --> Edge : HTTPS
+Edge --> Bff : HTTPS/JWT
+Bff --> Iam : gRPC
+Bff --> Ship : gRPC
+Bff --> Route : gRPC
+Bff --> Finance : gRPC
+Bff --> Support : gRPC
+Bff --> Redis : cache/rate limit
+Iam --> IamDb
+Ship --> ShipDb
+Route --> RouteDb
+Finance --> FinDb
+Support --> SupportDb
+Route --> Vroom : bài toán tối ưu
+Route --> Osrm : ma trận/đường đi
+Support --> Ai : năng lực AI có kiểm soát
+ShipDb --> Publisher : bản ghi outbox
+RouteDb --> Publisher
+SupportDb --> Publisher
+Publisher --> Broker : integration event
+Broker --> Finance : consumer idempotent
+Broker --> Support : consumer idempotent
+note bottom of Broker
+Không có truy cập trực tiếp
+hoặc khóa ngoại giữa các database service.
+end note
+scale 2
+@enduml

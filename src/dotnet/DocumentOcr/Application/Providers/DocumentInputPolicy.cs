@@ -53,6 +53,7 @@ public sealed class DocumentInputPolicy
             (".png", "image/png") => true,
             (".tif", "image/tiff") => true,
             (".tiff", "image/tiff") => true,
+            (".md", "text/markdown") => true,
             _ => false
         };
 

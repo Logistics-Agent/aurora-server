@@ -1,0 +1,80 @@
+@startuml
+title Use Case Diagram - Aurora SaaS Platform
+left to right direction
+skinparam dpi 220
+skinparam shadowing false
+skinparam packageStyle rectangle
+skinparam actorStyle awesome
+skinparam usecase {
+  BackgroundColor #F8FBFF
+  BorderColor #1F4E79
+}
+
+actor "System Admin" as SystemAdmin
+actor "Tenant Admin" as TenantAdmin
+actor "Staff / Operator" as Staff
+actor "OSRM / VROOM" as Optimizer <<external system>>
+
+rectangle "Aurora Platform" {
+  package "Platform Administration" {
+    usecase "Create / view / change\ntenant status" as UC_Tenant
+    usecase "Ingest regulatory source\nand knowledge document" as UC_Ingest
+  }
+
+  package "Tenant Administration" {
+    usecase "Invite and manage staff" as UC_Users
+    usecase "Assign role and\nmanage permissions" as UC_Permissions
+    usecase "Configure AI feature\nand route rules" as UC_Config
+  }
+
+  package "Logistics Operations" {
+    usecase "Create, update, submit\nand cancel shipment" as UC_Shipment
+    usecase "Manage cargo, locations,\ndocuments and milestones" as UC_ShipmentDetails
+    usecase "Create, update and\nview route" as UC_Route
+    usecase "Optimize route (VRP)" as UC_Optimize
+    usecase "Request route\nrecommendation" as UC_Recommend
+    usecase "Approve or reject\nroute" as UC_Approval
+  }
+
+  package "Financial and Compliance" {
+    usecase "Estimate transport cost\nand customs duty" as UC_Financial
+    usecase "Generate, create, view\nand update invoice" as UC_Invoice
+    usecase "Check route compliance\nand ask compliance copilot" as UC_Compliance
+  }
+}
+
+SystemAdmin --> UC_Tenant
+SystemAdmin --> UC_Ingest
+
+TenantAdmin --> UC_Users
+TenantAdmin --> UC_Permissions
+TenantAdmin --> UC_Config
+
+Staff --> UC_Shipment
+Staff --> UC_ShipmentDetails
+Staff --> UC_Route
+Staff --> UC_Optimize
+Staff --> UC_Recommend
+Staff --> UC_Approval
+Staff --> UC_Financial
+Staff --> UC_Invoice
+Staff --> UC_Compliance
+
+UC_Shipment .> UC_ShipmentDetails : <<include>>
+UC_Optimize .> UC_Route : <<extend>>
+UC_Recommend .> UC_Route : <<extend>>
+UC_Approval .> UC_Route : <<extend>>
+UC_Optimize --> Optimizer
+
+note bottom of UC_Optimize
+  Route Planning implements VRP optimization.
+  OSRM supplies road routing / matrices;
+  VROOM computes optimized route solutions.
+end note
+
+note bottom of UC_Compliance
+  Based on ComplianceController and
+  compliance_rag.proto: CheckRouteCompliance.
+end note
+
+@enduml

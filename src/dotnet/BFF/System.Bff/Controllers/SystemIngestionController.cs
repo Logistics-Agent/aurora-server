@@ -60,7 +60,21 @@ public sealed class SystemIngestionController(
 
         var computedSha256 = !string.IsNullOrWhiteSpace(request.ContentSha256)
             ? request.ContentSha256
-            : Convert.ToHexString(SHA256.HashData(content.ToByteArray())).ToLowerInvariant();
+            : (content.Length > 0
+                ? Convert.ToHexString(SHA256.HashData(content.ToByteArray())).ToLowerInvariant()
+                : new string('0', 64));
+
+        var canonicalUri = !string.IsNullOrWhiteSpace(request.CanonicalSourceUri)
+            ? request.CanonicalSourceUri
+            : $"https://platform.aurora.io/laws/{Guid.NewGuid()}";
+
+        var contentRef = !string.IsNullOrWhiteSpace(request.ContentReference)
+            ? request.ContentReference
+            : $"regulatory/system-{Guid.NewGuid()}.txt";
+
+        var mimeType = !string.IsNullOrWhiteSpace(request.MimeType)
+            ? request.MimeType
+            : "text/plain";
 
         var ingestRequest = new IngestRegulatorySourceRequest
         {
@@ -119,7 +133,7 @@ public sealed class SystemIngestionController(
             var rpcRequest = new QueryRegulationsRequest
             {
                 Query = searchTerms,
-                JurisdictionCode = jurisdictionCode ?? string.Empty,
+                JurisdictionCode = jurisdictionCode?.Trim() ?? string.Empty,
                 EffectiveAt = Timestamp.FromDateTimeOffset(effectiveAt ?? DateTimeOffset.UtcNow),
                 TopK = 50,
                 MinimumRelevanceScore = 0.0
@@ -187,7 +201,13 @@ public sealed class SystemIngestionController(
 
         var computedSha256 = !string.IsNullOrWhiteSpace(request.ContentSha256)
             ? request.ContentSha256
-            : Convert.ToHexString(SHA256.HashData(content.ToByteArray())).ToLowerInvariant();
+            : (content.Length > 0
+                ? Convert.ToHexString(SHA256.HashData(content.ToByteArray())).ToLowerInvariant()
+                : new string('0', 64));
+
+        var mimeType = !string.IsNullOrWhiteSpace(request.MimeType)
+            ? request.MimeType
+            : "text/plain";
 
         var ingestRequest = new IngestKnowledgeSourceRequest
         {

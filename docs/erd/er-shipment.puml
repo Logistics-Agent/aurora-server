@@ -1,0 +1,49 @@
+@startuml
+skinparam dpi 180
+title ER Diagram - Shipment Workflow Database
+hide methods
+entity Shipment {
+  *Id : Guid <<PK>>
+  --
+  TenantId : Guid
+  ShipmentNo : string
+  Status : ShipmentStatus
+  RouteId : Guid? <<external ref>>
+}
+entity CargoItem {
+  *Id : Guid <<PK>>
+  --
+  ShipmentId : Guid <<FK>>
+  Name : string
+  WeightKg : decimal
+}
+entity ShipmentLocation {
+  *Id : Guid <<PK>>
+  --
+  ShipmentId : Guid <<FK>>
+  Type : LocationType
+}
+entity ShipmentDocument {
+  *Id : Guid <<PK>>
+  --
+  ShipmentId : Guid <<FK>>
+  DocumentType : DocumentType
+}
+entity ShipmentMilestone {
+  *Id : Guid <<PK>>
+  --
+  ShipmentId : Guid <<FK>>
+  Status : string
+}
+entity ShipmentStatusHistory {
+  *Id : Guid <<PK>>
+  --
+  ShipmentId : Guid <<FK>>
+  ToStatus : string
+}
+Shipment ||--o{ CargoItem
+Shipment ||--o{ ShipmentLocation
+Shipment ||--o{ ShipmentDocument
+Shipment ||--o{ ShipmentMilestone
+Shipment ||--o{ ShipmentStatusHistory
+@enduml

@@ -1,0 +1,27 @@
+@startuml
+skinparam dpi 180
+title Sequence Diagram - Route Planning and Optimization
+actor Staff
+participant "Staff.Bff" as BFF
+participant "RoutePlanning GrpcService" as Grpc
+participant "OptimizeRoute Handler" as Handler
+participant "Route Rule Engine" as Rules
+participant "VroomOptimizationService" as Vroom
+database "Route DB" as DB
+participant "Outbox Publisher" as Publisher
+queue "RabbitMQ" as MQ
+Staff -> BFF : POST /routes/{id}/optimize
+BFF -> Grpc : OptimizeRoute(id, tenant context)
+Grpc -> Handler : OptimizeRouteCommand
+Handler -> DB : Load route and stops
+Handler -> Rules : Validate tenant rules
+Rules --> Handler : Rule result
+Handler -> Vroom : Optimize VRP route/stops
+Vroom --> Handler : Optimized sequence, distance, duration
+Handler -> DB : Save Route, stops, history, outbox
+Handler --> Grpc : RouteResponse
+Grpc --> BFF : RouteResponse
+BFF --> Staff : Optimized route
+Publisher -> DB : Read outbox
+Publisher -> MQ : Publish integration event
+@enduml

@@ -29,7 +29,7 @@ env:
   Storage__S3__ForcePathStyle: "true"
   AzureStorage__AccountName: "stauroradatademo"
   AzureStorage__ContainerName: "ocr-docs"
-  Redis__Host: "redis-master.aurora.svc.cluster.local:6379"
+  Redis__Host: "redis.aurora.svc.cluster.local:6379"
   Redis__Ssl: "false"
   Redis__AbortConnect: "false"
 

@@ -1,5 +1,3 @@
-using System.Text.Json;
-using System.Text.RegularExpressions;
 using AiGovernance.Grpc;
 using Grpc.Core;
 using Microsoft.EntityFrameworkCore;
@@ -260,7 +258,8 @@ public sealed class GroundedAnswerService(
             CapabilityCode = CapabilityCode,
             Prompt = prompt,
             MaxOutputTokens = 2048,
-            EstimatedInputTokens = Math.Max(100, prompt.Length / 4)
+            EstimatedInputTokens = Math.Max(100, prompt.Length / 4),
+            Parameters = { ["response_format"] = "json_object" }
         };
 
         var headers = new Metadata
@@ -300,7 +299,28 @@ public sealed class GroundedAnswerService(
         if (generateResponse != null && !string.IsNullOrWhiteSpace(generateResponse.Content))
         {
             // 6. Parse Structured Output
-            var parsedLlm = ParseLlmResponse(generateResponse.Content);
+            var parsedLlm = GroundedAnswerResponseParser.Parse(generateResponse.Content);
+
+            if (!parsedLlm.IsStructuredOutputValid)
+            {
+                logger.LogWarning(
+                    "AiGovernance returned non-conforming structured output for {CapabilityCode}; using deterministic evidence grounding.",
+                    CapabilityCode);
+
+                var fallbackGovernance = new AssistantGovernanceResult(
+                    generateResponse.DecisionId,
+                    generateResponse.AutomationLevel,
+                    generateResponse.RequiresApproval,
+                    CapabilityCode,
+                    generateResponse.InputTokens + generateResponse.OutputTokens);
+
+                return BuildDeterministicFallback(
+                    input.Query,
+                    evidenceContext,
+                    traceId,
+                    verifiedContext,
+                    fallbackGovernance);
+            }
 
             // 7. Deterministic Citation Validation
             var validated = citationValidator.Validate(parsedLlm, evidenceContext);
@@ -470,7 +490,8 @@ public sealed class GroundedAnswerService(
         string query,
         EvidenceContext evidenceContext,
         Guid traceId,
-        VerifiedAssistantContext? verifiedContext = null)
+        VerifiedAssistantContext? verifiedContext = null,
+        AssistantGovernanceResult? governance = null)
     {
         var regCitations = evidenceContext.RegulatoryEvidence.Select(r => new RegulatoryCitationResult(
             EvidenceId: r.EvidenceId,
@@ -539,47 +560,9 @@ public sealed class GroundedAnswerService(
             Conflicts: [],
             InsufficientEvidence: evidenceContext.IsEmpty,
             MissingInformation: [],
-            Governance: new AssistantGovernanceResult("deterministic-fallback-" + traceId.ToString("N"), "DETERMINISTIC_FALLBACK", false, CapabilityCode, 0),
+            Governance: governance ?? new AssistantGovernanceResult("deterministic-fallback-" + traceId.ToString("N"), "DETERMINISTIC_FALLBACK", false, CapabilityCode, 0),
             RetrievalTraceId: traceId,
             Context: ToSummary(verifiedContext));
     }
 
-    private static LlmParsedResponse ParseLlmResponse(string rawContent)
-    {
-        if (string.IsNullOrWhiteSpace(rawContent))
-            return new LlmParsedResponse(string.Empty, [], [], [], true, ["LLM returned empty content."]);
-
-        var clean = rawContent.Trim();
-
-        // Strip markdown code fences if model returned ```json ... ```
-        if (clean.StartsWith("```"))
-        {
-            var match = Regex.Match(clean, @"```(?:json)?\s*(.*?)\s*```", RegexOptions.Singleline | RegexOptions.IgnoreCase);
-            if (match.Success)
-            {
-                clean = match.Groups[1].Value.Trim();
-            }
-        }
-
-        try
-        {
-            var options = new JsonSerializerOptions
-            {
-                PropertyNameCaseInsensitive = true
-            };
-            return JsonSerializer.Deserialize<LlmParsedResponse>(clean, options)
-                   ?? new LlmParsedResponse(rawContent, [], [], [], false, []);
-        }
-        catch (JsonException)
-        {
-            // Do not expose unvalidated model prose as a grounded answer.
-            return new LlmParsedResponse(
-                "The assistant response could not be validated against the retrieved evidence.",
-                [],
-                [],
-                [],
-                true,
-                ["The AI response was not valid structured output."]);
-        }
-    }
 }

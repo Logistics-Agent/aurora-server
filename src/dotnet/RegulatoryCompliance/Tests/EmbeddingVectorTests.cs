@@ -29,7 +29,8 @@ public sealed class EmbeddingVectorTests
         Assert.Equal(2, await processor.ProcessPendingAsync());
         Assert.Equal(0, await processor.ProcessPendingAsync());
 
-        var query = (await provider.GenerateAsync(["dangerous goods declaration"]))[0];
+        var query = (await provider.GenerateAsync(
+            [new EmbeddingInput(tenantId, "dangerous goods declaration")]))[0];
         var results = await store.SearchAsync(new VectorSearchRequest(
             query, provider.Model.Name, provider.Model.Version, provider.Model.Dimension,
             [dangerous.Id, .. (await context.RegulatoryChunks.Select(chunk => chunk.Id).ToArrayAsync())],
@@ -57,7 +58,8 @@ public sealed class EmbeddingVectorTests
                 writer, provider, store, new FixedTimeProvider(Now)).ProcessPendingAsync();
         }
 
-        var query = (await provider.GenerateAsync(["customs declaration"]))[0];
+        var query = (await provider.GenerateAsync(
+            [new EmbeddingInput(tenantA, "customs declaration")]))[0];
         await using var tenantContext = CreateContext(CurrentUser(tenantA), databaseName);
         var tenantResults = await new EfRegulationVectorStore(tenantContext).SearchAsync(
             new VectorSearchRequest(
@@ -135,6 +137,45 @@ public sealed class EmbeddingVectorTests
     }
 
     [Fact]
+    public async Task ProcessorPersistsSuccessfulChunksBeforeLaterEmbeddingFailure()
+    {
+        var tenantId = Guid.CreateVersion7();
+        await using var context = CreateContext(CurrentUser(tenantId));
+        var first = await SeedChunk(context, tenantId, SourceVisibility.Tenant, "first chunk", "partial-first");
+        var second = await SeedChunk(context, tenantId, SourceVisibility.Tenant, "second chunk", "partial-second");
+        var provider = new SucceedsOnceThenFailsEmbeddingProvider();
+        var processor = new EmbeddingBatchProcessor(
+            context, provider, new EfRegulationVectorStore(context), new FixedTimeProvider(Now));
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => processor.ProcessPendingAsync());
+
+        Assert.Equal(ChunkEmbeddingStatus.Completed, first.EmbeddingStatus);
+        Assert.Equal(ChunkEmbeddingStatus.Failed, second.EmbeddingStatus);
+        Assert.NotNull(second.EmbeddingError);
+    }
+
+    [Fact]
+    public async Task ProcessorPassesEachChunkTenantContextIncludingPlatformChunks()
+    {
+        var databaseName = $"embedding-context-{Guid.CreateVersion7()}";
+        var tenantA = Guid.CreateVersion7();
+        var tenantB = Guid.CreateVersion7();
+        await using var context = CreateContext(CurrentUser(tenantA), databaseName);
+        await SeedChunk(context, null, SourceVisibility.Platform, "platform customs rule", "platform-context");
+        await SeedChunk(context, tenantA, SourceVisibility.Tenant, "tenant a customs rule", "tenant-a-context");
+        await SeedChunk(context, tenantB, SourceVisibility.Tenant, "tenant b customs rule", "tenant-b-context");
+
+        var provider = new CapturingEmbeddingProvider();
+        var processor = new EmbeddingBatchProcessor(
+            context, provider, new EfRegulationVectorStore(context), new FixedTimeProvider(Now));
+
+        Assert.Equal(3, await processor.ProcessPendingAsync());
+        Assert.Contains(provider.Inputs, input => input.TenantId == null);
+        Assert.Contains(provider.Inputs, input => input.TenantId == tenantA);
+        Assert.Contains(provider.Inputs, input => input.TenantId == tenantB);
+    }
+
+    [Fact]
     public async Task CancelledBatchDoesNotChangePendingChunk()
     {
         var tenantId = Guid.CreateVersion7();
@@ -209,8 +250,42 @@ public sealed class EmbeddingVectorTests
         public EmbeddingModelDescriptor Model { get; } = new("failing", "1", 64);
 
         public Task<IReadOnlyList<float[]>> GenerateAsync(
-            IReadOnlyList<string> texts,
+            IReadOnlyList<EmbeddingInput> inputs,
             CancellationToken cancellationToken = default) =>
             throw new InvalidOperationException("Embedding provider failed.");
+    }
+
+    private sealed class SucceedsOnceThenFailsEmbeddingProvider : IEmbeddingProvider
+    {
+        private int calls;
+
+        public EmbeddingModelDescriptor Model { get; } = new("partial", "1", 4);
+
+        public Task<IReadOnlyList<float[]>> GenerateAsync(
+            IReadOnlyList<EmbeddingInput> inputs,
+            CancellationToken cancellationToken = default)
+        {
+            if (calls++ > 0)
+                throw new InvalidOperationException("Embedding provider failed after the first chunk.");
+
+            return Task.FromResult<IReadOnlyList<float[]>>(
+                inputs.Select(_ => new[] { 1f, 0f, 0f, 0f }).ToArray());
+        }
+    }
+
+    private sealed class CapturingEmbeddingProvider : IEmbeddingProvider
+    {
+        public EmbeddingModelDescriptor Model { get; } = new("capturing", "1", 4);
+
+        public List<EmbeddingInput> Inputs { get; } = [];
+
+        public Task<IReadOnlyList<float[]>> GenerateAsync(
+            IReadOnlyList<EmbeddingInput> inputs,
+            CancellationToken cancellationToken = default)
+        {
+            Inputs.AddRange(inputs);
+            return Task.FromResult<IReadOnlyList<float[]>>(
+                inputs.Select(_ => new[] { 1f, 0f, 0f, 0f }).ToArray());
+        }
     }
 }

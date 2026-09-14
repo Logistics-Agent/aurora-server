@@ -1,0 +1,35 @@
+@startuml
+skinparam dpi 180
+title Activity Diagram - Route Planning & Optimization
+
+start
+
+:Quản lý Logistics chọn danh sách đơn hàng cần giao trong ngày;
+:Thiết lập các ràng buộc (Loại xe, tải trọng tối đa, khung giờ giao nhận, vị trí kho bãi);
+:Nhấn nút "Tối ưu hóa lộ trình" (Trigger VRP Optimization);
+
+:Route Planning Service gọi VRP Solver Engine;
+:Tính toán ma trận khoảng cách & thời gian di chuyển (OSRM/MapBox);
+:Thuật toán phân cụm đơn hàng & giải bài toán TSP/CVRP;
+
+if (Tìm thấy giải pháp tối ưu khả thi?) then (yes)
+  :Hiển thị bản đồ lộ trình dự kiến, thứ tự điểm dừng (Stops) và chi phí ước tính;
+  :Quản lý kiểm tra và điều chỉnh thủ công nếu cần thiết;
+  
+  if (Quản lý duyệt lộ trình?) then (yes)
+    :Chuyển trạng thái Route = APPROVED;
+    :Gán tài xế và phương tiện vận chuyển;
+    :Phát sinh RouteAssignedEvent lên RabbitMQ;
+    :Notification Service gửi lộ trình đến ứng dụng tài xế;
+    stop
+  else (no)
+    :Hủy kế hoạch hoặc cấu hình lại tham số bài toán;
+    stop
+  endif
+else (no)
+  :Báo lỗi không tìm được phương án thỏa mãn ràng buộc (quá tải hoặc sai giờ hẹn);
+  :Đề xuất tách đơn hoặc tăng số lượng phương tiện;
+  stop
+endif
+
+@enduml

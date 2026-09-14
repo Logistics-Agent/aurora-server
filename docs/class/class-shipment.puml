@@ -1,0 +1,42 @@
+@startuml
+skinparam dpi 180
+title Class Diagram - Shipment Workflow
+hide empty members
+abstract class TenantAuditableEntity {
+  +Id : Guid
+  +TenantId : Guid
+}
+class Shipment {
+  +ShipmentNo : string
+  +Status : ShipmentStatus
+  +Priority : ShipmentPriority
+  +Submit()
+  +Cancel(reason)
+}
+class CargoItem {
+  +Name : string
+  +WeightKg : decimal
+}
+class ShipmentLocation {
+  +Type : LocationType
+  +Sequence : int
+}
+class ShipmentDocument {
+  +DocumentType : DocumentType
+  +OcrStatus : OCRStatus
+}
+class ShipmentMilestone {
+  +Status : string
+  +RecordedAt : DateTimeOffset
+}
+class ShipmentStatusHistory {
+  +FromStatus : ShipmentStatus
+  +ToStatus : ShipmentStatus
+}
+TenantAuditableEntity <|-- Shipment
+Shipment *-- "0..*" CargoItem
+Shipment *-- "0..*" ShipmentLocation
+Shipment *-- "0..*" ShipmentDocument
+Shipment *-- "0..*" ShipmentMilestone
+Shipment *-- "0..*" ShipmentStatusHistory
+@enduml
