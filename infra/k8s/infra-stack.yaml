@@ -130,6 +130,23 @@ spec:
       targetPort: 6379
 
 ---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: stalwart-config
+  namespace: aurora
+data:
+  config.toml: |
+    [store.rocksdb]
+    type = "rocksdb"
+    path = "/var/lib/stalwart"
+
+    [storage]
+    data = "rocksdb"
+    blob = "rocksdb"
+    lookup = "rocksdb"
+    fts = "rocksdb"
+---
 # ─────────────────────────────────────────────────────────────────────────────
 # 3. STALWART MAIL SERVER
 # ─────────────────────────────────────────────────────────────────────────────
@@ -152,6 +169,13 @@ spec:
       labels:
         app: stalwart
     spec:
+      initContainers:
+        - name: fix-permissions
+          image: busybox:latest
+          command: ["sh", "-c", "mkdir -p /data/config /data/store && chmod -R 777 /data"]
+          volumeMounts:
+            - name: stalwart-data
+              mountPath: /data
       containers:
         - name: mail-server
           image: stalwartlabs/stalwart:latest
@@ -171,7 +195,11 @@ spec:
               protocol: TCP
           volumeMounts:
             - name: stalwart-data
-              mountPath: /opt/stalwart-mail
+              mountPath: /etc/stalwart
+              subPath: config
+            - name: stalwart-data
+              mountPath: /var/lib/stalwart
+              subPath: store
           resources:
             requests:
               cpu: 100m
