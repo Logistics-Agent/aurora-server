@@ -69,16 +69,18 @@ public sealed class SystemIngestionController(
                 : Guid.NewGuid().ToString(),
             Authority = request.Authority,
             Title = request.Title,
-            CanonicalSourceUri = !string.IsNullOrWhiteSpace(request.CanonicalSourceUri)
+            CanonicalSourceUri = !string.IsNullOrWhiteSpace(request.CanonicalSourceUri) && Uri.TryCreate(request.CanonicalSourceUri, UriKind.Absolute, out var uri) && (uri.Scheme == Uri.UriSchemeHttps || uri.Scheme == Uri.UriSchemeHttp)
                 ? request.CanonicalSourceUri
-                : $"urn:system:law:{Guid.NewGuid()}",
+                : $"https://aurora.system/regulatory/law/{Guid.NewGuid()}",
             JurisdictionCode = request.JurisdictionCode ?? "GLOBAL",
             RegulationType = (RegulationType)(int)request.RegulationType,
             LanguageCode = request.LanguageCode ?? "en",
             VersionLabel = request.VersionLabel ?? "1.0",
             PublishedAt = Timestamp.FromDateTimeOffset(request.PublishedAt ?? DateTimeOffset.UtcNow),
             EffectiveFrom = Timestamp.FromDateTimeOffset(request.EffectiveFrom ?? DateTimeOffset.UtcNow),
-            ContentReference = request.ContentReference ?? string.Empty,
+            ContentReference = !string.IsNullOrWhiteSpace(request.ContentReference) && request.ContentReference.StartsWith("regulatory/", StringComparison.Ordinal)
+                ? request.ContentReference
+                : $"regulatory/system-{Guid.NewGuid()}",
             FileName = request.FileName ?? "system-law.pdf",
             MimeType = request.MimeType ?? "application/pdf",
             SizeBytes = computedSizeBytes,
@@ -197,7 +199,9 @@ public sealed class SystemIngestionController(
             SourceReference = request.SourceReference ?? $"urn:system:knowledge:{Guid.NewGuid()}",
             LanguageCode = request.LanguageCode ?? "en",
             VersionLabel = request.VersionLabel ?? "1.0",
-            ContentReference = request.ContentReference ?? string.Empty,
+            ContentReference = !string.IsNullOrWhiteSpace(request.ContentReference) && request.ContentReference.StartsWith("knowledge/", StringComparison.Ordinal)
+                ? request.ContentReference
+                : $"knowledge/system-{Guid.NewGuid()}",
             FileName = request.FileName ?? "system-knowledge.pdf",
             MimeType = request.MimeType ?? "application/pdf",
             SizeBytes = computedSizeBytes,

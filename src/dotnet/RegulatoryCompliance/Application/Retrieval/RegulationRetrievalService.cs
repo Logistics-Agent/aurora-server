@@ -6,6 +6,7 @@ using RegulatoryCompliance.Application.Embeddings;
 using RegulatoryCompliance.Domain.Entities;
 using RegulatoryCompliance.Domain.Enums;
 using RegulatoryCompliance.Infrastructure.Persistences;
+using Shared.Constants;
 using Shared.Security;
 
 namespace RegulatoryCompliance.Application.Retrieval;
@@ -58,7 +59,7 @@ public sealed class RegulationRetrievalService(
     ICurrentUserService currentUser,
     TimeProvider timeProvider) : IRegulationRetrievalService
 {
-    public const int MaximumTopK = 20;
+    public const int MaximumTopK = 100;
     private const int MaximumCandidateChunks = 2_000;
     private const int MaximumExcerptCharacters = 800;
 
@@ -67,12 +68,69 @@ public sealed class RegulationRetrievalService(
         CancellationToken cancellationToken = default)
     {
         Validate(input);
-        var tenantId = currentUser.TenantId!.Value;
+        var tenantId = currentUser.TenantId ?? Guid.Empty;
         var types = input.RegulationTypes.Count == 0
             ? Enum.GetValues<RegulationType>()
             : input.RegulationTypes.Distinct().ToArray();
-        var jurisdiction = input.JurisdictionCode.Trim().ToUpperInvariant();
-        var language = input.LanguageCode.Trim().ToLowerInvariant();
+        var jurisdiction = (input.JurisdictionCode ?? string.Empty).Trim().ToUpperInvariant();
+        var language = (input.LanguageCode ?? string.Empty).Trim().ToLowerInvariant();
+
+        if (string.IsNullOrWhiteSpace(input.Query) || input.Query.Trim() == "*")
+        {
+            var docQuery = dbContext.RegulatoryDocuments
+                .AsNoTracking()
+                .Include(d => d.Versions)
+                .ThenInclude(v => v.Chunks)
+                .AsQueryable();
+
+            if (!string.IsNullOrWhiteSpace(jurisdiction))
+            {
+                docQuery = docQuery.Where(d => d.JurisdictionCode == jurisdiction || d.JurisdictionCode == "GLOBAL");
+            }
+
+            if (!string.IsNullOrWhiteSpace(language))
+            {
+                docQuery = docQuery.Where(d => d.LanguageCode == language);
+            }
+
+            if (types.Length > 0)
+            {
+                docQuery = docQuery.Where(d => types.Contains(d.RegulationType));
+            }
+
+            var docList = await docQuery
+                .OrderByDescending(d => d.CreatedAt)
+                .Take(input.TopK)
+                .ToListAsync(cancellationToken);
+
+            var listResults = new List<RegulationEvidenceResult>();
+            foreach (var doc in docList)
+            {
+                var latestVersion = doc.Versions.OrderByDescending(v => v.CreatedAt).FirstOrDefault();
+                var fullText = latestVersion != null && latestVersion.Chunks.Count > 0
+                    ? string.Join("\n\n", latestVersion.Chunks.OrderBy(c => c.Sequence).Select(c => c.NormalizedText))
+                    : string.Empty;
+                var firstChunk = latestVersion?.Chunks.OrderBy(c => c.Sequence).FirstOrDefault();
+                listResults.Add(new RegulationEvidenceResult(
+                    doc.Id,
+                    latestVersion?.Id ?? Guid.Empty,
+                    firstChunk?.Id ?? Guid.Empty,
+                    doc.RegulationType,
+                    doc.JurisdictionCode,
+                    doc.LanguageCode,
+                    doc.Authority,
+                    doc.Title,
+                    doc.CanonicalSourceUri,
+                    latestVersion?.VersionLabel ?? "1.0",
+                    firstChunk?.SectionLabel ?? "Overview",
+                    firstChunk?.PageLabel ?? "1",
+                    latestVersion?.EffectiveFrom ?? doc.CreatedAt,
+                    latestVersion?.EffectiveTo,
+                    fullText,
+                    1.0m));
+            }
+            return await BuildResultAsync(input, tenantId, jurisdiction, language, types, listResults, "Retrieved all regulatory sources.", cancellationToken);
+        }
 
         var candidateIds = await (
                 from chunk in dbContext.RegulatoryChunks.AsNoTracking()
@@ -84,9 +142,8 @@ public sealed class RegulationRetrievalService(
                       && version.SupersededAt == null
                       && version.EffectiveFrom <= input.EffectiveAt
                       && (version.EffectiveTo == null || input.EffectiveAt < version.EffectiveTo)
-                      && (document.JurisdictionCode == jurisdiction ||
-                          document.JurisdictionCode == "GLOBAL")
-                      && document.LanguageCode == language
+                      && (string.IsNullOrWhiteSpace(jurisdiction) || document.JurisdictionCode == jurisdiction || document.JurisdictionCode == "GLOBAL")
+                      && (string.IsNullOrWhiteSpace(language) || document.LanguageCode == language)
                       && types.Contains(document.RegulationType)
                 orderby chunk.Id
                 select chunk.Id)
@@ -192,8 +249,8 @@ public sealed class RegulationRetrievalService(
                   && version.SupersededAt == null
                   && version.EffectiveFrom <= input.EffectiveAt
                   && (version.EffectiveTo == null || input.EffectiveAt < version.EffectiveTo)
-                  && (document.JurisdictionCode == jurisdiction || document.JurisdictionCode == "GLOBAL")
-                  && document.LanguageCode == language
+                  && (string.IsNullOrWhiteSpace(jurisdiction) || document.JurisdictionCode == jurisdiction || document.JurisdictionCode == "GLOBAL")
+                  && (string.IsNullOrWhiteSpace(language) || document.LanguageCode == language)
                   && types.Contains(document.RegulationType)
             select new { Chunk = chunk, Version = version, Document = document })
             .Take(MaximumCandidateChunks)
@@ -296,17 +353,16 @@ public sealed class RegulationRetrievalService(
     private void Validate(RegulationQueryInput input)
     {
         ArgumentNullException.ThrowIfNull(input);
-        if (!currentUser.TenantId.HasValue || currentUser.TenantId == Guid.Empty)
+        if (!currentUser.IsSystemAdmin() && (!currentUser.TenantId.HasValue || currentUser.TenantId == Guid.Empty))
             throw new InvalidOperationException("Tenant context is required.");
-        if (string.IsNullOrWhiteSpace(input.Query) || input.Query.Trim().Length > 2_000)
-            throw new ArgumentException("Query must contain 1-2,000 characters.", nameof(input.Query));
-        if (string.IsNullOrWhiteSpace(input.JurisdictionCode) ||
-            input.JurisdictionCode.Trim().Length > 30)
-            throw new ArgumentException("JurisdictionCode is required.", nameof(input.JurisdictionCode));
+        if (input.Query != null && input.Query.Trim().Length > 2_000)
+            throw new ArgumentException("Query must contain 0-2,000 characters.", nameof(input.Query));
+        if (input.JurisdictionCode != null && input.JurisdictionCode.Trim().Length > 30)
+            throw new ArgumentException("JurisdictionCode must contain 0-30 characters.", nameof(input.JurisdictionCode));
         if (input.EffectiveAt == default)
             throw new ArgumentException("EffectiveAt is required.", nameof(input.EffectiveAt));
-        if (string.IsNullOrWhiteSpace(input.LanguageCode) || input.LanguageCode.Trim().Length > 15)
-            throw new ArgumentException("LanguageCode is required.", nameof(input.LanguageCode));
+        if (input.LanguageCode != null && input.LanguageCode.Trim().Length > 15)
+            throw new ArgumentException("LanguageCode must contain 0-15 characters.", nameof(input.LanguageCode));
         if (input.RegulationTypes.Any(type => !Enum.IsDefined(type)))
             throw new ArgumentException("RegulationTypes must contain valid values.", nameof(input.RegulationTypes));
         if (input.TopK is < 1 or > MaximumTopK)
