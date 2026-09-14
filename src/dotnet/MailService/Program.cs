@@ -103,10 +103,13 @@ builder.Services.AddGrpc(options =>
 builder.Services.AddSharedMassTransit(builder.Configuration, x =>
 {
     x.AddConsumer<SendSystemEmailConsumer>();
+    x.AddConsumer<InboundEmailWebhookConsumer>();
 });
 
 // Configure MediatR & FluentValidation
 builder.Services.AddMediatR(cfg => cfg.RegisterServicesFromAssembly(typeof(Program).Assembly));
+builder.Services.AddControllers();
+builder.Services.AddMemoryCache();
 
 // Configure EF Core PostgreSQL (Managed Neon connection)
 string connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
@@ -127,7 +130,10 @@ builder.Services.AddScoped<ICurrentUserService>(sp => sp.GetRequiredService<Curr
 builder.Services.AddScoped<ICurrentUserContext>(sp => sp.GetRequiredService<CurrentUserService>());
 builder.Services.AddScoped<IEmailDraftRepository, EmailDraftRepository>();
 builder.Services.AddScoped<IOutboxWriter, OutboxWriter>();
+builder.Services.AddScoped<InboundWebhookEventRepository>();
+builder.Services.AddScoped<IMailboxResolver, MailboxResolver>();
 builder.Services.AddHostedService<OutboxProcessorBackgroundService>();
+builder.Services.AddHostedService<MailboxReconciliationWorker>();
 
 // Register Infrastructure HTTP Clients & S3 / R2
 var stalwartBaseUrl = builder.Configuration["Stalwart:BaseUrl"]
@@ -136,6 +142,14 @@ var stalwartBaseUrl = builder.Configuration["Stalwart:BaseUrl"]
 
 builder.Services.AddHttpClient();
 builder.Services.AddHttpClient<IStalwartManagementClient, StalwartManagementClient>(client =>
+{
+    client.BaseAddress = new Uri(stalwartBaseUrl);
+    var adminApiKey = builder.Configuration["Stalwart:AdminApiKey"];
+    if (!string.IsNullOrWhiteSpace(adminApiKey))
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", adminApiKey);
+});
+
+builder.Services.AddHttpClient<IStalwartJmapClient, StalwartJmapClient>(client =>
 {
     client.BaseAddress = new Uri(stalwartBaseUrl);
     var adminApiKey = builder.Configuration["Stalwart:AdminApiKey"];
@@ -255,6 +269,9 @@ var app = builder.Build();
 // Map gRPC services (Port 5003 HTTP/2)
 app.MapGrpcService<MailManagementService>();
 app.MapGrpcService<MailSecurityService>();
+
+// Map REST Controllers (Port 9090 HTTP/1.1)
+app.MapControllers();
 
 // Map Health Endpoints (Port 9090 HTTP/1.1)
 // 1. General health overview (full diagnostics)

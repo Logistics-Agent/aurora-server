@@ -1,19 +1,22 @@
+using System;
+using System.Collections.Generic;
 using System.Text.Json;
+using System.Threading;
+using System.Threading.Tasks;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
-using Shared.Security;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using MailService.Application.Interfaces.Stalwart;
 using MailService.Domain.Entities;
 using MailService.Domain.Enums;
 using MailService.Infrastructure.Messaging;
 using MailService.Infrastructure.Persistence;
-
-using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Logging;
+using Shared.Security;
 
 namespace MailService.Application.Commands.Provisioning;
 
-public record CreateMailboxCommand(Guid DomainId, string LocalPart, Guid? UserId) : IRequest<Mailbox>;
+public record CreateMailboxCommand(Guid DomainId, string LocalPart, Guid? UserId, bool IsShared = false, string? DisplayName = null) : IRequest<Mailbox>;
 
 public class CreateMailboxCommandHandler : IRequestHandler<CreateMailboxCommand, Mailbox>
 {
@@ -41,43 +44,90 @@ public class CreateMailboxCommandHandler : IRequestHandler<CreateMailboxCommand,
     {
         var tenantId = _currentUserService.TenantId is { } id && id != Guid.Empty
             ? id : throw new UnauthorizedAccessException("Tenant context is required to create a mailbox.");
+
         var domain = await _dbContext.Domains.FindAsync([request.DomainId], cancellationToken)
             ?? throw new KeyNotFoundException($"Domain with ID '{request.DomainId}' not found.");
+
         if (domain.Status != DomainStatus.Active)
             throw new InvalidOperationException($"Domain '{domain.DomainName}' must be verified before creating a shared mailbox.");
 
         var localPart = request.LocalPart.Trim().ToLowerInvariant();
         var fullAddress = $"{localPart}@{domain.DomainName.ToLowerInvariant()}";
+
         var existing = await _dbContext.Mailboxes.FirstOrDefaultAsync(m => m.FullAddress == fullAddress, cancellationToken);
         if (existing != null) return existing;
 
-        var provisioned = await _stalwartClient.ProvisionAccountAsync(fullAddress, cancellationToken);
-        if (!provisioned)
+        // Ensure Domain has valid StalwartDomainId
+        if (string.IsNullOrEmpty(domain.StalwartDomainId))
         {
-            _logger?.LogWarning("Stalwart could not provision account for {Address} (management API offline or unreachable). Proceeding with database mailbox creation and audit sync.", fullAddress);
+            domain.StalwartDomainId = await _stalwartClient.ResolveOrCreateStalwartDomainIdAsync(domain.DomainName, cancellationToken);
+            domain.LastDomainSyncedAt = DateTimeOffset.UtcNow;
+            await _dbContext.SaveChangesAsync(cancellationToken);
         }
 
+        // PHASE 1: Save to Aurora DB with status Pending
         var mailbox = new Mailbox
         {
-            TenantId = tenantId, DomainId = request.DomainId, LocalPart = localPart, FullAddress = fullAddress,
-            Status = MailboxStatus.Active, UserId = request.UserId, CreatedAt = DateTimeOffset.UtcNow
+            TenantId = tenantId,
+            DomainId = request.DomainId,
+            LocalPart = localPart,
+            FullAddress = fullAddress,
+            Type = request.IsShared ? MailboxType.Shared : MailboxType.User,
+            Status = MailboxStatus.Active,
+            ProvisioningStatus = ProvisioningStatus.Pending,
+            UserId = request.UserId,
+            CreatedAt = DateTimeOffset.UtcNow
         };
+
         _dbContext.Mailboxes.Add(mailbox);
+        await _dbContext.SaveChangesAsync(cancellationToken);
+
+        // PHASE 2: Provision to Stalwart JMAP
+        var provisionResult = await _stalwartClient.ProvisionAccountAsync(
+            localPart, 
+            domain.StalwartDomainId ?? domain.DomainName, 
+            request.DisplayName, 
+            cancellationToken);
+
+        // PHASE 3: Update DB with Provisioned or Failed
+        if (provisionResult.IsSuccess)
+        {
+            mailbox.ProvisioningStatus = ProvisioningStatus.Provisioned;
+            mailbox.StalwartAccountId = provisionResult.StalwartAccountId;
+            mailbox.LastProvisionedAt = DateTimeOffset.UtcNow;
+            mailbox.ProvisioningError = null;
+        }
+        else
+        {
+            mailbox.ProvisioningStatus = ProvisioningStatus.Failed;
+            mailbox.ProvisioningError = provisionResult.ErrorMessage;
+            _logger?.LogWarning("Stalwart JMAP could not provision account for {Address}: {Error}", fullAddress, provisionResult.ErrorMessage);
+        }
+
         var audit = new AuditRecord
         {
             TenantId = tenantId,
             ActorId = _currentUserService.UserId ?? Guid.Empty,
             ActorType = ActorType.TenantAdmin,
-            Action = "SharedMailboxCreated",
+            Action = "MailboxCreated",
             ResourceType = "Mailbox",
             ResourceId = mailbox.Id,
             Timestamp = DateTimeOffset.UtcNow,
-            Result = "Success",
-            DetailJson = JsonSerializer.Serialize(new { FullAddress = fullAddress, DomainId = request.DomainId, UserId = request.UserId })
+            Result = provisionResult.IsSuccess ? "Success" : "PendingProvisioning",
+            DetailJson = JsonSerializer.Serialize(new 
+            { 
+                FullAddress = fullAddress, 
+                DomainId = request.DomainId, 
+                UserId = request.UserId,
+                StalwartAccountId = mailbox.StalwartAccountId,
+                ProvisioningStatus = mailbox.ProvisioningStatus.ToString()
+            })
         };
+
         _dbContext.AuditRecords.Add(audit);
         CentralAuditOutbox.Enqueue(_dbContext, audit);
         await _dbContext.SaveChangesAsync(cancellationToken);
+
         return mailbox;
     }
 }

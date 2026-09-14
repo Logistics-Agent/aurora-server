@@ -875,6 +875,8 @@ public class MailServiceTests
         mockCurrentUser.Setup(u => u.UserId).Returns(Guid.NewGuid());
 
         var mockStalwart = new Mock<MailService.Application.Interfaces.Stalwart.IStalwartManagementClient>();
+        mockStalwart.Setup(s => s.ProvisionAccountAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(ProvisionResult.Success("acc_support_123"));
         mockStalwart.Setup(s => s.ProvisionAccountAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(true);
 
@@ -1619,7 +1621,9 @@ public class MailServiceTests
         await dbContext.SaveChangesAsync();
 
         var mockStalwart = new Mock<IStalwartManagementClient>();
-        mockStalwart.Setup(s => s.ProvisionAccountAsync("support@active-domain.com", It.IsAny<CancellationToken>()))
+        mockStalwart.Setup(s => s.ProvisionAccountAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(ProvisionResult.Success("acc_support_123"));
+        mockStalwart.Setup(s => s.ProvisionAccountAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(true);
 
         var handler = new MailService.Application.Commands.Provisioning.CreateMailboxCommandHandler(dbContext, mockStalwart.Object, mockUser.Object);
@@ -1628,8 +1632,10 @@ public class MailServiceTests
         Assert.NotNull(mailbox);
         Assert.Equal("support@active-domain.com", mailbox.FullAddress);
         Assert.Equal(MailboxStatus.Active, mailbox.Status);
+        Assert.Equal(ProvisioningStatus.Provisioned, mailbox.ProvisioningStatus);
+        Assert.Equal("acc_support_123", mailbox.StalwartAccountId);
 
-        var outbox = await dbContext.OutboxMessages.FirstOrDefaultAsync(o => o.EventType == nameof(CentralAuditEvent) && o.Payload.Contains("SharedMailboxCreated"));
+        var outbox = await dbContext.OutboxMessages.FirstOrDefaultAsync(o => o.EventType == nameof(CentralAuditEvent) && (o.Payload.Contains("MailboxCreated") || o.Payload.Contains("SharedMailboxCreated")));
         Assert.NotNull(outbox);
     }
 }

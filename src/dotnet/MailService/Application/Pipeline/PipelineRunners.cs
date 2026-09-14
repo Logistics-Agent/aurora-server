@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using MailService.Application.Interfaces.Messaging;
 using MailService.Application.Interfaces.Storage;
@@ -37,6 +38,19 @@ public class InboundPipelineRunner
 
     public async Task<InboundPipelineContext> RunAsync(InboundPipelineContext context, CancellationToken cancellationToken = default)
     {
+        // Pipeline-level idempotency check: prevent duplicate messages / threads on retry
+        if (!string.IsNullOrEmpty(context.ProcessedMessage.SourceEventId))
+        {
+            var existing = await _dbContext.ProcessedMessages
+                .FirstOrDefaultAsync(m => m.SourceEventId == context.ProcessedMessage.SourceEventId, cancellationToken);
+            if (existing != null)
+            {
+                _logger.LogInformation("ProcessedMessage for SourceEventId {SourceEventId} already exists. Returning existing message.", context.ProcessedMessage.SourceEventId);
+                context.ProcessedMessage = existing;
+                return context;
+            }
+        }
+
         context.ProcessedMessage.PipelineExecutionId = context.ExecutionId.Value;
         context.ProcessedMessage.Direction = EmailDirection.Inbound;
         context.ProcessedMessage.ReceivedAt = DateTimeOffset.UtcNow;

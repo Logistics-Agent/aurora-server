@@ -4,6 +4,27 @@ using ThreadPriority = MailService.Domain.Enums.ThreadPriority;
 
 namespace MailService.Domain.Entities;
 
+public enum ProvisioningStatus
+{
+    Pending = 0,
+    Provisioned = 1,
+    Failed = 2
+}
+
+public enum MailboxType
+{
+    User = 0,
+    Shared = 1,
+    Service = 2
+}
+
+public enum WebhookEventStatus
+{
+    Processing = 0,
+    Completed = 1,
+    Failed = 2
+}
+
 public class Domain : TenantAuditableEntity
 {
     public string DomainName { get; set; } = string.Empty;
@@ -14,6 +35,10 @@ public class Domain : TenantAuditableEntity
     public string? DkimTxtRecord { get; set; }
     public string? PreviousDkimSelector { get; set; }
     public DateTimeOffset? DkimOverlapUntil { get; set; }
+
+    // Stalwart Infrastructure Linkage
+    public string? StalwartDomainId { get; set; }
+    public DateTimeOffset? LastDomainSyncedAt { get; set; }
 
     // Security & Rate Limit Thresholds
     public decimal SpamTagThreshold { get; set; } = 5.0m;
@@ -34,8 +59,29 @@ public class Mailbox : TenantAuditableEntity
     public string LocalPart { get; set; } = string.Empty;
     public string FullAddress { get; set; } = string.Empty;
     public MailboxStatus Status { get; set; } = MailboxStatus.Active;
+    public MailboxType Type { get; set; } = MailboxType.User;
     public Guid? UserId { get; set; }
     public string? SourceEventId { get; set; }
+
+    // Stalwart Control Plane Linkage
+    public string? StalwartAccountId { get; set; }
+    public ProvisioningStatus ProvisioningStatus { get; set; } = ProvisioningStatus.Pending;
+    public DateTimeOffset? LastProvisionedAt { get; set; }
+    public DateTimeOffset? LastReconciledAt { get; set; }
+    public string? ProvisioningError { get; set; }
+}
+
+public class InboundWebhookEvent : BaseEntity
+{
+    public string StalwartEventId { get; set; } = string.Empty;
+    public string EventType { get; set; } = string.Empty;
+    public WebhookEventStatus Status { get; set; } = WebhookEventStatus.Processing;
+    public int AttemptCount { get; set; } = 1;
+    public string? RawPayloadJson { get; set; }
+    public string? LastError { get; set; }
+    public DateTimeOffset FirstReceivedAt { get; set; } = DateTimeOffset.UtcNow;
+    public DateTimeOffset? LastAttemptAt { get; set; }
+    public DateTimeOffset? CompletedAt { get; set; }
 }
 
 public class Alias : TenantAuditableEntity
@@ -99,6 +145,7 @@ public class EmailDraft : TenantAuditableEntity
 public class ProcessedMessage : TenantAuditableEntity
 {
     public string MessageId { get; set; } = string.Empty; // RFC 5322 Message-ID
+    public string? SourceEventId { get; set; } // Webhook / Inbound event ID for idempotency deduplication
     public Guid PipelineExecutionId { get; set; }
     public EmailDirection Direction { get; set; }
     public string SenderAddress { get; set; } = string.Empty;

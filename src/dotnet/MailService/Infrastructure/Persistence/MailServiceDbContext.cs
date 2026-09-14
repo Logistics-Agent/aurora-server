@@ -22,10 +22,19 @@ public class MailServiceDbContext(
     public DbSet<AuditRecord> AuditRecords => Set<AuditRecord>();
     public DbSet<OutboxMessage> OutboxMessages => Set<OutboxMessage>();
     public DbSet<ThreadAssignmentHistory> ThreadAssignmentHistories => Set<ThreadAssignmentHistory>();
+    public DbSet<InboundWebhookEvent> InboundWebhookEvents => Set<InboundWebhookEvent>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
+
+        modelBuilder.Entity<InboundWebhookEvent>(b =>
+        {
+            b.ToTable("inbound_webhook_events");
+            b.HasKey(e => e.Id);
+            b.HasIndex(e => e.StalwartEventId).IsUnique();
+            b.HasIndex(e => e.Status);
+        });
 
         // Apply Global Query Filter for Multi-Tenant Isolation (Fail-Closed)
         modelBuilder.Entity<Domain.Entities.Domain>(b =>
@@ -44,6 +53,7 @@ public class MailServiceDbContext(
             b.HasIndex(m => m.TenantId);
             b.HasIndex(m => m.DomainId);
             b.HasIndex(m => m.FullAddress).IsUnique();
+            b.HasIndex(m => m.StalwartAccountId);
             b.HasQueryFilter(m => _tenantId.HasValue && m.TenantId == _tenantId);
         });
 
@@ -99,6 +109,7 @@ public class MailServiceDbContext(
             b.HasKey(p => p.Id);
             b.HasIndex(p => new { p.TenantId, p.ReceivedAt });
             b.HasIndex(p => new { p.TenantId, p.MessageId });
+            b.HasIndex(p => new { p.TenantId, p.SourceEventId });
             b.HasIndex(p => p.ThreadId);
             b.HasIndex(p => new { p.TenantId, p.SentByUserId });
             b.HasQueryFilter(p => _tenantId.HasValue && p.TenantId == _tenantId);
