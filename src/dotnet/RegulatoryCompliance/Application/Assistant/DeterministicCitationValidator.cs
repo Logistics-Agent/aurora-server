@@ -9,7 +9,11 @@ public sealed record LlmParsedResponse(
     [property: JsonPropertyName("knowledgeReferences")] IReadOnlyList<LlmKnowledgeItem>? KnowledgeReferences,
     [property: JsonPropertyName("conflicts")] IReadOnlyList<LlmConflictItem>? Conflicts,
     [property: JsonPropertyName("insufficientEvidence")] bool InsufficientEvidence,
-    [property: JsonPropertyName("missingInformation")] IReadOnlyList<string>? MissingInformation);
+    [property: JsonPropertyName("missingInformation")] IReadOnlyList<string>? MissingInformation)
+{
+    [JsonIgnore]
+    public bool IsStructuredOutputValid { get; init; } = true;
+}
 
 public sealed record LlmCitationItem(
     [property: JsonPropertyName("evidenceId")] string? EvidenceId);

@@ -8,5 +8,13 @@ public enum AutomationLevel {
     ASSISTED,
     SEMI_AUTONOMOUS,
     SUPERVISED_AUTONOMOUS,
+    /**
+     * Canonical value persisted by the plan capability seed data.
+     */
+    FULL_AUTONOMOUS,
+    /**
+     * Legacy spelling retained so existing rows remain readable.
+     */
+    @Deprecated
     FULLY_AUTONOMOUS
 }

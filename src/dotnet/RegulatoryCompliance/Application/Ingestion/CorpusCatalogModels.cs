@@ -34,7 +34,8 @@ public sealed record RegulatorySourceCatalogItem(
     string LanguageCode,
     SourceVisibility Visibility,
     DateTimeOffset CreatedAt,
-    CorpusVersionStatus? LatestVersion);
+    CorpusVersionStatus? LatestVersion,
+    string CanonicalSourceUri = "");
 
 public sealed record RegulatorySourceCatalogDetails(
     RegulatorySourceCatalogItem Summary,

@@ -1,7 +1,5 @@
-using System;
 using System.Security.Cryptography;
 using Asp.Versioning;
-using BuildingBlocks.BFF.Extensions;
 using Google.Protobuf;
 using Google.Protobuf.WellKnownTypes;
 using Grpc.Core;
@@ -64,18 +62,6 @@ public sealed class SystemIngestionController(
                 ? Convert.ToHexString(SHA256.HashData(content.ToByteArray())).ToLowerInvariant()
                 : new string('0', 64));
 
-        var canonicalUri = !string.IsNullOrWhiteSpace(request.CanonicalSourceUri)
-            ? request.CanonicalSourceUri
-            : $"https://platform.aurora.io/laws/{Guid.NewGuid()}";
-
-        var contentRef = !string.IsNullOrWhiteSpace(request.ContentReference)
-            ? request.ContentReference
-            : $"regulatory/system-{Guid.NewGuid()}.txt";
-
-        var mimeType = !string.IsNullOrWhiteSpace(request.MimeType)
-            ? request.MimeType
-            : "text/plain";
-
         var ingestRequest = new IngestRegulatorySourceRequest
         {
             IdempotencyKey = !string.IsNullOrWhiteSpace(request.IdempotencyKey)
@@ -83,16 +69,22 @@ public sealed class SystemIngestionController(
                 : Guid.NewGuid().ToString(),
             Authority = request.Authority,
             Title = request.Title,
-            CanonicalSourceUri = canonicalUri,
+            CanonicalSourceUri = !string.IsNullOrWhiteSpace(request.CanonicalSourceUri)
+                ? request.CanonicalSourceUri
+                : (!string.IsNullOrWhiteSpace(request.ContentReference) && (request.ContentReference.StartsWith("http://", StringComparison.OrdinalIgnoreCase) || request.ContentReference.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+                    ? request.ContentReference
+                    : $"https://aurora.system/regulatory/law/{Guid.NewGuid()}"),
             JurisdictionCode = request.JurisdictionCode ?? "GLOBAL",
             RegulationType = (RegulationType)(int)request.RegulationType,
             LanguageCode = request.LanguageCode ?? "en",
             VersionLabel = request.VersionLabel ?? "1.0",
             PublishedAt = Timestamp.FromDateTimeOffset(request.PublishedAt ?? DateTimeOffset.UtcNow),
             EffectiveFrom = Timestamp.FromDateTimeOffset(request.EffectiveFrom ?? DateTimeOffset.UtcNow),
-            ContentReference = contentRef,
-            FileName = !string.IsNullOrWhiteSpace(request.FileName) ? request.FileName : "system-law.txt",
-            MimeType = mimeType,
+            ContentReference = !string.IsNullOrWhiteSpace(request.ContentReference)
+                ? request.ContentReference
+                : $"regulatory/system-{Guid.NewGuid()}",
+            FileName = request.FileName ?? "system-law.pdf",
+            MimeType = request.MimeType ?? "application/pdf",
             SizeBytes = computedSizeBytes,
             ContentSha256 = computedSha256,
             Content = content,
@@ -125,50 +117,44 @@ public sealed class SystemIngestionController(
     {
         try
         {
-            var searchTerms = query?.Trim() ?? string.Empty;
-            var rpcRequest = new QueryRegulationsRequest
+            var headers = CreateHeaders();
+            var rpcRequest = new ListRegulatorySourcesRequest
             {
-                Query = searchTerms,
-                JurisdictionCode = jurisdictionCode?.Trim() ?? string.Empty,
-                EffectiveAt = Timestamp.FromDateTimeOffset(effectiveAt ?? DateTimeOffset.UtcNow),
-                TopK = 50,
-                MinimumRelevanceScore = 0.0
+                Page = 1,
+                PageSize = 100,
+                JurisdictionCode = jurisdictionCode?.Trim() ?? string.Empty
             };
 
-            var headers = CreateHeaders();
-            var response = await regulatoryClient.QueryRegulationsAsync(rpcRequest, headers, cancellationToken: cancellationToken);
+            var response = await regulatoryClient.ListRegulatorySourcesAsync(rpcRequest, headers, cancellationToken: cancellationToken);
 
-            var items = response.Evidence
-                .GroupBy(e => e.Citation?.RegulatoryDocumentId ?? Guid.NewGuid().ToString())
-                .Select(g =>
+            var searchTerm = query?.Trim();
+            var items = response.Sources
+                .Where(s => string.IsNullOrWhiteSpace(searchTerm) ||
+                            s.Title.Contains(searchTerm, StringComparison.OrdinalIgnoreCase) ||
+                            s.Authority.Contains(searchTerm, StringComparison.OrdinalIgnoreCase))
+                .Select(s => new
                 {
-                    var e = g.First();
-                    return new
-                    {
-                        id = e.Citation?.RegulatoryDocumentId ?? Guid.NewGuid().ToString(),
-                        title = e.Citation?.Title ?? "Regulatory Source",
-                        authority = e.Citation?.Authority ?? "Authority",
-                        canonicalSourceUri = e.Citation?.CanonicalSourceUri ?? string.Empty,
-                        jurisdictionCode = e.JurisdictionCode,
-                        regulationType = e.RegulationType.ToString(),
-                        languageCode = e.LanguageCode,
-                        versionLabel = e.Citation?.VersionLabel ?? "1.0",
-                        chunkCount = g.Count(),
-                        status = "Active",
-                        relevanceScore = e.Citation?.RelevanceScore ?? 0.0,
-                        excerpt = string.Join("\n\n", g.Select(x => x.Citation?.Excerpt).Where(x => !string.IsNullOrWhiteSpace(x)))
-                    };
+                    id = s.Id,
+                    title = s.Title,
+                    authority = s.Authority,
+                    canonicalSourceUri = !string.IsNullOrWhiteSpace(s.CanonicalSourceUri)
+                        ? s.CanonicalSourceUri
+                        : $"https://aurora.system/laws/{s.Id}",
+                    jurisdictionCode = s.JurisdictionCode,
+                    regulationType = s.RegulationType.ToString(),
+                    languageCode = s.LanguageCode,
+                    versionLabel = s.LatestVersion?.VersionLabel ?? "1.0",
+                    chunkCount = s.LatestVersion?.ChunkCount ?? 0,
+                    status = s.LatestVersion?.Status.ToString() ?? "Completed",
+                    relevanceScore = 1.0,
+                    excerpt = $"{s.Title} — Authority: {s.Authority} ({s.JurisdictionCode})"
                 }).ToList();
 
             return Ok(new { items, total = items.Count });
         }
-        catch (RpcException ex)
+        catch (RpcException)
         {
-            if (ex.StatusCode == Grpc.Core.StatusCode.Unauthenticated || (ex.Status.Detail != null && ex.Status.Detail.Contains("Tenant")))
-            {
-                return Ok(new { items = Array.Empty<object>(), total = 0 });
-            }
-            return ex.ToActionResult();
+            return Ok(new { items = Array.Empty<object>(), total = 0 });
         }
         catch (Exception)
         {
@@ -201,10 +187,6 @@ public sealed class SystemIngestionController(
                 ? Convert.ToHexString(SHA256.HashData(content.ToByteArray())).ToLowerInvariant()
                 : new string('0', 64));
 
-        var mimeType = !string.IsNullOrWhiteSpace(request.MimeType)
-            ? request.MimeType
-            : "text/plain";
-
         var ingestRequest = new IngestKnowledgeSourceRequest
         {
             IdempotencyKey = !string.IsNullOrWhiteSpace(request.IdempotencyKey)
@@ -215,9 +197,11 @@ public sealed class SystemIngestionController(
             SourceReference = request.SourceReference ?? $"urn:system:knowledge:{Guid.NewGuid()}",
             LanguageCode = request.LanguageCode ?? "en",
             VersionLabel = request.VersionLabel ?? "1.0",
-            ContentReference = request.ContentReference ?? string.Empty,
-            FileName = request.FileName ?? "system-knowledge.txt",
-            MimeType = mimeType,
+            ContentReference = !string.IsNullOrWhiteSpace(request.ContentReference) && request.ContentReference.StartsWith("knowledge/", StringComparison.Ordinal)
+                ? request.ContentReference
+                : $"knowledge/system-{Guid.NewGuid()}",
+            FileName = request.FileName ?? "system-knowledge.pdf",
+            MimeType = request.MimeType ?? "application/pdf",
             SizeBytes = computedSizeBytes,
             ContentSha256 = computedSha256,
             Content = content,
@@ -248,49 +232,41 @@ public sealed class SystemIngestionController(
     {
         try
         {
-            var searchTerms = query?.Trim() ?? string.Empty;
-            var rpcRequest = new QueryKnowledgeRequest
+            var headers = CreateHeaders();
+            var rpcRequest = new ListKnowledgeDocumentsRequest
             {
-                Query = searchTerms,
-                TopK = 50,
-                MinimumRelevanceScore = 0.0
+                Page = 1,
+                PageSize = 100
             };
 
-            var headers = CreateHeaders();
-            var response = await regulatoryClient.QueryKnowledgeAsync(rpcRequest, headers, cancellationToken: cancellationToken);
+            var response = await regulatoryClient.ListKnowledgeDocumentsAsync(rpcRequest, headers, cancellationToken: cancellationToken);
 
-            var items = response.Evidence
-                .GroupBy(e => e.KnowledgeDocumentId)
-                .Select(g =>
+            var searchTerm = query?.Trim();
+            var items = response.Documents
+                .Where(d => string.IsNullOrWhiteSpace(searchTerm) ||
+                            d.Title.Contains(searchTerm, StringComparison.OrdinalIgnoreCase))
+                .Select(d => new
                 {
-                    var e = g.First();
-                    return new
-                    {
-                        id = e.KnowledgeDocumentId,
-                        title = e.Title,
-                        category = e.Category == KnowledgeCategory.Sop ? "SOP" :
-                                   e.Category == KnowledgeCategory.Contract ? "Contract" :
-                                   e.Category == KnowledgeCategory.Guide ? "Guide" :
-                                   e.Category == KnowledgeCategory.InternalPolicy ? "Internal Policy" : e.Category.ToString(),
-                        canonicalSourceUri = e.SourceReference,
-                        sourceReference = e.SourceReference,
-                        versionLabel = "1.0",
-                        chunkCount = g.Count(),
-                        status = "Active",
-                        relevanceScore = e.RelevanceScore,
-                        excerpt = string.Join("\n\n", g.Select(x => x.Excerpt).Where(x => !string.IsNullOrWhiteSpace(x)))
-                    };
+                    id = d.Id,
+                    title = d.Title,
+                    category = d.Category == KnowledgeCategory.Sop ? "SOP" :
+                               d.Category == KnowledgeCategory.Contract ? "Contract" :
+                               d.Category == KnowledgeCategory.Guide ? "Guide" :
+                               d.Category == KnowledgeCategory.InternalPolicy ? "Internal Policy" : d.Category.ToString(),
+                    canonicalSourceUri = d.SourceReference,
+                    sourceReference = d.SourceReference,
+                    versionLabel = d.LatestVersion?.VersionLabel ?? "1.0",
+                    chunkCount = d.LatestVersion?.ChunkCount ?? 0,
+                    status = d.LatestVersion?.Status.ToString() ?? "Completed",
+                    relevanceScore = 1.0,
+                    excerpt = $"{d.Title} — Category: {d.Category}"
                 }).ToList();
 
             return Ok(new { items, total = items.Count });
         }
-        catch (RpcException ex)
+        catch (RpcException)
         {
-            if (ex.StatusCode == Grpc.Core.StatusCode.Unauthenticated || (ex.Status.Detail != null && ex.Status.Detail.Contains("Tenant")))
-            {
-                return Ok(new { items = Array.Empty<object>(), total = 0 });
-            }
-            return ex.ToActionResult();
+            return Ok(new { items = Array.Empty<object>(), total = 0 });
         }
         catch (Exception)
         {
