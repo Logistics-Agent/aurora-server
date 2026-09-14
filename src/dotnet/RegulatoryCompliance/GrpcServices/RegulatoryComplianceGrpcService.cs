@@ -892,7 +892,8 @@ public sealed class RegulatoryComplianceGrpcService(
             RegulationType = (ComplianceGrpc.RegulationType)(int)item.RegulationType,
             LanguageCode = item.LanguageCode,
             Visibility = MapVisibility(item.Visibility),
-            CreatedAt = Timestamp.FromDateTimeOffset(item.CreatedAt)
+            CreatedAt = Timestamp.FromDateTimeOffset(item.CreatedAt),
+            CanonicalSourceUri = item.CanonicalSourceUri ?? string.Empty
         };
         if (item.LatestVersion is not null)
             response.LatestVersion = MapRegulatoryVersion(item.LatestVersion);

@@ -69,16 +69,18 @@ public sealed class SystemIngestionController(
                 : Guid.NewGuid().ToString(),
             Authority = request.Authority,
             Title = request.Title,
-            CanonicalSourceUri = !string.IsNullOrWhiteSpace(request.CanonicalSourceUri) && Uri.TryCreate(request.CanonicalSourceUri, UriKind.Absolute, out var uri) && (uri.Scheme == Uri.UriSchemeHttps || uri.Scheme == Uri.UriSchemeHttp)
+            CanonicalSourceUri = !string.IsNullOrWhiteSpace(request.CanonicalSourceUri)
                 ? request.CanonicalSourceUri
-                : $"https://aurora.system/regulatory/law/{Guid.NewGuid()}",
+                : (!string.IsNullOrWhiteSpace(request.ContentReference) && (request.ContentReference.StartsWith("http://", StringComparison.OrdinalIgnoreCase) || request.ContentReference.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+                    ? request.ContentReference
+                    : $"https://aurora.system/regulatory/law/{Guid.NewGuid()}"),
             JurisdictionCode = request.JurisdictionCode ?? "GLOBAL",
             RegulationType = (RegulationType)(int)request.RegulationType,
             LanguageCode = request.LanguageCode ?? "en",
             VersionLabel = request.VersionLabel ?? "1.0",
             PublishedAt = Timestamp.FromDateTimeOffset(request.PublishedAt ?? DateTimeOffset.UtcNow),
             EffectiveFrom = Timestamp.FromDateTimeOffset(request.EffectiveFrom ?? DateTimeOffset.UtcNow),
-            ContentReference = !string.IsNullOrWhiteSpace(request.ContentReference) && request.ContentReference.StartsWith("regulatory/", StringComparison.Ordinal)
+            ContentReference = !string.IsNullOrWhiteSpace(request.ContentReference)
                 ? request.ContentReference
                 : $"regulatory/system-{Guid.NewGuid()}",
             FileName = request.FileName ?? "system-law.pdf",
@@ -135,7 +137,9 @@ public sealed class SystemIngestionController(
                     id = s.Id,
                     title = s.Title,
                     authority = s.Authority,
-                    canonicalSourceUri = $"https://aurora.system/laws/{s.Id}",
+                    canonicalSourceUri = !string.IsNullOrWhiteSpace(s.CanonicalSourceUri)
+                        ? s.CanonicalSourceUri
+                        : $"https://aurora.system/laws/{s.Id}",
                     jurisdictionCode = s.JurisdictionCode,
                     regulationType = s.RegulationType.ToString(),
                     languageCode = s.LanguageCode,

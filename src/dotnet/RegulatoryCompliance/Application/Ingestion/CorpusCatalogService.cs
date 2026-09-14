@@ -147,7 +147,8 @@ public sealed class CorpusCatalogService(
             document.LanguageCode,
             document.Visibility,
             document.CreatedAt,
-            latestVersion is null ? null : MapVersion(latestVersion));
+            latestVersion is null ? null : MapVersion(latestVersion),
+            document.CanonicalSourceUri);
 
     private static KnowledgeDocumentCatalogItem MapKnowledge(
         KnowledgeDocument document,

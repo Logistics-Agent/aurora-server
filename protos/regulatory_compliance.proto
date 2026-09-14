@@ -299,6 +299,7 @@ message RegulatorySourceSummary {
   RegulatorySourceVisibility visibility = 7;
   RegulatorySourceVersionSummary latest_version = 8;
   google.protobuf.Timestamp created_at = 9;
+  string canonical_source_uri = 10;
 }
 
 message ListRegulatorySourcesResponse {
