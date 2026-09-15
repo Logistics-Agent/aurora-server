@@ -105,6 +105,10 @@ public class StalwartJmapClient : IStalwartJmapClient
             if (directFromMsgId != null) return directFromMsgId;
         }
 
+        // 4. Fallback: Query the most recently received email in this mailbox
+        var latestEmail = await QueryLatestEmailAsync(jmapAccountId, cancellationToken);
+        if (latestEmail != null) return latestEmail;
+
         throw new KeyNotFoundException($"Could not correlate JMAP email for event {evt.StalwartEventId} in mailbox {mailbox.FullAddress}");
     }
 
@@ -315,6 +319,62 @@ public class StalwartJmapClient : IStalwartJmapClient
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Failed to query email by RFC Message-ID {RfcMessageId}", rfcMessageId);
+        }
+
+        return null;
+    }
+
+    private async Task<JmapEmailDto?> QueryLatestEmailAsync(string jmapAccountId, CancellationToken cancellationToken)
+    {
+        var queryPayload = new
+        {
+            @using = new[] { "urn:ietf:params:jmap:core", "urn:ietf:params:jmap:mail" },
+            methodCalls = new object[]
+            {
+                new object[]
+                {
+                    "Email/query",
+                    new
+                    {
+                        accountId = jmapAccountId,
+                        limit = 1
+                    },
+                    "q1"
+                }
+            }
+        };
+
+        try
+        {
+            var res = await _httpClient.PostAsJsonAsync("/jmap", queryPayload, cancellationToken);
+            var rawJson = await res.Content.ReadAsStringAsync(cancellationToken);
+            _logger.LogDebug("JMAP Email/query latest response: {RawJson}", rawJson);
+
+            if (!res.IsSuccessStatusCode) return null;
+
+            using var doc = JsonDocument.Parse(rawJson);
+            if (doc.RootElement.TryGetProperty("methodResponses", out var methodResponses) && methodResponses.GetArrayLength() > 0)
+            {
+                var firstCall = methodResponses[0];
+                if (firstCall.GetArrayLength() >= 2)
+                {
+                    var methodName = firstCall[0].GetString();
+                    var payload = firstCall[1];
+
+                    if (methodName != "error" && payload.TryGetProperty("ids", out var ids) && ids.GetArrayLength() > 0)
+                    {
+                        var emailId = ids[0].GetString();
+                        if (!string.IsNullOrEmpty(emailId))
+                        {
+                            return await GetEmailDirectAsync(jmapAccountId, emailId, cancellationToken);
+                        }
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to query latest email for account {AccountId}", jmapAccountId);
         }
 
         return null;
