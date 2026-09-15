@@ -49,7 +49,7 @@ public class StalwartManagementClient : IStalwartManagementClient
         {
             var queryRes = await _httpClient.PostAsJsonAsync("/jmap", queryPayload, cancellationToken);
             var rawJson = await queryRes.Content.ReadAsStringAsync(cancellationToken);
-            _logger.LogDebug("JMAP x:Domain/query response: {RawJson}", rawJson);
+            _logger.LogInformation("x:Domain/query {Domain} response: {Response}", normalizedDomain, rawJson);
 
             if (queryRes.IsSuccessStatusCode)
             {
@@ -68,19 +68,19 @@ public class StalwartManagementClient : IStalwartManagementClient
                             var errDesc = payload.TryGetProperty("description", out var d) ? d.GetString() : null;
                             _logger.LogWarning("Stalwart JMAP x:Domain/query error: {Type} - {Description}", errType, errDesc);
                         }
-                        else if (payload.TryGetProperty("ids", out var ids) && ids.GetArrayLength() > 0)
+                        else if (payload.TryGetProperty("ids", out var ids))
                         {
-                            var existingId = ids[0].GetString();
-                            if (!string.IsNullOrEmpty(existingId))
+                            if (ids.GetArrayLength() > 0)
                             {
-                                return existingId;
+                                return ids[0].GetString()
+                                    ?? throw new InvalidOperationException($"Domain id was null for domain '{normalizedDomain}'.");
                             }
                         }
                     }
                 }
             }
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not InvalidOperationException)
         {
             _logger.LogWarning(ex, "Failed to query domain {Domain} on Stalwart JMAP", normalizedDomain);
         }
@@ -122,7 +122,7 @@ public class StalwartManagementClient : IStalwartManagementClient
         {
             var setRes = await _httpClient.PostAsJsonAsync("/jmap", setPayload, cancellationToken);
             var rawJson = await setRes.Content.ReadAsStringAsync(cancellationToken);
-            _logger.LogDebug("JMAP x:Domain/set response: {RawJson}", rawJson);
+            _logger.LogInformation("x:Domain/set {Domain} response: {Response}", normalizedDomain, rawJson);
 
             if (setRes.IsSuccessStatusCode)
             {
@@ -143,11 +143,15 @@ public class StalwartManagementClient : IStalwartManagementClient
                         }
                         else if (payload.TryGetProperty("created", out var created))
                         {
-                            foreach (var item in created.EnumerateObject())
+                            foreach (var property in created.EnumerateObject())
                             {
-                                if (item.Value.TryGetProperty("id", out var idProp) && !string.IsNullOrEmpty(idProp.GetString()))
+                                if (property.Value.TryGetProperty("id", out var idElement))
                                 {
-                                    return idProp.GetString()!;
+                                    var id = idElement.GetString();
+                                    if (!string.IsNullOrWhiteSpace(id))
+                                    {
+                                        return id;
+                                    }
                                 }
                             }
                         }
@@ -155,12 +159,12 @@ public class StalwartManagementClient : IStalwartManagementClient
                 }
             }
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not InvalidOperationException)
         {
             _logger.LogError(ex, "Failed to create domain {Domain} on Stalwart JMAP", normalizedDomain);
         }
 
-        return normalizedDomain;
+        throw new InvalidOperationException($"Failed to resolve or create Stalwart domain ID for '{normalizedDomain}'.");
     }
 
     public async Task<ProvisionResult> ProvisionAccountAsync(
