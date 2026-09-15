@@ -76,18 +76,29 @@ public class StalwartWebhookController : ControllerBase
         try
         {
             // 4. Publish to Durable RabbitMQ Exchange/Queue
-            foreach (var evt in envelope.Events.Where(e => e.Type == "store.ingest"))
+            var ingestEvents = envelope.Events
+                .Where(e => e.Type.Contains("ingest", StringComparison.OrdinalIgnoreCase))
+                .ToList();
+
+            foreach (var evt in ingestEvents)
             {
+                var accountId = evt.Data.AccountId;
+                var to = evt.Data.To;
+                var messageId = evt.Data.MessageId 
+                             ?? (evt.Data.RfcMessageId ?? string.Empty);
+                var emailId = evt.Data.EmailId 
+                           ?? (evt.Data.DocumentId.HasValue ? evt.Data.DocumentId.Value.ToString() : null);
+
                 await _publishEndpoint.Publish(new InboundEmailWebhookReceivedEvent
                 {
                     StalwartEventId = evt.Id,
                     EventType = evt.Type,
                     AccountName = evt.Data.AccountName,
-                    AccountId = evt.Data.AccountId,
-                    JmapEmailId = evt.Data.EmailId,
+                    AccountId = accountId,
+                    JmapEmailId = emailId,
                     RfcMessageId = evt.Data.RfcMessageId,
-                    MessageId = evt.Data.MessageId ?? string.Empty,
-                    To = evt.Data.To,
+                    MessageId = messageId,
+                    To = to,
                     From = evt.Data.From,
                     IngestedAt = evt.CreatedAt,
                     RawPayloadJson = JsonSerializer.Serialize(evt)
@@ -95,7 +106,7 @@ public class StalwartWebhookController : ControllerBase
             }
 
             // 5. Prompt ACK after RabbitMQ publish succeeds
-            return Ok(new { status = "accepted", count = envelope.Events.Count });
+            return Ok(new { status = "accepted", count = envelope.Events.Count, ingestCount = ingestEvents.Count });
         }
         catch (Exception ex)
         {
@@ -132,7 +143,13 @@ public record StalwartWebhookData
     public string? AccountName { get; init; }
 
     [JsonPropertyName("accountId")]
-    public string? AccountId { get; init; }
+    public JsonElement? AccountIdRaw { get; init; }
+
+    public string? AccountId => AccountIdRaw.HasValue 
+        ? (AccountIdRaw.Value.ValueKind == JsonValueKind.Number 
+            ? AccountIdRaw.Value.GetInt64().ToString() 
+            : AccountIdRaw.Value.GetString()) 
+        : null;
 
     [JsonPropertyName("emailId")]
     public string? EmailId { get; init; }
@@ -144,10 +161,34 @@ public record StalwartWebhookData
     public string? MessageId { get; init; }
 
     [JsonPropertyName("to")]
-    public string? To { get; init; }
+    public JsonElement? ToRaw { get; init; }
+
+    public string? To
+    {
+        get
+        {
+            if (!ToRaw.HasValue) return null;
+            if (ToRaw.Value.ValueKind == JsonValueKind.String) return ToRaw.Value.GetString();
+            if (ToRaw.Value.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var item in ToRaw.Value.EnumerateArray())
+                {
+                    var s = item.GetString();
+                    if (!string.IsNullOrEmpty(s)) return s;
+                }
+            }
+            return null;
+        }
+    }
 
     [JsonPropertyName("from")]
     public string? From { get; init; }
+
+    [JsonPropertyName("documentId")]
+    public JsonElement? DocumentId { get; init; }
+
+    [JsonPropertyName("blobId")]
+    public string? BlobId { get; init; }
 
     [JsonExtensionData]
     public System.Collections.Generic.Dictionary<string, JsonElement>? AdditionalFields { get; init; }
