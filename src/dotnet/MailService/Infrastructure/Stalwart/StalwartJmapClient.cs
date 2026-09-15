@@ -84,30 +84,42 @@ public class StalwartJmapClient : IStalwartJmapClient
         if (!string.IsNullOrEmpty(evt.JmapEmailId))
         {
             var direct = await GetEmailDirectAsync(jmapAccountId, evt.JmapEmailId, cancellationToken);
-            if (direct != null) return direct;
+            if (direct != null)
+            {
+                _logger.LogInformation("Successfully correlated email via JmapEmailId {Id} for event {EventId}", evt.JmapEmailId, evt.StalwartEventId);
+                return direct;
+            }
         }
 
-        // 2. Correlation via RFC Message-ID header query
-        var targetRfcId = !string.IsNullOrEmpty(evt.RfcMessageId) 
-            ? evt.RfcMessageId 
-            : (!string.IsNullOrEmpty(evt.MessageId) && evt.MessageId.Contains('@') ? evt.MessageId : null);
-
-        if (!string.IsNullOrEmpty(targetRfcId))
+        // 2. Correlation via explicit RFC Message-ID header query
+        if (!string.IsNullOrEmpty(evt.RfcMessageId))
         {
-            var correlated = await this.QueryEmailByRfcMessageIdAsync(jmapAccountId, targetRfcId, cancellationToken);
-            if (correlated != null) return correlated;
+            var correlated = await this.QueryEmailByRfcMessageIdAsync(jmapAccountId, evt.RfcMessageId, cancellationToken);
+            if (correlated != null)
+            {
+                _logger.LogInformation("Successfully correlated email via RfcMessageId {RfcId} for event {EventId}", evt.RfcMessageId, evt.StalwartEventId);
+                return correlated;
+            }
         }
 
         // 3. Try direct fetch using MessageId if present
         if (!string.IsNullOrEmpty(evt.MessageId))
         {
             var directFromMsgId = await GetEmailDirectAsync(jmapAccountId, evt.MessageId, cancellationToken);
-            if (directFromMsgId != null) return directFromMsgId;
+            if (directFromMsgId != null)
+            {
+                _logger.LogInformation("Successfully correlated email via MessageId {MsgId} for event {EventId}", evt.MessageId, evt.StalwartEventId);
+                return directFromMsgId;
+            }
         }
 
         // 4. Fallback: Query the most recently received email in this mailbox
         var latestEmail = await QueryLatestEmailAsync(jmapAccountId, cancellationToken);
-        if (latestEmail != null) return latestEmail;
+        if (latestEmail != null)
+        {
+            _logger.LogInformation("Successfully correlated email via latest email fallback (Id: {EmailId}) for event {EventId}", latestEmail.Id, evt.StalwartEventId);
+            return latestEmail;
+        }
 
         throw new KeyNotFoundException($"Could not correlate JMAP email for event {evt.StalwartEventId} in mailbox {mailbox.FullAddress}");
     }
@@ -337,6 +349,10 @@ public class StalwartJmapClient : IStalwartJmapClient
                     new
                     {
                         accountId = jmapAccountId,
+                        sort = new[]
+                        {
+                            new { property = "receivedAt", isAscending = false }
+                        },
                         limit = 1
                     },
                     "q1"

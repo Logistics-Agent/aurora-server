@@ -86,8 +86,7 @@ public class StalwartWebhookController : ControllerBase
                 var to = evt.Data.To;
                 var messageId = evt.Data.MessageId 
                              ?? (evt.Data.RfcMessageId ?? string.Empty);
-                var emailId = evt.Data.EmailId 
-                           ?? (evt.Data.DocumentId.HasValue ? evt.Data.DocumentId.Value.ToString() : null);
+                var emailId = evt.Data.EmailId;
 
                 await _publishEndpoint.Publish(new InboundEmailWebhookReceivedEvent
                 {
