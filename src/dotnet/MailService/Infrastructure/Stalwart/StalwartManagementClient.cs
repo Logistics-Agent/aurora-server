@@ -86,6 +86,18 @@ public class StalwartManagementClient : IStalwartManagementClient
         }
 
         // 2. Create domain via x:Domain/set with required fields
+        var domainObj = new Dictionary<string, object>
+        {
+            ["@type"] = "Domain",
+            ["name"] = normalizedDomain,
+            ["description"] = $"Aurora Managed Domain: {normalizedDomain}",
+            ["aliases"] = new Dictionary<string, object>(),
+            ["certificateManagement"] = new Dictionary<string, object> { ["@type"] = "Manual" },
+            ["dkimManagement"] = new Dictionary<string, object> { ["@type"] = "Automatic" },
+            ["dnsManagement"] = new Dictionary<string, object> { ["@type"] = "Manual" },
+            ["subAddressing"] = new Dictionary<string, object> { ["@type"] = "Enabled" }
+        };
+
         var setPayload = new
         {
             @using = new[] { "urn:ietf:params:jmap:core", "urn:stalwart:jmap" },
@@ -98,16 +110,7 @@ public class StalwartManagementClient : IStalwartManagementClient
                     {
                         create = new Dictionary<string, object>
                         {
-                            ["dom1"] = new
-                            {
-                                name = normalizedDomain,
-                                description = $"Aurora Managed Domain: {normalizedDomain}",
-                                aliases = new Dictionary<string, object>(),
-                                certificateManagement = new { @type = "Manual" },
-                                dkimManagement = new { @type = "Automatic" },
-                                dnsManagement = new { @type = "Manual" },
-                                subAddressing = new { @type = "Enabled" }
-                            }
+                            ["dom1"] = domainObj
                         }
                     },
                     "s1"
@@ -168,6 +171,21 @@ public class StalwartManagementClient : IStalwartManagementClient
     {
         var normalizedLocalPart = localPart.Trim().ToLowerInvariant();
 
+        var accountObj = new Dictionary<string, object>
+        {
+            ["@type"] = "User",
+            ["name"] = normalizedLocalPart,
+            ["domainId"] = stalwartDomainId,
+            ["description"] = displayName ?? $"Aurora Mailbox: {normalizedLocalPart}",
+            ["aliases"] = new Dictionary<string, object>(),
+            ["credentials"] = new Dictionary<string, object>(),
+            ["memberGroupIds"] = new Dictionary<string, object>(),
+            ["roles"] = new Dictionary<string, object> { ["@type"] = "User" },
+            ["permissions"] = new Dictionary<string, object> { ["@type"] = "Inherit" },
+            ["quotas"] = new Dictionary<string, object>(),
+            ["encryptionAtRest"] = new Dictionary<string, object> { ["@type"] = "Disabled" }
+        };
+
         var jmapPayload = new
         {
             @using = new[] { "urn:ietf:params:jmap:core", "urn:stalwart:jmap" },
@@ -180,20 +198,7 @@ public class StalwartManagementClient : IStalwartManagementClient
                     {
                         create = new Dictionary<string, object>
                         {
-                            ["new1"] = new
-                            {
-                                @type = "User",
-                                name = normalizedLocalPart,
-                                domainId = stalwartDomainId,
-                                description = displayName ?? $"Aurora Mailbox: {normalizedLocalPart}",
-                                aliases = new Dictionary<string, object>(),
-                                credentials = new Dictionary<string, object>(),
-                                memberGroupIds = new Dictionary<string, object>(),
-                                roles = new { @type = "User" },
-                                permissions = new { @type = "Inherit" },
-                                quotas = new Dictionary<string, object>(),
-                                encryptionAtRest = new { @type = "Disabled" }
-                            }
+                            ["new1"] = accountObj
                         }
                     },
                     "c1"
@@ -283,8 +288,7 @@ public class StalwartManagementClient : IStalwartManagementClient
                     {
                         filter = new
                         {
-                            name = normalizedLocalPart,
-                            domainId = stalwartDomainId
+                            name = normalizedLocalPart
                         }
                     },
                     "q1"
