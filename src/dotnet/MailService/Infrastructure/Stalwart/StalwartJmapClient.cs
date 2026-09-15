@@ -128,31 +128,120 @@ public class StalwartJmapClient : IStalwartJmapClient
         try
         {
             var response = await _httpClient.PostAsJsonAsync("/jmap", jmapRequest, cancellationToken);
+            var rawJson = await response.Content.ReadAsStringAsync(cancellationToken);
+            _logger.LogDebug("JMAP Email/get response: {RawJson}", rawJson);
+
             if (!response.IsSuccessStatusCode) return null;
 
-            var result = await response.Content.ReadFromJsonAsync<JmapEmailGetRoot>(cancellationToken: cancellationToken);
-            var item = result?.MethodResponses?.FirstOrDefault()?.List?.FirstOrDefault();
-            if (item == null) return null;
+            using var doc = JsonDocument.Parse(rawJson);
+            if (!doc.RootElement.TryGetProperty("methodResponses", out var methodResponses) || methodResponses.GetArrayLength() == 0)
+            {
+                return null;
+            }
 
-            var bodyText = item.TextBody?.FirstOrDefault()?.PartId != null && item.BodyValues != null && item.BodyValues.TryGetValue(item.TextBody.First().PartId, out var textVal)
-                ? textVal.Value
-                : string.Empty;
+            var firstCall = methodResponses[0];
+            if (firstCall.GetArrayLength() < 2) return null;
 
-            var bodyHtml = item.HtmlBody?.FirstOrDefault()?.PartId != null && item.BodyValues != null && item.BodyValues.TryGetValue(item.HtmlBody.First().PartId, out var htmlVal)
-                ? htmlVal.Value
-                : string.Empty;
+            var methodName = firstCall[0].GetString();
+            var payload = firstCall[1];
+
+            if (methodName == "error")
+            {
+                var errType = payload.TryGetProperty("type", out var t) ? t.GetString() : "unknown";
+                var errDesc = payload.TryGetProperty("description", out var d) ? d.GetString() : null;
+                _logger.LogWarning("Stalwart JMAP Email/get error: {Type} - {Description}", errType, errDesc);
+                return null;
+            }
+
+            if (!payload.TryGetProperty("list", out var list) || list.GetArrayLength() == 0)
+            {
+                return null;
+            }
+
+            var item = list[0];
+            var id = item.TryGetProperty("id", out var idProp) ? idProp.GetString() ?? emailId : emailId;
+            var blobId = item.TryGetProperty("blobId", out var bProp) ? bProp.GetString() ?? string.Empty : string.Empty;
+            var threadId = item.TryGetProperty("threadId", out var thProp) ? thProp.GetString() ?? string.Empty : string.Empty;
+            var subject = item.TryGetProperty("subject", out var sProp) ? sProp.GetString() ?? string.Empty : string.Empty;
+
+            var from = string.Empty;
+            if (item.TryGetProperty("from", out var fromArr) && fromArr.GetArrayLength() > 0)
+            {
+                var firstFrom = fromArr[0];
+                if (firstFrom.TryGetProperty("email", out var fromEmail))
+                {
+                    from = fromEmail.GetString() ?? string.Empty;
+                }
+            }
+
+            var toList = new List<string>();
+            if (item.TryGetProperty("to", out var toArr))
+            {
+                foreach (var toItem in toArr.EnumerateArray())
+                {
+                    if (toItem.TryGetProperty("email", out var toEmail) && !string.IsNullOrEmpty(toEmail.GetString()))
+                    {
+                        toList.Add(toEmail.GetString()!);
+                    }
+                }
+            }
+
+            var receivedAt = DateTimeOffset.UtcNow;
+            if (item.TryGetProperty("receivedAt", out var recProp) && recProp.TryGetDateTimeOffset(out var recDate))
+            {
+                receivedAt = recDate;
+            }
+
+            var bodyText = string.Empty;
+            var bodyHtml = string.Empty;
+
+            var bodyValues = new Dictionary<string, string>();
+            if (item.TryGetProperty("bodyValues", out var bvObj))
+            {
+                foreach (var bvProp in bvObj.EnumerateObject())
+                {
+                    if (bvProp.Value.TryGetProperty("value", out var valProp))
+                    {
+                        bodyValues[bvProp.Name] = valProp.GetString() ?? string.Empty;
+                    }
+                }
+            }
+
+            if (item.TryGetProperty("textBody", out var tbArr) && tbArr.GetArrayLength() > 0)
+            {
+                if (tbArr[0].TryGetProperty("partId", out var partIdProp))
+                {
+                    var partId = partIdProp.GetString();
+                    if (!string.IsNullOrEmpty(partId) && bodyValues.TryGetValue(partId, out var textVal))
+                    {
+                        bodyText = textVal;
+                    }
+                }
+            }
+
+            if (item.TryGetProperty("htmlBody", out var hbArr) && hbArr.GetArrayLength() > 0)
+            {
+                if (hbArr[0].TryGetProperty("partId", out var partIdProp))
+                {
+                    var partId = partIdProp.GetString();
+                    if (!string.IsNullOrEmpty(partId) && bodyValues.TryGetValue(partId, out var htmlVal))
+                    {
+                        bodyHtml = htmlVal;
+                    }
+                }
+            }
 
             return new JmapEmailDto
             {
-                Id = item.Id,
-                BlobId = item.BlobId ?? string.Empty,
-                ThreadId = item.ThreadId ?? string.Empty,
-                Subject = item.Subject ?? string.Empty,
-                From = item.From?.FirstOrDefault()?.Email ?? string.Empty,
-                To = item.To?.Select(t => t.Email).ToList() ?? new(),
+                Id = id,
+                BlobId = blobId,
+                ThreadId = threadId,
+                Subject = subject,
+                From = from,
+                To = toList,
                 BodyText = bodyText,
                 BodyHtml = bodyHtml,
-                ReceivedAt = item.ReceivedAt ?? DateTimeOffset.UtcNow
+                ReceivedAt = receivedAt
             };
         }
         catch (Exception ex)
@@ -186,14 +275,37 @@ public class StalwartJmapClient : IStalwartJmapClient
         try
         {
             var res = await _httpClient.PostAsJsonAsync("/jmap", queryPayload, cancellationToken);
+            var rawJson = await res.Content.ReadAsStringAsync(cancellationToken);
+            _logger.LogDebug("JMAP Email/query response: {RawJson}", rawJson);
+
             if (!res.IsSuccessStatusCode) return null;
 
-            var root = await res.Content.ReadFromJsonAsync<JmapQueryResponseRoot>(cancellationToken: cancellationToken);
-            var emailId = root?.MethodResponses?.FirstOrDefault()?.Ids?.FirstOrDefault();
-
-            if (!string.IsNullOrEmpty(emailId))
+            using var doc = JsonDocument.Parse(rawJson);
+            if (doc.RootElement.TryGetProperty("methodResponses", out var methodResponses) && methodResponses.GetArrayLength() > 0)
             {
-                return await GetEmailDirectAsync(jmapAccountId, emailId, cancellationToken);
+                var firstCall = methodResponses[0];
+                if (firstCall.GetArrayLength() >= 2)
+                {
+                    var methodName = firstCall[0].GetString();
+                    var payload = firstCall[1];
+
+                    if (methodName == "error")
+                    {
+                        var errType = payload.TryGetProperty("type", out var t) ? t.GetString() : "unknown";
+                        var errDesc = payload.TryGetProperty("description", out var d) ? d.GetString() : null;
+                        _logger.LogWarning("Stalwart JMAP Email/query error: {Type} - {Description}", errType, errDesc);
+                        return null;
+                    }
+
+                    if (payload.TryGetProperty("ids", out var ids) && ids.GetArrayLength() > 0)
+                    {
+                        var emailId = ids[0].GetString();
+                        if (!string.IsNullOrEmpty(emailId))
+                        {
+                            return await GetEmailDirectAsync(jmapAccountId, emailId, cancellationToken);
+                        }
+                    }
+                }
             }
         }
         catch (Exception ex)

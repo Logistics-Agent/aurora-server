@@ -74,8 +74,13 @@ builder.Services.Configure<MailServiceOptions>(options =>
     options.RabbitMqVirtualHost = builder.Configuration["RabbitMQ:VirtualHost"] ?? "mail";
 
     options.StalwartBaseUrl = builder.Configuration["Stalwart:BaseUrl"];
+    options.StalwartAdminUrl = builder.Configuration["Stalwart:AdminUrl"];
+    options.StalwartAdminApiKey = builder.Configuration["Stalwart:AdminApiKey"] ?? builder.Configuration["Stalwart:AdminToken"];
+    options.StalwartWebhookSecret = builder.Configuration["Stalwart:WebhookSecret"];
     options.StalwartSmtpHost = builder.Configuration["Stalwart:SmtpHost"];
     options.StalwartSmtpPort = int.TryParse(builder.Configuration["Stalwart:SmtpPort"], out int sp) ? sp : 25;
+    options.StalwartSmtpUser = builder.Configuration["Stalwart:SmtpUser"];
+    options.StalwartSmtpPassword = builder.Configuration["Stalwart:SmtpPassword"];
 
     options.ClamAvHost = builder.Configuration["ClamAV:Host"];
     options.ClamAvPort = int.TryParse(builder.Configuration["ClamAV:Port"], out int cp) ? cp : 3310;

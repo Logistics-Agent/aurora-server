@@ -10,15 +10,23 @@ public class MailServiceOptions
 
     public string? DatabaseConnectionString { get; set; }
     public string? RedisConnectionString { get; set; }
+    
+    // RabbitMQ Options
     public string? RabbitMqHost { get; set; }
     public int RabbitMqPort { get; set; } = 5672;
     public string? RabbitMqUsername { get; set; }
     public string? RabbitMqPassword { get; set; }
     public string? RabbitMqVirtualHost { get; set; } = "mail";
 
+    // Stalwart Options
     public string? StalwartBaseUrl { get; set; }
+    public string? StalwartAdminUrl { get; set; }
+    public string? StalwartAdminApiKey { get; set; }
+    public string? StalwartWebhookSecret { get; set; }
     public string? StalwartSmtpHost { get; set; }
     public int StalwartSmtpPort { get; set; } = 25;
+    public string? StalwartSmtpUser { get; set; }
+    public string? StalwartSmtpPassword { get; set; }
 
     public string? ClamAvHost { get; set; }
     public int ClamAvPort { get; set; } = 3310;
@@ -57,10 +65,20 @@ public class MailServiceOptionsValidator : IValidateOptions<MailServiceOptions>
             failures.Add("RabbitMQ:Host is required.");
         }
 
+        if (options.RabbitMqPort <= 0 || options.RabbitMqPort > 65535)
+        {
+            failures.Add("RabbitMQ:Port must be between 1 and 65535.");
+        }
+
         if (!string.IsNullOrWhiteSpace(options.StalwartBaseUrl) &&
             !Uri.TryCreate(options.StalwartBaseUrl, UriKind.Absolute, out _))
         {
             failures.Add("Stalwart:BaseUrl must be a valid absolute URI.");
+        }
+
+        if (options.StalwartSmtpPort <= 0 || options.StalwartSmtpPort > 65535)
+        {
+            failures.Add("Stalwart:SmtpPort must be between 1 and 65535.");
         }
 
         if (!string.IsNullOrWhiteSpace(options.AiGovernanceEndpoint) &&

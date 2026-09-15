@@ -60,7 +60,9 @@ public class MailboxReconciliationWorker : BackgroundService
         var unprovisioned = await db.Mailboxes
             .Include(m => m.Domain)
             .IgnoreQueryFilters()
-            .Where(m => m.ProvisioningStatus == ProvisioningStatus.Pending || m.ProvisioningStatus == ProvisioningStatus.Failed)
+            .Where(m => (m.ProvisioningStatus == ProvisioningStatus.Pending || m.ProvisioningStatus == ProvisioningStatus.Failed)
+                     && m.Domain != null
+                     && m.Domain.Status == MailService.Domain.Enums.DomainStatus.Active)
             .Take(25)
             .ToListAsync(ct);
 
@@ -70,7 +72,17 @@ public class MailboxReconciliationWorker : BackgroundService
 
         foreach (var mb in unprovisioned)
         {
-            if (mb.Domain == null) continue;
+            if (mb.Domain == null || mb.Domain.Status != MailService.Domain.Enums.DomainStatus.Active) continue;
+
+            var domainName = mb.Domain.DomainName.Trim().ToLowerInvariant();
+            if (domainName.Equals("gmail.com", StringComparison.OrdinalIgnoreCase) ||
+                domainName.Equals("outlook.com", StringComparison.OrdinalIgnoreCase) ||
+                domainName.Equals("yahoo.com", StringComparison.OrdinalIgnoreCase) ||
+                domainName.Equals("hotmail.com", StringComparison.OrdinalIgnoreCase))
+            {
+                _logger.LogDebug("Skipping mailbox reconciliation for external public domain {Domain} ({Address})", domainName, mb.FullAddress);
+                continue;
+            }
 
             // 1. Ensure StalwartDomainId is populated
             if (string.IsNullOrEmpty(mb.Domain.StalwartDomainId))

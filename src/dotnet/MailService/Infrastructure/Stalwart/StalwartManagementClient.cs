@@ -48,13 +48,35 @@ public class StalwartManagementClient : IStalwartManagementClient
         try
         {
             var queryRes = await _httpClient.PostAsJsonAsync("/jmap", queryPayload, cancellationToken);
+            var rawJson = await queryRes.Content.ReadAsStringAsync(cancellationToken);
+            _logger.LogDebug("JMAP x:Domain/query response: {RawJson}", rawJson);
+
             if (queryRes.IsSuccessStatusCode)
             {
-                var queryRoot = await queryRes.Content.ReadFromJsonAsync<JmapQueryResponseRoot>(cancellationToken: cancellationToken);
-                var existingId = queryRoot?.MethodResponses?.FirstOrDefault()?.Ids?.FirstOrDefault();
-                if (!string.IsNullOrEmpty(existingId))
+                using var doc = JsonDocument.Parse(rawJson);
+                if (doc.RootElement.TryGetProperty("methodResponses", out var methodResponses) && methodResponses.GetArrayLength() > 0)
                 {
-                    return existingId;
+                    var firstCall = methodResponses[0];
+                    if (firstCall.GetArrayLength() >= 2)
+                    {
+                        var methodName = firstCall[0].GetString();
+                        var payload = firstCall[1];
+
+                        if (methodName == "error")
+                        {
+                            var errType = payload.TryGetProperty("type", out var t) ? t.GetString() : "unknown";
+                            var errDesc = payload.TryGetProperty("description", out var d) ? d.GetString() : null;
+                            _logger.LogWarning("Stalwart JMAP x:Domain/query error: {Type} - {Description}", errType, errDesc);
+                        }
+                        else if (payload.TryGetProperty("ids", out var ids) && ids.GetArrayLength() > 0)
+                        {
+                            var existingId = ids[0].GetString();
+                            if (!string.IsNullOrEmpty(existingId))
+                            {
+                                return existingId;
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -96,13 +118,37 @@ public class StalwartManagementClient : IStalwartManagementClient
         try
         {
             var setRes = await _httpClient.PostAsJsonAsync("/jmap", setPayload, cancellationToken);
+            var rawJson = await setRes.Content.ReadAsStringAsync(cancellationToken);
+            _logger.LogDebug("JMAP x:Domain/set response: {RawJson}", rawJson);
+
             if (setRes.IsSuccessStatusCode)
             {
-                var setRoot = await setRes.Content.ReadFromJsonAsync<JmapSetResponseRoot>(cancellationToken: cancellationToken);
-                var createdId = setRoot?.MethodResponses?.FirstOrDefault()?.Created?.FirstOrDefault().Value.Id;
-                if (!string.IsNullOrEmpty(createdId))
+                using var doc = JsonDocument.Parse(rawJson);
+                if (doc.RootElement.TryGetProperty("methodResponses", out var methodResponses) && methodResponses.GetArrayLength() > 0)
                 {
-                    return createdId;
+                    var firstCall = methodResponses[0];
+                    if (firstCall.GetArrayLength() >= 2)
+                    {
+                        var methodName = firstCall[0].GetString();
+                        var payload = firstCall[1];
+
+                        if (methodName == "error")
+                        {
+                            var errType = payload.TryGetProperty("type", out var t) ? t.GetString() : "unknown";
+                            var errDesc = payload.TryGetProperty("description", out var d) ? d.GetString() : null;
+                            _logger.LogWarning("Stalwart JMAP x:Domain/set error: {Type} - {Description}", errType, errDesc);
+                        }
+                        else if (payload.TryGetProperty("created", out var created))
+                        {
+                            foreach (var item in created.EnumerateObject())
+                            {
+                                if (item.Value.TryGetProperty("id", out var idProp) && !string.IsNullOrEmpty(idProp.GetString()))
+                                {
+                                    return idProp.GetString()!;
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -158,23 +204,58 @@ public class StalwartManagementClient : IStalwartManagementClient
         try
         {
             var response = await _httpClient.PostAsJsonAsync("/jmap", jmapPayload, cancellationToken);
+            var rawJson = await response.Content.ReadAsStringAsync(cancellationToken);
+            _logger.LogDebug("JMAP x:Account/set response: {RawJson}", rawJson);
+
             if (!response.IsSuccessStatusCode)
             {
-                return ProvisionResult.Failed($"HTTP {(int)response.StatusCode}: {response.ReasonPhrase}");
+                return ProvisionResult.Failed($"HTTP {(int)response.StatusCode}: {response.ReasonPhrase} - {rawJson}");
             }
 
-            var root = await response.Content.ReadFromJsonAsync<JmapAccountSetResponseRoot>(cancellationToken: cancellationToken);
-            var methodResponse = root?.MethodResponses?.FirstOrDefault();
-            var created = methodResponse?.Created?.FirstOrDefault();
-
-            if (created.HasValue && !string.IsNullOrEmpty(created.Value.Value.Id))
+            using var doc = JsonDocument.Parse(rawJson);
+            if (!doc.RootElement.TryGetProperty("methodResponses", out var methodResponses) || methodResponses.GetArrayLength() == 0)
             {
-                return ProvisionResult.Success(created.Value.Value.Id);
+                return ProvisionResult.Failed("Empty methodResponses from Stalwart JMAP");
             }
 
-            var notCreated = methodResponse?.NotCreated?.FirstOrDefault();
-            var errorDesc = notCreated?.Value.Description ?? notCreated?.Value.Type ?? "JMAP x:Account/set rejected creation";
-            return ProvisionResult.Failed(errorDesc);
+            var firstCall = methodResponses[0];
+            if (firstCall.GetArrayLength() < 2)
+            {
+                return ProvisionResult.Failed("Malformed JMAP response tuple");
+            }
+
+            var methodName = firstCall[0].GetString();
+            var payload = firstCall[1];
+
+            if (methodName == "error")
+            {
+                var errType = payload.TryGetProperty("type", out var t) ? t.GetString() : "unknown";
+                var errDesc = payload.TryGetProperty("description", out var d) ? d.GetString() : null;
+                return ProvisionResult.Failed($"Stalwart JMAP error: {errType} - {errDesc}");
+            }
+
+            if (payload.TryGetProperty("created", out var created))
+            {
+                foreach (var item in created.EnumerateObject())
+                {
+                    if (item.Value.TryGetProperty("id", out var idProp) && !string.IsNullOrEmpty(idProp.GetString()))
+                    {
+                        return ProvisionResult.Success(idProp.GetString()!);
+                    }
+                }
+            }
+
+            if (payload.TryGetProperty("notCreated", out var notCreated))
+            {
+                foreach (var item in notCreated.EnumerateObject())
+                {
+                    var errorType = item.Value.TryGetProperty("type", out var t) ? t.GetString() : "unknown";
+                    var errorDesc = item.Value.TryGetProperty("description", out var d) ? d.GetString() : errorType;
+                    return ProvisionResult.Failed(errorDesc ?? "Creation rejected");
+                }
+            }
+
+            return ProvisionResult.Failed("Stalwart did not return created account ID");
         }
         catch (Exception ex)
         {
@@ -214,16 +295,42 @@ public class StalwartManagementClient : IStalwartManagementClient
         try
         {
             var response = await _httpClient.PostAsJsonAsync("/jmap", jmapPayload, cancellationToken);
+            var rawJson = await response.Content.ReadAsStringAsync(cancellationToken);
+            _logger.LogDebug("JMAP x:Account/query response: {RawJson}", rawJson);
+
             if (!response.IsSuccessStatusCode) return null;
 
-            var root = await response.Content.ReadFromJsonAsync<JmapQueryResponseRoot>(cancellationToken: cancellationToken);
-            return root?.MethodResponses?.FirstOrDefault()?.Ids?.FirstOrDefault();
+            using var doc = JsonDocument.Parse(rawJson);
+            if (doc.RootElement.TryGetProperty("methodResponses", out var methodResponses) && methodResponses.GetArrayLength() > 0)
+            {
+                var firstCall = methodResponses[0];
+                if (firstCall.GetArrayLength() >= 2)
+                {
+                    var methodName = firstCall[0].GetString();
+                    var payload = firstCall[1];
+
+                    if (methodName == "error")
+                    {
+                        var errType = payload.TryGetProperty("type", out var t) ? t.GetString() : "unknown";
+                        var errDesc = payload.TryGetProperty("description", out var d) ? d.GetString() : null;
+                        _logger.LogWarning("Stalwart JMAP x:Account/query error: {Type} - {Description}", errType, errDesc);
+                        return null;
+                    }
+
+                    if (payload.TryGetProperty("ids", out var ids) && ids.GetArrayLength() > 0)
+                    {
+                        return ids[0].GetString();
+                    }
+                }
+            }
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Failed to query existing account for {LocalPart} in domain {DomainId}", normalizedLocalPart, stalwartDomainId);
             return null;
         }
+
+        return null;
     }
 
     public async Task<bool> ProvisionAccountAsync(string fullAddress, CancellationToken cancellationToken = default)

@@ -3,7 +3,7 @@ fullnameOverride: "mail-service"
 
 image:
   repository: acrauroracorekhoa.azurecr.io/aurora/mail-service
-  tag: "latest"
+  tag: "787a664f98c1077d1f6697ae9f414e658c6db98a"
   pullPolicy: IfNotPresent
 
 service:
@@ -53,7 +53,8 @@ env:
   Stalwart__BaseUrl: "http://stalwart.aurora.svc.cluster.local:8080"
   Stalwart__AdminUrl: "http://stalwart.aurora.svc.cluster.local:8080"
   Stalwart__SmtpHost: "stalwart.aurora.svc.cluster.local"
-  Stalwart__SmtpPort: "25"
+  Stalwart__SmtpPort: "587"
+  Stalwart__SmtpUser: "ops@e-verland.site"
   AiGovernance__GrpcEndpoint: "http://10.20.2.10:9090"
   Grpc__AiGovernance__Url: "http://10.20.2.10:9090"
   ClamAV__Host: "clamav.aurora.svc.cluster.local"
@@ -63,6 +64,7 @@ env:
   IamTenant__GrpcUrl: "http://iam-tenant:5000"
   RabbitMQ__Host: "rabbitmq.aurora.svc.cluster.local"
   RabbitMQ__Port: "5672"
+  RabbitMQ__VirtualHost: "mail"
   RabbitMQ__Username: "aurora_admin"
 
 externalSecret:
@@ -80,6 +82,12 @@ externalSecret:
     - secretKey: Stalwart__AdminApiKey
       remoteRef:
         key: stalwart-admin-api-key
+    - secretKey: Stalwart__WebhookSecret
+      remoteRef:
+        key: stalwart-webhook-secret
+    - secretKey: Stalwart__SmtpPassword
+      remoteRef:
+        key: stalwart-smtp-password
     - secretKey: RabbitMQ__Password
       remoteRef:
         key: rabbitmq-password
