@@ -86,7 +86,13 @@ public class MailKitSmtpDeliveryService : ISmtpDeliveryService
             using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             cts.CancelAfter(TimeSpan.FromSeconds(30)); // 30s SMTP operation timeout
 
-            var secureOptions = _useTls ? SecureSocketOptions.StartTlsWhenAvailable : SecureSocketOptions.None;
+            // DEMO ONLY - bypass internal TLS certificate validation.
+            smtpClient.ServerCertificateValidationCallback = (s, c, h, e) => true;
+
+            var secureOptions = _useTls || _smtpPort == 587 
+                ? SecureSocketOptions.StartTls 
+                : SecureSocketOptions.None;
+
             await smtpClient.ConnectAsync(_smtpHost, _smtpPort, secureOptions, cts.Token);
 
             if (!string.IsNullOrEmpty(_username) && !string.IsNullOrEmpty(_password))

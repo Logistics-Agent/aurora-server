@@ -74,7 +74,11 @@ public class StalwartJmapClient : IStalwartJmapClient
         InboundEmailWebhookReceivedEvent evt, 
         CancellationToken cancellationToken = default)
     {
-        var jmapAccountId = await ResolveJmapAccountIdAsync(mailbox.FullAddress, cancellationToken);
+        var jmapAccountId = !string.IsNullOrWhiteSpace(mailbox.StalwartAccountId)
+            ? mailbox.StalwartAccountId
+            : (!string.IsNullOrWhiteSpace(evt.AccountId) 
+                ? evt.AccountId 
+                : await ResolveJmapAccountIdAsync(mailbox.FullAddress, cancellationToken));
 
         // 1. Direct JMAP Email ID if provided by webhook
         if (!string.IsNullOrEmpty(evt.JmapEmailId))

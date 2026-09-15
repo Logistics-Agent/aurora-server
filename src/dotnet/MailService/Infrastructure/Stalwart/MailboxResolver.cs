@@ -34,7 +34,7 @@ public class MailboxResolver : IMailboxResolver
     {
         if (string.IsNullOrWhiteSpace(stalwartAccountId))
         {
-            return new MailboxResolutionResult(false, Guid.Empty, Guid.Empty, Guid.Empty, string.Empty, MailboxType.User, null, "Empty StalwartAccountId");
+            return new MailboxResolutionResult(false, Guid.Empty, Guid.Empty, Guid.Empty, string.Empty, MailboxType.User, null, FailureReason: "Empty StalwartAccountId");
         }
 
         var cacheKey = $"mb_accid:{stalwartAccountId.Trim()}";
@@ -57,14 +57,15 @@ public class MailboxResolver : IMailboxResolver
                 mailbox.Id,
                 mailbox.FullAddress,
                 mailbox.Type,
-                mailbox.UserId);
+                mailbox.UserId,
+                mailbox.StalwartAccountId);
 
             _cache.Set(cacheKey, result, TimeSpan.FromMinutes(10));
             return result;
         }
 
         _logger.LogInformation("No active mailbox found for StalwartAccountId {StalwartAccountId}", stalwartAccountId);
-        return new MailboxResolutionResult(false, Guid.Empty, Guid.Empty, Guid.Empty, string.Empty, MailboxType.User, null, $"No mailbox for accountId {stalwartAccountId}");
+        return new MailboxResolutionResult(false, Guid.Empty, Guid.Empty, Guid.Empty, string.Empty, MailboxType.User, null, FailureReason: $"No mailbox for accountId {stalwartAccountId}");
     }
 
     public async Task<MailboxResolutionResult> ResolveMailboxByAddressAsync(
@@ -73,7 +74,7 @@ public class MailboxResolver : IMailboxResolver
     {
         if (string.IsNullOrWhiteSpace(recipientAddress))
         {
-            return new MailboxResolutionResult(false, Guid.Empty, Guid.Empty, Guid.Empty, string.Empty, MailboxType.User, null, "Empty recipient address");
+            return new MailboxResolutionResult(false, Guid.Empty, Guid.Empty, Guid.Empty, string.Empty, MailboxType.User, null, FailureReason: "Empty recipient address");
         }
 
         var normalized = recipientAddress.Trim().ToLowerInvariant();
@@ -98,7 +99,8 @@ public class MailboxResolver : IMailboxResolver
                 mailbox.Id,
                 mailbox.FullAddress,
                 mailbox.Type,
-                mailbox.UserId);
+                mailbox.UserId,
+                mailbox.StalwartAccountId);
 
             _cache.Set(cacheKey, result, TimeSpan.FromMinutes(10));
             return result;
@@ -127,7 +129,8 @@ public class MailboxResolver : IMailboxResolver
                     targetMailbox.Id,
                     targetMailbox.FullAddress,
                     targetMailbox.Type,
-                    targetMailbox.UserId);
+                    targetMailbox.UserId,
+                    targetMailbox.StalwartAccountId);
 
                 _cache.Set(cacheKey, result, TimeSpan.FromMinutes(10));
                 return result;
@@ -135,6 +138,6 @@ public class MailboxResolver : IMailboxResolver
         }
 
         _logger.LogWarning("Recipient address {Recipient} not found in Aurora mailboxes or aliases", normalized);
-        return new MailboxResolutionResult(false, Guid.Empty, Guid.Empty, Guid.Empty, normalized, MailboxType.User, null, $"Mailbox not found for address {normalized}");
+        return new MailboxResolutionResult(false, Guid.Empty, Guid.Empty, Guid.Empty, normalized, MailboxType.User, null, FailureReason: $"Mailbox not found for address {normalized}");
     }
 }

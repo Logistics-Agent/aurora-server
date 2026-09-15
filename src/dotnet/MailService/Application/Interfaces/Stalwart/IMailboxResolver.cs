@@ -13,6 +13,7 @@ public record MailboxResolutionResult(
     string FullAddress,
     MailboxType Type,
     Guid? UserId,
+    string? StalwartAccountId = null,
     string? FailureReason = null);
 
 public interface IMailboxResolver
