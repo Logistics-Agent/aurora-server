@@ -82,6 +82,13 @@ builder.Services.Configure<MailServiceOptions>(options =>
     options.StalwartSmtpUser = builder.Configuration["Stalwart:SmtpUser"];
     options.StalwartSmtpPassword = builder.Configuration["Stalwart:SmtpPassword"];
 
+    options.MailTransportProvider = builder.Configuration["MailTransport:Provider"] ?? builder.Configuration["Mail:OutboundProvider"] ?? "Brevo";
+    options.BrevoSmtpHost = builder.Configuration["Brevo:SmtpHost"] ?? "smtp-relay.brevo.com";
+    options.BrevoSmtpPort = int.TryParse(builder.Configuration["Brevo:SmtpPort"], out int bp) ? bp : 587;
+    options.BrevoSmtpUsername = builder.Configuration["Brevo:SmtpUsername"] ?? builder.Configuration["Brevo:SmtpUser"];
+    options.BrevoSmtpPassword = builder.Configuration["Brevo:SmtpPassword"] ?? builder.Configuration["Brevo:SmtpKey"];
+    options.CloudflareWebhookSecret = builder.Configuration["CloudflareInbound:WebhookSecret"] ?? builder.Configuration["Cloudflare:WebhookSecret"];
+
     options.ClamAvHost = builder.Configuration["ClamAV:Host"];
     options.ClamAvPort = int.TryParse(builder.Configuration["ClamAV:Port"], out int cp) ? cp : 3310;
 

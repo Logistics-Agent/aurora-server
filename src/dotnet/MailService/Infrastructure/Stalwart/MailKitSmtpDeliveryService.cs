@@ -16,6 +16,7 @@ namespace MailService.Infrastructure.Stalwart;
 
 public class MailKitSmtpDeliveryService : ISmtpDeliveryService
 {
+    private readonly string _provider;
     private readonly string _smtpHost;
     private readonly int _smtpPort;
     private readonly bool _useTls;
@@ -25,12 +26,25 @@ public class MailKitSmtpDeliveryService : ISmtpDeliveryService
 
     public MailKitSmtpDeliveryService(IConfiguration configuration, ILogger<MailKitSmtpDeliveryService> logger)
     {
-        _smtpHost = configuration["Stalwart:SmtpHost"] ?? "stalwart";
-        _smtpPort = int.TryParse(configuration["Stalwart:SmtpPort"], out int port) ? port : 25;
-        _useTls = bool.TryParse(configuration["Stalwart:UseTls"], out bool tls) && tls;
-        _username = configuration["Stalwart:SmtpUser"];
-        _password = configuration["Stalwart:SmtpPassword"];
         _logger = logger;
+        _provider = configuration["MailTransport:Provider"] ?? configuration["Mail:OutboundProvider"] ?? "Brevo";
+
+        if (string.Equals(_provider, "Brevo", StringComparison.OrdinalIgnoreCase))
+        {
+            _smtpHost = configuration["Brevo:SmtpHost"] ?? "smtp-relay.brevo.com";
+            _smtpPort = int.TryParse(configuration["Brevo:SmtpPort"], out int bPort) ? bPort : 587;
+            _useTls = true;
+            _username = configuration["Brevo:SmtpUsername"] ?? configuration["Brevo:SmtpUser"];
+            _password = configuration["Brevo:SmtpPassword"] ?? configuration["Brevo:SmtpKey"];
+        }
+        else
+        {
+            _smtpHost = configuration["Stalwart:SmtpHost"] ?? "stalwart";
+            _smtpPort = int.TryParse(configuration["Stalwart:SmtpPort"], out int port) ? port : 25;
+            _useTls = bool.TryParse(configuration["Stalwart:UseTls"], out bool tls) && tls;
+            _username = configuration["Stalwart:SmtpUser"];
+            _password = configuration["Stalwart:SmtpPassword"];
+        }
     }
 
     public async Task<SmtpDeliveryResult> DeliverAsync(
@@ -106,8 +120,8 @@ public class MailKitSmtpDeliveryService : ISmtpDeliveryService
             // Extract Stalwart / RFC 2821 Queue ID if present (e.g. "250 2.0.0 Ok: queued as 4V9dZg6m8bz9")
             string? queueId = ExtractQueueId(response);
 
-            _logger.LogInformation("SMTP delivery succeeded to {Host}:{Port}. Response: {Response}, QueueId: {QueueId}",
-                _smtpHost, _smtpPort, response, queueId);
+            _logger.LogInformation("SMTP delivery succeeded via provider {Provider} ({Host}:{Port}). Recipients: {Recipients}, ProviderMessageId: {ProviderMessageId}, Response: {Response}, Status: Success",
+                _provider, _smtpHost, _smtpPort, string.Join(", ", recipientAddresses), queueId ?? response, response);
 
             return SmtpDeliveryResult.Success(response, queueId);
         }

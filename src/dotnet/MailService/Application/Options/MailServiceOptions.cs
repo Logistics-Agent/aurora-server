@@ -28,6 +28,14 @@ public class MailServiceOptions
     public string? StalwartSmtpUser { get; set; }
     public string? StalwartSmtpPassword { get; set; }
 
+    // Transport & Provider Options (Brevo & Cloudflare)
+    public string MailTransportProvider { get; set; } = "Brevo";
+    public string? BrevoSmtpHost { get; set; } = "smtp-relay.brevo.com";
+    public int BrevoSmtpPort { get; set; } = 587;
+    public string? BrevoSmtpUsername { get; set; }
+    public string? BrevoSmtpPassword { get; set; }
+    public string? CloudflareWebhookSecret { get; set; }
+
     public string? ClamAvHost { get; set; }
     public int ClamAvPort { get; set; } = 3310;
 
@@ -104,9 +112,10 @@ public class MailServiceOptionsValidator : IValidateOptions<MailServiceOptions>
                 failures.Add("RabbitMQ:Password is required in Production.");
             }
 
-            if (string.IsNullOrWhiteSpace(options.StalwartBaseUrl))
+            if (string.Equals(options.MailTransportProvider, "Stalwart", StringComparison.OrdinalIgnoreCase) &&
+                string.IsNullOrWhiteSpace(options.StalwartBaseUrl))
             {
-                failures.Add("Stalwart:BaseUrl is required in Production.");
+                failures.Add("Stalwart:BaseUrl is required in Production when using Stalwart provider.");
             }
 
             if (string.IsNullOrWhiteSpace(options.AiGovernanceEndpoint))

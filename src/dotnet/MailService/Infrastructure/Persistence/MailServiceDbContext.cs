@@ -129,6 +129,7 @@ public class MailServiceDbContext(
             b.ToTable("quarantine_records");
             b.HasKey(q => q.Id);
             b.HasIndex(q => new { q.TenantId, q.Status });
+            b.HasOne<ProcessedMessage>().WithMany().HasForeignKey(q => q.ProcessedMessageId);
             b.HasQueryFilter(q => _tenantId.HasValue && q.TenantId == _tenantId);
         });
 

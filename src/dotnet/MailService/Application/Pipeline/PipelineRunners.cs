@@ -121,6 +121,8 @@ public class InboundPipelineRunner
         context.ProcessedMessage.Subject = context.Subject;
         context.ProcessedMessage.TenantId = context.TenantId;
 
+        _dbContext.ProcessedMessages.Add(context.ProcessedMessage);
+
         if (context.IsQuarantined)
         {
             var quarantineRecord = new QuarantineRecord
@@ -162,8 +164,6 @@ public class InboundPipelineRunner
                 ReceivedAt = DateTime.UtcNow
             }, cancellationToken);
         }
-
-        _dbContext.ProcessedMessages.Add(context.ProcessedMessage);
 
         // Atomic commit: ProcessedMessage + SecurityCheckResults + QuarantineRecord + OutboxMessage
         await _dbContext.SaveChangesAsync(cancellationToken);
