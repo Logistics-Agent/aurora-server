@@ -16,7 +16,7 @@ Agent:
 	AI Assistant
 Cloudflare -> ALB -> Yarp -> BFF
 
-c0655: Hung - core
+8eade: Khoa - core
 e6222: Tan  - shared
 199e5: Duoc - ai
 
@@ -56,5 +56,37 @@ Docs {
 S3 key nên phân tenant:
 s3://hrm-private-docs/tenants/{tenantId}/department/{departmentId}/employees/{employeeId}/documents/{fileId}
 
+az aks start \
+  --resource-group rg-aurora-ai-demo \
+  --name aks-ai-demo \
+  --subscription 55535e30-3b5c-41a3-a739-2a50704199e5
+
+
+
+=== 
+Tình huống A: Khi bạn chuyển sang máy mới (hoặc đồng đội muốn quản trị hạ tầng)
+===
+Cài đặt công cụ: Cài Azure CLI, Terraform, kubectl.
+Đăng nhập Azure: az login
+Lấy Kubeconfig để điều khiển 2 cụm Kubernetes:
+
 az aks get-credentials --subscription "eaa36fef-64ab-4bc0-b4c8-2afc103c0655" --resource-group rg-aurora-core-demo --name aks-core-demo --context aurora-core
 az aks get-credentials --subscription "55535e30-3b5c-41a3-a739-2a50704199e5" --resource-group rg-aurora-ai-demo --name aks-ai-demo --context aurora-ai
+
+Đồng bộ Terraform:
+Do toàn bộ file State đã được lưu trên Azure Remote Storage (stauroratfstatedemo), máy mới chỉ cần clone code về, có file backend.hcl và chạy:
+
+terraform init "-backend-config=backend.hcl"
+
+=====
+Tình huống B: Developer muốn chạy và test code trực tiếp ở Local (không cần deploy lên Cloud)
+====
+Để dev / test nhanh tính năng mà không cần mỗi lần sửa code phải build Docker push lên AKS:
+
+1. Chạy hạ tầng phụ trợ bằng Docker Compose ở Local:
+	Chạy Redis, PostgreSQL ở local qua file docker-compose.yml.
+2. Cấu hình biến môi trường (appsettings.Development.json hoặc .env.local):
+	Database / Redis: Trỏ về localhost (localhost:5432, localhost:6379).
+	Cognito / S3 / R2: Dùng các Client ID & Endpoint từ môi trường Demo đã tạo sẵn trên Cloud để xác thực người dùng thật.
+3. Kết nối Local trực tiếp vào Kubernetes (Nâng cao - Dùng mirrord hoặc telepresence):
+	Nếu bạn muốn service chạy dưới máy local nhưng có thể gọi trực tiếp sang các pod nội bộ khác (như OSRM, Internal APIs) trên AKS, chỉ cần dùng extension mirrord trên VS Code / JetBrains.

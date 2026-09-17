@@ -64,23 +64,65 @@ Tài liệu này hướng dẫn thiết lập hệ thống Inbound và Outbound 
 
 ---
 
-## 4. Cấu Hình Secrets & Environment Variables trong Aurora MailService
+## 4. Cấu Hình Secrets & Lệnh Dùng Cho AKS
 
-### Kubernetes / Azure Key Vault (AKV) Secret Mapping
-Cập nhật Secret trong cụm k8s hoặc file `.env` / `appsettings.json`:
+### Cách 1: Thêm Secret vào Azure Key Vault (Khuyến nghị cho Production/ExternalSecrets)
+Chạy các lệnh Azure CLI để tạo 3 secret cần thiết trong Key Vault:
 
-```ini
-# Chọn Transport Provider
-MailTransport__Provider=Brevo
+```bash
+# Đặt tên Key Vault của cluster
+KEYVAULT_NAME="<your-keyvault-name>" # ví dụ: kv-aurora-prod
 
-# Brevo Outbound Credentials
-Brevo__SmtpHost=smtp-relay.brevo.com
-Brevo__SmtpPort=587
-Brevo__SmtpUsername=<BREVO_SMTP_LOGIN>
-Brevo__SmtpPassword=<BREVO_SMTP_KEY>
+# 1. Thêm Brevo SMTP Username
+az keyvault secret set \
+  --vault-name "$KEYVAULT_NAME" \
+  --name "aurora-mail-brevo-smtp-username" \
+  --value "<BREVO_SMTP_LOGIN>"
 
-# Cloudflare Inbound Webhook Secret (Khớp với AURORA_WEBHOOK_SECRET trên Worker)
-CloudflareInbound__WebhookSecret=<CF_WEBHOOK_SECRET>
+# 2. Thêm Brevo SMTP Password / Key
+az keyvault secret set \
+  --vault-name "$KEYVAULT_NAME" \
+  --name "aurora-mail-brevo-smtp-password" \
+  --value "<BREVO_SMTP_KEY>"
+
+# 3. Thêm Cloudflare Inbound Webhook Secret
+az keyvault secret set \
+  --vault-name "$KEYVAULT_NAME" \
+  --name "aurora-mail-cloudflare-webhook-secret" \
+  --value "<SHARED_CF_WEBHOOK_SECRET>"
+```
+
+### Cách 2: Tạo Trực Tiếp Kubernetes Secret Trên AKS (Cho Demo Nhanh)
+Nếu không dùng Azure Key Vault hoặc muốn apply trực tiếp vào cluster:
+
+```bash
+kubectl create secret generic mail-service-credentials \
+  --namespace aurora \
+  --from-literal=Brevo__SmtpUsername="<BREVO_SMTP_LOGIN>" \
+  --from-literal=Brevo__SmtpPassword="<BREVO_SMTP_KEY>" \
+  --from-literal=CloudflareInbound__WebhookSecret="<SHARED_CF_WEBHOOK_SECRET>" \
+  --dry-run=client -o yaml | kubectl apply -f -
+```
+
+### Lệnh Deploy & Restart MailService trên AKS
+
+```bash
+# 1. Kết nối tới AKS cluster
+az aks get-credentials --resource-group <RESOURCE_GROUP> --name <AKS_CLUSTER_NAME>
+
+# 2. Upgrade Helm Chart (nếu dùng Helm)
+helm upgrade --install mail-service ./deploy/helm \
+  --namespace aurora \
+  --values ./deploy/helm/values.yaml
+
+# 3. Restart Pods để nhận config và secret mới
+kubectl rollout restart deployment/mail-service -n aurora
+
+# 4. Kiểm tra trạng thái Rollout
+kubectl rollout status deployment/mail-service -n aurora
+
+# 5. Xem Live Logs của MailService để xác nhận
+kubectl logs -n aurora -l app.kubernetes.io/name=mail-service -f --tail=100
 ```
 
 ---
