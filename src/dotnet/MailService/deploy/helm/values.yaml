@@ -50,13 +50,17 @@ env:
   Redis__Host: "redis-master.aurora.svc.cluster.local:6379"
   Redis__Ssl: "false"
   Redis__AbortConnect: "false"
+  MailTransport__Provider: "Brevo"
+  Brevo__SmtpHost: "smtp-relay.brevo.com"
+  Brevo__SmtpPort: "587"
+  Brevo__FromDomain: "e-verland.site"
   Stalwart__BaseUrl: "http://stalwart.aurora.svc.cluster.local:8080"
   Stalwart__AdminUrl: "http://stalwart.aurora.svc.cluster.local:8080"
   Stalwart__SmtpHost: "stalwart.aurora.svc.cluster.local"
   Stalwart__SmtpPort: "587"
   Stalwart__SmtpUser: "ops@e-verland.site"
-  AiGovernance__GrpcEndpoint: "http://10.20.2.10:9090"
-  Grpc__AiGovernance__Url: "http://10.20.2.10:9090"
+  AiGovernance__GrpcEndpoint: "http://10.30.2.10:9090"
+  Grpc__AiGovernance__Url: "http://10.30.2.10:9090"
   ClamAV__Host: "clamav.aurora.svc.cluster.local"
   ClamAV__Port: "3310"
   SpamAssassin__Host: "spamassassin.aurora.svc.cluster.local"
@@ -79,6 +83,15 @@ externalSecret:
     - secretKey: Redis__Password
       remoteRef:
         key: redis-password
+    - secretKey: Brevo__SmtpUsername
+      remoteRef:
+        key: aurora-mail-brevo-smtp-username
+    - secretKey: Brevo__SmtpPassword
+      remoteRef:
+        key: aurora-mail-brevo-smtp-password
+    - secretKey: CloudflareInbound__WebhookSecret
+      remoteRef:
+        key: aurora-mail-cloudflare-webhook-secret
     - secretKey: Stalwart__AdminApiKey
       remoteRef:
         key: stalwart-admin-api-key
