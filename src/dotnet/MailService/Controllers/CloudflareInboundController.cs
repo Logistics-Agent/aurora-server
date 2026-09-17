@@ -47,7 +47,22 @@ public class CloudflareInboundController : ControllerBase
         _logger = logger;
     }
 
+    [HttpGet]
+    [HttpGet("/api/v1/mail/inbound")]
+    public IActionResult HealthCheck()
+    {
+        return Ok(new
+        {
+            status = "healthy",
+            service = "mail-service",
+            endpoint = "cloudflare-inbound",
+            timestamp = DateTimeOffset.UtcNow
+        });
+    }
+
     [HttpPost]
+    [DisableRequestSizeLimit]
+    [RequestSizeLimit(52_428_800)] // 50MB limit for inbound attachments
     public async Task<IActionResult> HandleInboundEmail(CancellationToken cancellationToken)
     {
         // 1. Read Raw Body Bytes
