@@ -47,9 +47,13 @@ Aurora Mail UI / API
 2. Đặt tên worker: `aurora-email-worker`.
 3. Dán mã nguồn từ file [docs/cloudflare-worker/email-worker.js](file:///d:/IT/CD/aurora-server/src/dotnet/MailService/docs/cloudflare-worker/email-worker.js).
 4. Vào **Settings** ➔ **Variables** ➔ Thêm các biến môi trường:
-   - `AURORA_INBOUND_URL`: `https://<DOMAIN_HOAC_INGRESS_AURORA>/api/v1/mail/cloudflare/inbound`
+   - `AURORA_INBOUND_URL`: `https://api.humanak.cyou/api/v1/mail/inbound/cloudflare`
    - `AURORA_WEBHOOK_SECRET`: Shared secret (khớp với secret `aurora-mail-cloudflare-webhook-secret`).
 5. Bấm **Save and Deploy**.
+
+> Không để Worker dùng endpoint cũ `api.e-verland.site`. Worker source có
+> fallback production về `api.humanak.cyou`, nhưng sau khi sửa source vẫn phải
+> bấm **Save and Deploy** trên Cloudflare để code mới có hiệu lực.
 
 ### Bước 2.3: Thiết lập Định Tuyến (Routing Rule)
 1. Quay lại **Email Routing** ➔ Tab **Routing Rules**.
@@ -68,6 +72,15 @@ Aurora Mail UI / API
 2. Thêm domain `e-verland.site`.
 3. Thêm các bản ghi DKIM và SPF do Brevo cung cấp vào DNS của Cloudflare.
 4. Xác thực Sender: Tạo sender `ops@e-verland.site`.
+
+> `senderAddress` khi gọi API phải là sender/domain đã được xác thực trong Brevo.
+> Nếu môi trường tenant đang dùng `staff@guardm.space` thì phải xác thực
+> `guardm.space` trong Brevo và dùng đúng SMTP key của workspace đó; không thể
+> dùng key của `e-verland.site` rồi kỳ vọng Gmail nhận thư từ `guardm.space`.
+
+Nếu email có attachment, ClamAV phải reachable tại
+`clamav.aurora.svc.cluster.local:3310`. MailService cố ý từ chối/defer
+attachment khi ClamAV down; không bypass bước này trong production.
 
 ### Bước 3.2: Lấy thông tin SMTP Relay Key
 1. Vào mục **SMTP & API** ➔ Tab **SMTP**.
@@ -142,6 +155,11 @@ kubectl logs -n aurora -l app.kubernetes.io/name=mail-service -f --tail=100
 - **Kỳ vọng**:
   - MailService log: `SMTP delivery succeeded via provider Brevo (smtp-relay.brevo.com:587). Recipients: ..., ProviderMessageId: ..., Status: Success`.
   - Hộp thư người nhận nhận được email từ `ops@e-verland.site`.
+
+> HTTP `200`/`processedMessageId` chỉ xác nhận Brevo đã nhận lệnh SMTP (250),
+> không phải Gmail đã đặt thư vào Inbox. Khi không thấy thư, kiểm tra Spam,
+> Brevo Transactional > Logs và `GET /api/v1/mail/messages/{processedMessageId}`
+> để xem stage `StalwartSmtpSubmission`.
 
 ### 5.2. Test Inbound (Gửi Email từ Gmail ➔ Aurora)
 - Dùng Gmail cá nhân gửi tới `ops@e-verland.site` với tiêu đề `AURORA INBOUND DEMO`.
