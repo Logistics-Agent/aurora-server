@@ -22,10 +22,12 @@ namespace MailService.GrpcServices;
 public class MailSecurityService : MailSecurity.MailSecurityBase
 {
     private readonly ISender _mediator;
+    private readonly Microsoft.Extensions.Logging.ILogger<MailSecurityService> _logger;
 
-    public MailSecurityService(ISender mediator)
+    public MailSecurityService(ISender mediator, Microsoft.Extensions.Logging.ILogger<MailSecurityService>? logger = null)
     {
         _mediator = mediator;
+        _logger = logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<MailSecurityService>.Instance;
     }
 
     public override async Task<CreateDraftMessageResponse> CreateDraftMessage(CreateDraftMessageRequest request, ServerCallContext context)
@@ -110,12 +112,28 @@ public class MailSecurityService : MailSecurity.MailSecurityBase
                 throw new RpcException(new Status(StatusCode.PermissionDenied, result.RejectionReason ?? "Outbound message rejected by security pipeline"));
             }
 
+            var processedAt = result.ProcessedMessage.ProcessedAt != default 
+                ? result.ProcessedMessage.ProcessedAt 
+                : DateTimeOffset.UtcNow;
+
             return new SubmitOutboundMessageResponse
             {
                 ProcessedMessageId = result.ProcessedMessage.Id.ToString(),
                 StalwartQueueId = result.StalwartQueueId ?? string.Empty,
-                SubmittedAt = Timestamp.FromDateTimeOffset(result.ProcessedMessage.ProcessedAt)
+                SubmittedAt = Timestamp.FromDateTimeOffset(processedAt.ToUniversalTime())
             };
+        }
+        catch (RpcException)
+        {
+            throw;
+        }
+        catch (KeyNotFoundException ex)
+        {
+            throw new RpcException(new Status(StatusCode.NotFound, ex.Message));
+        }
+        catch (ArgumentException ex)
+        {
+            throw new RpcException(new Status(StatusCode.InvalidArgument, ex.Message));
         }
         catch (InvalidOperationException ex)
         {
@@ -124,6 +142,12 @@ public class MailSecurityService : MailSecurity.MailSecurityBase
         catch (UnauthorizedAccessException ex)
         {
             throw new RpcException(new Status(StatusCode.PermissionDenied, ex.Message));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Unhandled error submitting outbound email for sender {Sender}, thread {ThreadId}, draft {DraftId}: {Message}",
+                request.SenderAddress, request.ThreadId, request.DraftRootId, ex.Message);
+            throw new RpcException(new Status(StatusCode.Internal, $"Outbound email processing failed: {ex.Message}"));
         }
     }
 

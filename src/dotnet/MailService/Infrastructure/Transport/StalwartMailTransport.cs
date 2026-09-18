@@ -64,47 +64,85 @@ public class StalwartMailTransport : IMailTransport
         IReadOnlyList<(string Filename, string ContentType, byte[] Content)> attachments,
         CancellationToken cancellationToken = default)
     {
-        var message = new MimeMessage();
-        message.From.Add(MailboxAddress.Parse(senderAddress));
-
-        foreach (var recipient in recipientAddresses)
-        {
-            if (MailboxAddress.TryParse(recipient, out var mailbox))
-            {
-                message.To.Add(mailbox);
-            }
-        }
-
-        message.Subject = subject ?? string.Empty;
-        message.Date = DateTimeOffset.UtcNow;
-        message.MessageId = $"{Guid.NewGuid():N}@{senderAddress.Split('@')[^1]}";
-
-        var builder = new BodyBuilder();
-        if (!string.IsNullOrEmpty(bodyText))
-        {
-            builder.TextBody = bodyText;
-        }
-        if (!string.IsNullOrEmpty(bodyHtml))
-        {
-            builder.HtmlBody = bodyHtml;
-        }
-
-        if (attachments != null)
-        {
-            foreach (var (filename, contentType, content) in attachments)
-            {
-                if (content != null && content.Length > 0)
-                {
-                    builder.Attachments.Add(filename, content, ContentType.Parse(string.IsNullOrEmpty(contentType) ? "application/octet-stream" : contentType));
-                }
-            }
-        }
-
-        message.Body = builder.ToMessageBody();
-
-        using var smtpClient = new SmtpClient();
         try
         {
+            var message = new MimeMessage();
+
+            // Safe sender address parsing
+            if (MailboxAddress.TryParse(senderAddress, out var senderMailbox))
+            {
+                message.From.Add(senderMailbox);
+            }
+            else if (!string.IsNullOrWhiteSpace(senderAddress))
+            {
+                message.From.Add(new MailboxAddress(senderAddress, senderAddress));
+            }
+            else
+            {
+                string defaultSender = $"noreply@{_smtpHost}";
+                message.From.Add(new MailboxAddress(defaultSender, defaultSender));
+            }
+
+            foreach (var recipient in recipientAddresses)
+            {
+                if (MailboxAddress.TryParse(recipient, out var mailbox))
+                {
+                    message.To.Add(mailbox);
+                }
+                else if (!string.IsNullOrWhiteSpace(recipient))
+                {
+                    message.To.Add(new MailboxAddress(recipient, recipient));
+                }
+            }
+
+            if (message.To.Count == 0)
+            {
+                return SmtpDeliveryResult.Permanent(501, "No valid recipient email addresses provided.");
+            }
+
+            message.Subject = subject ?? string.Empty;
+            message.Date = DateTimeOffset.UtcNow;
+
+            string fromDomain = "e-verland.site";
+            if (senderAddress != null && senderAddress.Contains('@'))
+            {
+                var parts = senderAddress.Split('@');
+                if (parts.Length > 1 && !string.IsNullOrWhiteSpace(parts[^1]))
+                {
+                    fromDomain = parts[^1].Trim(' ', '>', '"', '\'');
+                }
+            }
+            message.MessageId = $"{Guid.NewGuid():N}@{fromDomain}";
+
+            var builder = new BodyBuilder();
+            if (!string.IsNullOrEmpty(bodyText))
+            {
+                builder.TextBody = bodyText;
+            }
+            if (!string.IsNullOrEmpty(bodyHtml))
+            {
+                builder.HtmlBody = bodyHtml;
+            }
+
+            if (attachments != null)
+            {
+                foreach (var (filename, contentType, content) in attachments)
+                {
+                    if (content != null && content.Length > 0)
+                    {
+                        ContentType ct;
+                        if (!ContentType.TryParse(contentType ?? string.Empty, out ct!))
+                        {
+                            ct = new ContentType("application", "octet-stream");
+                        }
+                        builder.Attachments.Add(filename ?? "attachment", content, ct);
+                    }
+                }
+            }
+
+            message.Body = builder.ToMessageBody();
+
+            using var smtpClient = new SmtpClient();
             using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             cts.CancelAfter(TimeSpan.FromSeconds(30));
 

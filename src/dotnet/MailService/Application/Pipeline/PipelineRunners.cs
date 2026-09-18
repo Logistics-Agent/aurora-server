@@ -193,6 +193,17 @@ public class OutboundPipelineRunner
 
     public async Task<OutboundPipelineContext> RunAsync(OutboundPipelineContext context, CancellationToken cancellationToken = default)
     {
+        string fromDomain = "e-verland.site";
+        if (!string.IsNullOrWhiteSpace(context.SenderAddress) && context.SenderAddress.Contains('@'))
+        {
+            var parts = context.SenderAddress.Split('@');
+            if (parts.Length > 1 && !string.IsNullOrWhiteSpace(parts[^1]))
+            {
+                fromDomain = parts[^1].Trim(' ', '>', '"', '\'');
+            }
+        }
+
+        context.ProcessedMessage.MessageId = $"<{Guid.NewGuid():N}@{fromDomain}>";
         context.ProcessedMessage.PipelineExecutionId = context.ExecutionId.Value;
         context.ProcessedMessage.Direction = EmailDirection.Outbound;
         context.ProcessedMessage.ReceivedAt = DateTimeOffset.UtcNow;
@@ -236,8 +247,8 @@ public class OutboundPipelineRunner
                     {
                         context.RejectionReason = $"Rejected at stage {stage.StageName}";
                     }
-                    _logger.LogWarning("Outbound pipeline rejected at stage {Stage} for message. Reason: {Reason}",
-                        stage.StageName, context.RejectionReason);
+                    _logger.LogWarning("Outbound pipeline rejected at stage {Stage} for message {MessageId}. Reason: {Reason}",
+                        stage.StageName, context.ProcessedMessage.MessageId, context.RejectionReason);
                     break;
                 }
             }
@@ -268,7 +279,6 @@ public class OutboundPipelineRunner
                 RejectedAt = DateTime.UtcNow
             }, cancellationToken);
         }
-
         else
         {
             // Write Outbox Event for Outbound Email Sent
@@ -284,10 +294,19 @@ public class OutboundPipelineRunner
             }, cancellationToken);
         }
 
-        _dbContext.ProcessedMessages.Add(context.ProcessedMessage);
+        try
+        {
+            _dbContext.ProcessedMessages.Add(context.ProcessedMessage);
 
-        // Atomic commit: ProcessedMessage + SecurityCheckResults + OutboxMessage
-        await _dbContext.SaveChangesAsync(cancellationToken);
+            // Atomic commit: ProcessedMessage + SecurityCheckResults + OutboxMessage
+            await _dbContext.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateException ex)
+        {
+            _logger.LogError(ex, "Failed to save outbound ProcessedMessage {MessageId} to database: {Message}. Inner: {Inner}",
+                context.ProcessedMessage.MessageId, ex.Message, ex.InnerException?.Message);
+            throw;
+        }
 
         return context;
     }
