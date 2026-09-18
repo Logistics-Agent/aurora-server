@@ -39,6 +39,8 @@ public class MailServiceOptions
 
     public string? ClamAvHost { get; set; }
     public int ClamAvPort { get; set; } = 3310;
+    public bool ClamAvEnabled { get; set; } = true;
+    public bool ClamAvFailOpen { get; set; } = false;
 
     public string? SpamAssassinHost { get; set; }
     public int SpamAssassinPort { get; set; } = 783;

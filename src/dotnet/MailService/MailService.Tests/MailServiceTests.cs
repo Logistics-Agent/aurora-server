@@ -17,6 +17,7 @@ using MailService.Application.Pipeline;
 using MailService.Application.Pipeline.Stages;
 using MailService.Domain.Entities;
 using MailService.Domain.Enums;
+using MailService.Application.Options;
 using MailService.Infrastructure.AI;
 using MailService.Infrastructure.Messaging;
 using MailService.Infrastructure.Persistence;
@@ -330,6 +331,35 @@ public class MailServiceTests
         Assert.True(outboundResult.ShouldShortCircuit);
         Assert.True(outboundContext.IsRejected);
         Assert.Contains("unavailable", outboundContext.RejectionReason, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Test8B_ClamAvDisabled_And_FailOpen_Allowed()
+    {
+        // Arrange
+        var mockClamAv = new Mock<IClamAvClient>();
+        mockClamAv.Setup(c => c.ScanStreamAsync(It.IsAny<Stream>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(ClamAvScanResult.Unavailable("ClamAV daemon down"));
+
+        // Case 1: ClamAvEnabled = false -> Skips scan
+        var disabledOpts = Microsoft.Extensions.Options.Options.Create(new MailServiceOptions { ClamAvEnabled = false });
+        var disabledOutbound = new OutboundAttachmentValidationStage(mockClamAv.Object, disabledOpts);
+        var ctx1 = new OutboundPipelineContext { TenantId = Guid.NewGuid(), SenderAddress = "user@test.com" };
+        ctx1.Attachments.Add(("test.pdf", "application/pdf", new byte[] { 1, 2, 3 }));
+
+        var res1 = await disabledOutbound.ExecuteAsync(ctx1);
+        Assert.Equal("Skip", res1.Result);
+        Assert.False(ctx1.IsRejected);
+
+        // Case 2: ClamAvFailOpen = true -> Allows send when unavailable
+        var failOpenOpts = Microsoft.Extensions.Options.Options.Create(new MailServiceOptions { ClamAvEnabled = true, ClamAvFailOpen = true });
+        var failOpenOutbound = new OutboundAttachmentValidationStage(mockClamAv.Object, failOpenOpts);
+        var ctx2 = new OutboundPipelineContext { TenantId = Guid.NewGuid(), SenderAddress = "user@test.com" };
+        ctx2.Attachments.Add(("test.pdf", "application/pdf", new byte[] { 1, 2, 3 }));
+
+        var res2 = await failOpenOutbound.ExecuteAsync(ctx2);
+        Assert.Equal("Pass", res2.Result);
+        Assert.False(ctx2.IsRejected);
     }
 
     [Fact]

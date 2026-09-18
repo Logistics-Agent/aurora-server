@@ -116,6 +116,8 @@ builder.Services.Configure<MailServiceOptions>(options =>
 
     options.ClamAvHost = builder.Configuration["ClamAV:Host"];
     options.ClamAvPort = int.TryParse(builder.Configuration["ClamAV:Port"], out int cp) ? cp : 3310;
+    options.ClamAvEnabled = !string.Equals(builder.Configuration["ClamAV:Enabled"], "false", StringComparison.OrdinalIgnoreCase);
+    options.ClamAvFailOpen = string.Equals(builder.Configuration["ClamAV:FailOpen"], "true", StringComparison.OrdinalIgnoreCase);
 
     options.SpamAssassinHost = builder.Configuration["SpamAssassin:Host"];
     options.SpamAssassinPort = int.TryParse(builder.Configuration["SpamAssassin:Port"], out int sap) ? sap : 783;
@@ -225,7 +227,14 @@ builder.Services.AddSingleton<IConnectionMultiplexer>(sp =>
 builder.Services.AddScoped<IR2StorageClient, R2StorageClient>();
 builder.Services.AddScoped<IRateLimitService, RedisCacheService>();
 
-builder.Services.AddScoped<IClamAvClient, ClamAvClient>();
+builder.Services.AddScoped<IClamAvClient>(sp =>
+{
+    var opts = sp.GetRequiredService<IOptions<MailServiceOptions>>().Value;
+    var host = !string.IsNullOrWhiteSpace(opts.ClamAvHost) ? opts.ClamAvHost : "clamav";
+    var port = opts.ClamAvPort > 0 ? opts.ClamAvPort : 3310;
+    var logger = sp.GetService<ILogger<ClamAvClient>>();
+    return new ClamAvClient(host, port, logger);
+});
 builder.Services.AddScoped<ISpamAssassinClient, SpamAssassinClient>();
 builder.Services.AddScoped<IDnsLookupService, DnsLookupService>();
 builder.Services.AddScoped<SpfEvaluator>();

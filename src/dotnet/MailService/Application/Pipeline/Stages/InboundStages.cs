@@ -18,6 +18,7 @@ using MailService.Infrastructure.Security.Dkim;
 using MailService.Infrastructure.Security.Dmarc;
 using MailService.Infrastructure.Security.Malware;
 using MailService.Infrastructure.Security.Spam;
+using MailService.Application.Options;
 
 namespace MailService.Application.Pipeline.Stages;
 
@@ -278,10 +279,17 @@ public class TenantValidationStage : IInboundPipelineStage
 public class AttachmentValidationStage : IInboundPipelineStage
 {
     private readonly IClamAvClient _clamAv;
+    private readonly MailServiceOptions _options;
+    private readonly ILogger<AttachmentValidationStage> _logger;
 
-    public AttachmentValidationStage(IClamAvClient clamAv)
+    public AttachmentValidationStage(
+        IClamAvClient clamAv,
+        Microsoft.Extensions.Options.IOptions<MailServiceOptions>? options = null,
+        ILogger<AttachmentValidationStage>? logger = null)
     {
         _clamAv = clamAv;
+        _options = options?.Value ?? new MailServiceOptions();
+        _logger = logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<AttachmentValidationStage>.Instance;
     }
 
     public SecurityCheckStage StageName => SecurityCheckStage.AttachmentValidation;
@@ -289,6 +297,13 @@ public class AttachmentValidationStage : IInboundPipelineStage
     public async Task<StageResult> ExecuteAsync(InboundPipelineContext context, CancellationToken cancellationToken = default)
     {
         var sw = Stopwatch.StartNew();
+
+        if (!_options.ClamAvEnabled)
+        {
+            sw.Stop();
+            _logger.LogInformation("ClamAV scan disabled via configuration. Skipping inbound attachment scan.");
+            return new StageResult { Stage = StageName, Result = "Skip", DetailJson = "{\"status\":\"disabled\"}", DurationMs = (int)sw.ElapsedMilliseconds };
+        }
 
         if (context.ParsedMimeMessage != null)
         {
@@ -303,6 +318,12 @@ public class AttachmentValidationStage : IInboundPipelineStage
                     var scanResult = await _clamAv.ScanStreamAsync(ms, cancellationToken);
                     if (!scanResult.IsClean)
                     {
+                        if (scanResult.Status == ClamAvStatus.ServiceUnavailable && _options.ClamAvFailOpen)
+                        {
+                            _logger.LogWarning("ClamAV unavailable during inbound scan for attachment '{Filename}', but ClamAvFailOpen is enabled. Allowing delivery.", part.FileName);
+                            continue;
+                        }
+
                         sw.Stop();
                         string reason = scanResult.Status == ClamAvStatus.ServiceUnavailable
                             ? "Attachment scan unavailable (ClamAV down) - quarantined pending scan"

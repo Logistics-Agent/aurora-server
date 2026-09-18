@@ -61,6 +61,7 @@ az aks start \
   --name aks-ai-demo \
   --subscription 55535e30-3b5c-41a3-a739-2a50704199e5
 
+ClamCV:    public bool ClamAvEnabled { get; set; } = true; -> false -> tắt
 
 
 === 

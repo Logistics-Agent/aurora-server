@@ -13,16 +13,24 @@ using MailService.Application.Interfaces.Security;
 using MailService.Application.Interfaces.Stalwart;
 using MailService.Domain.Enums;
 using MailService.Infrastructure.AI;
+using MailService.Application.Options;
 
 namespace MailService.Application.Pipeline.Stages;
 
 public class OutboundAttachmentValidationStage : IOutboundPipelineStage
 {
     private readonly IClamAvClient _clamAv;
+    private readonly MailServiceOptions _options;
+    private readonly ILogger<OutboundAttachmentValidationStage> _logger;
 
-    public OutboundAttachmentValidationStage(IClamAvClient clamAv)
+    public OutboundAttachmentValidationStage(
+        IClamAvClient clamAv,
+        Microsoft.Extensions.Options.IOptions<MailServiceOptions>? options = null,
+        ILogger<OutboundAttachmentValidationStage>? logger = null)
     {
         _clamAv = clamAv;
+        _options = options?.Value ?? new MailServiceOptions();
+        _logger = logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<OutboundAttachmentValidationStage>.Instance;
     }
 
     public SecurityCheckStage StageName => SecurityCheckStage.OutboundAttachmentValidation;
@@ -31,12 +39,25 @@ public class OutboundAttachmentValidationStage : IOutboundPipelineStage
     {
         var sw = Stopwatch.StartNew();
 
+        if (!_options.ClamAvEnabled)
+        {
+            sw.Stop();
+            _logger.LogInformation("ClamAV scan disabled via configuration. Skipping outbound attachment scan.");
+            return new StageResult { Stage = StageName, Result = "Skip", DetailJson = "{\"status\":\"disabled\"}", DurationMs = (int)sw.ElapsedMilliseconds };
+        }
+
         foreach (var attachment in context.Attachments)
         {
             using var ms = new MemoryStream(attachment.Content);
             var scanResult = await _clamAv.ScanStreamAsync(ms, cancellationToken);
             if (!scanResult.IsClean)
             {
+                if (scanResult.Status == ClamAvStatus.ServiceUnavailable && _options.ClamAvFailOpen)
+                {
+                    _logger.LogWarning("ClamAV unavailable during outbound scan for attachment '{Filename}', but ClamAvFailOpen is enabled. Allowing send.", attachment.Filename);
+                    continue;
+                }
+
                 sw.Stop();
                 string reason = scanResult.Status == ClamAvStatus.ServiceUnavailable
                     ? "Outbound attachment scan unavailable (ClamAV down) - deferring send"
