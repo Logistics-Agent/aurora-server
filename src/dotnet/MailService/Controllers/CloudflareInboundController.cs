@@ -252,7 +252,8 @@ public class CloudflareInboundController : ControllerBase
                     Priority = Domain.Enums.ThreadPriority.Normal,
                     MessageCount = 1,
                     LastMessageAt = DateTimeOffset.UtcNow,
-                    CreatedAt = DateTimeOffset.UtcNow
+                    CreatedAt = DateTimeOffset.UtcNow,
+                    Participants = new List<string>()
                 };
 
                 if (!string.IsNullOrEmpty(senderFrom) && !thread.Participants.Contains(senderFrom))
@@ -272,9 +273,11 @@ public class CloudflareInboundController : ControllerBase
                 thread.Snippet = snippet;
                 thread.MessageCount++;
                 thread.LastMessageAt = DateTimeOffset.UtcNow;
-                if (!string.IsNullOrEmpty(senderFrom) && !thread.Participants.Contains(senderFrom))
+                if (!string.IsNullOrEmpty(senderFrom) && (thread.Participants == null || !thread.Participants.Contains(senderFrom)))
                 {
-                    thread.Participants.Add(senderFrom);
+                    var updated = new List<string>(thread.Participants ?? new List<string>()) { senderFrom };
+                    thread.Participants = updated;
+                    _dbContext.Entry(thread).Property(t => t.Participants).IsModified = true;
                 }
                 await _dbContext.SaveChangesAsync(cancellationToken);
             }
@@ -307,6 +310,85 @@ public class CloudflareInboundController : ControllerBase
             pipelineContext.ProcessedMessage.ReceivedAt = mimeMessage.Date != default ? mimeMessage.Date : DateTimeOffset.UtcNow;
             pipelineContext.ProcessedMessage.InReplyTo = mimeMessage.InReplyTo;
             pipelineContext.ProcessedMessage.References = mimeMessage.References.Count > 0 ? string.Join(" ", mimeMessage.References) : null;
+
+            // Extract all attachments (.thmx, .msi, .pdf, .docx, .zip, images, binaries)
+            var attachmentsMeta = new List<MessageAttachmentMeta>();
+            var processedParts = new HashSet<MimeEntity>();
+
+            foreach (var entity in mimeMessage.BodyParts)
+            {
+                if (entity is TextPart textPart && !textPart.IsAttachment && string.IsNullOrEmpty(textPart.FileName) && (textPart.IsPlain || textPart.IsHtml))
+                    continue;
+
+                if (entity is MimePart part)
+                {
+                    string? filename = part.FileName 
+                                    ?? part.ContentDisposition?.FileName 
+                                    ?? part.ContentType?.Name;
+
+                    if (!string.IsNullOrEmpty(filename) || part.IsAttachment)
+                    {
+                        processedParts.Add(part);
+                        long size = 0;
+                        if (part.Content != null)
+                        {
+                            try
+                            {
+                                using var mem = new MemoryStream();
+                                part.Content.DecodeTo(mem);
+                                size = mem.Length;
+                            }
+                            catch { }
+                        }
+
+                        attachmentsMeta.Add(new MessageAttachmentMeta
+                        {
+                            Id = Guid.NewGuid().ToString("N"),
+                            FileName = filename ?? "attachment",
+                            ContentType = part.ContentType?.MimeType ?? "application/octet-stream",
+                            SizeBytes = size
+                        });
+                    }
+                }
+            }
+
+            foreach (var entity in mimeMessage.Attachments)
+            {
+                if (processedParts.Contains(entity))
+                    continue;
+
+                if (entity is MimePart part)
+                {
+                    string filename = part.FileName 
+                                   ?? part.ContentDisposition?.FileName 
+                                   ?? part.ContentType?.Name 
+                                   ?? "attachment";
+                    long size = 0;
+                    if (part.Content != null)
+                    {
+                        try
+                        {
+                            using var mem = new MemoryStream();
+                            part.Content.DecodeTo(mem);
+                            size = mem.Length;
+                        }
+                        catch { }
+                    }
+
+                    attachmentsMeta.Add(new MessageAttachmentMeta
+                    {
+                        Id = Guid.NewGuid().ToString("N"),
+                        FileName = filename,
+                        ContentType = part.ContentType?.MimeType ?? "application/octet-stream",
+                        SizeBytes = size
+                    });
+                }
+            }
+
+            if (attachmentsMeta.Count > 0)
+            {
+                pipelineContext.ProcessedMessage.AttachmentsJson = JsonSerializer.Serialize(attachmentsMeta);
+            }
 
             await _pipelineRunner.RunAsync(pipelineContext, cancellationToken);
 

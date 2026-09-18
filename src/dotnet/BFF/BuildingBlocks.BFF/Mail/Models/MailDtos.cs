@@ -134,7 +134,12 @@ public record DraftListResponse(
     IReadOnlyList<DraftResponse> Drafts,
     string? NextPageToken);
 
-// ─── Thread Management DTOs (Gmail-Like Threading) ──────────────────────────
+public record ThreadAttachmentResponse(
+    string Id,
+    string FileName,
+    string ContentType,
+    long SizeBytes,
+    string? Url = null);
 
 public record ThreadMessageResponse(
     string MessageId,
@@ -146,7 +151,9 @@ public record ThreadMessageResponse(
     string BodyPreview,
     string ReplyToMessageId,
     DateTimeOffset ReceivedAt,
-    DateTimeOffset SentAt);
+    DateTimeOffset SentAt,
+    IReadOnlyList<ThreadAttachmentResponse>? Attachments = null,
+    string? BodyHtml = null);
 
 public record ThreadAssignmentHistoryResponse(
     string Id,

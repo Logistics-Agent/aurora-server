@@ -445,7 +445,15 @@ public class GrpcMailServiceClient : IMailServiceClient
             m.BodyPreview,
             m.ReplyToMessageId,
             SafeToDateTimeOffset(m.ReceivedAt),
-            SafeToDateTimeOffset(m.SentAt))).ToList();
+            SafeToDateTimeOffset(m.SentAt),
+            m.Attachments?.Select(a => new BffModels.ThreadAttachmentResponse(
+                a.Id,
+                a.FileName,
+                a.ContentType,
+                a.SizeBytes,
+                string.IsNullOrEmpty(a.Url) ? null : a.Url
+            )).ToList(),
+            string.IsNullOrEmpty(m.BodyHtml) ? null : m.BodyHtml)).ToList();
 
         var drafts = thread.Drafts.Select(MapDraftResponse).ToList();
         var histories = thread.AssignmentHistory.Select(h => new BffModels.ThreadAssignmentHistoryResponse(

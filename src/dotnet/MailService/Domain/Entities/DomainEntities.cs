@@ -175,10 +175,20 @@ public class ProcessedMessage : TenantAuditableEntity
     public string? References { get; set; }
     public string? BodyText { get; set; }
     public string? BodyHtml { get; set; }
+    public string? AttachmentsJson { get; set; }
     public Guid? MailboxId { get; set; }
     public Guid? SentByUserId { get; set; } // Authenticated human actor for outbound
 
     public ICollection<SecurityCheckResult> SecurityCheckResults { get; set; } = new List<SecurityCheckResult>();
+}
+
+public class MessageAttachmentMeta
+{
+    public string Id { get; set; } = string.Empty;
+    public string FileName { get; set; } = string.Empty;
+    public string ContentType { get; set; } = string.Empty;
+    public long SizeBytes { get; set; }
+    public string? Url { get; set; }
 }
 
 public class ThreadAssignmentHistory : TenantAuditableEntity

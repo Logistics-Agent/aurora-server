@@ -278,6 +278,17 @@ public class TenantValidationStage : IInboundPipelineStage
 
 public class AttachmentValidationStage : IInboundPipelineStage
 {
+    public static readonly HashSet<string> ProhibitedExtensions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".ps1", ".psm1", ".psd1",
+        ".bat", ".cmd",
+        ".exe", ".com", ".scr", ".pif", ".msi", ".msp", ".cpl", ".hta", ".gadget",
+        ".vbs", ".vbe", ".js", ".jse", ".ws", ".wsf", ".wsc", ".wsh",
+        ".sh", ".bash", ".bin",
+        ".jar", ".apk",
+        ".reg", ".inf", ".scf", ".lnk"
+    };
+
     private readonly IClamAvClient _clamAv;
     private readonly MailServiceOptions _options;
     private readonly ILogger<AttachmentValidationStage> _logger;
@@ -298,15 +309,40 @@ public class AttachmentValidationStage : IInboundPipelineStage
     {
         var sw = Stopwatch.StartNew();
 
-        if (!_options.ClamAvEnabled)
-        {
-            sw.Stop();
-            _logger.LogInformation("ClamAV scan disabled via configuration. Skipping inbound attachment scan.");
-            return new StageResult { Stage = StageName, Result = "Skip", DetailJson = "{\"status\":\"disabled\"}", DurationMs = (int)sw.ElapsedMilliseconds };
-        }
-
         if (context.ParsedMimeMessage != null)
         {
+            // 1. Prohibited extension policy check (Zero-trust: quarantine dangerous script/binary files)
+            foreach (var attachment in context.ParsedMimeMessage.Attachments)
+            {
+                if (attachment is MimePart part)
+                {
+                    string ext = Path.GetExtension(part.FileName);
+                    if (!string.IsNullOrEmpty(ext) && ProhibitedExtensions.Contains(ext))
+                    {
+                        sw.Stop();
+                        string reason = $"Inbound attachment '{part.FileName}' is blocked for security reasons (Prohibited executable/script file '{ext}')";
+                        _logger.LogWarning("Inbound attachment quarantined by extension security policy: {Filename} (extension: {Extension})", part.FileName, ext);
+                        return new StageResult
+                        {
+                            Stage = StageName,
+                            Result = "Fail",
+                            DetailJson = $"{{\"blocked_extension\":\"{ext}\",\"filename\":\"{part.FileName}\",\"reason\":\"Security policy: prohibited executable or script file\"}}",
+                            DurationMs = (int)sw.ElapsedMilliseconds,
+                            ShouldShortCircuit = true,
+                            QuarantineReason = reason
+                        };
+                    }
+                }
+            }
+
+            // 2. ClamAV Antivirus scan (if enabled)
+            if (!_options.ClamAvEnabled)
+            {
+                sw.Stop();
+                _logger.LogInformation("ClamAV scan disabled via configuration. Skipping inbound antivirus scan.");
+                return new StageResult { Stage = StageName, Result = "Skip", DetailJson = "{\"status\":\"disabled\"}", DurationMs = (int)sw.ElapsedMilliseconds };
+            }
+
             foreach (var attachment in context.ParsedMimeMessage.Attachments)
             {
                 if (attachment is MimePart part)

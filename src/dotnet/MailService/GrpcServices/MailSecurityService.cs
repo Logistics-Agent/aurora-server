@@ -15,6 +15,7 @@ using MailService.Application.Queries.Messages;
 using MailService.Application.Queries.Quarantine;
 using MailService.Application.Queries.Threads;
 using MailService.Application.Queries.Audit;
+using MailService.Domain.Entities;
 using MailService.Domain.Enums;
 
 namespace MailService.GrpcServices;
@@ -220,12 +221,37 @@ public class MailSecurityService : MailSecurity.MailSecurityBase
                     SenderAddress = msg.SenderAddress,
                     Subject = msg.Subject ?? string.Empty,
                     BodyText = msg.BodyText ?? string.Empty,
+                    BodyHtml = msg.BodyHtml ?? string.Empty,
                     BodyPreview = msg.BodyText?.Length > 100 ? msg.BodyText.Substring(0, 100) : (msg.BodyText ?? string.Empty),
                     ReplyToMessageId = msg.InReplyTo ?? string.Empty,
                     ReceivedAt = Timestamp.FromDateTimeOffset(msg.ReceivedAt),
                     SentAt = Timestamp.FromDateTimeOffset(msg.ProcessedAt),
                 };
                 msgDto.RecipientAddresses.AddRange(msg.RecipientAddresses);
+
+                if (!string.IsNullOrEmpty(msg.AttachmentsJson))
+                {
+                    try
+                    {
+                        var attList = System.Text.Json.JsonSerializer.Deserialize<List<MessageAttachmentMeta>>(msg.AttachmentsJson);
+                        if (attList != null)
+                        {
+                            foreach (var a in attList)
+                            {
+                                msgDto.Attachments.Add(new ThreadAttachmentDto
+                                {
+                                    Id = a.Id,
+                                    FileName = a.FileName,
+                                    ContentType = a.ContentType,
+                                    SizeBytes = a.SizeBytes,
+                                    Url = a.Url ?? string.Empty
+                                });
+                            }
+                        }
+                    }
+                    catch { }
+                }
+
                 dto.Messages.Add(msgDto);
             }
 

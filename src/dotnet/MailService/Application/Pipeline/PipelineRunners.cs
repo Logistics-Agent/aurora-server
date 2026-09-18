@@ -220,6 +220,18 @@ public class OutboundPipelineRunner
         context.ProcessedMessage.BodyText = context.BodyText;
         context.ProcessedMessage.BodyHtml = context.BodyHtml;
 
+        if (context.Attachments.Count > 0)
+        {
+            var outMeta = context.Attachments.Select(a => new MessageAttachmentMeta
+            {
+                Id = Guid.NewGuid().ToString("N"),
+                FileName = a.Filename ?? "attachment",
+                ContentType = a.ContentType ?? "application/octet-stream",
+                SizeBytes = a.Content?.Length ?? 0
+            }).ToList();
+            context.ProcessedMessage.AttachmentsJson = System.Text.Json.JsonSerializer.Serialize(outMeta);
+        }
+
         foreach (var stage in _stages)
         {
             try

@@ -363,6 +363,51 @@ public class MailServiceTests
     }
 
     [Fact]
+    public async Task Test8C_ProhibitedExtensions_Blocked_OnOutboundAndInbound()
+    {
+        // Arrange
+        var mockClamAv = new Mock<IClamAvClient>();
+        mockClamAv.Setup(c => c.ScanStreamAsync(It.IsAny<Stream>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(ClamAvScanResult.CleanResult(100, 1));
+
+        // Outbound Test with .ps1, .bat, .exe
+        var outboundStage = new OutboundAttachmentValidationStage(mockClamAv.Object);
+        var outboundContext = new OutboundPipelineContext
+        {
+            TenantId = Guid.NewGuid(),
+            SenderAddress = "user@company.com"
+        };
+        outboundContext.Attachments.Add(("test_inbound_flow.ps1", "text/plain", new byte[] { 1, 2, 3 }));
+
+        var outboundResult = await outboundStage.ExecuteAsync(outboundContext);
+
+        Assert.Equal("Fail", outboundResult.Result);
+        Assert.True(outboundResult.ShouldShortCircuit);
+        Assert.True(outboundContext.IsRejected);
+        Assert.Contains(".ps1", outboundContext.RejectionReason, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("blocked for security reasons", outboundContext.RejectionReason, StringComparison.OrdinalIgnoreCase);
+
+        // Inbound Test with .exe
+        var inboundStage = new AttachmentValidationStage(mockClamAv.Object);
+        var mimeMessage = new MimeKit.MimeMessage();
+        var builder = new MimeKit.BodyBuilder();
+        builder.Attachments.Add("payload.exe", new byte[] { 1, 2, 3, 4 });
+        mimeMessage.Body = builder.ToMessageBody();
+
+        var inboundContext = new InboundPipelineContext
+        {
+            TenantId = Guid.NewGuid(),
+            ParsedMimeMessage = mimeMessage
+        };
+
+        var inboundResult = await inboundStage.ExecuteAsync(inboundContext);
+
+        Assert.Equal("Fail", inboundResult.Result);
+        Assert.True(inboundResult.ShouldShortCircuit);
+        Assert.Contains(".exe", inboundResult.QuarantineReason, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public async Task Test9_SpfRealEvaluation_RecursionProtection_And_CircularInclude()
     {
         // Arrange

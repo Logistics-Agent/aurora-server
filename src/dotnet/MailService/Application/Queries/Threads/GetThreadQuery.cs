@@ -80,6 +80,23 @@ public class GetThreadQueryHandler : IRequestHandler<GetThreadQuery, ThreadDetai
             .OrderByDescending(h => h.CreatedAt)
             .ToListAsync(cancellationToken);
 
+        // Ensure all real message participants are included in thread.Participants
+        var allParticipants = new HashSet<string>(thread.Participants ?? new List<string>(), StringComparer.OrdinalIgnoreCase);
+        foreach (var msg in messages)
+        {
+            if (!string.IsNullOrWhiteSpace(msg.SenderAddress))
+                allParticipants.Add(msg.SenderAddress);
+            if (msg.RecipientAddresses != null)
+            {
+                foreach (var r in msg.RecipientAddresses)
+                {
+                    if (!string.IsNullOrWhiteSpace(r))
+                        allParticipants.Add(r);
+                }
+            }
+        }
+        thread.Participants = allParticipants.ToList();
+
         return new ThreadDetailResult(thread, messages, drafts, histories);
     }
 }

@@ -19,6 +19,17 @@ namespace MailService.Application.Pipeline.Stages;
 
 public class OutboundAttachmentValidationStage : IOutboundPipelineStage
 {
+    public static readonly HashSet<string> ProhibitedExtensions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".ps1", ".psm1", ".psd1",
+        ".bat", ".cmd",
+        ".exe", ".com", ".scr", ".pif", ".msi", ".msp", ".cpl", ".hta", ".gadget",
+        ".vbs", ".vbe", ".js", ".jse", ".ws", ".wsf", ".wsc", ".wsh",
+        ".sh", ".bash", ".bin",
+        ".jar", ".apk",
+        ".reg", ".inf", ".scf", ".lnk"
+    };
+
     private readonly IClamAvClient _clamAv;
     private readonly MailServiceOptions _options;
     private readonly ILogger<OutboundAttachmentValidationStage> _logger;
@@ -39,10 +50,33 @@ public class OutboundAttachmentValidationStage : IOutboundPipelineStage
     {
         var sw = Stopwatch.StartNew();
 
+        // 1. Prohibited extension policy check (Zero-trust: blocks .ps1, .bat, .exe, etc. like Gmail)
+        foreach (var attachment in context.Attachments)
+        {
+            string ext = Path.GetExtension(attachment.Filename);
+            if (!string.IsNullOrEmpty(ext) && ProhibitedExtensions.Contains(ext))
+            {
+                sw.Stop();
+                string reason = $"Attachment '{attachment.Filename}' is blocked for security reasons (Executable script/binary files '{ext}' are prohibited).";
+                _logger.LogWarning("Outbound attachment blocked by extension security policy: {Filename} (extension: {Extension})", attachment.Filename, ext);
+                context.IsRejected = true;
+                context.RejectionReason = reason;
+                return new StageResult
+                {
+                    Stage = StageName,
+                    Result = "Fail",
+                    DetailJson = $"{{\"blocked_extension\":\"{ext}\",\"filename\":\"{attachment.Filename}\",\"reason\":\"Security policy: prohibited executable or script file\"}}",
+                    DurationMs = (int)sw.ElapsedMilliseconds,
+                    ShouldShortCircuit = true
+                };
+            }
+        }
+
+        // 2. ClamAV Antivirus scan (if enabled)
         if (!_options.ClamAvEnabled)
         {
             sw.Stop();
-            _logger.LogInformation("ClamAV scan disabled via configuration. Skipping outbound attachment scan.");
+            _logger.LogInformation("ClamAV scan disabled via configuration. Skipping outbound antivirus scan.");
             return new StageResult { Stage = StageName, Result = "Skip", DetailJson = "{\"status\":\"disabled\"}", DurationMs = (int)sw.ElapsedMilliseconds };
         }
 
