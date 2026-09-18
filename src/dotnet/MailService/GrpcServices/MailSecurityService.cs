@@ -201,16 +201,19 @@ public class MailSecurityService : MailSecurity.MailSecurityBase
             {
                 ThreadId = result.Thread.Id.ToString(),
                 MailboxId = result.Thread.MailboxId.ToString(),
-                Subject = result.Thread.Subject,
-                CreatedAt = Timestamp.FromDateTimeOffset(result.Thread.CreatedAt),
-                UpdatedAt = Timestamp.FromDateTimeOffset(result.Thread.LastMessageAt),
+                Subject = result.Thread.Subject ?? string.Empty,
+                CreatedAt = SafeTimestamp(result.Thread.CreatedAt),
+                UpdatedAt = SafeTimestamp(result.Thread.LastMessageAt),
                 PrimaryAssigneeUserId = result.Thread.PrimaryAssigneeUserId?.ToString() ?? string.Empty,
-                AssignedAt = result.Thread.AssignedAt.HasValue ? Timestamp.FromDateTimeOffset(result.Thread.AssignedAt.Value) : null,
+                AssignedAt = SafeNullableTimestamp(result.Thread.AssignedAt),
                 Status = result.Thread.Status.ToString().ToUpperInvariant(),
                 Priority = result.Thread.Priority.ToString().ToUpperInvariant(),
             };
 
-            dto.Participants.AddRange(result.Thread.Participants);
+            if (result.Thread.Participants != null)
+            {
+                dto.Participants.AddRange(result.Thread.Participants.Where(p => !string.IsNullOrWhiteSpace(p)));
+            }
 
             foreach (var msg in result.Messages)
             {
@@ -218,16 +221,19 @@ public class MailSecurityService : MailSecurity.MailSecurityBase
                 {
                     MessageId = msg.Id.ToString(),
                     Direction = msg.Direction.ToString(),
-                    SenderAddress = msg.SenderAddress,
+                    SenderAddress = msg.SenderAddress ?? string.Empty,
                     Subject = msg.Subject ?? string.Empty,
                     BodyText = msg.BodyText ?? string.Empty,
                     BodyHtml = msg.BodyHtml ?? string.Empty,
                     BodyPreview = msg.BodyText?.Length > 100 ? msg.BodyText.Substring(0, 100) : (msg.BodyText ?? string.Empty),
                     ReplyToMessageId = msg.InReplyTo ?? string.Empty,
-                    ReceivedAt = Timestamp.FromDateTimeOffset(msg.ReceivedAt),
-                    SentAt = Timestamp.FromDateTimeOffset(msg.ProcessedAt),
+                    ReceivedAt = SafeTimestamp(msg.ReceivedAt),
+                    SentAt = SafeTimestamp(msg.ProcessedAt),
                 };
-                msgDto.RecipientAddresses.AddRange(msg.RecipientAddresses);
+                if (msg.RecipientAddresses != null)
+                {
+                    msgDto.RecipientAddresses.AddRange(msg.RecipientAddresses.Where(r => !string.IsNullOrWhiteSpace(r)));
+                }
 
                 if (!string.IsNullOrEmpty(msg.AttachmentsJson))
                 {
@@ -240,9 +246,9 @@ public class MailSecurityService : MailSecurity.MailSecurityBase
                             {
                                 msgDto.Attachments.Add(new ThreadAttachmentDto
                                 {
-                                    Id = a.Id,
-                                    FileName = a.FileName,
-                                    ContentType = a.ContentType,
+                                    Id = a.Id ?? string.Empty,
+                                    FileName = a.FileName ?? string.Empty,
+                                    ContentType = a.ContentType ?? string.Empty,
                                     SizeBytes = a.SizeBytes,
                                     Url = a.Url ?? string.Empty
                                 });
@@ -271,7 +277,7 @@ public class MailSecurityService : MailSecurity.MailSecurityBase
                     Action = h.Action.ToString().ToUpperInvariant(),
                     ActorUserId = h.ActorUserId.ToString(),
                     Reason = h.Reason ?? string.Empty,
-                    CreatedAt = Timestamp.FromDateTimeOffset(h.CreatedAt)
+                    CreatedAt = SafeTimestamp(h.CreatedAt)
                 });
             }
 
@@ -629,5 +635,17 @@ public class MailSecurityService : MailSecurity.MailSecurityBase
                 ? Timestamp.FromDateTimeOffset(rec.ReviewedAt.Value.ToUniversalTime())
                 : null
         };
+    }
+
+    private static Timestamp SafeTimestamp(DateTimeOffset dt)
+    {
+        if (dt == default || dt.Year < 1970) return Timestamp.FromDateTimeOffset(DateTimeOffset.UtcNow);
+        return Timestamp.FromDateTimeOffset(dt.ToUniversalTime());
+    }
+
+    private static Timestamp? SafeNullableTimestamp(DateTimeOffset? dt)
+    {
+        if (!dt.HasValue || dt.Value == default || dt.Value.Year < 1970) return null;
+        return Timestamp.FromDateTimeOffset(dt.Value.ToUniversalTime());
     }
 }
