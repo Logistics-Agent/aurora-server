@@ -124,6 +124,11 @@ builder.Services.Configure<MailServiceOptions>(options =>
 
     options.AiGovernanceEndpoint = builder.Configuration["AiGovernance:GrpcEndpoint"]
         ?? builder.Configuration["AiGovernance:ServiceUrl"];
+
+    options.R2AccountId = builder.Configuration["R2:AccountId"];
+    options.R2AccessKey = builder.Configuration["R2:AccessKey"];
+    options.R2SecretKey = builder.Configuration["R2:SecretKey"];
+    options.R2BucketName = builder.Configuration["R2:BucketName"] ?? "aurora-mail-platform";
 });
 
 builder.Services.Configure<BrevoOptions>(builder.Configuration.GetSection(BrevoOptions.SectionName));
@@ -198,16 +203,25 @@ builder.Services.AddHttpClient<IStalwartJmapClient, StalwartJmapClient>(client =
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", adminApiKey);
 });
 
-builder.Services.AddSingleton<IAmazonS3>(sp => new AmazonS3Client(
-    builder.Configuration["R2:AccessKey"] ?? "dev",
-    builder.Configuration["R2:SecretKey"] ?? "dev",
-    new AmazonS3Config
-    {
-        ServiceURL = $"https://{builder.Configuration["R2:AccountId"] ?? "dev"}.r2.cloudflarestorage.com",
-        ForcePathStyle = true,
-        Timeout = TimeSpan.FromSeconds(3),
-        MaxErrorRetry = 0
-    }));
+builder.Services.AddSingleton<IAmazonS3>(sp =>
+{
+    var mailOpts = sp.GetRequiredService<IOptions<MailServiceOptions>>().Value;
+    var accessKey = !string.IsNullOrWhiteSpace(mailOpts.R2AccessKey) ? mailOpts.R2AccessKey : (builder.Configuration["R2:AccessKey"] ?? "dev");
+    var secretKey = !string.IsNullOrWhiteSpace(mailOpts.R2SecretKey) ? mailOpts.R2SecretKey : (builder.Configuration["R2:SecretKey"] ?? "dev");
+    var accountId = !string.IsNullOrWhiteSpace(mailOpts.R2AccountId) ? mailOpts.R2AccountId : (builder.Configuration["R2:AccountId"] ?? "dev");
+    var serviceUrl = $"https://{accountId}.r2.cloudflarestorage.com";
+
+    return new AmazonS3Client(
+        accessKey,
+        secretKey,
+        new AmazonS3Config
+        {
+            ServiceURL = serviceUrl,
+            ForcePathStyle = true,
+            Timeout = TimeSpan.FromSeconds(5),
+            MaxErrorRetry = 1
+        });
+});
 
 // Register Redis Connection Multiplexer
 builder.Services.AddSingleton<IConnectionMultiplexer>(sp =>

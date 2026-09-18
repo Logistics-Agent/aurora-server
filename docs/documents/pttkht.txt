@@ -63,7 +63,6 @@ az aks start \
 
 ClamCV:    public bool ClamAvEnabled { get; set; } = true; -> false -> tắt
 
-
 === 
 Tình huống A: Khi bạn chuyển sang máy mới (hoặc đồng đội muốn quản trị hạ tầng)
 ===

@@ -70,6 +70,7 @@ env:
   RabbitMQ__Port: "5672"
   RabbitMQ__VirtualHost: "mail"
   RabbitMQ__Username: "aurora_admin"
+  R2__BucketName: "aurora-mail-platform"
 
 externalSecret:
   enabled: true
@@ -104,6 +105,15 @@ externalSecret:
     - secretKey: RabbitMQ__Password
       remoteRef:
         key: rabbitmq-password
+    - secretKey: R2__AccountId
+      remoteRef:
+        key: aurora-mail-r2-account-id
+    - secretKey: R2__AccessKey
+      remoteRef:
+        key: aurora-mail-r2-access-key
+    - secretKey: R2__SecretKey
+      remoteRef:
+        key: aurora-mail-r2-secret-key
 
 resources:
   requests:

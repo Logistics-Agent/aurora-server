@@ -1,7 +1,9 @@
 using Amazon.S3;
 using Amazon.S3.Model;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using MailService.Application.Interfaces.Storage;
+using MailService.Application.Options;
 using MailService.Domain.Enums;
 
 namespace MailService.Infrastructure.Storage;
@@ -13,10 +15,22 @@ public class R2StorageClient : IR2StorageClient
     private readonly string _bucketName;
     private readonly ILogger<R2StorageClient> _logger;
 
-    public R2StorageClient(IAmazonS3 s3Client, string bucketName = "aurora-mail-dev", ILogger<R2StorageClient>? logger = null)
+    public R2StorageClient(
+        IAmazonS3 s3Client,
+        IOptions<MailServiceOptions>? options = null,
+        ILogger<R2StorageClient>? logger = null)
     {
         _s3Client = s3Client;
-        _bucketName = bucketName;
+        _bucketName = !string.IsNullOrWhiteSpace(options?.Value?.R2BucketName)
+            ? options.Value.R2BucketName
+            : "aurora-mail-platform";
+        _logger = logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<R2StorageClient>.Instance;
+    }
+
+    public R2StorageClient(IAmazonS3 s3Client, string bucketName, ILogger<R2StorageClient>? logger = null)
+    {
+        _s3Client = s3Client;
+        _bucketName = !string.IsNullOrWhiteSpace(bucketName) ? bucketName : "aurora-mail-platform";
         _logger = logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<R2StorageClient>.Instance;
     }
 

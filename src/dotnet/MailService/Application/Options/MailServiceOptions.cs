@@ -46,6 +46,12 @@ public class MailServiceOptions
     public int SpamAssassinPort { get; set; } = 783;
 
     public string? AiGovernanceEndpoint { get; set; }
+
+    // Cloudflare R2 Options
+    public string? R2AccountId { get; set; }
+    public string? R2AccessKey { get; set; }
+    public string? R2SecretKey { get; set; }
+    public string R2BucketName { get; set; } = "aurora-mail-platform";
 }
 
 public class MailServiceOptionsValidator : IValidateOptions<MailServiceOptions>
