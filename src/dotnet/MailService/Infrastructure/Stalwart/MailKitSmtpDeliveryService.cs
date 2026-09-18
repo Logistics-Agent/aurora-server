@@ -1,53 +1,63 @@
 using System;
 using System.Collections.Generic;
-using System.IO;
-using System.Net.Sockets;
-using System.Text.RegularExpressions;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using MailKit.Net.Smtp;
-using MailKit.Security;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
-using MimeKit;
+using Microsoft.Extensions.Options;
 using MailService.Application.Interfaces.Stalwart;
+using MailService.Application.Interfaces.Transport;
+using MailService.Application.Options;
+using MailService.Infrastructure.Transport;
 
 namespace MailService.Infrastructure.Stalwart;
 
 public class MailKitSmtpDeliveryService : ISmtpDeliveryService
 {
-    private readonly string _provider;
-    private readonly string _smtpHost;
-    private readonly int _smtpPort;
-    private readonly bool _useTls;
-    private readonly string? _username;
-    private readonly string? _password;
+    private readonly IMailTransport _activeTransport;
     private readonly ILogger<MailKitSmtpDeliveryService> _logger;
 
-    public MailKitSmtpDeliveryService(IConfiguration configuration, ILogger<MailKitSmtpDeliveryService> logger)
+    public MailKitSmtpDeliveryService(
+        IConfiguration configuration,
+        ILogger<MailKitSmtpDeliveryService> logger,
+        IEnumerable<IMailTransport>? transports = null,
+        IOptions<MailTransportOptions>? transportOptions = null,
+        IOptions<BrevoOptions>? brevoOptions = null,
+        IOptions<MailServiceOptions>? mailOptions = null,
+        ILoggerFactory? loggerFactory = null)
     {
         _logger = logger;
-        _provider = configuration["MailTransport:Provider"] ?? configuration["Mail:OutboundProvider"] ?? "Brevo";
 
-        if (string.Equals(_provider, "Brevo", StringComparison.OrdinalIgnoreCase))
+        var configuredProvider = transportOptions?.Value?.Provider
+            ?? configuration["MailTransport:Provider"]
+            ?? configuration["Mail:OutboundProvider"]
+            ?? "Brevo";
+
+        var transportList = transports?.ToList();
+        var selected = transportList?.FirstOrDefault(t => string.Equals(t.ProviderName, configuredProvider, StringComparison.OrdinalIgnoreCase));
+
+        if (selected != null)
         {
-            _smtpHost = configuration["Brevo:SmtpHost"] ?? "smtp-relay.brevo.com";
-            _smtpPort = int.TryParse(configuration["Brevo:SmtpPort"], out int bPort) ? bPort : 587;
-            _useTls = true;
-            _username = configuration["Brevo:SmtpUsername"] ?? configuration["Brevo:SmtpUser"];
-            _password = configuration["Brevo:SmtpPassword"] ?? configuration["Brevo:SmtpKey"];
+            _activeTransport = selected;
+        }
+        else if (string.Equals(configuredProvider, "Stalwart", StringComparison.OrdinalIgnoreCase))
+        {
+            var stLogger = loggerFactory?.CreateLogger<StalwartMailTransport>()
+                ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<StalwartMailTransport>.Instance;
+            _activeTransport = new StalwartMailTransport(configuration, mailOptions, stLogger);
         }
         else
         {
-            _smtpHost = configuration["Stalwart:SmtpHost"] ?? "stalwart";
-            _smtpPort = int.TryParse(configuration["Stalwart:SmtpPort"], out int port) ? port : 25;
-            _useTls = bool.TryParse(configuration["Stalwart:UseTls"], out bool tls) && tls;
-            _username = configuration["Stalwart:SmtpUser"];
-            _password = configuration["Stalwart:SmtpPassword"];
+            var brLogger = loggerFactory?.CreateLogger<BrevoMailTransport>()
+                ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<BrevoMailTransport>.Instance;
+            _activeTransport = new BrevoMailTransport(configuration, brevoOptions, brLogger);
         }
+
+        _logger.LogInformation("MailKitSmtpDeliveryService initialized with active transport provider: {Provider}", _activeTransport.ProviderName);
     }
 
-    public async Task<SmtpDeliveryResult> DeliverAsync(
+    public Task<SmtpDeliveryResult> DeliverAsync(
         string senderAddress,
         IReadOnlyList<string> recipientAddresses,
         string subject,
@@ -56,122 +66,13 @@ public class MailKitSmtpDeliveryService : ISmtpDeliveryService
         IReadOnlyList<(string Filename, string ContentType, byte[] Content)> attachments,
         CancellationToken cancellationToken = default)
     {
-        var message = new MimeMessage();
-        message.From.Add(MailboxAddress.Parse(senderAddress));
-
-        foreach (var recipient in recipientAddresses)
-        {
-            if (MailboxAddress.TryParse(recipient, out var mailbox))
-            {
-                message.To.Add(mailbox);
-            }
-        }
-
-        message.Subject = subject ?? string.Empty;
-        message.Date = DateTimeOffset.UtcNow;
-        message.MessageId = $"{Guid.NewGuid():N}@{senderAddress.Split('@')[^1]}";
-
-        var builder = new BodyBuilder();
-        if (!string.IsNullOrEmpty(bodyText))
-        {
-            builder.TextBody = bodyText;
-        }
-        if (!string.IsNullOrEmpty(bodyHtml))
-        {
-            builder.HtmlBody = bodyHtml;
-        }
-
-        if (attachments != null)
-        {
-            foreach (var (filename, contentType, content) in attachments)
-            {
-                if (content != null && content.Length > 0)
-                {
-                    builder.Attachments.Add(filename, content, ContentType.Parse(string.IsNullOrEmpty(contentType) ? "application/octet-stream" : contentType));
-                }
-            }
-        }
-
-        message.Body = builder.ToMessageBody();
-
-        using var smtpClient = new SmtpClient();
-        try
-        {
-            using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            cts.CancelAfter(TimeSpan.FromSeconds(30)); // 30s SMTP operation timeout
-
-            // DEMO ONLY - bypass internal TLS certificate validation.
-            smtpClient.ServerCertificateValidationCallback = (s, c, h, e) => true;
-
-            var secureOptions = _useTls || _smtpPort == 587 
-                ? SecureSocketOptions.StartTls 
-                : SecureSocketOptions.None;
-
-            await smtpClient.ConnectAsync(_smtpHost, _smtpPort, secureOptions, cts.Token);
-
-            if (!string.IsNullOrEmpty(_username) && !string.IsNullOrEmpty(_password))
-            {
-                await smtpClient.AuthenticateAsync(_username, _password, cts.Token);
-            }
-
-            string response = await smtpClient.SendAsync(message, cts.Token);
-            await smtpClient.DisconnectAsync(true, cts.Token);
-
-            // Extract Stalwart / RFC 2821 Queue ID if present (e.g. "250 2.0.0 Ok: queued as 4V9dZg6m8bz9")
-            string? queueId = ExtractQueueId(response);
-
-            _logger.LogInformation("SMTP delivery succeeded via provider {Provider} ({Host}:{Port}). Recipients: {Recipients}, ProviderMessageId: {ProviderMessageId}, Response: {Response}, Status: Success",
-                _provider, _smtpHost, _smtpPort, string.Join(", ", recipientAddresses), queueId ?? response, response);
-
-            return SmtpDeliveryResult.Success(response, queueId);
-        }
-        catch (SmtpCommandException ex)
-        {
-            int code = (int)ex.StatusCode;
-            _logger.LogWarning(ex, "SMTP command error {StatusCode}: {Message}", code, ex.Message);
-
-            if (code >= 400 && code < 500)
-            {
-                // 4xx Transient failure
-                return SmtpDeliveryResult.Transient(code, ex.Message);
-            }
-
-            // 5xx Permanent failure
-            return SmtpDeliveryResult.Permanent(code, ex.Message);
-        }
-        catch (SmtpProtocolException ex)
-        {
-            _logger.LogError(ex, "SMTP protocol exception during delivery: {Message}", ex.Message);
-            return SmtpDeliveryResult.Uncertain($"SMTP protocol failure: {ex.Message}");
-        }
-        catch (SocketException ex)
-        {
-            _logger.LogError(ex, "SMTP socket connection exception to {Host}:{Port}: {Message}", _smtpHost, _smtpPort, ex.Message);
-            return SmtpDeliveryResult.Transient(421, $"SMTP socket connection failure: {ex.Message}");
-        }
-        catch (TimeoutException ex)
-        {
-            _logger.LogError(ex, "SMTP delivery timeout: {Message}", ex.Message);
-            return SmtpDeliveryResult.Uncertain($"SMTP delivery timeout: {ex.Message}");
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Unexpected SMTP delivery exception: {Message}", ex.Message);
-            return SmtpDeliveryResult.Uncertain($"Unexpected delivery failure: {ex.Message}");
-        }
-    }
-
-    private static string? ExtractQueueId(string response)
-    {
-        if (string.IsNullOrWhiteSpace(response)) return null;
-
-        // Common patterns: "queued as XXXXX", "id=XXXXX", "Ok: queued as 4V9dZg"
-        var match = Regex.Match(response, @"queued\s+as\s+([A-Za-z0-9\-_]+)", RegexOptions.IgnoreCase);
-        if (match.Success) return match.Groups[1].Value;
-
-        match = Regex.Match(response, @"id=([A-Za-z0-9\-_]+)", RegexOptions.IgnoreCase);
-        if (match.Success) return match.Groups[1].Value;
-
-        return null;
+        return _activeTransport.DeliverAsync(
+            senderAddress,
+            recipientAddresses,
+            subject,
+            bodyText,
+            bodyHtml,
+            attachments,
+            cancellationToken);
     }
 }

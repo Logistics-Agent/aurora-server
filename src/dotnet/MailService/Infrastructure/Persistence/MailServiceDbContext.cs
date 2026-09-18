@@ -86,6 +86,9 @@ public class MailServiceDbContext(
             b.HasIndex(h => h.TenantId);
             b.HasIndex(h => new { h.TenantId, h.ThreadId });
             b.HasIndex(h => new { h.TenantId, h.ToUserId });
+            b.HasOne(h => h.Thread)
+             .WithMany(t => t.AssignmentHistories)
+             .HasForeignKey(h => h.ThreadId);
             b.HasQueryFilter(h => _tenantId.HasValue && h.TenantId == _tenantId);
         });
 
@@ -100,6 +103,13 @@ public class MailServiceDbContext(
             b.HasIndex(d => new { d.TenantId, d.IdempotencyKey })
                 .IsUnique()
                 .HasFilter("\"IdempotencyKey\" IS NOT NULL");
+            b.HasOne(d => d.Thread)
+             .WithMany(t => t.Drafts)
+             .HasForeignKey(d => d.ThreadId);
+            b.HasOne(d => d.ParentRevision)
+             .WithMany()
+             .HasForeignKey(d => d.ParentRevisionId)
+             .IsRequired(false);
             b.HasQueryFilter(d => _tenantId.HasValue && d.TenantId == _tenantId);
         });
 
@@ -112,6 +122,13 @@ public class MailServiceDbContext(
             b.HasIndex(p => new { p.TenantId, p.SourceEventId });
             b.HasIndex(p => p.ThreadId);
             b.HasIndex(p => new { p.TenantId, p.SentByUserId });
+            b.HasOne(p => p.Thread)
+             .WithMany(t => t.Messages)
+             .HasForeignKey(p => p.ThreadId);
+            b.HasOne(p => p.FinalDraftRevision)
+             .WithMany()
+             .HasForeignKey(p => p.FinalDraftRevisionId)
+             .IsRequired(false);
             b.HasQueryFilter(p => _tenantId.HasValue && p.TenantId == _tenantId);
         });
 
@@ -121,6 +138,9 @@ public class MailServiceDbContext(
             b.HasKey(s => s.Id);
             b.HasIndex(s => s.ProcessedMessageId);
             b.HasIndex(s => s.TenantId);
+            b.HasOne(s => s.ProcessedMessage)
+             .WithMany(p => p.SecurityCheckResults)
+             .HasForeignKey(s => s.ProcessedMessageId);
             b.HasQueryFilter(s => _tenantId.HasValue && s.TenantId == _tenantId);
         });
 
@@ -129,7 +149,9 @@ public class MailServiceDbContext(
             b.ToTable("quarantine_records");
             b.HasKey(q => q.Id);
             b.HasIndex(q => new { q.TenantId, q.Status });
-            b.HasOne<ProcessedMessage>().WithMany().HasForeignKey(q => q.ProcessedMessageId);
+            b.HasOne(q => q.ProcessedMessage)
+             .WithMany()
+             .HasForeignKey(q => q.ProcessedMessageId);
             b.HasQueryFilter(q => _tenantId.HasValue && q.TenantId == _tenantId);
         });
 

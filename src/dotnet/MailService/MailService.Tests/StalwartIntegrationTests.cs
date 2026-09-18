@@ -67,8 +67,16 @@ public class StalwartIntegrationTests
         mockUser.Setup(u => u.TenantId).Returns(tenantId);
 
         using var db = CreateInMemoryDbContext(dbName, mockUser.Object);
+        db.Domains.Add(new MailService.Domain.Entities.Domain
+        {
+            Id = domainId,
+            TenantId = tenantId,
+            DomainName = "e-verland.site",
+            Status = DomainStatus.Active
+        });
         db.Mailboxes.Add(new Mailbox
         {
+            Id = Guid.NewGuid(),
             TenantId = tenantId,
             DomainId = domainId,
             LocalPart = "ops",
@@ -101,8 +109,16 @@ public class StalwartIntegrationTests
         mockUser.Setup(u => u.TenantId).Returns(tenantId);
 
         using var db = CreateInMemoryDbContext(dbName, mockUser.Object);
+        db.Domains.Add(new MailService.Domain.Entities.Domain
+        {
+            Id = domainId,
+            TenantId = tenantId,
+            DomainName = "e-verland.site",
+            Status = DomainStatus.Active
+        });
         db.Mailboxes.Add(new Mailbox
         {
+            Id = Guid.NewGuid(),
             TenantId = tenantId,
             DomainId = domainId,
             LocalPart = "support",
@@ -113,6 +129,7 @@ public class StalwartIntegrationTests
 
         db.Aliases.Add(new Alias
         {
+            Id = Guid.NewGuid(),
             TenantId = tenantId,
             DomainId = domainId,
             AliasAddress = "helpdesk@e-verland.site",

@@ -1,15 +1,30 @@
 # Hướng Dẫn Cấu Hình Mail Demo (Cloudflare Email Routing + Brevo SMTP)
 
-Tài liệu này hướng dẫn thiết lập hệ thống Inbound và Outbound email cho Aurora Mail Platform demo nhanh mà không cần qua Stalwart mail server.
+Tài liệu này hướng dẫn thiết lập hệ thống Inbound và Outbound email cho Aurora Mail Platform theo kiến trúc production/demo:
+- **Inbound**: Cloudflare Email Routing + Cloudflare Email Worker
+- **Outbound**: Brevo SMTP Relay (port 587 STARTTLS)
+- **AI Governance**: Dedicated VM `http://10.30.2.10:9090` (AKS AI đã dừng)
+- **Legacy / Fallback**: Stalwart Mail Server (không nằm trong critical path nhưng sẵn sàng cho rollback/demo khi cần)
 
 ---
 
 ## 1. Kiến Trúc Hoạt Động
 
-- **Inbound (Email Đến)**:
-  `Internet Sender` ➔ `Cloudflare Email Routing` ➔ `Cloudflare Email Worker` ➔ `HTTPS POST` ➔ `Aurora MailService (/api/v1/mail/inbound/cloudflare)` ➔ `Security Pipeline (ClamAV, AI Phishing, Spam, DKIM/DMARC)` ➔ `Thread & DB` ➔ `Aurora UI`.
-- **Outbound (Email Đi)**:
-  `Aurora UI / API` ➔ `Outbound Security Pipeline` ➔ `MailKitSmtpDeliveryService` ➔ `Brevo SMTP Relay (port 587 STARTTLS)` ➔ `Internet Recipient`.
+```text
+Inbound Mail:
+Internet Sender
+  → Cloudflare Email Routing
+  → Cloudflare Email Worker
+  → Aurora MailService Webhook (/api/v1/mail/cloudflare/inbound)
+  → AI Governance (http://10.30.2.10:9090)
+  → Mailbox / Database / Aurora UI
+
+Outbound Mail:
+Aurora Mail UI / API
+  → MailService (Outbound Pipeline & IMailTransport)
+  → Brevo SMTP Relay (smtp-relay.brevo.com:587 STARTTLS)
+  → External Recipient
+```
 
 ---
 
@@ -25,15 +40,15 @@ Tài liệu này hướng dẫn thiết lập hệ thống Inbound và Outbound 
      - Priority 93: `amir.mx.cloudflare.net`
    - **TXT (SPF) Record**:
      - Name: `@`
-     - Value: `v=spf1 include:_spf.mx.cloudflare.net ~all` (hoặc kết hợp với Brevo: `v=spf1 include:_spf.mx.cloudflare.net include:spf.brevo.com ~all`).
+     - Value: `v=spf1 include:_spf.mx.cloudflare.net include:spf.brevo.com ~all`
 
 ### Bước 2.2: Tạo Cloudflare Email Worker
 1. Trên Cloudflare Dashboard ➔ **Workers & Pages** ➔ **Create Application** ➔ **Create Worker**.
 2. Đặt tên worker: `aurora-email-worker`.
 3. Dán mã nguồn từ file [docs/cloudflare-worker/email-worker.js](file:///d:/IT/CD/aurora-server/src/dotnet/MailService/docs/cloudflare-worker/email-worker.js).
 4. Vào **Settings** ➔ **Variables** ➔ Thêm các biến môi trường:
-   - `AURORA_INBOUND_URL`: `https://<DOMAIN_HOAC_INGRESS_AURORA>/api/v1/mail/inbound/cloudflare`
-   - `AURORA_WEBHOOK_SECRET`: Chuỗi secret ngẫu nhiên (ví dụ: `cf_webhook_secret_demo_2026_x89f2`).
+   - `AURORA_INBOUND_URL`: `https://<DOMAIN_HOAC_INGRESS_AURORA>/api/v1/mail/cloudflare/inbound`
+   - `AURORA_WEBHOOK_SECRET`: Shared secret (khớp với secret `aurora-mail-cloudflare-webhook-secret`).
 5. Bấm **Save and Deploy**.
 
 ### Bước 2.3: Thiết lập Định Tuyến (Routing Rule)
@@ -59,18 +74,17 @@ Tài liệu này hướng dẫn thiết lập hệ thống Inbound và Outbound 
 2. Ghi nhận các thông tin:
    - **SMTP Server**: `smtp-relay.brevo.com`
    - **Port**: `587`
-   - **Login**: Email đăng nhập Brevo (ví dụ: `admin@e-verland.site` hoặc tài khoản Brevo của bạn).
-   - **Master Password / SMTP Key**: Bấm **Generate a new SMTP key** và lưu lại.
+   - **Login**: Email đăng nhập Brevo (ví dụ: `ops@e-verland.site` hoặc tài khoản Brevo của bạn).
+   - **Master Password / SMTP Key**: Bấm **Generate a new SMTP key** và lưu vào Azure Key Vault.
 
 ---
 
 ## 4. Cấu Hình Secrets & Lệnh Dùng Cho AKS
 
-### Cách 1: Thêm Secret vào Azure Key Vault (Khuyến nghị cho Production/ExternalSecrets)
+### 4.1. Thêm Secret vào Azure Key Vault (Khuyến nghị cho Production/ExternalSecrets)
 Chạy các lệnh Azure CLI để tạo 3 secret cần thiết trong Key Vault:
 
 ```bash
-# Đặt tên Key Vault của cluster
 KEYVAULT_NAME="<your-keyvault-name>" # ví dụ: kv-aurora-prod
 
 # 1. Thêm Brevo SMTP Username
@@ -92,25 +106,19 @@ az keyvault secret set \
   --value "<SHARED_CF_WEBHOOK_SECRET>"
 ```
 
-### Cách 2: Tạo Trực Tiếp Kubernetes Secret Trên AKS (Cho Demo Nhanh)
-Nếu không dùng Azure Key Vault hoặc muốn apply trực tiếp vào cluster:
+### 4.2. ExternalSecrets Mapping trên Kubernetes
+ExternalSecret trong `deploy/helm/values.yaml` tự động đồng bộ 3 keys vào `mail-service-kv-secret`:
+- `Brevo__SmtpUsername` ← `aurora-mail-brevo-smtp-username`
+- `Brevo__SmtpPassword` ← `aurora-mail-brevo-smtp-password`
+- `CloudflareInbound__WebhookSecret` ← `aurora-mail-cloudflare-webhook-secret`
 
-```bash
-kubectl create secret generic mail-service-credentials \
-  --namespace aurora \
-  --from-literal=Brevo__SmtpUsername="<BREVO_SMTP_LOGIN>" \
-  --from-literal=Brevo__SmtpPassword="<BREVO_SMTP_KEY>" \
-  --from-literal=CloudflareInbound__WebhookSecret="<SHARED_CF_WEBHOOK_SECRET>" \
-  --dry-run=client -o yaml | kubectl apply -f -
-```
-
-### Lệnh Deploy & Restart MailService trên AKS
+### 4.3. Lệnh Deploy & Restart MailService trên AKS
 
 ```bash
 # 1. Kết nối tới AKS cluster
 az aks get-credentials --resource-group <RESOURCE_GROUP> --name <AKS_CLUSTER_NAME>
 
-# 2. Upgrade Helm Chart (nếu dùng Helm)
+# 2. Upgrade Helm Chart
 helm upgrade --install mail-service ./deploy/helm \
   --namespace aurora \
   --values ./deploy/helm/values.yaml
@@ -121,7 +129,7 @@ kubectl rollout restart deployment/mail-service -n aurora
 # 4. Kiểm tra trạng thái Rollout
 kubectl rollout status deployment/mail-service -n aurora
 
-# 5. Xem Live Logs của MailService để xác nhận
+# 5. Xem Live Logs của MailService
 kubectl logs -n aurora -l app.kubernetes.io/name=mail-service -f --tail=100
 ```
 
@@ -132,12 +140,14 @@ kubectl logs -n aurora -l app.kubernetes.io/name=mail-service -f --tail=100
 ### 5.1. Test Outbound (Gửi Email từ Aurora ➔ Gmail)
 - Gửi từ giao diện Aurora UI hoặc gọi API với Sender: `ops@e-verland.site`, Recipient: `personal@gmail.com`.
 - **Kỳ vọng**:
-  - MailService log: `SMTP delivery succeeded via provider Brevo (smtp-relay.brevo.com:587). ProviderMessageId: ..., Status: Success`.
-  - Hộp thư Gmail nhận được email với người gửi `ops@e-verland.site`.
+  - MailService log: `SMTP delivery succeeded via provider Brevo (smtp-relay.brevo.com:587). Recipients: ..., ProviderMessageId: ..., Status: Success`.
+  - Hộp thư người nhận nhận được email từ `ops@e-verland.site`.
 
 ### 5.2. Test Inbound (Gửi Email từ Gmail ➔ Aurora)
-- Dùng Gmail cá nhân gửi tới `ops@e-verland.site` với tiêu đề `AURORA CF INBOUND DEMO 01`.
+- Dùng Gmail cá nhân gửi tới `ops@e-verland.site` với tiêu đề `AURORA INBOUND DEMO`.
 - **Kỳ vọng**:
-  - Cloudflare Worker thực thi thành công và chuyển tiếp HTTP POST tới `/api/v1/mail/inbound/cloudflare`.
-  - MailService log: `Cloudflare inbound accepted and processed: DeliveryId=..., MessageId=..., ThreadId=...`.
-  - Trên Aurora UI, thread mới xuất hiện trong hộp thư `ops@e-verland.site`.
+  - Cloudflare Worker chuyển tiếp HTTP POST tới `/api/v1/mail/cloudflare/inbound`.
+  - MailService log: `Inbound source = Cloudflare, DeliveryId = ..., Recipient = ops@e-verland.site, MessageId = ...`.
+  - AI Phishing và Security Checks được thực thi qua AI Governance `http://10.30.2.10:9090`.
+  - Thread và tin nhắn xuất hiện trong hộp thư `ops@e-verland.site`.
+  - Cloudflare retry không tạo trùng lặp tin nhắn (idempotent).

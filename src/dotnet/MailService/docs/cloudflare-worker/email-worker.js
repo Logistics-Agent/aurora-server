@@ -35,18 +35,24 @@ export default {
       signatureHex = await generateHmacSha256(env.AURORA_WEBHOOK_SECRET, `${timestamp}.${rawBody}`);
     }
 
-    const endpointUrl = env.AURORA_INBOUND_URL || "https://api.e-verland.site/api/v1/mail/inbound/cloudflare";
+    const endpointUrl = env.AURORA_INBOUND_URL || "https://api.e-verland.site/api/v1/mail/cloudflare/inbound";
 
     console.log(`[Cloudflare Email Worker] Forwarding email From: ${message.from} To: ${message.to} DeliveryId: ${deliveryId}`);
 
+    const headers = {
+      "Content-Type": "application/json",
+      "X-Aurora-Timestamp": timestamp.toString(),
+      "X-Aurora-Delivery-Id": deliveryId,
+      "X-Aurora-Signature": signatureHex
+    };
+
+    if (env.AURORA_WEBHOOK_SECRET) {
+      headers["X-Aurora-Webhook-Secret"] = env.AURORA_WEBHOOK_SECRET;
+    }
+
     const response = await fetch(endpointUrl, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Aurora-Timestamp": timestamp.toString(),
-        "X-Aurora-Delivery-Id": deliveryId,
-        "X-Aurora-Signature": signatureHex
-      },
+      headers: headers,
       body: rawBody
     });
 

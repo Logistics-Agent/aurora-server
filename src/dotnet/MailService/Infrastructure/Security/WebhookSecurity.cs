@@ -6,6 +6,19 @@ namespace MailService.Infrastructure.Security;
 
 public static class WebhookSecurity
 {
+    public static bool VerifySharedSecret(string? headerSecret, string secret)
+    {
+        if (string.IsNullOrWhiteSpace(headerSecret) || string.IsNullOrWhiteSpace(secret))
+            return false;
+
+        byte[] headerBytes = Encoding.UTF8.GetBytes(headerSecret.Trim());
+        byte[] secretBytes = Encoding.UTF8.GetBytes(secret.Trim());
+
+        if (headerBytes.Length != secretBytes.Length)
+            return false;
+
+        return CryptographicOperations.FixedTimeEquals(headerBytes, secretBytes);
+    }
     public static bool VerifyStalwartHmac(
         byte[] rawBodyBytes, 
         string? headerSignature, 

@@ -24,6 +24,7 @@ using MailService.Infrastructure.Security;
 namespace MailService.Controllers;
 
 [ApiController]
+[Route("api/v1/mail/cloudflare/inbound")]
 [Route("api/v1/mail/inbound/cloudflare")]
 public class CloudflareInboundController : ControllerBase
 {
@@ -61,6 +62,8 @@ public class CloudflareInboundController : ControllerBase
     }
 
     [HttpPost]
+    [HttpPost("/api/v1/mail/cloudflare/inbound")]
+    [HttpPost("/api/v1/mail/inbound/cloudflare")]
     [DisableRequestSizeLimit]
     [RequestSizeLimit(52_428_800)] // 50MB limit for inbound attachments
     public async Task<IActionResult> HandleInboundEmail(CancellationToken cancellationToken)
@@ -82,24 +85,53 @@ public class CloudflareInboundController : ControllerBase
                 deliveryId = headerDeliveryId;
             }
 
+            var directSecretHeader = Request.Headers["X-Aurora-Webhook-Secret"].FirstOrDefault()
+                                  ?? Request.Headers["X-Webhook-Secret"].FirstOrDefault();
+
             var signature = Request.Headers["X-Aurora-Signature"].FirstOrDefault()
                          ?? Request.Headers["X-Signature"].FirstOrDefault();
 
-            // 3. Webhook HMAC Security Verification
+            // 3. Webhook Authentication (Shared Secret Header OR HMAC-SHA256 Signature)
             var secret = _configuration["CloudflareInbound:WebhookSecret"]
                       ?? _configuration["Cloudflare:WebhookSecret"]
                       ?? string.Empty;
 
             if (!string.IsNullOrEmpty(secret))
             {
-                if (!WebhookSecurity.VerifyCloudflareHmac(rawBytes, timestampStr, signature, secret))
+                bool isDirectSecretValid = !string.IsNullOrEmpty(directSecretHeader) &&
+                                           WebhookSecurity.VerifySharedSecret(directSecretHeader, secret);
+
+                bool isHmacValid = !string.IsNullOrEmpty(signature) &&
+                                   WebhookSecurity.VerifyCloudflareHmac(rawBytes, timestampStr, signature, secret);
+
+                if (!isDirectSecretValid && !isHmacValid)
                 {
-                    _logger.LogWarning("Unauthorized Cloudflare Inbound webhook call: HMAC signature mismatch or timestamp drift. Timestamp: {Timestamp}", timestampStr);
-                    return Unauthorized(new { error = "Invalid signature or expired timestamp" });
+                    _logger.LogWarning("Unauthorized Cloudflare Inbound webhook call: Missing or invalid secret/signature. Timestamp: {Timestamp}", timestampStr);
+                    return Unauthorized(new { error = "Invalid signature, missing secret, or expired timestamp" });
                 }
             }
 
-            // 4. Deserialize Payload
+            // 4. Check Idempotency (Prevent duplicate processing on Cloudflare retry)
+            var existingMsg = await _dbContext.ProcessedMessages
+                .IgnoreQueryFilters()
+                .FirstOrDefaultAsync(m => m.SourceEventId == deliveryId, cancellationToken);
+
+            if (existingMsg != null)
+            {
+                _logger.LogInformation("Cloudflare inbound delivery {DeliveryId} already processed (idempotent). Returning existing message {MessageId}.",
+                    deliveryId, existingMsg.Id);
+                return Ok(new
+                {
+                    status = "accepted",
+                    deliveryId = deliveryId,
+                    messageId = existingMsg.Id.ToString(),
+                    rfcMessageId = existingMsg.MessageId,
+                    threadId = existingMsg.ThreadId?.ToString(),
+                    idempotent = true
+                });
+            }
+
+            // 5. Deserialize Payload
             CloudflareInboundPayload? payload;
             try
             {
@@ -125,7 +157,7 @@ public class CloudflareInboundController : ControllerBase
                 deliveryId = payload.DeliveryId;
             }
 
-            // 5. Decode Base64 Raw EML
+            // 6. Decode Base64 Raw EML
             byte[] rawEmlBytes;
             try
             {
@@ -137,7 +169,7 @@ public class CloudflareInboundController : ControllerBase
                 return BadRequest(new { error = "Invalid Base64 format in rawEmailBase64" });
             }
 
-            // 6. Parse MIME via MimeKit
+            // 7. Parse MIME via MimeKit
             MimeMessage mimeMessage;
             try
             {
@@ -177,7 +209,7 @@ public class CloudflareInboundController : ControllerBase
             string rfcMessageId = mimeMessage.MessageId 
                                ?? $"<cf-{deliveryId}@{senderFrom.Split('@').LastOrDefault() ?? "e-verland.site"}>";
 
-            // 7. Resolve Recipient Mailbox in DB
+            // 8. Resolve Recipient Mailbox in DB
             MailboxResolutionResult? resolvedMailbox = null;
             foreach (var recipient in recipientList)
             {
@@ -196,7 +228,7 @@ public class CloudflareInboundController : ControllerBase
                 return NotFound(new { error = "Recipient mailbox not configured in Aurora", recipients = recipientList });
             }
 
-            // 8. Resolve or Create Thread
+            // 9. Resolve or Create Thread
             string cleanSubject = Regex.Replace(subject, @"^(Re|Fwd|Fw):\s*", "", RegexOptions.IgnoreCase).Trim();
             string snippet = !string.IsNullOrWhiteSpace(textBody) 
                 ? (textBody.Length > 200 ? textBody[..200] : textBody)
@@ -249,7 +281,7 @@ public class CloudflareInboundController : ControllerBase
                 await _dbContext.SaveChangesAsync(cancellationToken);
             }
 
-            // 9. Run Inbound Pipeline (ClamAV, AI Phishing, Classification, R2, DB Persistence)
+            // 10. Run Inbound Pipeline (ClamAV, AI Phishing / Governance, Classification, R2, DB Persistence)
             var pipelineContext = new InboundPipelineContext
             {
                 TenantId = resolvedMailbox.TenantId,
@@ -280,8 +312,8 @@ public class CloudflareInboundController : ControllerBase
 
             await _pipelineRunner.RunAsync(pipelineContext, cancellationToken);
 
-            _logger.LogInformation("Cloudflare inbound accepted and processed: DeliveryId={DeliveryId}, MessageId={MessageId}, ThreadId={ThreadId}",
-                deliveryId, rfcMessageId, thread.Id);
+            _logger.LogInformation("Inbound source = Cloudflare, DeliveryId = {DeliveryId}, Recipient = {Recipient}, MessageId = {MessageId}, ThreadId = {ThreadId}",
+                deliveryId, string.Join(", ", recipientList), rfcMessageId, thread.Id);
 
             return Ok(new
             {

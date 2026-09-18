@@ -26,6 +26,7 @@ using MailService.Application.Interfaces.RateLimiting;
 using MailService.Application.Interfaces.Security;
 using MailService.Application.Interfaces.Stalwart;
 using MailService.Application.Interfaces.Storage;
+using MailService.Application.Interfaces.Transport;
 using MailService.Application.Options;
 using MailService.Application.Pipeline;
 using MailService.Application.Pipeline.Stages;
@@ -47,6 +48,7 @@ using MailService.Infrastructure.Security.Malware;
 using MailService.Infrastructure.Security.Spam;
 using MailService.Infrastructure.Stalwart;
 using MailService.Infrastructure.Storage;
+using MailService.Infrastructure.Transport;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -98,6 +100,11 @@ builder.Services.Configure<MailServiceOptions>(options =>
     options.AiGovernanceEndpoint = builder.Configuration["AiGovernance:GrpcEndpoint"]
         ?? builder.Configuration["AiGovernance:ServiceUrl"];
 });
+
+builder.Services.Configure<BrevoOptions>(builder.Configuration.GetSection(BrevoOptions.SectionName));
+builder.Services.Configure<MailTransportOptions>(builder.Configuration.GetSection(MailTransportOptions.SectionName));
+builder.Services.Configure<CloudflareInboundOptions>(builder.Configuration.GetSection(CloudflareInboundOptions.SectionName));
+
 builder.Services.AddSingleton<IValidateOptions<MailServiceOptions>>(sp =>
     new MailServiceOptionsValidator(builder.Environment.IsProduction()));
 
@@ -241,6 +248,12 @@ builder.Services.AddScoped<IPhishingDetectionService, GovernedPhishingDetectionS
 builder.Services.AddScoped<IRiskScoringService, GovernedRiskScoringService>();
 
 builder.Services.AddScoped<IEmailClassifier, SimpleClassifier>();
+
+// Register Outbound Mail Transports (Brevo is primary, Stalwart is legacy/fallback)
+builder.Services.AddScoped<BrevoMailTransport>();
+builder.Services.AddScoped<StalwartMailTransport>();
+builder.Services.AddScoped<IMailTransport, BrevoMailTransport>();
+builder.Services.AddScoped<IMailTransport, StalwartMailTransport>();
 builder.Services.AddScoped<ISmtpDeliveryService, MailKitSmtpDeliveryService>();
 
 // Register Pipeline Stages & Runners
