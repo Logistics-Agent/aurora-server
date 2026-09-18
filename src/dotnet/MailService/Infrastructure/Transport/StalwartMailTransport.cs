@@ -169,6 +169,11 @@ public class StalwartMailTransport : IMailTransport
 
             return SmtpDeliveryResult.Success(response, queueId);
         }
+        catch (MailKit.Security.AuthenticationException ex)
+        {
+            _logger.LogError(ex, "Stalwart SMTP authentication failed for user '{Username}' on {Host}:{Port}: {Message}", _username, _smtpHost, _smtpPort, ex.Message);
+            return SmtpDeliveryResult.Permanent(535, $"SMTP authentication failed for user '{_username}': {ex.Message}");
+        }
         catch (SmtpCommandException ex)
         {
             int code = (int)ex.StatusCode;

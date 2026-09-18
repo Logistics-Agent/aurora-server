@@ -109,7 +109,11 @@ public class MailSecurityService : MailSecurity.MailSecurityBase
 
             if (result.IsRejected)
             {
-                throw new RpcException(new Status(StatusCode.PermissionDenied, result.RejectionReason ?? "Outbound message rejected by security pipeline"));
+                var statusCode = result.RejectionReason != null && result.RejectionReason.Contains("SMTP Delivery Failure", StringComparison.OrdinalIgnoreCase)
+                    ? StatusCode.Unavailable
+                    : StatusCode.PermissionDenied;
+
+                throw new RpcException(new Status(statusCode, result.RejectionReason ?? "Outbound message rejected by security pipeline"));
             }
 
             var processedAt = result.ProcessedMessage.ProcessedAt != default 
