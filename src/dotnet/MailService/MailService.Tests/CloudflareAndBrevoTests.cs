@@ -36,6 +36,28 @@ namespace MailService.Tests;
 
 public class CloudflareAndBrevoTests
 {
+    [Fact]
+    public void CloudflareInboundController_DeclaresPostRoutesWithoutDuplicates()
+    {
+        var controllerType = typeof(CloudflareInboundController);
+        var controllerRoutes = controllerType
+            .GetCustomAttributes(typeof(RouteAttribute), inherit: true)
+            .Cast<RouteAttribute>()
+            .Select(route => route.Template)
+            .ToArray();
+        var action = controllerType.GetMethod(nameof(CloudflareInboundController.HandleInboundEmail));
+        var postRoutes = action!
+            .GetCustomAttributes(typeof(HttpPostAttribute), inherit: true)
+            .Cast<HttpPostAttribute>()
+            .ToArray();
+
+        Assert.Equal(
+            new[] { "api/v1/mail/cloudflare/inbound", "api/v1/mail/inbound/cloudflare" },
+            controllerRoutes);
+        Assert.Single(postRoutes);
+        Assert.Null(postRoutes[0].Template);
+    }
+
     private MailServiceDbContext CreateInMemoryDbContext(string dbName, Guid? tenantId = null)
     {
         var options = new DbContextOptionsBuilder<MailServiceDbContext>()

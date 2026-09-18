@@ -62,8 +62,6 @@ public class CloudflareInboundController : ControllerBase
     }
 
     [HttpPost]
-    [HttpPost("/api/v1/mail/cloudflare/inbound")]
-    [HttpPost("/api/v1/mail/inbound/cloudflare")]
     [DisableRequestSizeLimit]
     [RequestSizeLimit(52_428_800)] // 50MB limit for inbound attachments
     public async Task<IActionResult> HandleInboundEmail(CancellationToken cancellationToken)
