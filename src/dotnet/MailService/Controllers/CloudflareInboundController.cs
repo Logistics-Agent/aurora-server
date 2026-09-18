@@ -17,6 +17,8 @@ using MimeKit;
 using MailService.Application.Interfaces.Stalwart;
 using MailService.Application.Pipeline;
 using MailService.Domain.Entities;
+using MailService.Application.Common;
+using MailService.Application.Interfaces.Storage;
 using MailService.Domain.Enums;
 using MailService.Infrastructure.Persistence;
 using MailService.Infrastructure.Security;
@@ -31,6 +33,7 @@ public class CloudflareInboundController : ControllerBase
     private readonly IMailboxResolver _mailboxResolver;
     private readonly MailServiceDbContext _dbContext;
     private readonly InboundPipelineRunner _pipelineRunner;
+    private readonly IR2StorageClient? _storageClient;
     private readonly IConfiguration _configuration;
     private readonly ILogger<CloudflareInboundController> _logger;
 
@@ -39,13 +42,15 @@ public class CloudflareInboundController : ControllerBase
         MailServiceDbContext dbContext,
         InboundPipelineRunner pipelineRunner,
         IConfiguration configuration,
-        ILogger<CloudflareInboundController> logger)
+        ILogger<CloudflareInboundController>? logger = null,
+        IR2StorageClient? storageClient = null)
     {
         _mailboxResolver = mailboxResolver;
         _dbContext = dbContext;
         _pipelineRunner = pipelineRunner;
         _configuration = configuration;
-        _logger = logger;
+        _logger = logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<CloudflareInboundController>.Instance;
+        _storageClient = storageClient;
     }
 
     [HttpGet]
@@ -199,6 +204,11 @@ public class CloudflareInboundController : ControllerBase
             string textBody = mimeMessage.TextBody ?? string.Empty;
             string htmlBody = mimeMessage.HtmlBody ?? string.Empty;
 
+            if (!string.IsNullOrWhiteSpace(htmlBody))
+            {
+                htmlBody = MimeMessageHelper.ReplaceCidWithDataUris(htmlBody, mimeMessage);
+            }
+
             if (string.IsNullOrWhiteSpace(textBody) && !string.IsNullOrWhiteSpace(htmlBody))
             {
                 textBody = Regex.Replace(htmlBody, "<.*?>", string.Empty).Trim();
@@ -311,79 +321,13 @@ public class CloudflareInboundController : ControllerBase
             pipelineContext.ProcessedMessage.InReplyTo = mimeMessage.InReplyTo;
             pipelineContext.ProcessedMessage.References = mimeMessage.References.Count > 0 ? string.Join(" ", mimeMessage.References) : null;
 
-            // Extract all attachments (.thmx, .msi, .pdf, .docx, .zip, images, binaries)
-            var attachmentsMeta = new List<MessageAttachmentMeta>();
-            var processedParts = new HashSet<MimeEntity>();
-
-            foreach (var entity in mimeMessage.BodyParts)
-            {
-                if (entity is TextPart textPart && !textPart.IsAttachment && string.IsNullOrEmpty(textPart.FileName) && (textPart.IsPlain || textPart.IsHtml))
-                    continue;
-
-                if (entity is MimePart part)
-                {
-                    string? filename = part.FileName 
-                                    ?? part.ContentDisposition?.FileName 
-                                    ?? part.ContentType?.Name;
-
-                    if (!string.IsNullOrEmpty(filename) || part.IsAttachment)
-                    {
-                        processedParts.Add(part);
-                        long size = 0;
-                        if (part.Content != null)
-                        {
-                            try
-                            {
-                                using var mem = new MemoryStream();
-                                part.Content.DecodeTo(mem);
-                                size = mem.Length;
-                            }
-                            catch { }
-                        }
-
-                        attachmentsMeta.Add(new MessageAttachmentMeta
-                        {
-                            Id = Guid.NewGuid().ToString("N"),
-                            FileName = filename ?? "attachment",
-                            ContentType = part.ContentType?.MimeType ?? "application/octet-stream",
-                            SizeBytes = size
-                        });
-                    }
-                }
-            }
-
-            foreach (var entity in mimeMessage.Attachments)
-            {
-                if (processedParts.Contains(entity))
-                    continue;
-
-                if (entity is MimePart part)
-                {
-                    string filename = part.FileName 
-                                   ?? part.ContentDisposition?.FileName 
-                                   ?? part.ContentType?.Name 
-                                   ?? "attachment";
-                    long size = 0;
-                    if (part.Content != null)
-                    {
-                        try
-                        {
-                            using var mem = new MemoryStream();
-                            part.Content.DecodeTo(mem);
-                            size = mem.Length;
-                        }
-                        catch { }
-                    }
-
-                    attachmentsMeta.Add(new MessageAttachmentMeta
-                    {
-                        Id = Guid.NewGuid().ToString("N"),
-                        FileName = filename,
-                        ContentType = part.ContentType?.MimeType ?? "application/octet-stream",
-                        SizeBytes = size
-                    });
-                }
-            }
+            // Extract and upload all attachments to R2 with presigned download URLs
+            var attachmentsMeta = await MimeMessageHelper.ExtractAndUploadAttachmentsAsync(
+                mimeMessage,
+                resolvedMailbox.TenantId,
+                rfcMessageId,
+                _storageClient,
+                cancellationToken);
 
             if (attachmentsMeta.Count > 0)
             {
