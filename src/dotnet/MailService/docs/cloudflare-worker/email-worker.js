@@ -7,7 +7,7 @@
  * and delivers to Aurora MailService HTTP endpoint.
  * 
  * Environment Variables required in Cloudflare Worker:
- * - AURORA_INBOUND_URL: e.g. https://api.e-verland.site/api/v1/mail/inbound/cloudflare
+ * - AURORA_INBOUND_URL: e.g. https://api.humanak.cyou/api/v1/mail/inbound/cloudflare
  * - AURORA_WEBHOOK_SECRET: Shared secret matching CloudflareInbound:WebhookSecret in Aurora
  */
 
@@ -35,9 +35,18 @@ export default {
       signatureHex = await generateHmacSha256(env.AURORA_WEBHOOK_SECRET, `${timestamp}.${rawBody}`);
     }
 
-    const endpointUrl = env.AURORA_INBOUND_URL || "https://api.e-verland.site/api/v1/mail/cloudflare/inbound";
+    // Keep a production-safe default so a missing Worker variable does not
+    // silently route mail to the retired e-verland.site endpoint. The
+    // variable remains configurable for other environments.
+    const endpointUrl = (env.AURORA_INBOUND_URL || "https://api.humanak.cyou/api/v1/mail/inbound/cloudflare").trim();
 
-    console.log(`[Cloudflare Email Worker] Forwarding email From: ${message.from} To: ${message.to} DeliveryId: ${deliveryId}`);
+    if (!endpointUrl) {
+      console.error("[Cloudflare Email Worker] AURORA_INBOUND_URL is empty");
+      message.setReject("Aurora inbound endpoint is not configured");
+      throw new Error("Aurora inbound endpoint is not configured");
+    }
+
+    console.log(`[Cloudflare Email Worker] Forwarding email From: ${message.from} To: ${message.to} DeliveryId: ${deliveryId} Endpoint: ${endpointUrl}`);
 
     const headers = {
       "Content-Type": "application/json",

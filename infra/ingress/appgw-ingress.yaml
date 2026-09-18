@@ -21,6 +21,15 @@ spec:
                 name: mail-service
                 port:
                   number: 9090
+          # Keep the legacy Cloudflare Worker route reachable while workers
+          # are migrated to /api/v1/mail/inbound/cloudflare.
+          - path: /api/v1/mail/cloudflare/inbound
+            pathType: Prefix
+            backend:
+              service:
+                name: mail-service
+                port:
+                  number: 9090
           - path: /
             pathType: Prefix
             backend:
@@ -50,4 +59,3 @@ spec:
                 name: argocd-server
                 port:
                   number: 443
-
