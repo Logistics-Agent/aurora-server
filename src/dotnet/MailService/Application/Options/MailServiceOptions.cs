@@ -10,6 +10,7 @@ public class MailServiceOptions
 
     public string? DatabaseConnectionString { get; set; }
     public string? RedisConnectionString { get; set; }
+    public string? RedisHost { get; set; }
     
     // RabbitMQ Options
     public string? RabbitMqHost { get; set; }
@@ -63,7 +64,7 @@ public class MailServiceOptionsValidator : IValidateOptions<MailServiceOptions>
             failures.Add("ConnectionStrings:DefaultConnection is required.");
         }
 
-        if (string.IsNullOrWhiteSpace(options.RedisConnectionString))
+        if (string.IsNullOrWhiteSpace(options.RedisConnectionString) && string.IsNullOrWhiteSpace(options.RedisHost))
         {
             failures.Add("Redis:ConnectionString is required.");
         }

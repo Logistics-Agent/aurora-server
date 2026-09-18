@@ -63,12 +63,35 @@ Log.Logger = new LoggerConfiguration()
 
 builder.Host.UseSerilog();
 
+// Configure Database and Redis Connection Strings
+string connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
+    ?? "Host=localhost;Port=5432;Database=aurora_mail_service;Username=postgres;Password=postgres";
+
+string? explicitRedisConn = builder.Configuration.GetConnectionString("Redis")
+    ?? builder.Configuration["Redis:ConnectionString"];
+
+var redisHost = builder.Configuration["Redis:Host"] ?? builder.Configuration["Redis__Host"];
+var redisPassword = builder.Configuration["Redis:Password"] ?? builder.Configuration["Redis__Password"];
+var redisSsl = builder.Configuration.GetValue<bool>("Redis:Ssl", false);
+var redisAbort = builder.Configuration.GetValue<bool>("Redis:AbortConnect", false);
+
+if (string.IsNullOrWhiteSpace(explicitRedisConn) && !string.IsNullOrWhiteSpace(redisHost))
+{
+    explicitRedisConn = $"{redisHost},abortConnect={redisAbort.ToString().ToLower()},ssl={redisSsl.ToString().ToLower()}";
+    if (!string.IsNullOrEmpty(redisPassword))
+    {
+        explicitRedisConn += $",password={redisPassword}";
+    }
+}
+string redisConnection = explicitRedisConn ?? "localhost:6379,abortConnect=false";
+
 // Register and validate production MailServiceOptions
 builder.Services.Configure<MailServiceOptions>(options =>
 {
-    options.DatabaseConnectionString = builder.Configuration.GetConnectionString("DefaultConnection");
-    options.RedisConnectionString = builder.Configuration.GetConnectionString("Redis")
-        ?? builder.Configuration["Redis:ConnectionString"];
+    options.DatabaseConnectionString = connectionString;
+    options.RedisConnectionString = redisConnection;
+    options.RedisHost = redisHost;
+
     options.RabbitMqHost = builder.Configuration["RabbitMQ:Host"];
     options.RabbitMqPort = int.TryParse(builder.Configuration["RabbitMQ:Port"], out int p) ? p : 5672;
     options.RabbitMqUsername = builder.Configuration["RabbitMQ:Username"];
@@ -131,9 +154,6 @@ builder.Services.AddControllers();
 builder.Services.AddMemoryCache();
 
 // Configure EF Core PostgreSQL (Managed Neon connection)
-string connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
-    ?? "Host=localhost;Port=5432;Database=aurora_mail_service;Username=postgres;Password=postgres";
-
 builder.Services.AddDbContext<MailServiceDbContext>(options =>
     options.UseNpgsql(connectionString, npgsql =>
     {
@@ -188,26 +208,14 @@ builder.Services.AddSingleton<IAmazonS3>(sp => new AmazonS3Client(
     }));
 
 // Register Redis Connection Multiplexer
-string redisConnection = builder.Configuration.GetConnectionString("Redis")
-    ?? builder.Configuration["Redis:ConnectionString"];
-
-if (string.IsNullOrEmpty(redisConnection))
-{
-    var redisHost = builder.Configuration["Redis:Host"] ?? "localhost:6379";
-    var redisPassword = builder.Configuration["Redis:Password"];
-    var redisSsl = builder.Configuration.GetValue<bool>("Redis:Ssl", false);
-    var redisAbort = builder.Configuration.GetValue<bool>("Redis:AbortConnect", false);
-
-    redisConnection = $"{redisHost},abortConnect={redisAbort.ToString().ToLower()},ssl={redisSsl.ToString().ToLower()}";
-    if (!string.IsNullOrEmpty(redisPassword))
-    {
-        redisConnection += $",password={redisPassword}";
-    }
-}
-
 builder.Services.AddSingleton<IConnectionMultiplexer>(sp =>
 {
-    var config = ConfigurationOptions.Parse(redisConnection);
+    var mailOpts = sp.GetRequiredService<IOptions<MailServiceOptions>>().Value;
+    string connStr = !string.IsNullOrWhiteSpace(mailOpts.RedisConnectionString)
+        ? mailOpts.RedisConnectionString
+        : "localhost:6379,abortConnect=false";
+
+    var config = ConfigurationOptions.Parse(connStr);
     config.AbortOnConnectFail = false;
     config.ConnectRetry = 3;
     config.ConnectTimeout = 3000;
