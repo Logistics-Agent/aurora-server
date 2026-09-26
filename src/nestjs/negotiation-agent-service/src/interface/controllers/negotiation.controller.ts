@@ -1,20 +1,12 @@
-import { Controller, Post, Body, Get, Param } from '@nestjs/common';
+import { Controller, UseInterceptors } from '@nestjs/common';
 import { GrpcMethod } from '@nestjs/microservices';
 import { NegotiationService, SubmitOfferInput } from '../../application/services/negotiation.service';
+import { TenantInterceptor } from '../../infrastructure/security/tenant.interceptor';
 
-@Controller('negotiation')
+@Controller()
+@UseInterceptors(TenantInterceptor)
 export class NegotiationController {
   constructor(private readonly negotiationService: NegotiationService) {}
-
-  @Post('offer')
-  async submitOfferRest(@Body() body: SubmitOfferInput) {
-    return this.negotiationService.submitOffer(body);
-  }
-
-  @Get('session/:id')
-  async getSessionHistoryRest(@Param('id') id: string) {
-    return this.negotiationService.getSessionHistory(id);
-  }
 
   @GrpcMethod('NegotiationService', 'SubmitOffer')
   async submitOfferGrpc(data: SubmitOfferInput) {
@@ -22,14 +14,14 @@ export class NegotiationController {
   }
 
   @GrpcMethod('NegotiationService', 'GetSessionHistory')
-  async getSessionHistoryGrpc(data: { sessionId?: string; session_id?: string }) {
+  async getSessionHistoryGrpc(data: { tenantId?: string; sessionId?: string; session_id?: string }) {
     const sessionId = data.sessionId || data.session_id || '';
-    return this.negotiationService.getSessionHistory(sessionId);
+    return this.negotiationService.getSessionHistory(sessionId, data.tenantId);
   }
 
   @GrpcMethod('NegotiationService', 'GetDraftSuggestion')
-  async getDraftSuggestionGrpc(data: { negotiationSessionId?: string; negotiation_session_id?: string }) {
+  async getDraftSuggestionGrpc(data: { tenantId?: string; negotiationSessionId?: string; negotiation_session_id?: string }) {
     const sessionId = data.negotiationSessionId || data.negotiation_session_id || '';
-    return this.negotiationService.getDraftSuggestion(sessionId);
+    return this.negotiationService.getDraftSuggestion(sessionId, data.tenantId);
   }
 }

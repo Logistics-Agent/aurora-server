@@ -1,4 +1,5 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 
 export interface ReadModelShipment {
   shipmentId: string;
@@ -29,8 +30,12 @@ export class ReadModelStore {
 
   private readonly shipments: Map<string, ReadModelShipment> = new Map();
   private readonly invoices: Map<string, ReadModelInvoice> = new Map();
+  private readonly isProduction: boolean;
+  private hasExternalData = false;
 
-  constructor() {
+  constructor(configService?: ConfigService) {
+    this.isProduction = configService?.get<string>('NODE_ENV') === 'production';
+    if (this.isProduction) return;
     // Seed mock read-model data for testing
     this.upsertShipment({
       shipmentId: 'shp_33019284',
@@ -57,29 +62,35 @@ export class ReadModelStore {
   }
 
   upsertShipment(shipment: ReadModelShipment): void {
-    this.shipments.set(shipment.shipmentId, shipment);
+    this.hasExternalData = true;
+    this.shipments.set(`${shipment.tenantId}:${shipment.shipmentId}`, shipment);
     this.logger.log(`[ReadModel] Upserted shipment ${shipment.shipmentId} (Status: ${shipment.status})`);
   }
 
   upsertInvoice(invoice: ReadModelInvoice): void {
-    this.invoices.set(invoice.invoiceId, invoice);
+    this.hasExternalData = true;
+    this.invoices.set(`${invoice.tenantId}:${invoice.invoiceId}`, invoice);
     this.logger.log(`[ReadModel] Upserted invoice ${invoice.invoiceNumber} (Status: ${invoice.status})`);
   }
 
-  getShipment(shipmentId: string): ReadModelShipment | undefined {
-    return this.shipments.get(shipmentId);
+  getShipment(shipmentId: string, tenantId: string): ReadModelShipment | undefined {
+    this.ensureReady();
+    const shipment = this.shipments.get(`${tenantId}:${shipmentId}`);
+    return shipment?.tenantId === tenantId ? shipment : undefined;
   }
 
-  getShipmentsByCustomer(customerId: string): ReadModelShipment[] {
-    return Array.from(this.shipments.values()).filter((s) => s.customerId === customerId);
+  getShipmentsByCustomer(customerId: string, tenantId: string): ReadModelShipment[] {
+    this.ensureReady();
+    return Array.from(this.shipments.values()).filter((s) => s.tenantId === tenantId && s.customerId === customerId);
   }
 
-  getInvoicesByCustomer(customerId: string): ReadModelInvoice[] {
-    return Array.from(this.invoices.values()).filter((i) => i.customerId === customerId);
+  getInvoicesByCustomer(customerId: string, tenantId: string): ReadModelInvoice[] {
+    this.ensureReady();
+    return Array.from(this.invoices.values()).filter((i) => i.tenantId === tenantId && i.customerId === customerId);
   }
 
-  getCustomerBalanceSummary(customerId: string) {
-    const invoices = this.getInvoicesByCustomer(customerId);
+  getCustomerBalanceSummary(customerId: string, tenantId: string) {
+    const invoices = this.getInvoicesByCustomer(customerId, tenantId);
     const totalDebt = invoices.reduce((sum, inv) => sum + inv.remainingBalance, 0);
     const unpaidCount = invoices.filter((inv) => inv.status !== 'PAID').length;
     return {
@@ -88,5 +99,11 @@ export class ReadModelStore {
       unpaidCount,
       invoices,
     };
+  }
+
+  private ensureReady(): void {
+    if (this.isProduction && !this.hasExternalData) {
+      throw new ServiceUnavailableException('Assistant read model is not connected to live shipment and billing data');
+    }
   }
 }

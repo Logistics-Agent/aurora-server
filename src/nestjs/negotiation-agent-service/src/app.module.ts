@@ -7,6 +7,7 @@ import { AiGovernanceNegotiationClient } from './infrastructure/grpc/ai-governan
 import { NegotiationService } from './application/services/negotiation.service';
 import { NegotiationController } from './interface/controllers/negotiation.controller';
 import { HealthController } from './health/health.controller';
+import { TenantInterceptor } from './infrastructure/security/tenant.interceptor';
 
 @Module({
   imports: [
@@ -21,6 +22,7 @@ import { HealthController } from './health/health.controller';
     NegotiationStrategyDomainService,
     AiGovernanceNegotiationClient,
     NegotiationService,
+    TenantInterceptor,
   ],
   exports: [NegotiationService, NegotiationStrategyDomainService, AiGovernanceNegotiationClient],
 })

@@ -25,6 +25,9 @@ env:
   REDIS_HOST: "redis-master.aurora.svc.cluster.local"
   REDIS_PORT: "6379"
   REDIS_TLS: "false"
+  RABBITMQ_HOST: "rabbitmq.aurora.svc.cluster.local"
+  RABBITMQ_PORT: "5672"
+  RABBITMQ_USERNAME: "aurora_admin"
 
 externalSecret:
   enabled: true
@@ -38,6 +41,9 @@ externalSecret:
     - secretKey: REDIS_PASSWORD
       remoteRef:
         key: redis-password
+    - secretKey: RABBITMQ_PASSWORD
+      remoteRef:
+        key: rabbitmq-password
 
 resources:
   requests:

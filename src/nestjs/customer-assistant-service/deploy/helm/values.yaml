@@ -42,6 +42,9 @@ externalSecret:
     - secretKey: OPENAI_API_KEY
       remoteRef:
         key: openai-api-key
+    - secretKey: INTERNAL_SERVICE_SECRET
+      remoteRef:
+        key: customer-assistant-internal-service-secret
 
 resources:
   requests:

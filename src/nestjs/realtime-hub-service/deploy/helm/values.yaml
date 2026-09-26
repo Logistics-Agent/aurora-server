@@ -35,6 +35,9 @@ externalSecret:
     - secretKey: RABBITMQ_PASSWORD
       remoteRef:
         key: rabbitmq-password
+    - secretKey: JWT_SECRET
+      remoteRef:
+        key: bff-jwt-secret
 
 
 resources:

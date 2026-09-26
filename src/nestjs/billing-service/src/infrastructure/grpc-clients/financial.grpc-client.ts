@@ -4,6 +4,7 @@ import { ClientGrpc, Client, Transport } from '@nestjs/microservices';
 import { join } from 'path';
 import { existsSync } from 'fs';
 import { Observable, lastValueFrom } from 'rxjs';
+import { Metadata } from '@grpc/grpc-js';
 import { circuitBreaker, handleAll, ConsecutiveBreaker } from 'cockatiel';
 
 export interface FinancialEstimateCostRequest {
@@ -35,7 +36,7 @@ export interface FinancialEstimateCostResponse {
 }
 
 interface FinancialGrpcServiceClient {
-  estimateCost(data: FinancialEstimateCostRequest): Observable<FinancialEstimateCostResponse>;
+  estimateCost(data: FinancialEstimateCostRequest, metadata: Metadata): Observable<FinancialEstimateCostResponse>;
 }
 
 @Injectable()
@@ -70,26 +71,18 @@ export class FinancialGrpcClient implements OnModuleInit {
   }
 
   async estimateCost(request: FinancialEstimateCostRequest): Promise<FinancialEstimateCostResponse> {
+    if (!request.tenantId) throw new Error('tenantId is required for financial estimate');
+    const metadata = new Metadata();
+    metadata.set('x-tenant-id', request.tenantId);
     this.logger.log(`[CircuitBreaker Call] FinancialService gRPC route ${request.originPort} -> ${request.destinationPort}`);
 
     try {
       return await this.breaker.execute(async () => {
-        return await lastValueFrom(this.financialGrpcService.estimateCost(request));
+        return await lastValueFrom(this.financialGrpcService.estimateCost(request, metadata));
       });
     } catch (error) {
-      this.logger.warn(`[CircuitBreaker OPEN / Fallback] FinancialService call failed (${error.message}). Returning Last-Known-Good rate.`);
-      return {
-        baseFreightCost: 1500.0,
-        portHandlingFees: 300.0,
-        importDutyFee: 90.0,
-        vatFee: 45.0,
-        totalCustomsFee: 135.0,
-        totalEstimatedCost: 1935.0,
-        currency: 'USD',
-        calculationMethod: 'COCKATIEL_CIRCUIT_BREAKER_FALLBACK',
-        description: 'Fallback rate used during circuit breaker trip or service degradation',
-        is_estimated_fallback: true,
-      };
+      this.logger.error(`FinancialService estimate failed: ${error.message}`);
+      throw error;
     }
   }
 }

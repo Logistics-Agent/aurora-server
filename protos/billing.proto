@@ -13,6 +13,10 @@ service BillingService {
   rpc GetInvoice(GetInvoiceRequest) returns (InvoiceResponse);
   rpc ListInvoices(ListInvoicesRequest) returns (ListInvoicesResponse);
   rpc UpdateInvoiceStatus(UpdateInvoiceStatusRequest) returns (InvoiceResponse);
+  rpc RecordPayment(RecordPaymentRequest) returns (RecordPaymentResponse);
+  rpc CancelInvoice(CancelInvoiceRequest) returns (InvoiceResponse);
+  rpc IssueDebitNote(IssueAdjustmentNoteRequest) returns (AdjustmentNoteResponse);
+  rpc IssueCreditNote(IssueAdjustmentNoteRequest) returns (AdjustmentNoteResponse);
           
   // Escrow Wallet operations
   rpc CreateEscrowWallet(CreateEscrowWalletRequest) returns (WalletResponse);
@@ -29,6 +33,11 @@ message GenerateInvoiceRequest {
   string shipmentId = 2;
   string customerId = 3;
   int32 paymentTermsDays = 4; // Default e.g. 30 (T+30)
+  string originPort = 5;
+  string destinationPort = 6;
+  double weightKg = 7;
+  double volumeCbm = 8;
+  string podS3Key = 9;
 }
 
 message CreditCheckRequest {
@@ -126,6 +135,48 @@ message ListInvoicesResponse {
 message UpdateInvoiceStatusRequest {
   string invoiceId = 1;
   string status = 2;
+}
+
+message RecordPaymentRequest {
+  string invoiceId = 1;
+  double amountPaid = 2;
+  string paymentMethod = 3;
+  string transactionRef = 4;
+}
+
+message RecordPaymentResponse {
+  string paymentRecordId = 1;
+  string invoiceId = 2;
+  double amountPaid = 3;
+  string paymentMethod = 4;
+  string transactionRef = 5;
+  string newInvoiceStatus = 6;
+  double remainingBalance = 7;
+  string createdAt = 8;
+}
+
+message CancelInvoiceRequest {
+  string invoiceId = 1;
+  string reason = 2;
+}
+
+message IssueAdjustmentNoteRequest {
+  string invoiceId = 1;
+  string reasonCode = 2;
+  double amount = 3;
+  string description = 4;
+}
+
+message AdjustmentNoteResponse {
+  string adjustmentNoteId = 1;
+  string invoiceId = 2;
+  string type = 3;
+  string reasonCode = 4;
+  double amount = 5;
+  string description = 6;
+  string status = 7;
+  double newInvoiceTotalAmount = 8;
+  string createdAt = 9;
 }
 
 // ── Escrow Messages ──────────────────────────────────────────────────────────

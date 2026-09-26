@@ -34,7 +34,11 @@ export class EnvironmentVariables {
 
   @IsString()
   @IsOptional()
-  JWT_SECRET: string = 'aurora_super_secret_jwt_key_2026';
+  JWT_SECRET?: string;
+
+  @IsString()
+  @IsOptional()
+  JWT_PUBLIC_KEY?: string;
 
   @IsString()
   @IsOptional()

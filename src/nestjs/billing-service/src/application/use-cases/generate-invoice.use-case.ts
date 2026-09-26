@@ -1,10 +1,10 @@
-import { Injectable, Logger, ConflictException } from '@nestjs/common';
+import { Injectable, Logger, ConflictException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { InvoiceDomainService } from '../../domain/services/invoice.domain-service';
 import { FinancialGrpcClient } from '../../infrastructure/grpc-clients/financial.grpc-client';
-import { StorageService } from '../../infrastructure/storage/storage.service';
 import { RabbitMQMessagingService } from '../../infrastructure/messaging/rabbitmq.service';
 import { ConfigService } from '@nestjs/config';
+import { allocateInvoiceNumber } from '../../domain/services/invoice-number';
 
 export interface GenerateInvoiceInput {
   tenantId: string;
@@ -26,12 +26,17 @@ export class GenerateInvoiceUseCase {
     private readonly prisma: PrismaService,
     private readonly domainService: InvoiceDomainService,
     private readonly financialGrpcClient: FinancialGrpcClient,
-    private readonly storageService: StorageService,
     private readonly messagingService: RabbitMQMessagingService,
     private readonly configService: ConfigService,
   ) {}
 
   async execute(input: GenerateInvoiceInput) {
+    if (!input.tenantId || !input.shipmentId || !input.customerId || !input.podS3Key ||
+        !input.originPort || !input.destinationPort ||
+        !Number.isFinite(input.weightKg) || input.weightKg <= 0 ||
+        !Number.isFinite(input.volumeCbm) || input.volumeCbm < 0) {
+      throw new BadRequestException('Tenant, shipment, customer, POD and measured route/cargo data are required');
+    }
     this.logger.log(`Executing GenerateInvoiceUseCase for shipment ${input.shipmentId} (Tenant: ${input.tenantId})`);
 
     // ── 1. Idempotency Check ─────────────────────────────────────────────
@@ -50,17 +55,17 @@ export class GenerateInvoiceUseCase {
     const costEstimate = await this.financialGrpcClient.estimateCost({
       tenantId: input.tenantId,
       originCountry: 'CN',
-      originPort: input.originPort || 'SGSIN',
+      originPort: input.originPort,
       destinationCountry: 'VN',
-      destinationPort: input.destinationPort || 'VNSGN',
-      weightKg: input.weightKg || 1000,
-      volumeCbm: input.volumeCbm || 5,
+      destinationPort: input.destinationPort,
+      weightKg: input.weightKg,
+      volumeCbm: input.volumeCbm,
     });
 
     // ── 3. Build Invoice Line Items ──────────────────────────────────────
     const itemsInput = [
       {
-        description: `Base Freight Charge (${input.originPort || 'SGSIN'} -> ${input.destinationPort || 'VNSGN'})`,
+        description: `Base Freight Charge (${input.originPort} -> ${input.destinationPort})`,
         quantity: 1,
         unitPrice: costEstimate.baseFreightCost,
         amount: costEstimate.baseFreightCost,
@@ -85,11 +90,6 @@ export class GenerateInvoiceUseCase {
     const totals = this.domainService.calculateInvoiceTotals(itemsInput, 5.0);
 
     // ── 4. Generate Auto Invoice Number & Due Date (T+30) ─────────────────
-    const invoiceCount = await this.prisma.invoice.count({
-      where: { tenantId: input.tenantId },
-    });
-    const invoiceNumber = this.domainService.generateInvoiceNumber(invoiceCount + 1);
-
     const paymentTermsDays =
       input.paymentTermsDays ||
       this.configService.get<number>('billing.defaultPaymentTermsDays', 30);
@@ -97,11 +97,18 @@ export class GenerateInvoiceUseCase {
 
     // ── 5. Execute 1 ACID Database Transaction ───────────────────────────
     const createdInvoice = await this.prisma.$transaction(async (tx) => {
+      const invoiceNumber = await allocateInvoiceNumber(tx, this.domainService);
+      const duplicate = await tx.invoice.findFirst({
+        where: { tenantId: input.tenantId, shipmentId: input.shipmentId },
+      });
+      if (duplicate) {
+        throw new ConflictException(`Invoice ${duplicate.invoiceNumber} already generated for shipment ${input.shipmentId}`);
+      }
       return tx.invoice.create({
         data: {
           tenantId: input.tenantId,
           shipmentId: input.shipmentId,
-          customerId: input.customerId || 'CUST-001',
+          customerId: input.customerId,
           invoiceNumber: invoiceNumber,
           subtotal: totals.subtotal,
           taxAmount: totals.taxAmount,
@@ -126,36 +133,20 @@ export class GenerateInvoiceUseCase {
       });
     });
 
-    // ── 6. Render PDF & Generate Storage Key Presigned URL ────────────────
-    const pdfResult = await this.storageService.renderAndUploadInvoicePdf(
-      input.tenantId,
-      createdInvoice.id,
-      createdInvoice.invoiceNumber,
-    );
-
-    const updatedInvoice = await this.prisma.invoice.update({
-      where: { id: createdInvoice.id },
-      data: {
-        pdfS3Key: pdfResult.s3Key,
-        pdfUrl: pdfResult.presignedUrl,
-      },
-      include: { items: true },
-    });
-
-    // ── 7. Publish Event to RabbitMQ ─────────────────────────────────────
+    // PDF fields remain empty until a real renderer and object-storage adapter are configured.
     await this.messagingService.publishInvoiceCreated({
-      tenantId: updatedInvoice.tenantId,
-      invoiceId: updatedInvoice.id,
-      invoiceNumber: updatedInvoice.invoiceNumber,
-      shipmentId: updatedInvoice.shipmentId,
-      customerId: updatedInvoice.customerId,
-      totalAmount: updatedInvoice.totalAmount,
-      currency: updatedInvoice.currency,
-      dueDate: updatedInvoice.dueDate.toISOString(),
-      pdfUrl: updatedInvoice.pdfUrl || '',
-      createdAt: updatedInvoice.createdAt.toISOString(),
+      tenantId: createdInvoice.tenantId,
+      invoiceId: createdInvoice.id,
+      invoiceNumber: createdInvoice.invoiceNumber,
+      shipmentId: createdInvoice.shipmentId,
+      customerId: createdInvoice.customerId,
+      totalAmount: createdInvoice.totalAmount,
+      currency: createdInvoice.currency,
+      dueDate: createdInvoice.dueDate.toISOString(),
+      pdfUrl: '',
+      createdAt: createdInvoice.createdAt.toISOString(),
     });
 
-    return updatedInvoice;
+    return createdInvoice;
   }
 }

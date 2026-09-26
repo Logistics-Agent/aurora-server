@@ -31,7 +31,12 @@ public class BillingController(
                 TenantId = currentUser.TenantId.ToString(),
                 ShipmentId = body.ShipmentId ?? string.Empty,
                 CustomerId = body.CustomerId ?? string.Empty,
-                PaymentTermsDays = body.PaymentTermsDays > 0 ? body.PaymentTermsDays : 30
+                PaymentTermsDays = body.PaymentTermsDays > 0 ? body.PaymentTermsDays : 30,
+                OriginPort = body.OriginPort ?? string.Empty,
+                DestinationPort = body.DestinationPort ?? string.Empty,
+                WeightKg = (double)body.WeightKg,
+                VolumeCbm = (double)body.VolumeCbm,
+                PodS3Key = body.PodS3Key ?? string.Empty
             };
 
             var response = await billingClient.GenerateInvoiceAsync(req, cancellationToken: ct);
@@ -184,7 +189,12 @@ public class BillingController(
 public record GenerateInvoiceBody(
     string? ShipmentId,
     string? CustomerId,
-    int PaymentTermsDays);
+    int PaymentTermsDays,
+    string? OriginPort,
+    string? DestinationPort,
+    decimal WeightKg,
+    decimal VolumeCbm,
+    string? PodS3Key);
 
 public record CreateInvoiceBody(
     string? ShipmentId,

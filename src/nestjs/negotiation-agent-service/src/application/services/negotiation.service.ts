@@ -1,4 +1,5 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, BadRequestException, ConflictException, ServiceUnavailableException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { NegotiationStrategyDomainService, DEFAULT_NEGOTIATION_CURRENCY } from '../../domain/services/negotiation-strategy.domain-service';
 import { AiGovernanceNegotiationClient } from '../../infrastructure/grpc/ai-governance.grpc-client';
@@ -75,15 +76,19 @@ export class NegotiationService {
     private readonly prisma: PrismaService,
     private readonly strategy: NegotiationStrategyDomainService,
     private readonly aiGovernanceClient: AiGovernanceNegotiationClient,
+    private readonly config: ConfigService,
   ) {}
 
   async submitOffer(input: SubmitOfferInput): Promise<NegotiationResult> {
-    const tenantId = input.tenantId || 'a0000000-0000-0000-0000-000000000001';
-    const shipmentId = input.shipmentId || input.shipment_id || 'UNKNOWN-SHIPMENT';
-    const customerId = input.customerId || input.customer_id || 'UNKNOWN-CUSTOMER';
-    const offerPrice = input.offerPrice ?? input.offer_price ?? 0;
-    const listPrice = input.listPrice ?? input.list_price ?? 1500.0;
-    const bottomPrice = input.bottomPrice ?? input.bottom_price ?? 1200.0;
+    const tenantId = this.requireTenant(input.tenantId);
+    const shipmentId = input.shipmentId || input.shipment_id;
+    const customerId = input.customerId || input.customer_id;
+    const offerPrice = input.offerPrice ?? input.offer_price ?? NaN;
+    const listPrice = input.listPrice ?? input.list_price ?? NaN;
+    const bottomPrice = input.bottomPrice ?? input.bottom_price ?? NaN;
+    if (!shipmentId || !customerId || !Number.isFinite(offerPrice) || offerPrice <= 0) {
+      throw new BadRequestException('shipmentId, customerId and a positive offerPrice are required');
+    }
     const customerTier = input.customerTier || input.customer_tier;
     const requestedSessionId = input.sessionId || input.session_id;
     const sourceMessageId = input.sourceMessageId || input.source_message_id || null;
@@ -92,7 +97,7 @@ export class NegotiationService {
 
     // 1. Get or create active negotiation session
     let session = requestedSessionId
-      ? await this.prisma.negotiationSession.findUnique({ where: { id: requestedSessionId } })
+      ? await this.prisma.negotiationSession.findFirst({ where: { id: requestedSessionId, tenantId, shipmentId, customerId } })
       : await this.prisma.negotiationSession.findFirst({
           where: {
             tenantId,
@@ -102,7 +107,16 @@ export class NegotiationService {
           },
         });
 
+    if (requestedSessionId && !session) throw new NotFoundException('Negotiation session not found');
+    if (session && session.status !== 'OPEN') throw new ConflictException('Negotiation session is closed');
     if (!session) {
+      if (this.config.get<string>('NODE_ENV') === 'production') {
+        throw new ServiceUnavailableException('Authoritative shipment pricing is not connected; a negotiation session cannot be opened');
+      }
+      if (!Number.isFinite(listPrice) || !Number.isFinite(bottomPrice) ||
+          listPrice <= 0 || bottomPrice <= 0 || bottomPrice > listPrice) {
+        throw new BadRequestException('Valid listPrice and bottomPrice are required to open a session');
+      }
       session = await this.prisma.negotiationSession.create({
         data: {
           tenantId,
@@ -111,8 +125,8 @@ export class NegotiationService {
           status: 'OPEN',
           currentRound: 1,
           maxRounds: 5,
-          listPrice,
-          bottomPrice,
+          listPrice: listPrice!,
+          bottomPrice: bottomPrice!,
           currency,
           sourceMessageId,
           sourceThreadId,
@@ -245,9 +259,9 @@ export class NegotiationService {
     };
   }
 
-  async getSessionHistory(sessionId: string) {
-    const session = await this.prisma.negotiationSession.findUnique({
-      where: { id: sessionId },
+  async getSessionHistory(sessionId: string, tenantId?: string) {
+    const session = await this.prisma.negotiationSession.findFirst({
+      where: { id: sessionId, tenantId: this.requireTenant(tenantId) },
       include: { messages: { orderBy: { createdAt: 'asc' } } },
     });
 
@@ -258,9 +272,9 @@ export class NegotiationService {
     return session;
   }
 
-  async getDraftSuggestion(sessionId: string): Promise<DraftSuggestionResult> {
-    const session = await this.prisma.negotiationSession.findUnique({
-      where: { id: sessionId },
+  async getDraftSuggestion(sessionId: string, tenantId?: string): Promise<DraftSuggestionResult> {
+    const session = await this.prisma.negotiationSession.findFirst({
+      where: { id: sessionId, tenantId: this.requireTenant(tenantId) },
     });
 
     if (!session) {
@@ -316,5 +330,10 @@ export class NegotiationService {
     }
 
     return true;
+  }
+
+  private requireTenant(tenantId?: string): string {
+    if (!tenantId?.trim()) throw new BadRequestException('tenantId is required');
+    return tenantId.trim();
   }
 }

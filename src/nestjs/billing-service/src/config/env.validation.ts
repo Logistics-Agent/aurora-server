@@ -42,6 +42,22 @@ export class EnvironmentVariables {
   @IsString()
   @IsOptional()
   DEFAULT_CURRENCY: string = 'USD';
+
+  @IsString()
+  @IsOptional()
+  RABBITMQ_URI?: string;
+
+  @IsString()
+  @IsOptional()
+  RABBITMQ_HOST?: string;
+
+  @IsString()
+  @IsOptional()
+  RABBITMQ_USERNAME?: string;
+
+  @IsString()
+  @IsOptional()
+  RABBITMQ_PASSWORD?: string;
 }
 
 export function validate(config: Record<string, unknown>) {

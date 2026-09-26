@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { CostCalculatorDomainService } from '../../domain/services/cost-calculator.domain-service';
@@ -28,11 +28,39 @@ export class FinancialService {
     private readonly rateCache: RateCacheService,
   ) {}
 
+  private requireTenant(tenantId?: string): string {
+    if (!tenantId?.trim()) throw new BadRequestException('tenantId is required');
+    return tenantId.trim();
+  }
+
   async estimateCost(
     request: EstimateCostRequest,
     tenantId?: string,
   ): Promise<EstimateCostResponse> {
-    const effectiveTenantId = tenantId || request.tenantId || 'a0000000-0000-0000-0000-000000000001';
+    const effectiveTenantId = this.requireTenant(tenantId || request.tenantId);
+    if ((request.currency || 'USD').toUpperCase() !== 'USD') {
+      throw new BadRequestException('Only USD estimates are supported until currency conversion is implemented');
+    }
+    if (!Number.isFinite(request.weightKg) || request.weightKg <= 0 ||
+        !Number.isFinite(request.volumeCbm) || request.volumeCbm < 0) {
+      throw new BadRequestException('Valid weightKg and volumeCbm are required');
+    }
+    if (!request.originPort?.trim() || !request.destinationPort?.trim()) {
+      throw new BadRequestException('Origin and destination ports are required');
+    }
+    for (const [field, value] of Object.entries({
+      cargoValue: request.cargoValue ?? 0,
+      fscRatePercent: request.fscRatePercent ?? 0,
+      ebsRatePercent: request.ebsRatePercent ?? 0,
+      insuranceRatePercent: request.insuranceRatePercent ?? 0,
+    })) {
+      if (!Number.isFinite(value) || value < 0) {
+        throw new BadRequestException(`${field} must be a non-negative finite number`);
+      }
+    }
+    if (request.hsCodes && request.hsCodes.length > 1) {
+      throw new BadRequestException('Multiple HS codes require item-level cargo values');
+    }
     const mode = (request.transportMode || 'SEA').toUpperCase();
     const cargoType = request.cargoType || 'GENERAL';
 
@@ -69,6 +97,7 @@ export class FinancialService {
     const cachedRate = await this.rateCache.getRate(effectiveTenantId, routeKey);
 
     if (cachedRate) {
+      if (cachedRate.currency !== 'USD') throw new BadRequestException('Freight rate currency conversion is required');
       baseFreightCost = this.calculator.calculateFreightFee(
         chargeableWeightKg,
         request.volumeCbm || 0,
@@ -89,6 +118,7 @@ export class FinancialService {
       });
 
       if (freightRate) {
+        if (freightRate.currency !== 'USD') throw new BadRequestException('Freight rate currency conversion is required');
         baseFreightCost = this.calculator.calculateFreightFee(
           chargeableWeightKg,
           request.volumeCbm || 0,
@@ -106,19 +136,7 @@ export class FinancialService {
           currency: freightRate.currency,
         });
       } else {
-        // Dynamic fallback based on mode
-        const ratePerKg = mode === 'AIR' ? 3.5 : 0.8;
-        const ratePerCbm = mode === 'AIR' ? 50.0 : 35.0;
-        const flatFee = mode === 'AIR' ? 50.0 : 150.0;
-
-        baseFreightCost = this.calculator.calculateFreightFee(
-          chargeableWeightKg,
-          request.volumeCbm || 0,
-          ratePerKg,
-          ratePerCbm,
-          flatFee,
-        );
-        calculationMethod = `FALLBACK_${mode}_FORMULA`;
+        throw new NotFoundException(`No freight rate configured for ${routeKey}`);
       }
     }
 
@@ -134,19 +152,19 @@ export class FinancialService {
     if (portFees.length > 0) {
       portHandlingFees = portFees.reduce((sum, fee) => sum + fee.amount, 0);
     } else {
-      // Default port fee structure ($120 base + $10/CBM)
-      portHandlingFees = Number((120.0 + (request.volumeCbm || 0) * 10.0).toFixed(2));
+      throw new NotFoundException(`No port handling fee configured for ${request.originPort}`);
     }
 
     // ── 4. Customs Duties & VAT ─────────────────────────────────────────
-    const cargoValue = request.cargoValue || request.weightKg * 2.5; // default valuation if unstated
+    const cargoValue = request.cargoValue ?? 0;
     let totalImportDuty = 0;
     let totalVat = 0;
     const dutyDescriptions: string[] = [];
 
-    const defaultVatRate = this.configService.get<number>('logistics.defaultVatRate', 10.0);
-
     if (request.hsCodes && request.hsCodes.length > 0) {
+      if (!Number.isFinite(cargoValue) || cargoValue <= 0) {
+        throw new BadRequestException('cargoValue is required when HS codes are supplied');
+      }
       for (const hsCode of request.hsCodes) {
         const dutyRate = await this.prisma.customsDutyRate.findUnique({
           where: {
@@ -157,8 +175,9 @@ export class FinancialService {
           },
         });
 
-        const importTaxRate = dutyRate ? dutyRate.importTaxRate : 5.0;
-        const vatRate = dutyRate ? dutyRate.vatRate : defaultVatRate;
+        if (!dutyRate) throw new NotFoundException(`No customs duty rate configured for HS ${hsCode}`);
+        const importTaxRate = dutyRate.importTaxRate;
+        const vatRate = dutyRate.vatRate;
 
         const dutyRes = this.calculator.calculateCustomsDuty(
           cargoValue,
@@ -173,19 +192,14 @@ export class FinancialService {
         );
       }
     } else {
-      const dutyRes = this.calculator.calculateCustomsDuty(cargoValue, 2.0, defaultVatRate);
-      totalImportDuty = dutyRes.importDutyAmount;
-      totalVat = dutyRes.vatAmount;
-      dutyDescriptions.push(
-        `Default Duty 2% ($${dutyRes.importDutyAmount}), VAT ${defaultVatRate}% ($${dutyRes.vatAmount})`,
-      );
+      dutyDescriptions.push('Customs duty excluded: no HS code supplied');
     }
 
     const totalCustomsFee = Number((totalImportDuty + totalVat).toFixed(2));
 
     // ── 5. Fuel Surcharge (FSC) & Emergency Bunker Surcharge (EBS) ─────────
     // Phụ phí nhiên liệu biến động theo tháng, bắt buộc có trong logistics biển/hàng không
-    const fscRatePercent = request.fscRatePercent !== undefined ? request.fscRatePercent : 10.0;
+    const fscRatePercent = request.fscRatePercent !== undefined ? request.fscRatePercent : 0.0;
     const ebsRatePercent = request.ebsRatePercent !== undefined ? request.ebsRatePercent : 0.0;
 
     const surchargeResult = this.calculator.calculateFuelSurcharge(
@@ -197,9 +211,9 @@ export class FinancialService {
 
     // ── 6. Cargo Insurance Fee ───────────────────────────────────────────────
     // Phí bảo hiểm hàng hóa (mặc định 0.3% giá trị lô hàng)
-    const insuranceRatePercent = request.insuranceRatePercent !== undefined ? request.insuranceRatePercent : 0.3;
+    const insuranceRatePercent = request.insuranceRatePercent !== undefined ? request.insuranceRatePercent : 0;
     const { insuranceFee: cargoInsuranceFee } = this.calculator.calculateCargoInsurance(
-      cargoValue,
+      cargoValue || 0,
       insuranceRatePercent,
     );
 
@@ -218,7 +232,7 @@ export class FinancialService {
       totalEstimatedCost,
       chargeableWeightKg,
       volumetricWeightKg,
-      currency: request.currency || 'USD',
+      currency: 'USD',
       calculationMethod,
       description: `Method: ${calculationMethod}. Port: $${portHandlingFees}. FSC: $${surchargeResult.fscAmount} (${fscRatePercent}%), EBS: $${surchargeResult.ebsAmount} (${ebsRatePercent}%). Insurance: $${cargoInsuranceFee} (${insuranceRatePercent}%). Customs: ${dutyDescriptions.join('; ')}`,
     };
@@ -228,9 +242,7 @@ export class FinancialService {
     request: GetCustomsDutyRequest,
     tenantId?: string,
   ): Promise<GetCustomsDutyResponse> {
-    const effectiveTenantId = tenantId || request.tenantId || 'a0000000-0000-0000-0000-000000000001';
-    const defaultVatRate = this.configService.get<number>('logistics.defaultVatRate', 10.0);
-
+    const effectiveTenantId = this.requireTenant(tenantId || request.tenantId);
     const dutyRate = await this.prisma.customsDutyRate.findUnique({
       where: {
         tenantId_hsCode: {
@@ -240,9 +252,13 @@ export class FinancialService {
       },
     });
 
-    const importTaxRate = dutyRate ? dutyRate.importTaxRate : 5.0;
-    const vatRate = dutyRate ? dutyRate.vatRate : defaultVatRate;
-    const cargoValue = request.cargoValue || 1000.0;
+    if (!dutyRate) throw new NotFoundException(`No customs duty rate configured for HS ${request.hsCode}`);
+    if (!Number.isFinite(request.cargoValue) || request.cargoValue <= 0) {
+      throw new BadRequestException('cargoValue must be positive');
+    }
+    const importTaxRate = dutyRate.importTaxRate;
+    const vatRate = dutyRate.vatRate;
+    const cargoValue = request.cargoValue!;
 
     const dutyRes = this.calculator.calculateCustomsDuty(cargoValue, importTaxRate, vatRate);
 
@@ -297,13 +313,17 @@ export class FinancialService {
     request: GetDynamicMarginRequest,
     tenantId?: string,
   ): Promise<GetDynamicMarginResponse> {
-    const effectiveTenantId = tenantId || request.tenantId || 'a0000000-0000-0000-0000-000000000001';
+    const effectiveTenantId = this.requireTenant(tenantId || request.tenantId);
 
-    if (request.costPrice <= 0) {
-      throw new Error('costPrice must be greater than 0');
+    if (!Number.isFinite(request.costPrice) || request.costPrice <= 0) {
+      throw new BadRequestException('costPrice must be greater than 0');
     }
-    if (request.totalSeconds <= 0) {
-      throw new Error('totalSeconds must be greater than 0');
+    if (!Number.isFinite(request.totalSeconds) || request.totalSeconds <= 0 ||
+        !Number.isFinite(request.remainingSeconds) || request.remainingSeconds < 0 ||
+        request.remainingSeconds > request.totalSeconds ||
+        !Number.isFinite(request.baseMarginPercent) || request.baseMarginPercent < 0 ||
+        (request.gamma !== undefined && (!Number.isFinite(request.gamma) || request.gamma <= 0))) {
+      throw new BadRequestException('Invalid dynamic margin parameters');
     }
 
     const result = this.calculator.calculateDynamicMargin(
@@ -335,19 +355,24 @@ export class FinancialService {
     request: GetExchangeRateRequest,
     tenantId?: string,
   ): Promise<GetExchangeRateResponse> {
-    const effectiveTenantId = tenantId || request.tenantId || 'a0000000-0000-0000-0000-000000000001';
+    const effectiveTenantId = this.requireTenant(tenantId || request.tenantId);
 
+    if (!request.fromCurrency || !request.toCurrency) {
+      throw new BadRequestException('Currency pair is required');
+    }
     // Tìm ngày target (mặc định hôm nay)
     const targetDate = request.date ? new Date(request.date) : new Date();
+    if (Number.isNaN(targetDate.getTime())) throw new BadRequestException('Invalid exchange rate date');
     targetDate.setUTCHours(0, 0, 0, 0);
 
-    // Tìm tỷ giá mới nhất không quá 7 ngày cũ
+    const oldestAllowed = new Date(targetDate.getTime() - 7 * 86400000);
     const rate = await this.prisma.exchangeRate.findFirst({
       where: {
         tenantId: effectiveTenantId,
         fromCurrency: request.fromCurrency.toUpperCase(),
         toCurrency: request.toCurrency.toUpperCase(),
-        validDate: { lte: targetDate },
+        validDate: { gte: oldestAllowed, lte: targetDate },
+        source: { notIn: ['MOCK', 'FALLBACK'] },
       },
       orderBy: { validDate: 'desc' },
     });
@@ -362,26 +387,6 @@ export class FinancialService {
       };
     }
 
-    // Fallback hardcoded nếu chưa có dữ liệu DB (chạy lần đầu trước cron)
-    const FALLBACK_RATES: Record<string, number> = {
-      'USD_VND': 25450.0,
-      'EUR_VND': 27800.0,
-      'USD_EUR': 0.915,
-      'EUR_USD': 1.093,
-    };
-    const key = `${request.fromCurrency.toUpperCase()}_${request.toCurrency.toUpperCase()}`;
-    const fallbackRate = FALLBACK_RATES[key] || 1.0;
-
-    this.logger.warn(
-      `[ExchangeRate] No DB rate found for ${key}. Using fallback: ${fallbackRate}. Run ExchangeRateSyncCronJob to populate.`,
-    );
-
-    return {
-      fromCurrency: request.fromCurrency.toUpperCase(),
-      toCurrency: request.toCurrency.toUpperCase(),
-      rate: fallbackRate,
-      validDate: targetDate.toISOString(),
-      source: 'FALLBACK',
-    };
+    throw new NotFoundException(`No verified exchange rate for ${request.fromCurrency}/${request.toCurrency} within seven days`);
   }
 }

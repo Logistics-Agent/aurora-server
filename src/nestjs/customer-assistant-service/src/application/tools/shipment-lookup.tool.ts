@@ -1,4 +1,4 @@
-import { Injectable, ForbiddenException } from '@nestjs/common';
+import { Injectable, ForbiddenException, BadRequestException } from '@nestjs/common';
 import { IAssistantTool, ToolExecutionContext, ToolResult } from './tool.interface';
 import { AssistantIntent } from '../../domain/enums/assistant-intent.enum';
 import { ActorType } from '../../domain/enums/actor-type.enum';
@@ -14,17 +14,20 @@ export class ShipmentLookupTool implements IAssistantTool {
   constructor(private readonly readModel: ReadModelStore) {}
 
   async execute(context: ToolExecutionContext, params?: any): Promise<ToolResult> {
-    const { actorType, customerId } = context.currentUser;
+    const { actorType, customerId, tenantId } = context.currentUser;
 
     if (!this.allowedActors.includes(actorType)) {
       throw new ForbiddenException(`Actor ${actorType} is not authorized to execute ${this.name}`);
     }
 
     const specificShipmentId = params?.shipmentId;
+    if (actorType === ActorType.CUSTOMER && !customerId) {
+      throw new ForbiddenException('Customer identity is required for shipment lookup');
+    }
 
     // 1. Specific Shipment Lookup
     if (specificShipmentId) {
-      const shipment = this.readModel.getShipment(specificShipmentId);
+      const shipment = this.readModel.getShipment(specificShipmentId, tenantId);
       if (shipment) {
         // Enforce customer boundary: Customer can only view their own shipment
         if (actorType === ActorType.CUSTOMER && shipment.customerId !== customerId) {
@@ -47,8 +50,7 @@ export class ShipmentLookupTool implements IAssistantTool {
 
     // 2. Customer Scoped List
     if (actorType === ActorType.CUSTOMER) {
-      const activeCustomerId = customerId || 'CUST-001';
-      const shipments = this.readModel.getShipmentsByCustomer(activeCustomerId);
+      const shipments = this.readModel.getShipmentsByCustomer(customerId!, tenantId);
       if (shipments.length === 0) {
         return {
           toolName: this.name,
@@ -68,8 +70,9 @@ export class ShipmentLookupTool implements IAssistantTool {
     }
 
     // 3. Staff / Admin Tenant Scope List
-    const targetCustId = params?.targetCustomerId || customerId || 'CUST-001';
-    const shipments = this.readModel.getShipmentsByCustomer(targetCustId);
+    const targetCustId = params?.targetCustomerId || customerId;
+    if (!targetCustId) throw new BadRequestException('customerId is required for shipment list');
+    const shipments = this.readModel.getShipmentsByCustomer(targetCustId, tenantId);
     if (shipments.length === 0) {
       return {
         toolName: this.name,

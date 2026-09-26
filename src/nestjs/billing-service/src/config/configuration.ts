@@ -14,4 +14,9 @@ export default () => ({
     s3BucketName: process.env.S3_BUCKET_NAME || 'aurora-private-docs',
     defaultCurrency: process.env.DEFAULT_CURRENCY || 'USD',
   },
+  rabbitmq: {
+    uri: process.env.RABBITMQ_URI || (process.env.RABBITMQ_HOST
+      ? `amqp://${process.env.RABBITMQ_USERNAME || 'aurora_admin'}:${encodeURIComponent(process.env.RABBITMQ_PASSWORD || '')}@${process.env.RABBITMQ_HOST}:${process.env.RABBITMQ_PORT || 5672}`
+      : undefined),
+  },
 });

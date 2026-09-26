@@ -141,7 +141,7 @@ export class CostCalculatorDomainService {
     insuranceRatePercent: number = 0.3,
   ): { insuranceFee: number } {
     const safeValue = cargoValue > 0 ? cargoValue : 0;
-    const insuranceFee = safeValue * ((insuranceRatePercent || 0.3) / 100.0);
+    const insuranceFee = safeValue * ((insuranceRatePercent ?? 0.3) / 100.0);
     return { insuranceFee: Number(insuranceFee.toFixed(2)) };
   }
 

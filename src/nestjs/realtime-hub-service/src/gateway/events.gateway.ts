@@ -23,7 +23,7 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
   server: Server;
 
   private readonly logger = new Logger(EventsGateway.name);
-  private readonly pendingAcks: Map<string, NodeJS.Timeout> = new Map();
+  private readonly pendingAcks: Map<string, { timeout: NodeJS.Timeout; tenantId: string; userId: string }> = new Map();
 
   constructor(
     private readonly wsJwtGuard: WsJwtGuard,
@@ -41,11 +41,12 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
       const tenantRoom = `tenant:${tenantId}`;
       const userRoom = `user:${tenantId}:${userId}`;
 
-      await client.join(tenantRoom);
+      if (this.isStaff(client)) await client.join(tenantRoom);
       await client.join(userRoom);
+      if (client.data.customerId) await client.join(`customer:${tenantId}:${client.data.customerId}`);
 
       this.logger.log(
-        `Socket Client connected: ID ${client.id} | Tenant: ${tenantId} | User: ${userId} | Joined Rooms: [${tenantRoom}, ${userRoom}]`,
+        `Socket Client connected: ID ${client.id} | Tenant: ${tenantId} | User: ${userId}`,
       );
 
       client.emit('connected', {
@@ -86,9 +87,12 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @ConnectedSocket() client: AuthenticatedSocket,
     @MessageBody() data: { shipmentId: string },
   ) {
-    const tenantId = client.data?.tenantId || 'a0000000-0000-0000-0000-000000000001';
+    const tenantId = client.data?.tenantId;
     if (!data || !data.shipmentId) {
       return { status: 'ERROR', message: 'shipmentId is required' };
+    }
+    if (!tenantId || (!this.isStaff(client) && !client.data.shipmentIds?.includes(data.shipmentId))) {
+      return { status: 'ERROR', message: 'Shipment access denied' };
     }
 
     const shipmentRoom = `shipment:${tenantId}:${data.shipmentId}`;
@@ -103,7 +107,7 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @ConnectedSocket() client: AuthenticatedSocket,
     @MessageBody() data: { shipmentId: string },
   ) {
-    const tenantId = client.data?.tenantId || 'a0000000-0000-0000-0000-000000000001';
+    const tenantId = client.data?.tenantId;
     if (!data || !data.shipmentId) {
       return { status: 'ERROR', message: 'shipmentId is required' };
     }
@@ -129,8 +133,9 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @ConnectedSocket() client: AuthenticatedSocket,
     @MessageBody() data: { msgId: string },
   ) {
-    if (data && data.msgId && this.pendingAcks.has(data.msgId)) {
-      clearTimeout(this.pendingAcks.get(data.msgId)!);
+    const pending = data?.msgId ? this.pendingAcks.get(data.msgId) : undefined;
+    if (pending && pending.tenantId === client.data?.tenantId && pending.userId === client.data?.userId) {
+      clearTimeout(pending.timeout);
       this.pendingAcks.delete(data.msgId);
       this.logger.log(`[ACK Received] Client ${client.id} acknowledged msgId '${data.msgId}'`);
     }
@@ -182,7 +187,17 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
       }
     }, 5000);
 
-    this.pendingAcks.set(msgId, timeout);
+    this.pendingAcks.set(msgId, { timeout, tenantId, userId });
+  }
+
+  sendToCustomer<T>(tenantId: string, customerId: string, event: string, data: T) {
+    this.server.to(`customer:${tenantId}:${customerId}`).emit(event, {
+      event, tenantId, timestamp: Date.now(), data,
+    });
+  }
+
+  private isStaff(client: AuthenticatedSocket): boolean {
+    return client.data?.roles?.some((role) => ['STAFF', 'ADMIN', 'SYSTEM'].includes(role.toUpperCase())) || false;
   }
 
   sendToShipment<T>(tenantId: string, shipmentId: string, event: string, data: T) {

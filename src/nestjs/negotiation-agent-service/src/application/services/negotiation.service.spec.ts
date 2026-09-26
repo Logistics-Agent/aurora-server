@@ -3,6 +3,7 @@ import { NegotiationService } from './negotiation.service';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { NegotiationStrategyDomainService } from '../../domain/services/negotiation-strategy.domain-service';
 import { AiGovernanceNegotiationClient } from '../../infrastructure/grpc/ai-governance.grpc-client';
+import { ConfigService } from '@nestjs/config';
 
 describe('NegotiationService', () => {
   let service: NegotiationService;
@@ -61,9 +62,11 @@ describe('NegotiationService', () => {
     }),
     getDeterministicFallback: jest.fn().mockReturnValue('Deterministic fallback wording.'),
   };
+  const mockConfig = { get: jest.fn().mockReturnValue('test') };
 
   beforeEach(async () => {
     jest.clearAllMocks();
+    mockConfig.get.mockReturnValue('test');
     mockAiClient.generateNegotiationDraft.mockResolvedValue({
       content: 'Dear Customer, our best counter-offer is $4,400.00 USD.',
       decisionId: 'dec-123',
@@ -86,6 +89,7 @@ describe('NegotiationService', () => {
           provide: AiGovernanceNegotiationClient,
           useValue: mockAiClient,
         },
+        { provide: ConfigService, useValue: mockConfig },
       ],
     }).compile();
 
@@ -166,7 +170,7 @@ describe('NegotiationService', () => {
   });
 
   it('4. GetDraftSuggestion reads persisted session without calling AI again', async () => {
-    const suggestion = await service.getDraftSuggestion('sess-001');
+    const suggestion = await service.getDraftSuggestion('sess-001', 'tenant-001');
 
     expect(suggestion.negotiationSessionId).toBe('sess-001');
     expect(suggestion.decision).toBe('COUNTER_OFFER');
@@ -174,5 +178,23 @@ describe('NegotiationService', () => {
     expect(suggestion.sourceMessageId).toBe('msg-inbound-123');
     expect(suggestion.sourceThreadId).toBe('thread-456');
     expect(mockAiClient.generateNegotiationDraft).not.toHaveBeenCalled();
+  });
+
+  it('does not expose a negotiation session outside its tenant', async () => {
+    mockPrisma.negotiationSession.findFirst.mockResolvedValueOnce(null);
+    await expect(service.getDraftSuggestion('sess-001', 'tenant-other')).rejects.toThrow();
+    expect(mockPrisma.negotiationSession.findFirst).toHaveBeenCalledWith({
+      where: { id: 'sess-001', tenantId: 'tenant-other' },
+    });
+  });
+
+  it('does not open a production session from caller-supplied prices', async () => {
+    mockConfig.get.mockReturnValue('production');
+    mockPrisma.negotiationSession.findFirst.mockResolvedValueOnce(null);
+    await expect(service.submitOffer({
+      tenantId: 'tenant-001', shipmentId: 'SHP-001', customerId: 'cust-001',
+      offerPrice: 4000, listPrice: 5000, bottomPrice: 4200,
+    })).rejects.toThrow('Authoritative shipment pricing is not connected');
+    expect(mockPrisma.negotiationSession.create).not.toHaveBeenCalled();
   });
 });

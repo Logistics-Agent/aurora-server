@@ -3,6 +3,9 @@ import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { InvoiceDomainService } from '../../domain/services/invoice.domain-service';
 import { GenerateInvoiceUseCase } from '../use-cases/generate-invoice.use-case';
 import { RabbitMQMessagingService } from '../../infrastructure/messaging/rabbitmq.service';
+import { RpcException } from '@nestjs/microservices';
+import { status } from '@grpc/grpc-js';
+import { allocateInvoiceNumber } from '../../domain/services/invoice-number';
 import {
   GenerateInvoiceRequest,
   CreateInvoiceRequest,
@@ -40,27 +43,44 @@ export class BillingService {
     private readonly messagingService: RabbitMQMessagingService,
   ) {}
 
+  private requireTenant(tenantId?: string): string {
+    if (!tenantId?.trim()) throw new BadRequestException('tenantId is required');
+    return tenantId.trim();
+  }
+
+  private requirePositiveAmount(amount: number): void {
+    if (!Number.isFinite(amount) || amount <= 0) {
+      throw new BadRequestException('Amount must be a positive finite number');
+    }
+  }
+
   // ── Invoice Operations ────────────────────────────────────────────────────
 
   async generateInvoice(
     request: GenerateInvoiceRequest,
     tenantId?: string,
   ): Promise<InvoiceResponse> {
-    const effectiveTenantId = tenantId || request.tenantId || 'a0000000-0000-0000-0000-000000000001';
+    const effectiveTenantId = this.requireTenant(tenantId || request.tenantId);
 
     const invoice = await this.generateInvoiceUseCase.execute({
       tenantId: effectiveTenantId,
       shipmentId: request.shipmentId,
       customerId: request.customerId,
       paymentTermsDays: request.paymentTermsDays,
+      originPort: request.originPort,
+      destinationPort: request.destinationPort,
+      weightKg: request.weightKg,
+      volumeCbm: request.volumeCbm,
+      podS3Key: request.podS3Key,
     });
 
     return this.mapInvoiceResponse(invoice);
   }
 
   async getInvoiceDetail(request: GetInvoiceRequest): Promise<InvoiceDetailResponse> {
-    const invoice = await this.prisma.invoice.findUnique({
-      where: { id: request.invoiceId },
+    const tenantId = this.requireTenant(request.tenantId);
+    const invoice = await this.prisma.invoice.findFirst({
+      where: { id: request.invoiceId, tenantId },
       include: {
         items: true,
         payments: true,
@@ -92,80 +112,52 @@ export class BillingService {
     request: CreditCheckRequest,
     tenantId?: string,
   ): Promise<CreditCheckResponse> {
-    const effectiveTenantId = tenantId || request.tenantId || 'a0000000-0000-0000-0000-000000000001';
-    const customerId = request.customerId || 'CUST-001';
-    const creditLimit = 50000.0; // Mock customer credit limit $50,000
-
-    const unpaidInvoices = await this.prisma.invoice.findMany({
-      where: {
-        tenantId: effectiveTenantId,
-        customerId: customerId,
-        status: { in: ['UNPAID', 'PARTIALLY_PAID', 'OVERDUE'] },
-      },
-      include: { payments: true },
+    this.requireTenant(tenantId || request.tenantId);
+    if (!request.customerId) throw new BadRequestException('customerId is required');
+    throw new RpcException({
+      code: status.UNAVAILABLE,
+      message: 'Customer credit limits are not connected to an authoritative source',
     });
-
-    const now = new Date();
-    let currentOutstandingDebt = 0;
-    let overdueInvoiceCount = 0;
-
-    for (const inv of unpaidInvoices) {
-      const paid = inv.payments.reduce((sum, p) => sum + p.amountPaid, 0);
-      const debt = inv.totalAmount - paid;
-      currentOutstandingDebt += debt;
-
-      if (inv.dueDate < now || inv.status === 'OVERDUE') {
-        overdueInvoiceCount += 1;
-      }
-    }
-
-    const evaluation = this.domainService.evaluateCreditApproval(
-      creditLimit,
-      currentOutstandingDebt,
-      overdueInvoiceCount,
-      request.newAmount || 0,
-    );
-
-    return {
-      customerId,
-      isCreditApproved: evaluation.isApproved,
-      creditLimit,
-      currentOutstandingDebt: Number(currentOutstandingDebt.toFixed(2)),
-      availableCredit: evaluation.availableCredit,
-      overdueInvoiceCount,
-      message: evaluation.reason,
-    };
   }
 
   async createInvoice(
     request: CreateInvoiceRequest,
     tenantId?: string,
   ): Promise<InvoiceResponse> {
-    const effectiveTenantId = tenantId || request.tenantId || 'a0000000-0000-0000-0000-000000000001';
+    const effectiveTenantId = this.requireTenant(tenantId || request.tenantId);
+    if (!request.shipmentId || !request.customerId || !Array.isArray(request.items) || request.items.length === 0) {
+      throw new BadRequestException('shipmentId, customerId and invoice items are required');
+    }
 
-    const items = request.items.map((i) => ({
-      quantity: i.quantity || 1,
-      unitPrice: i.unitPrice || i.amount,
-      amount: i.amount,
-      description: i.description,
-      category: i.category || 'FREIGHT',
-    }));
+    const items = request.items.map((i) => {
+      const quantity = i.quantity ?? 1;
+      const unitPrice = i.unitPrice ?? i.amount;
+      if (!i.description || !Number.isInteger(quantity) || quantity <= 0 ||
+          !Number.isFinite(unitPrice) || unitPrice < 0 ||
+          !Number.isFinite(i.amount) || Math.abs(i.amount - quantity * unitPrice) > 0.01) {
+        throw new BadRequestException('Invoice item amount must equal quantity × unitPrice');
+      }
+      return {
+        quantity, unitPrice, amount: i.amount,
+        description: i.description,
+        category: i.category || 'FREIGHT',
+      };
+    });
 
     const totals = this.domainService.calculateInvoiceTotals(items, 5.0);
 
-    const invoiceCount = await this.prisma.invoice.count({
-      where: { tenantId: effectiveTenantId },
-    });
-    const invoiceNumber = this.domainService.generateInvoiceNumber(invoiceCount + 1);
     const dueDate = request.dueDate
       ? new Date(request.dueDate)
       : this.domainService.calculateDueDate(new Date(), 30);
+    if (Number.isNaN(dueDate.getTime())) throw new BadRequestException('Invalid dueDate');
 
-    const invoice = await this.prisma.invoice.create({
+    const invoice = await this.prisma.$transaction(async (tx) => {
+      const invoiceNumber = await allocateInvoiceNumber(tx, this.domainService);
+      return tx.invoice.create({
       data: {
         tenantId: effectiveTenantId,
         shipmentId: request.shipmentId,
-        customerId: request.customerId || 'CUST-001',
+        customerId: request.customerId,
         invoiceNumber: invoiceNumber,
         subtotal: totals.subtotal,
         taxAmount: totals.taxAmount,
@@ -177,6 +169,7 @@ export class BillingService {
         },
       },
       include: { items: true },
+      });
     });
 
     return this.mapInvoiceResponse(invoice);
@@ -191,7 +184,7 @@ export class BillingService {
     request: ListInvoicesRequest,
     tenantId?: string,
   ): Promise<ListInvoicesResponse> {
-    const effectiveTenantId = tenantId || request.tenantId || 'a0000000-0000-0000-0000-000000000001';
+    const effectiveTenantId = this.requireTenant(tenantId || request.tenantId);
     const page = request.page && request.page > 0 ? request.page : 1;
     const limit = request.limit && request.limit > 0 ? request.limit : 10;
     const skip = (page - 1) * limit;
@@ -221,8 +214,9 @@ export class BillingService {
   }
 
   async updateInvoiceStatus(request: UpdateInvoiceStatusRequest): Promise<InvoiceResponse> {
-    const existing = await this.prisma.invoice.findUnique({
-      where: { id: request.invoiceId },
+    const tenantId = this.requireTenant(request.tenantId);
+    const existing = await this.prisma.invoice.findFirst({
+      where: { id: request.invoiceId, tenantId },
       include: { payments: true },
     });
 
@@ -260,64 +254,62 @@ export class BillingService {
     request: RecordPaymentRequest,
     tenantId?: string,
   ): Promise<RecordPaymentResponse> {
-    const effectiveTenantId = tenantId || request.tenantId || 'a0000000-0000-0000-0000-000000000001';
+    const effectiveTenantId = this.requireTenant(tenantId || request.tenantId);
 
-    const invoice = await this.prisma.invoice.findUnique({
-      where: { id: request.invoiceId },
-      include: { payments: true },
-    });
+    this.requirePositiveAmount(request.amountPaid);
+    if (!request.transactionRef?.trim()) throw new BadRequestException('transactionRef is required');
 
-    if (!invoice) {
-      throw new NotFoundException(`Invoice ${request.invoiceId} not found`);
-    }
+    const result = await this.prisma.$transaction(async (tx) => {
+      const locked = await tx.$queryRaw<Array<{ id: string }>>`
+        SELECT id FROM invoices WHERE id = ${request.invoiceId} AND tenant_id = ${effectiveTenantId} FOR UPDATE
+      `;
+      if (locked.length === 0) throw new NotFoundException(`Invoice ${request.invoiceId} not found`);
 
-    if (invoice.status === 'CANCELLED') {
-      throw new BadRequestException(`Cannot record payment for a CANCELLED invoice.`);
-    }
-
-    if (invoice.status === 'PAID') {
-      throw new BadRequestException(`Invoice ${invoice.invoiceNumber} is already fully PAID.`);
-    }
-
-    if (request.amountPaid <= 0) {
-      throw new BadRequestException(`Payment amount must be greater than 0.`);
-    }
-
-    // ── ACID Transaction: create payment record + auto-update invoice status ─
-    const totalAlreadyPaid = invoice.payments.reduce((sum, p) => sum + p.amountPaid, 0);
-    const newTotalPaid = totalAlreadyPaid + request.amountPaid;
-    const remainingBalance = Number(Math.max(0, invoice.totalAmount - newTotalPaid).toFixed(2));
-
-    // Determine new invoice status based on payment
-    let newStatus: string;
-    if (newTotalPaid >= invoice.totalAmount) {
-      newStatus = 'PAID';
-    } else if (newTotalPaid > 0) {
-      newStatus = 'PARTIALLY_PAID';
-    } else {
-      newStatus = invoice.status;
-    }
-
-    const [paymentRecord] = await this.prisma.$transaction([
-      this.prisma.paymentRecord.create({
+      const invoice = await tx.invoice.findUnique({
+        where: { id: request.invoiceId },
+        include: { payments: true },
+      });
+      const duplicate = invoice.payments.find((payment) => payment.transactionRef === request.transactionRef);
+      if (duplicate) {
+        if (duplicate.amountPaid !== request.amountPaid) {
+          throw new BadRequestException('transactionRef was already used for a different amount');
+        }
+        const paid = invoice.payments.reduce((sum, payment) => sum + payment.amountPaid, 0);
+        return { invoice, paymentRecord: duplicate, newStatus: invoice.status,
+          remainingBalance: Number(Math.max(0, invoice.totalAmount - paid).toFixed(2)), created: false };
+      }
+      if (invoice.status === 'CANCELLED' || invoice.status === 'PAID') {
+        throw new BadRequestException(`Invoice ${invoice.invoiceNumber} cannot accept a payment`);
+      }
+      const totalAlreadyPaid = invoice.payments.reduce((sum, payment) => sum + payment.amountPaid, 0);
+      const newTotalPaid = totalAlreadyPaid + request.amountPaid;
+      if (newTotalPaid > invoice.totalAmount + 0.01) {
+        throw new BadRequestException('Payment exceeds outstanding invoice balance');
+      }
+      const remainingBalance = Number(Math.max(0, invoice.totalAmount - newTotalPaid).toFixed(2));
+      const newStatus = remainingBalance === 0 ? 'PAID'
+        : invoice.dueDate < new Date() ? 'OVERDUE' : 'PARTIALLY_PAID';
+      const paymentRecord = await tx.paymentRecord.create({
         data: {
           tenantId: effectiveTenantId,
           invoiceId: request.invoiceId,
           amountPaid: request.amountPaid,
           paymentMethod: request.paymentMethod || 'BANK_TRANSFER',
-          transactionRef: request.transactionRef || `PAY-${Date.now()}`,
+          transactionRef: request.transactionRef,
           status: 'SUCCESS',
         },
-      }),
-      this.prisma.invoice.update({
+      });
+      await tx.invoice.update({
         where: { id: request.invoiceId },
         data: { status: newStatus },
-      }),
-    ]);
+      });
+      return { invoice, paymentRecord, newStatus, remainingBalance, created: true };
+    });
+    const { invoice, paymentRecord, newStatus, remainingBalance } = result;
 
-    // Publish payment.received event to RabbitMQ
-    await this.messagingService.publishPaymentReceived({
+    if (result.created) await this.messagingService.publishPaymentReceived({
       tenantId: effectiveTenantId,
+      customerId: invoice.customerId,
       invoiceId: request.invoiceId,
       paymentRecordId: paymentRecord.id,
       amountPaid: request.amountPaid,
@@ -346,8 +338,9 @@ export class BillingService {
   // ── CancelInvoice: Hủy Hóa đơn ──────────────────────────────────────────
 
   async cancelInvoice(request: CancelInvoiceRequest): Promise<InvoiceResponse> {
-    const invoice = await this.prisma.invoice.findUnique({
-      where: { id: request.invoiceId },
+    const tenantId = this.requireTenant(request.tenantId);
+    const invoice = await this.prisma.invoice.findFirst({
+      where: { id: request.invoiceId, tenantId },
       include: { items: true },
     });
 
@@ -385,10 +378,11 @@ export class BillingService {
     request: IssueDebitNoteRequest,
     tenantId?: string,
   ): Promise<AdjustmentNoteResponse> {
-    const effectiveTenantId = tenantId || request.tenantId || 'a0000000-0000-0000-0000-000000000001';
+    const effectiveTenantId = this.requireTenant(tenantId || request.tenantId);
 
-    const invoice = await this.prisma.invoice.findUnique({
-      where: { id: request.invoiceId },
+    const invoice = await this.prisma.invoice.findFirst({
+      where: { id: request.invoiceId, tenantId: effectiveTenantId },
+      include: { payments: true },
     });
 
     if (!invoice) {
@@ -399,11 +393,11 @@ export class BillingService {
       throw new BadRequestException(`Cannot issue Debit Note for a CANCELLED invoice.`);
     }
 
-    if (request.amount <= 0) {
-      throw new BadRequestException(`Debit Note amount must be greater than 0.`);
-    }
+    this.requirePositiveAmount(request.amount);
 
     const newTotalAmount = Number((invoice.totalAmount + request.amount).toFixed(2));
+    const totalPaid = invoice.payments.reduce((sum, payment) => sum + payment.amountPaid, 0);
+    const newStatus = totalPaid > 0 ? 'PARTIALLY_PAID' : invoice.status;
 
     const [note, updatedInvoice] = await this.prisma.$transaction([
       this.prisma.adjustmentNote.create({
@@ -419,7 +413,7 @@ export class BillingService {
       }),
       this.prisma.invoice.update({
         where: { id: request.invoiceId },
-        data: { totalAmount: newTotalAmount },
+        data: { totalAmount: newTotalAmount, status: newStatus },
       }),
     ]);
 
@@ -444,10 +438,11 @@ export class BillingService {
     request: IssueCreditNoteRequest,
     tenantId?: string,
   ): Promise<AdjustmentNoteResponse> {
-    const effectiveTenantId = tenantId || request.tenantId || 'a0000000-0000-0000-0000-000000000001';
+    const effectiveTenantId = this.requireTenant(tenantId || request.tenantId);
 
-    const invoice = await this.prisma.invoice.findUnique({
-      where: { id: request.invoiceId },
+    const invoice = await this.prisma.invoice.findFirst({
+      where: { id: request.invoiceId, tenantId: effectiveTenantId },
+      include: { payments: true },
     });
 
     if (!invoice) {
@@ -458,11 +453,14 @@ export class BillingService {
       throw new BadRequestException(`Cannot issue Credit Note for a CANCELLED invoice.`);
     }
 
-    if (request.amount <= 0) {
-      throw new BadRequestException(`Credit Note amount must be greater than 0.`);
-    }
+    this.requirePositiveAmount(request.amount);
 
-    const newTotalAmount = Number(Math.max(0, invoice.totalAmount - request.amount).toFixed(2));
+    const totalPaid = invoice.payments.reduce((sum, payment) => sum + payment.amountPaid, 0);
+    if (request.amount > invoice.totalAmount - totalPaid) {
+      throw new BadRequestException('Credit note exceeds unpaid balance; a refund workflow is required');
+    }
+    const newTotalAmount = Number((invoice.totalAmount - request.amount).toFixed(2));
+    const newStatus = totalPaid >= newTotalAmount ? 'PAID' : totalPaid > 0 ? 'PARTIALLY_PAID' : invoice.status;
 
     const [note, updatedInvoice] = await this.prisma.$transaction([
       this.prisma.adjustmentNote.create({
@@ -478,7 +476,7 @@ export class BillingService {
       }),
       this.prisma.invoice.update({
         where: { id: request.invoiceId },
-        data: { totalAmount: newTotalAmount },
+        data: { totalAmount: newTotalAmount, status: newStatus },
       }),
     ]);
 
@@ -506,7 +504,7 @@ export class BillingService {
     request: CreateEscrowWalletRequest,
     tenantId?: string,
   ): Promise<WalletResponse> {
-    const effectiveTenantId = tenantId || request.tenantId || 'a0000000-0000-0000-0000-000000000001';
+    const effectiveTenantId = this.requireTenant(tenantId || request.tenantId);
 
     const wallet = await this.prisma.escrowWallet.upsert({
       where: {
@@ -519,7 +517,7 @@ export class BillingService {
       create: {
         tenantId: effectiveTenantId,
         carrierId: request.carrierId,
-        balance: 10000.0,
+        balance: 0.0,
         frozenAmount: 0.0,
         currency: request.currency || 'USD',
       },
@@ -529,8 +527,9 @@ export class BillingService {
   }
 
   async getWalletBalance(request: GetWalletBalanceRequest): Promise<WalletResponse> {
-    const wallet = await this.prisma.escrowWallet.findUnique({
-      where: { id: request.walletId },
+    const tenantId = this.requireTenant(request.tenantId);
+    const wallet = await this.prisma.escrowWallet.findFirst({
+      where: { id: request.walletId, tenantId },
     });
 
     if (!wallet) {
@@ -541,8 +540,10 @@ export class BillingService {
   }
 
   async freezeEscrowAmount(request: FreezeEscrowRequest): Promise<TransactionResponse> {
-    const wallet = await this.prisma.escrowWallet.findUnique({
-      where: { id: request.walletId },
+    const tenantId = this.requireTenant(request.tenantId);
+    this.requirePositiveAmount(request.amount);
+    const wallet = await this.prisma.escrowWallet.findFirst({
+      where: { id: request.walletId, tenantId },
     });
 
     if (!wallet) {
@@ -554,14 +555,18 @@ export class BillingService {
       throw new BadRequestException(`Insufficient available funds to freeze $${request.amount}. Available: $${available}`);
     }
 
-    const [updatedWallet, transaction] = await this.prisma.$transaction([
-      this.prisma.escrowWallet.update({
-        where: { id: request.walletId },
-        data: {
-          frozenAmount: { increment: request.amount },
+    const transaction = await this.prisma.$transaction(async (tx) => {
+      const updated = await tx.escrowWallet.updateMany({
+        where: {
+          id: request.walletId,
+          tenantId,
+          balance: wallet.balance,
+          frozenAmount: { lte: wallet.balance - request.amount },
         },
-      }),
-      this.prisma.escrowTransaction.create({
+        data: { frozenAmount: { increment: request.amount } },
+      });
+      if (updated.count !== 1) throw new BadRequestException('Insufficient available funds to freeze');
+      return tx.escrowTransaction.create({
         data: {
           walletId: request.walletId,
           shipmentId: request.shipmentId,
@@ -570,15 +575,17 @@ export class BillingService {
           status: 'SUCCESS',
           referenceNo: request.referenceNo || `FREEZE-${request.shipmentId}`,
         },
-      }),
-    ]);
+      });
+    });
 
     return this.mapTransactionResponse(transaction);
   }
 
   async releaseEscrowAmount(request: ReleaseEscrowRequest): Promise<TransactionResponse> {
-    const wallet = await this.prisma.escrowWallet.findUnique({
-      where: { id: request.walletId },
+    const tenantId = this.requireTenant(request.tenantId);
+    this.requirePositiveAmount(request.amount);
+    const wallet = await this.prisma.escrowWallet.findFirst({
+      where: { id: request.walletId, tenantId },
     });
 
     if (!wallet) {
@@ -589,15 +596,16 @@ export class BillingService {
       throw new BadRequestException(`Cannot release $${request.amount}. Currently frozen: $${wallet.frozenAmount}`);
     }
 
-    const [updatedWallet, transaction] = await this.prisma.$transaction([
-      this.prisma.escrowWallet.update({
-        where: { id: request.walletId },
+    const transaction = await this.prisma.$transaction(async (tx) => {
+      const updated = await tx.escrowWallet.updateMany({
+        where: { id: request.walletId, tenantId, frozenAmount: { gte: request.amount } },
         data: {
           balance: { decrement: request.amount },
           frozenAmount: { decrement: request.amount },
         },
-      }),
-      this.prisma.escrowTransaction.create({
+      });
+      if (updated.count !== 1) throw new BadRequestException('Insufficient frozen funds to release');
+      return tx.escrowTransaction.create({
         data: {
           walletId: request.walletId,
           shipmentId: request.shipmentId,
@@ -606,15 +614,17 @@ export class BillingService {
           status: 'SUCCESS',
           referenceNo: request.referenceNo || `RELEASE-${request.shipmentId}`,
         },
-      }),
-    ]);
+      });
+    });
 
     return this.mapTransactionResponse(transaction);
   }
 
   async refundEscrowAmount(request: RefundEscrowRequest): Promise<TransactionResponse> {
-    const wallet = await this.prisma.escrowWallet.findUnique({
-      where: { id: request.walletId },
+    const tenantId = this.requireTenant(request.tenantId);
+    this.requirePositiveAmount(request.amount);
+    const wallet = await this.prisma.escrowWallet.findFirst({
+      where: { id: request.walletId, tenantId },
     });
 
     if (!wallet) {
@@ -625,14 +635,13 @@ export class BillingService {
       throw new BadRequestException(`Cannot refund $${request.amount}. Currently frozen: $${wallet.frozenAmount}`);
     }
 
-    const [updatedWallet, transaction] = await this.prisma.$transaction([
-      this.prisma.escrowWallet.update({
-        where: { id: request.walletId },
-        data: {
-          frozenAmount: { decrement: request.amount },
-        },
-      }),
-      this.prisma.escrowTransaction.create({
+    const transaction = await this.prisma.$transaction(async (tx) => {
+      const updated = await tx.escrowWallet.updateMany({
+        where: { id: request.walletId, tenantId, frozenAmount: { gte: request.amount } },
+        data: { frozenAmount: { decrement: request.amount } },
+      });
+      if (updated.count !== 1) throw new BadRequestException('Insufficient frozen funds to refund');
+      return tx.escrowTransaction.create({
         data: {
           walletId: request.walletId,
           shipmentId: request.shipmentId,
@@ -641,8 +650,8 @@ export class BillingService {
           status: 'SUCCESS',
           referenceNo: request.referenceNo || `REFUND-${request.shipmentId}`,
         },
-      }),
-    ]);
+      });
+    });
 
     return this.mapTransactionResponse(transaction);
   }
@@ -654,7 +663,7 @@ export class BillingService {
       id: invoice.id,
       tenantId: invoice.tenantId,
       shipmentId: invoice.shipmentId,
-      customerId: invoice.customerId || 'CUST-001',
+      customerId: invoice.customerId,
       invoiceNumber: invoice.invoiceNumber,
       subtotal: invoice.subtotal,
       taxAmount: invoice.taxAmount,

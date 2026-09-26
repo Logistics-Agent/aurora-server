@@ -1,4 +1,4 @@
-import { Injectable, ForbiddenException } from '@nestjs/common';
+import { Injectable, ForbiddenException, BadRequestException } from '@nestjs/common';
 import { IAssistantTool, ToolExecutionContext, ToolResult } from './tool.interface';
 import { AssistantIntent } from '../../domain/enums/assistant-intent.enum';
 import { ActorType } from '../../domain/enums/actor-type.enum';
@@ -14,7 +14,7 @@ export class BillingSummaryTool implements IAssistantTool {
   constructor(private readonly readModel: ReadModelStore) {}
 
   async execute(context: ToolExecutionContext, params?: any): Promise<ToolResult> {
-    const { actorType, customerId } = context.currentUser;
+    const { actorType, customerId, tenantId } = context.currentUser;
 
     if (!this.allowedActors.includes(actorType)) {
       throw new ForbiddenException(`Actor ${actorType} is not authorized to execute ${this.name}`);
@@ -22,10 +22,11 @@ export class BillingSummaryTool implements IAssistantTool {
 
     const targetCustomerId =
       actorType === ActorType.CUSTOMER
-        ? customerId || 'CUST-001'
-        : params?.targetCustomerId || customerId || 'CUST-001';
+        ? customerId
+        : params?.targetCustomerId || customerId;
+    if (!targetCustomerId) throw new BadRequestException('customerId is required for billing lookup');
 
-    const summary = this.readModel.getCustomerBalanceSummary(targetCustomerId);
+    const summary = this.readModel.getCustomerBalanceSummary(targetCustomerId, tenantId);
 
     return {
       toolName: this.name,

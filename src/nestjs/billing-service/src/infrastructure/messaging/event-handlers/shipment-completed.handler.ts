@@ -56,11 +56,11 @@ export class ShipmentCompletedEventHandler {
     await this.generateInvoiceUseCase.execute({
       tenantId: event.tenantId,
       shipmentId: event.shipmentId,
-      customerId: event.customerId || 'CUST-001',
-      originPort: event.originPort || 'SGSIN',
-      destinationPort: event.destinationPort || 'VNSGN',
-      weightKg: event.weightKg || 1000,
-      volumeCbm: event.volumeCbm || 5,
+      customerId: event.customerId,
+      originPort: event.originPort,
+      destinationPort: event.destinationPort,
+      weightKg: event.weightKg,
+      volumeCbm: event.volumeCbm,
       podS3Key: event.podDocumentS3Key,
     });
   }

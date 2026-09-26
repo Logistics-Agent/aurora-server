@@ -1,7 +1,6 @@
 import { ExecutionContext, ForbiddenException, UnauthorizedException } from '@nestjs/common';
 import { AuthGuard } from './auth.guard';
 import { ActorType } from '../../domain/enums/actor-type.enum';
-import { AuthIdentityMismatchException } from '../../domain/errors/assistant.errors';
 
 describe('AuthGuard Trusted Identity Boundary', () => {
   let guard: AuthGuard;
@@ -56,19 +55,24 @@ describe('AuthGuard Trusted Identity Boundary', () => {
     expect(() => guard.canActivate(context)).toThrow(ForbiddenException);
   });
 
-  it('should reject external request when JWT tenant does not match header tenant', () => {
-    // Create JWT with tenant-A
+  it('should reject a forged JWT regardless of its claims', () => {
     const payload = Buffer.from(JSON.stringify({ sub: 'user-1', tenant_id: 'tenant-A' })).toString('base64');
     const jwt = `header.${payload}.signature`;
 
     const context = createMockContext({
       'authorization': `Bearer ${jwt}`,
-      'x-service-id': 'Staff.Bff',
-      'x-internal-secret': 'secret-bff-123',
-      'x-tenant-id': 'tenant-B', // mismatch
-      'x-user-id': 'user-1',
+      'x-tenant-id': 'tenant-A',
     });
 
-    expect(() => guard.canActivate(context)).toThrow(AuthIdentityMismatchException);
+    expect(() => guard.canActivate(context)).toThrow(UnauthorizedException);
+  });
+
+  it('should reject a trusted service name without a configured secret', () => {
+    const context = createMockContext({
+      'x-service-id': 'Staff.Bff',
+      'x-tenant-id': 'tenant-1',
+      'x-user-id': 'user-1',
+    });
+    expect(() => guard.canActivate(context)).toThrow(ForbiddenException);
   });
 });

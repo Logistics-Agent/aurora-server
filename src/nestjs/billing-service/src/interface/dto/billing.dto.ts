@@ -3,6 +3,11 @@ export interface GenerateInvoiceRequest {
   shipmentId: string;
   customerId?: string;
   paymentTermsDays?: number;
+  originPort?: string;
+  destinationPort?: string;
+  weightKg?: number;
+  volumeCbm?: number;
+  podS3Key?: string;
 }
 
 export interface CreditCheckRequest {
@@ -38,6 +43,7 @@ export interface CreateInvoiceRequest {
 }
 
 export interface GetInvoiceRequest {
+  tenantId?: string;
   invoiceId: string;
 }
 
@@ -98,6 +104,7 @@ export interface ListInvoicesResponse {
 }
 
 export interface UpdateInvoiceStatusRequest {
+  tenantId?: string;
   invoiceId: string;
   status: string;
 }
@@ -109,6 +116,7 @@ export interface CreateEscrowWalletRequest {
 }
 
 export interface GetWalletBalanceRequest {
+  tenantId?: string;
   walletId: string;
 }
 
@@ -123,6 +131,7 @@ export interface WalletResponse {
 }
 
 export interface FreezeEscrowRequest {
+  tenantId?: string;
   walletId: string;
   shipmentId: string;
   amount: number;
@@ -130,6 +139,7 @@ export interface FreezeEscrowRequest {
 }
 
 export interface ReleaseEscrowRequest {
+  tenantId?: string;
   walletId: string;
   shipmentId: string;
   amount: number;
@@ -137,6 +147,7 @@ export interface ReleaseEscrowRequest {
 }
 
 export interface RefundEscrowRequest {
+  tenantId?: string;
   walletId: string;
   shipmentId: string;
   amount: number;
@@ -178,6 +189,7 @@ export interface RecordPaymentResponse {
 // ── New: CancelInvoice ────────────────────────────────────────────────────
 
 export interface CancelInvoiceRequest {
+  tenantId?: string;
   invoiceId: string;
   reason?: string;
 }

@@ -1,8 +1,8 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { ReadModelStore } from '../../read-model/read-model.store';
 
 export interface CustomerChatInput {
-  tenantId?: string;
+  tenantId: string;
   customerId: string;
   message: string;
 }
@@ -26,7 +26,10 @@ export class CustomerAssistantService {
   async processCustomerQuery(input: CustomerChatInput): Promise<CustomerChatResult> {
 
     const queryLower = input.message.toLowerCase();
-    const customerId = input.customerId || 'CUST-001';
+    if (!input.tenantId?.trim() || !input.customerId?.trim()) {
+      throw new BadRequestException('tenantId and customerId are required');
+    }
+    const customerId = input.customerId.trim();
 
     let intent: 'TRACK_SHIPMENT' | 'CHECK_BALANCE' | 'GENERAL_HELP' = 'GENERAL_HELP';
     let replyMessage = '';
@@ -41,7 +44,7 @@ export class CustomerAssistantService {
       queryLower.includes('đơn hàng')
     ) {
       intent = 'TRACK_SHIPMENT';
-      const shipments = this.readModel.getShipmentsByCustomer(customerId);
+      const shipments = this.readModel.getShipmentsByCustomer(customerId, input.tenantId);
 
       if (shipments.length > 0) {
         const primary = shipments[0];
@@ -58,7 +61,7 @@ export class CustomerAssistantService {
       queryLower.includes('tài khoản')
     ) {
       intent = 'CHECK_BALANCE';
-      const summary = this.readModel.getCustomerBalanceSummary(customerId);
+      const summary = this.readModel.getCustomerBalanceSummary(customerId, input.tenantId);
       readModelData = summary;
 
       replyMessage = `Tổng công nợ hiện tại của quý khách là **$${summary.totalDebt}** (${summary.unpaidCount} hóa đơn chưa thanh toán hoàn tất). Hóa đơn mới nhất số ${summary.invoices[0]?.invoiceNumber || 'N/A'} có số dư còn lại: $${summary.invoices[0]?.remainingBalance || 0}.`;

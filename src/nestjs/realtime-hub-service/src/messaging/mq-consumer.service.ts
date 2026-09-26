@@ -8,6 +8,8 @@ export class MQConsumerService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(MQConsumerService.name);
   private connection: any;
   private channel: any;
+  private reconnectTimer: NodeJS.Timeout | null = null;
+  private stopping = false;
 
   constructor(
     private readonly configService: ConfigService,
@@ -19,6 +21,8 @@ export class MQConsumerService implements OnModuleInit, OnModuleDestroy {
   }
 
   async onModuleDestroy() {
+    this.stopping = true;
+    if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     try {
       if (this.channel) await this.channel.close();
       if (this.connection) await this.connection.close();
@@ -36,6 +40,12 @@ export class MQConsumerService implements OnModuleInit, OnModuleDestroy {
     try {
       this.logger.log(`Connecting to RabbitMQ at ${rabbitMqUri}...`);
       this.connection = await amqp.connect(rabbitMqUri);
+      this.connection.on('close', () => {
+        this.connection = null;
+        this.channel = null;
+        this.scheduleReconnect();
+      });
+      this.connection.on('error', (error: Error) => this.logger.warn(`RabbitMQ connection error: ${error.message}`));
       this.channel = await this.connection.createChannel();
 
       const exchange = 'logistics_events';
@@ -51,36 +61,54 @@ export class MQConsumerService implements OnModuleInit, OnModuleDestroy {
         this.logger.log(`Bound queue '${queue}' to exchange '${exchange}' with pattern '${pattern}'`);
       }
 
-      this.channel.consume(queue, (msg: amqp.ConsumeMessage | null) => {
+      await this.channel.prefetch(20);
+      await this.channel.consume(queue, async (msg: amqp.ConsumeMessage | null) => {
         if (msg) {
-          this.handleIncomingMessage(msg.fields.routingKey, msg.content.toString());
-          this.channel.ack(msg);
+          try {
+            await this.handleIncomingMessage(msg.fields.routingKey, msg.content.toString());
+            this.channel.ack(msg);
+          } catch (error) {
+            this.logger.error(`Realtime event handling failed: ${error.message}`);
+            this.channel.nack(msg, false, false);
+          }
         }
       });
 
       this.logger.log('RabbitMQ Consumer initialized successfully.');
     } catch (error) {
       this.logger.warn(`Could not connect to RabbitMQ (${error.message}). Realtime Hub waiting in offline mode.`);
+      this.scheduleReconnect();
     }
+  }
+
+  private scheduleReconnect(): void {
+    if (this.stopping || this.reconnectTimer) return;
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+      void this.connectAndSubscribe();
+    }, 5000);
   }
 
   /**
    * Routes RabbitMQ Events to targeted WebSocket Rooms
    */
-  handleIncomingMessage(routingKey: string, content: string) {
+  async handleIncomingMessage(routingKey: string, content: string): Promise<void> {
     this.logger.log(`Received MQ Event [RoutingKey: ${routingKey}]`);
 
-    try {
-      const parsed = JSON.parse(content);
-      const tenantId = parsed.tenantId || 'a0000000-0000-0000-0000-000000000001';
-      const shipmentId = parsed.shipmentId;
-      const customerId = parsed.customerId || parsed.userId;
+    const envelope = JSON.parse(content);
+    const parsed = envelope.data || envelope;
+    const tenantId = envelope.tenant_id || parsed.tenantId;
+    if (!tenantId || (parsed.tenantId && parsed.tenantId !== tenantId)) {
+      throw new Error('Realtime event has missing or inconsistent tenantId');
+    }
+    const shipmentId = parsed.shipmentId;
+    const customerId = parsed.customerId;
+    const userId = parsed.userId;
 
       if (routingKey.startsWith('billing.')) {
         const eventName = routingKey.replace('billing.', '').toUpperCase();
-        if (customerId) {
-          this.eventsGateway.sendToUser(tenantId, customerId, eventName, parsed);
-        }
+        if (userId) await this.eventsGateway.sendToUser(tenantId, userId, eventName, parsed);
+        if (customerId) this.eventsGateway.sendToCustomer(tenantId, customerId, eventName, parsed);
         this.eventsGateway.sendToTenant(tenantId, eventName, parsed);
       } else if (routingKey.startsWith('negotiation.')) {
         const eventName = routingKey.replace('negotiation.', '').toUpperCase();
@@ -99,8 +127,5 @@ export class MQConsumerService implements OnModuleInit, OnModuleDestroy {
       } else {
         this.eventsGateway.sendToTenant(tenantId, routingKey.toUpperCase(), parsed);
       }
-    } catch (err) {
-      this.logger.error(`Failed to parse RabbitMQ payload (${err.message}): ${content}`);
-    }
   }
 }

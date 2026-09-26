@@ -1,7 +1,8 @@
-import { Controller, Post, Body, Get, Param, UseGuards } from '@nestjs/common';
+import { Controller, Post, Body, Get, Param, UseGuards, ForbiddenException } from '@nestjs/common';
 import { AuthGuard } from '../../infrastructure/security/auth.guard';
 import { UserContext } from '../../infrastructure/security/current-user.decorator';
 import { CurrentUser } from '../../infrastructure/security/current-user.interface';
+import { ActorType } from '../../domain/enums/actor-type.enum';
 import { ConversationalAssistantOrchestrator } from '../../application/orchestrator/conversational-assistant.orchestrator';
 
 export interface LegacyChatInput {
@@ -36,6 +37,9 @@ export class AssistantController {
     @Param('id') customerId: string,
     @UserContext() user: CurrentUser,
   ) {
+    if (user.actorType !== ActorType.STAFF && user.actorType !== ActorType.ADMIN) {
+      throw new ForbiddenException('Only staff can request another customer summary.');
+    }
     const secureUser: CurrentUser = { ...user, customerId };
     const convId = `conv-summary-${secureUser.userId.slice(0, 8)}`;
     const result = await this.orchestrator.processMessage(
