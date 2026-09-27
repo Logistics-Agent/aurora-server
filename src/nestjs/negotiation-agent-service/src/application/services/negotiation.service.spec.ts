@@ -29,7 +29,7 @@ describe('NegotiationService', () => {
     aiDraftUsed: true,
     fallbackUsed: false,
     lastDecision: 'COUNTER_OFFER',
-    lastApprovedAmount: 4520,
+    lastSuggestedAmount: 4520,
     sourceMessageId: 'msg-inbound-123',
     sourceThreadId: 'thread-456',
   };
@@ -39,6 +39,7 @@ describe('NegotiationService', () => {
       findFirst: jest.fn().mockResolvedValue(mockSession),
       create: jest.fn().mockResolvedValue(mockSession),
       update: jest.fn().mockResolvedValue({ ...mockSession, currentRound: 2 }),
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       findUnique: jest.fn().mockResolvedValue(mockSession),
     },
     negotiationMessage: {
@@ -47,7 +48,7 @@ describe('NegotiationService', () => {
         createdAt: new Date('2026-08-25T12:00:00Z'),
       }),
     },
-    $transaction: jest.fn().mockImplementation((promises) => Promise.all(promises)),
+    $transaction: jest.fn().mockImplementation((callback) => callback(mockPrisma)),
   };
 
   const mockAiClient = {
@@ -105,6 +106,7 @@ describe('NegotiationService', () => {
       shipmentId: 'SHP-001',
       customerId: 'cust-001',
       offerPrice: 4000,
+      sourceMessageId: 'offer-counter-1',
     });
 
     expect(result.decision).toBe('COUNTER_OFFER');
@@ -114,6 +116,13 @@ describe('NegotiationService', () => {
     expect(result.aiDraftUsed).toBe(true);
     expect(result.fallbackUsed).toBe(false);
     expect(result.suggestedReply.subjectSuggestion).toContain('SHP-001');
+    expect(mockPrisma.negotiationMessage.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        customerOfferPrice: 4000,
+        sourceMessageId: 'offer-counter-1',
+        offerPrice: result.counterOfferPrice,
+      }),
+    });
     expect(mockAiClient.generateNegotiationDraft).toHaveBeenCalledWith(
       expect.objectContaining({
         action: 'COUNTER_OFFER',
@@ -140,16 +149,19 @@ describe('NegotiationService', () => {
       shipmentId: 'SHP-001',
       customerId: 'cust-001',
       offerPrice: 4000,
+      sourceMessageId: 'offer-vip-1',
       customerTier: 'VIP',
     });
 
     expect(result.decision).toBe('HUMAN_HANDOFF');
     expect(result.status).toBe('HANDOFF');
+    expect(result.approvedAmount).toBe(0);
+    expect(mockAiClient.generateNegotiationDraft).not.toHaveBeenCalled();
   });
 
-  it('3. Offer above bottom price triggers ACCEPT with deal confirmation', async () => {
+  it('3. Offer above floor proposes staff approval without marking a final agreement', async () => {
     mockAiClient.generateNegotiationDraft.mockResolvedValueOnce({
-      content: 'Dear Customer, we are pleased to confirm that your offer has been accepted.',
+      content: 'We can proceed at $4,300 USD, subject to staff review and your confirmation.',
       decisionId: 'dec-125',
       automationLevel: 'ASSISTED',
       requiresApproval: false,
@@ -163,10 +175,13 @@ describe('NegotiationService', () => {
       shipmentId: 'SHP-001',
       customerId: 'cust-001',
       offerPrice: 4300, // Above bottomPrice 4200
+      sourceMessageId: 'offer-accept-1',
     });
 
     expect(result.decision).toBe('ACCEPT');
-    expect(result.status).toBe('ACCEPTED');
+    expect(result.status).toBe('PENDING_APPROVAL');
+    expect(result.suggestedAmount).toBe(4300);
+    expect(result.aiSpeech).not.toContain('has been accepted');
   });
 
   it('4. GetDraftSuggestion reads persisted session without calling AI again', async () => {
@@ -194,7 +209,77 @@ describe('NegotiationService', () => {
     await expect(service.submitOffer({
       tenantId: 'tenant-001', shipmentId: 'SHP-001', customerId: 'cust-001',
       offerPrice: 4000, listPrice: 5000, bottomPrice: 4200,
+      sourceMessageId: 'offer-prod-1',
     })).rejects.toThrow('Authoritative shipment pricing is not connected');
     expect(mockPrisma.negotiationSession.create).not.toHaveBeenCalled();
+  });
+
+  it('does not process a production session without approved pricing evidence', async () => {
+    mockConfig.get.mockReturnValue('production');
+    await expect(service.submitOffer({
+      tenantId: 'tenant-001', shipmentId: 'SHP-001', customerId: 'cust-001',
+      offerPrice: 4300, sourceMessageId: 'offer-unapproved-1',
+    })).rejects.toThrow('no approved pricing evidence');
+    expect(mockAiClient.generateNegotiationDraft).not.toHaveBeenCalled();
+  });
+
+  it('rejects a stale round without recording an AI message', async () => {
+    mockPrisma.negotiationSession.updateMany.mockResolvedValueOnce({ count: 0 });
+    await expect(service.submitOffer({
+      tenantId: 'tenant-001', shipmentId: 'SHP-001', customerId: 'cust-001',
+      offerPrice: 4000, sourceMessageId: 'offer-stale-1',
+    })).rejects.toThrow('Negotiation changed');
+    expect(mockPrisma.negotiationMessage.create).not.toHaveBeenCalled();
+  });
+
+  it('rejects a duplicate customer offer reference', async () => {
+    mockPrisma.negotiationMessage.create.mockRejectedValueOnce({ code: 'P2002' });
+    await expect(service.submitOffer({
+      tenantId: 'tenant-001', shipmentId: 'SHP-001', customerId: 'cust-001',
+      offerPrice: 4000, sourceMessageId: 'offer-replayed-1',
+    })).rejects.toThrow('already been processed');
+  });
+
+  it('does not open a second negotiation while staff approval is pending', async () => {
+    mockPrisma.negotiationSession.findFirst.mockResolvedValueOnce({
+      ...mockSession,
+      status: 'PENDING_APPROVAL',
+    });
+    await expect(service.submitOffer({
+      tenantId: 'tenant-001', shipmentId: 'SHP-001', customerId: 'cust-001',
+      offerPrice: 4300, sourceMessageId: 'offer-after-accept-1',
+    })).rejects.toThrow('awaiting staff action');
+    expect(mockPrisma.negotiationSession.create).not.toHaveBeenCalled();
+    expect(mockPrisma.negotiationSession.findFirst).toHaveBeenCalledWith({
+      where: {
+        tenantId: 'tenant-001',
+        shipmentId: 'SHP-001',
+        customerId: 'cust-001',
+        status: { in: ['OPEN', 'PENDING_APPROVAL'] },
+      },
+    });
+  });
+
+  it('uses deterministic wording when AI claims a final deal or changes currency', async () => {
+    mockAiClient.generateNegotiationDraft.mockResolvedValueOnce({
+      content: 'We accept the deal at $4,400 EUR. It is confirmed.',
+      isFallback: false,
+    });
+    const result = await service.submitOffer({
+      tenantId: 'tenant-001', shipmentId: 'SHP-001', customerId: 'cust-001',
+      offerPrice: 4000, sourceMessageId: 'offer-wrong-wording-1',
+    });
+
+    expect(result.fallbackUsed).toBe(true);
+    expect(result.aiDraftUsed).toBe(false);
+    expect(result.aiSpeech).toBe('Deterministic fallback wording.');
+  });
+
+  it('rejects fractional cents before generating a draft', async () => {
+    await expect(service.submitOffer({
+      tenantId: 'tenant-001', shipmentId: 'SHP-001', customerId: 'cust-001',
+      offerPrice: 4000.001, sourceMessageId: 'offer-fraction-1',
+    })).rejects.toThrow('two decimal places');
+    expect(mockAiClient.generateNegotiationDraft).not.toHaveBeenCalled();
   });
 });

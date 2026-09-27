@@ -22,11 +22,11 @@ message SubmitOfferRequest {
   string shipment_id       = 1;
   string customer_id       = 2;
   double offer_price       = 3;
-  double list_price        = 4;
-  double bottom_price      = 5;
+  double list_price        = 4; // Local development only; production uses persisted approved pricing
+  double bottom_price      = 5; // Local development only; production uses persisted approved pricing
   string customer_tier     = 6; // 'STANDARD' | 'VIP' | 'ENTERPRISE'
   string session_id        = 7; // Optional: reuse existing session if provided
-  string source_message_id = 8; // Inbound Mail MessageId (RFC / UUID)
+  string source_message_id = 8; // Required unique reference for the inbound customer offer
   string source_thread_id  = 9; // Inbound Mail ThreadId
 }
 
@@ -44,13 +44,14 @@ message SubmitOfferResponse {
   double counter_offer_price       = 5;
   string currency                  = 6; // MVP default: "USD"
   string ai_speech                 = 7;
-  string status                    = 8; // 'OPEN' | 'ACCEPTED' | 'HANDOFF' | 'REJECTED'
+  string status                    = 8; // 'OPEN' | 'PENDING_APPROVAL' | 'HANDOFF' | 'REJECTED'
   google.protobuf.Timestamp created_at = 9;
 
   SuggestedReplyDto suggested_reply          = 10;
   bool              suggested_reply_available = 11;
   bool              ai_draft_used            = 12;
   bool              fallback_used            = 13;
+  double            suggested_amount          = 14; // Candidate rate, not a final shipment agreement
 }
 
 message GetSessionHistoryRequest {
@@ -67,6 +68,8 @@ message NegotiationMessageDto {
   string decision                   = 7;
   string currency                   = 8;
   google.protobuf.Timestamp created_at = 9;
+  double customer_offer_price = 10;
+  string source_message_id = 11;
 }
 
 message GetSessionHistoryResponse {
@@ -99,8 +102,10 @@ message GetDraftSuggestionResponse {
   string body                      = 7;
   string language                  = 8;
   string decision                  = 9;
-  double approved_amount           = 10;
+  double approved_amount           = 10; // Legacy field: suggested amount, not final agreement
   string currency                  = 11;
   string source_message_id         = 12;
   string source_thread_id          = 13;
+  int32  round                     = 14;
+  double suggested_amount          = 15; // Candidate rate; official agreement is recorded in Billing
 }

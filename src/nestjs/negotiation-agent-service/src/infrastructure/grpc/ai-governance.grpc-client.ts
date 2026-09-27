@@ -130,7 +130,7 @@ export class AiGovernanceNegotiationClient implements OnModuleInit {
   public getDeterministicFallback(input: AiDraftGenerateInput): string {
     switch (input.action) {
       case 'ACCEPT':
-        return `Dear Customer,\n\nThank you for your offer of ${input.customerOffer} ${input.currency} for shipment ${input.shipmentId}. We are pleased to confirm that your offer has been accepted.\n\nBest regards,\nLogistics Team`;
+        return `Dear Customer,\n\nThank you for your offer of ${input.customerOffer} ${input.currency} for shipment ${input.shipmentId}. We can proceed at this proposed rate, subject to staff review and your confirmation. Please confirm if you wish to continue.\n\nBest regards,\nLogistics Team`;
       case 'COUNTER_OFFER':
         return `Dear Customer,\n\nThank you for your quotation request of ${input.customerOffer} ${input.currency} regarding shipment ${input.shipmentId}. Based on our current route and capacity calculations, our best possible counter-offer is ${input.approvedAmount} ${input.currency}.\n\nPlease let us know if you would like to proceed.\n\nBest regards,\nLogistics Team`;
       case 'HUMAN_HANDOFF':

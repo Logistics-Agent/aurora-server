@@ -24,6 +24,7 @@ public class NegotiationsController(
     NegotiationService.NegotiationServiceClient negotiationClient,
     IMailServiceClient mailClient,
     ICurrentUserService currentUser,
+    IConfiguration configuration,
     ILogger<NegotiationsController> logger) : StaffControllerBase
 {
     /// <summary>
@@ -48,9 +49,14 @@ public class NegotiationsController(
 
         try
         {
+            var internalSecret = configuration["INTERNAL_SERVICE_SECRET"];
+            if (string.IsNullOrWhiteSpace(internalSecret))
+                throw new InvalidOperationException("INTERNAL_SERVICE_SECRET must be configured for Negotiation calls.");
+            var headers = new Metadata { { "x-internal-secret", internalSecret } };
             // 1. Fetch persisted validated suggestion from Negotiation Agent via internal gRPC (zero AI regeneration)
             var suggestion = await negotiationClient.GetDraftSuggestionAsync(
                 new GetDraftSuggestionRequest { NegotiationSessionId = negotiationId },
+                headers,
                 cancellationToken: HttpContext.RequestAborted);
 
             if (!suggestion.SuggestedReplyAvailable)
@@ -78,7 +84,7 @@ public class NegotiationsController(
 
             // 3. Construct deterministic server-controlled Draft request
             var idempotencyKey = string.IsNullOrWhiteSpace(body.IdempotencyKey)
-                ? $"neg-draft-{currentUser.TenantId}-{negotiationId}"
+                ? $"neg-draft-{currentUser.TenantId}-{negotiationId}-round-{suggestion.Round}"
                 : body.IdempotencyKey;
 
             var draftReq = new CreateDraftRequest(

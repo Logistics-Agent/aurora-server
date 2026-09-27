@@ -2,7 +2,7 @@ import { Injectable, Logger, NotFoundException, BadRequestException, ConflictExc
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { NegotiationStrategyDomainService, DEFAULT_NEGOTIATION_CURRENCY } from '../../domain/services/negotiation-strategy.domain-service';
-import { AiGovernanceNegotiationClient } from '../../infrastructure/grpc/ai-governance.grpc-client';
+import { AiDraftGenerateInput, AiGovernanceNegotiationClient } from '../../infrastructure/grpc/ai-governance.grpc-client';
 
 export interface SubmitOfferInput {
   tenantId?: string;
@@ -42,10 +42,11 @@ export interface NegotiationResult {
   decision: string;
   counterOfferPrice?: number;
   approvedAmount: number;
+  suggestedAmount: number;
   currency: string;
   aiSpeech: string;
   status: string;
-  createdAt: string;
+  createdAt: { seconds: number; nanos: number };
   suggestedReply: SuggestedReplyDto;
   suggestedReplyAvailable: boolean;
   aiDraftUsed: boolean;
@@ -63,6 +64,8 @@ export interface DraftSuggestionResult {
   language: string;
   decision: string;
   approvedAmount: number;
+  suggestedAmount: number;
+  round: number;
   currency: string;
   sourceMessageId: string;
   sourceThreadId: string;
@@ -91,9 +94,15 @@ export class NegotiationService {
     }
     const customerTier = input.customerTier || input.customer_tier;
     const requestedSessionId = input.sessionId || input.session_id;
-    const sourceMessageId = input.sourceMessageId || input.source_message_id || null;
+    const sourceMessageId = (input.sourceMessageId || input.source_message_id || '').trim();
     const sourceThreadId = input.sourceThreadId || input.source_thread_id || null;
     const currency = DEFAULT_NEGOTIATION_CURRENCY;
+    if (!sourceMessageId) {
+      throw new BadRequestException('sourceMessageId is required to identify each customer offer');
+    }
+    if (!this.isMoneyAmount(offerPrice)) {
+      throw new BadRequestException('offerPrice must be a positive USD amount with at most two decimal places');
+    }
 
     // 1. Get or create active negotiation session
     let session = requestedSessionId
@@ -103,35 +112,46 @@ export class NegotiationService {
             tenantId,
             shipmentId,
             customerId,
-            status: 'OPEN',
+            status: { in: ['OPEN', 'PENDING_APPROVAL'] },
           },
         });
 
     if (requestedSessionId && !session) throw new NotFoundException('Negotiation session not found');
-    if (session && session.status !== 'OPEN') throw new ConflictException('Negotiation session is closed');
+    if (session && session.status !== 'OPEN') throw new ConflictException('Negotiation is awaiting staff action');
+    if (session && this.config.get<string>('NODE_ENV') === 'production' &&
+        (!session.pricingEvidenceReference || !session.pricingApprovedBy || !session.pricingApprovedAt)) {
+      throw new ServiceUnavailableException('Negotiation session has no approved pricing evidence');
+    }
     if (!session) {
       if (this.config.get<string>('NODE_ENV') === 'production') {
         throw new ServiceUnavailableException('Authoritative shipment pricing is not connected; a negotiation session cannot be opened');
       }
-      if (!Number.isFinite(listPrice) || !Number.isFinite(bottomPrice) ||
-          listPrice <= 0 || bottomPrice <= 0 || bottomPrice > listPrice) {
+      if (!this.isMoneyAmount(listPrice) || !this.isMoneyAmount(bottomPrice) ||
+          bottomPrice > listPrice) {
         throw new BadRequestException('Valid listPrice and bottomPrice are required to open a session');
       }
-      session = await this.prisma.negotiationSession.create({
-        data: {
-          tenantId,
-          shipmentId,
-          customerId,
-          status: 'OPEN',
-          currentRound: 1,
-          maxRounds: 5,
-          listPrice: listPrice!,
-          bottomPrice: bottomPrice!,
-          currency,
-          sourceMessageId,
-          sourceThreadId,
-        },
-      });
+      try {
+        session = await this.prisma.negotiationSession.create({
+          data: {
+            tenantId,
+            shipmentId,
+            customerId,
+            status: 'OPEN',
+            currentRound: 1,
+            maxRounds: 5,
+            listPrice,
+            bottomPrice,
+            currency,
+            sourceMessageId,
+            sourceThreadId,
+          },
+        });
+      } catch (error) {
+        if (this.isUniqueConflict(error)) {
+          throw new ConflictException('An active negotiation already exists for this shipment and customer');
+        }
+        throw error;
+      }
     }
 
     // 2. Evaluate Strategy Decision via Deterministic Engine
@@ -146,7 +166,7 @@ export class NegotiationService {
     });
 
     // 3. Generate Wording via AiGovernance under capability 'negotiation.draft'
-    const aiResult = await this.aiGovernanceClient.generateNegotiationDraft({
+    const draftInput: AiDraftGenerateInput = {
       action: strategyResult.decision,
       approvedAmount: strategyResult.approvedAmount,
       currency: strategyResult.currency,
@@ -157,7 +177,13 @@ export class NegotiationService {
       tenantId,
       userId: input.userId,
       traceId: input.traceId,
-    });
+    };
+    const aiResult = strategyResult.decision === 'HUMAN_HANDOFF' || strategyResult.decision === 'REJECT'
+      ? {
+          content: this.aiGovernanceClient.getDeterministicFallback(draftInput),
+          isFallback: true,
+        }
+      : await this.aiGovernanceClient.generateNegotiationDraft(draftInput);
 
     // 4. Validate AI Output against Deterministic Decision & Pricing Guardrails
     let finalBody = aiResult.content;
@@ -170,6 +196,7 @@ export class NegotiationService {
       strategyResult.decision,
       strategyResult.approvedAmount,
       strategyResult.currency,
+      offerPrice,
     );
 
     if (!isWordingValid && !aiResult.isFallback) {
@@ -194,7 +221,7 @@ export class NegotiationService {
     // 5. Determine new session status
     let newStatus = session.status;
     if (strategyResult.decision === 'ACCEPT') {
-      newStatus = 'ACCEPTED';
+      newStatus = 'PENDING_APPROVAL';
     } else if (strategyResult.decision === 'HUMAN_HANDOFF') {
       newStatus = 'HANDOFF';
     } else if (strategyResult.decision === 'REJECT') {
@@ -202,36 +229,52 @@ export class NegotiationService {
     }
 
     // 6. ACID Transaction: Save message + update session round/status/suggestedReply
-    const [savedMsg, updatedSession] = await this.prisma.$transaction([
-      this.prisma.negotiationMessage.create({
-        data: {
-          sessionId: session.id,
-          round: session.currentRound,
-          sender: 'AI',
-          message: finalBody,
-          offerPrice: strategyResult.counterOfferPrice || offerPrice,
-          decision: strategyResult.decision,
-          currency: strategyResult.currency,
-        },
-      }),
-      this.prisma.negotiationSession.update({
-        where: { id: session.id },
-        data: {
-          status: newStatus,
-          currentRound: { increment: 1 },
-          suggestedSubject,
-          suggestedBody: finalBody,
-          suggestedLanguage,
-          suggestedReplyAvailable: true,
-          aiDraftUsed,
-          fallbackUsed,
-          lastDecision: strategyResult.decision,
-          lastApprovedAmount: strategyResult.approvedAmount,
-          sourceMessageId: sourceMessageId || session.sourceMessageId,
-          sourceThreadId: sourceThreadId || session.sourceThreadId,
-        },
-      }),
-    ]);
+    let savedMsg: { createdAt: Date };
+    try {
+      savedMsg = await this.prisma.$transaction(async (tx) => {
+        const claimed = await tx.negotiationSession.updateMany({
+          where: {
+            id: session.id,
+            tenantId,
+            status: 'OPEN',
+            currentRound: session.currentRound,
+          },
+          data: {
+            status: newStatus,
+            currentRound: { increment: 1 },
+            suggestedSubject,
+            suggestedBody: finalBody,
+            suggestedLanguage,
+            suggestedReplyAvailable: true,
+            aiDraftUsed,
+            fallbackUsed,
+            lastDecision: strategyResult.decision,
+            lastSuggestedAmount: strategyResult.decision === 'HUMAN_HANDOFF' ? null : strategyResult.approvedAmount,
+            sourceMessageId,
+            sourceThreadId: sourceThreadId || session.sourceThreadId,
+          },
+        });
+        if (claimed.count !== 1) {
+          throw new ConflictException('Negotiation changed while this offer was being processed');
+        }
+        return tx.negotiationMessage.create({
+          data: {
+            sessionId: session.id,
+            round: session.currentRound,
+            sender: 'AI',
+            message: finalBody,
+            offerPrice: strategyResult.counterOfferPrice ?? null,
+            customerOfferPrice: offerPrice,
+            sourceMessageId,
+            decision: strategyResult.decision,
+            currency: strategyResult.currency,
+          },
+        });
+      });
+    } catch (error) {
+      if (this.isUniqueConflict(error)) throw new ConflictException('This customer offer has already been processed');
+      throw error;
+    }
 
     this.logger.log(
       `[Negotiation] Session ${session.id} | Round ${session.currentRound} | Decision: ${strategyResult.decision} | SuggestedReply Available (AI Used: ${aiDraftUsed}, Fallback Used: ${fallbackUsed})`,
@@ -244,10 +287,11 @@ export class NegotiationService {
       decision: strategyResult.decision,
       counterOfferPrice: strategyResult.counterOfferPrice,
       approvedAmount: strategyResult.approvedAmount,
+      suggestedAmount: strategyResult.approvedAmount,
       currency: strategyResult.currency,
       aiSpeech: finalBody,
       status: newStatus,
-      createdAt: savedMsg.createdAt.toISOString(),
+      createdAt: { seconds: Math.floor(savedMsg.createdAt.getTime() / 1000), nanos: 0 },
       suggestedReply: {
         subjectSuggestion: suggestedSubject,
         body: finalBody,
@@ -291,7 +335,9 @@ export class NegotiationService {
       body: session.suggestedBody || '',
       language: session.suggestedLanguage || 'en',
       decision: session.lastDecision || session.status,
-      approvedAmount: session.lastApprovedAmount || session.bottomPrice,
+      approvedAmount: session.lastSuggestedAmount ?? 0,
+      suggestedAmount: session.lastSuggestedAmount ?? 0,
+      round: Math.max(0, session.currentRound - 1),
       currency: session.currency || DEFAULT_NEGOTIATION_CURRENCY,
       sourceMessageId: session.sourceMessageId || '',
       sourceThreadId: session.sourceThreadId || '',
@@ -307,29 +353,55 @@ export class NegotiationService {
     expectedDecision: string,
     approvedAmount: number,
     expectedCurrency: string,
+    customerOffer: number,
   ): boolean {
     if (!content || content.trim().length === 0) return false;
 
     // In COUNTER_OFFER or ACCEPT, validate any mentioned prices against approved amount
+    if (/\b(accepted|confirmed|agreement finalized|deal closed|we accept|we agree)\b|đã chốt|đã xác nhận|chấp nhận đề xuất/iu.test(content)) {
+      return false;
+    }
+    if (expectedDecision === 'ACCEPT' &&
+        /\b(reject|decline|counter.?offer|cannot proceed)\b|từ chối|không thể tiếp tục/iu.test(content)) {
+      return false;
+    }
     if (expectedDecision === 'COUNTER_OFFER' || expectedDecision === 'ACCEPT') {
-      const priceRegex = /\$\s*([\d,]+(?:\.\d+)?)|([\d,]+(?:\.\d+)?)\s*USD/gi;
+      const priceRegex = /\$\s*([\d,]+(?:\.\d+)?)|([\d,]+(?:\.\d+)?)\s*(USD|EUR|VND)\b/gi;
       let match: RegExpExecArray | null;
+      let mentionsSuggestedAmount = false;
       while ((match = priceRegex.exec(content)) !== null) {
         const rawNum = match[1] || match[2];
+        if (match[3] && match[3].toUpperCase() !== expectedCurrency) return false;
+        const trailingCurrency = content.slice(priceRegex.lastIndex).match(/^\s*(USD|EUR|VND)\b/i)?.[1];
+        if (trailingCurrency && trailingCurrency.toUpperCase() !== expectedCurrency) return false;
         if (rawNum) {
           const sanitized = rawNum.replace(/,/g, '');
           const foundVal = parseFloat(sanitized);
           if (!isNaN(foundVal)) {
-            // If price deviates by more than $1.00 from approved counter offer, reject AI output
-            if (Math.abs(foundVal - approvedAmount) > 1.0) {
+            // Reject every unrecognized monetary amount; no tolerance beyond half a cent.
+            if (Math.abs(foundVal - approvedAmount) < 0.005) {
+              mentionsSuggestedAmount = true;
+            } else if (Math.abs(foundVal - customerOffer) >= 0.005) {
               return false;
             }
           }
         }
       }
+      if (!mentionsSuggestedAmount) return false;
     }
 
     return true;
+  }
+
+  private isMoneyAmount(value: number): boolean {
+    return Number.isFinite(value) && value > 0 &&
+      Number.isSafeInteger(Math.round(value * 100)) &&
+      Math.abs(value * 100 - Math.round(value * 100)) < 0.000001;
+  }
+
+  private isUniqueConflict(error: unknown): boolean {
+    return typeof error === 'object' && error !== null &&
+      'code' in error && error.code === 'P2002';
   }
 
   private requireTenant(tenantId?: string): string {

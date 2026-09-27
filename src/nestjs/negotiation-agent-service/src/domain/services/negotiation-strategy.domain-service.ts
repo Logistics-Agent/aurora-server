@@ -40,7 +40,7 @@ export class NegotiationStrategyDomainService {
     if (customerTier === 'VIP' || customerTier === 'ENTERPRISE') {
       return {
         decision: 'HUMAN_HANDOFF',
-        approvedAmount: offerPrice,
+        approvedAmount: 0,
         currency,
         reason: `Customer tier '${customerTier}' requires personal account manager negotiation.`,
       };
@@ -61,7 +61,7 @@ export class NegotiationStrategyDomainService {
     if (currentRound >= maxRounds) {
       return {
         decision: 'HUMAN_HANDOFF',
-        approvedAmount: bottomPrice,
+        approvedAmount: 0,
         currency,
         reason: `Maximum negotiation rounds (${maxRounds}) reached. Escalate to human sales agent.`,
       };

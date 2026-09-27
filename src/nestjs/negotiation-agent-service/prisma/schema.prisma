@@ -13,12 +13,15 @@ model NegotiationSession {
   tenantId                String               @map("tenant_id")
   shipmentId              String               @map("shipment_id")
   customerId              String               @map("customer_id")
-  status                  String               @default("OPEN") @map("status") // OPEN, ACCEPTED, REJECTED, HANDOFF, EXPIRED
+  status                  String               @default("OPEN") @map("status") // OPEN, PENDING_APPROVAL, REJECTED, HANDOFF, EXPIRED
   currentRound            Int                  @default(1) @map("current_round")
   maxRounds               Int                  @default(5) @map("max_rounds")
   listPrice               Float                @map("list_price")
   bottomPrice             Float                @map("bottom_price")
   currency                String               @default("USD") @map("currency")
+  pricingEvidenceReference String?             @map("pricing_evidence_reference")
+  pricingApprovedBy        String?              @map("pricing_approved_by")
+  pricingApprovedAt        DateTime?            @map("pricing_approved_at")
 
   // Persisted Validated Suggestion (Human-in-the-Loop MVP)
   suggestedSubject        String?              @map("suggested_subject")
@@ -28,7 +31,7 @@ model NegotiationSession {
   aiDraftUsed             Boolean              @default(false) @map("ai_draft_used")
   fallbackUsed            Boolean              @default(false) @map("fallback_used")
   lastDecision            String?              @map("last_decision")
-  lastApprovedAmount      Float?               @map("last_approved_amount")
+  lastSuggestedAmount     Float?               @map("last_approved_amount")
   sourceMessageId         String?              @map("source_message_id")
   sourceThreadId          String?              @map("source_thread_id")
 
@@ -49,11 +52,14 @@ model NegotiationMessage {
   sender     String             @map("sender") // AI, CUSTOMER, HUMAN
   message    String             @map("message")
   offerPrice Float?             @map("offer_price")
+  customerOfferPrice Float?      @map("customer_offer_price")
+  sourceMessageId String?       @map("source_message_id")
   decision   String?            @map("decision") // ACCEPT, COUNTER_OFFER, HUMAN_HANDOFF, REJECT
   currency   String             @default("USD") @map("currency")
   createdAt  DateTime           @default(now()) @map("created_at")
   session    NegotiationSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
 
   @@index([sessionId])
+  @@unique([sessionId, sourceMessageId])
   @@map("negotiation_messages")
 }
