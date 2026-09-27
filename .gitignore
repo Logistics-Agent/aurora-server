@@ -39,6 +39,8 @@ target/
 !src/dotnet/Notification/Infrastructure/Persistences/Migrations/*.cs
 !src/dotnet/RegulatoryCompliance/Infrastructure/Persistences/Migrations/
 !src/dotnet/RegulatoryCompliance/Infrastructure/Persistences/Migrations/*.cs
+!src/nestjs/negotiation-agent-service/prisma/migrations/
+!src/nestjs/negotiation-agent-service/prisma/migrations/**
 # User-specific files
 *.rsuser
 *.suo

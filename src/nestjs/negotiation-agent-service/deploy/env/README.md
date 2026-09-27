@@ -12,7 +12,9 @@ Customer rate proposal and draft suggestion service (deployed in `aks-ai`).
 
 ## Database rollout
 
-The SQL in `prisma/migrations/20260927090000_offer_provenance/migration.sql` adds offer provenance and unique indexes. Apply it to an existing Negotiation database before deploying this service version. Inspect and resolve any duplicate active sessions before creating the partial unique index. This repository does not yet contain a baseline migration for a fresh Negotiation database.
+The initial migration `20260926090000_initial_negotiation` creates the schema for a new Negotiation database. The following migration `20260927090000_offer_provenance` adds offer provenance and unique indexes. Run `prisma migrate deploy` against a new database before deploying this service version.
+
+For an existing Negotiation database, verify that its schema matches the initial migration, then mark the initial migration as already applied before running `prisma migrate deploy`. Inspect and resolve duplicate active sessions before the partial unique index is created. Do not run the initial migration directly on tables that already exist.
 
 ## Environment Variable Matrix
 
