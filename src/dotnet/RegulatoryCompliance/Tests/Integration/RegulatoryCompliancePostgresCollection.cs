@@ -16,11 +16,22 @@ public sealed class RegulatoryCompliancePostgresCollection
 public sealed class RegulatoryCompliancePostgresFixture : IAsyncLifetime
 {
     private const string DatabaseName = "aurora_regulatory_compliance_tests";
-    private const string AdminConnectionString =
-        "Host=localhost;Port=5437;Database=postgres;Username=postgres;Password=postgres";
+    private static readonly string BaseConnectionString =
+        Environment.GetEnvironmentVariable("AURORA_TEST_POSTGRES_CONNECTION")
+        ?? "Host=localhost;Port=5437;Database=postgres;Username=postgres;Password=postgres";
 
-    public string ConnectionString { get; } =
-        $"Host=localhost;Port=5437;Database={DatabaseName};Username=postgres;Password=postgres";
+    private static string AdminConnectionString => ConnectionForDatabase("postgres");
+
+    public string ConnectionString { get; } = ConnectionForDatabase(DatabaseName);
+
+    private static string ConnectionForDatabase(string databaseName)
+    {
+        var builder = new NpgsqlConnectionStringBuilder(BaseConnectionString)
+        {
+            Database = databaseName
+        };
+        return builder.ConnectionString;
+    }
 
     public async Task InitializeAsync()
     {

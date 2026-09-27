@@ -34,11 +34,6 @@ public sealed class RegulatoryComplianceDbContext(
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
-        if (Database.IsNpgsql())
-        {
-            modelBuilder.HasPostgresExtension("vector");
-        }
-
         ConfigureRegulatoryDocument(modelBuilder);
         ConfigureRegulatoryDocumentVersion(modelBuilder);
         ConfigureRegulatoryChunk(modelBuilder);

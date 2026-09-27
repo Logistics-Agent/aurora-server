@@ -37,6 +37,8 @@ target/
 *Migrations
 !src/dotnet/Notification/Infrastructure/Persistences/Migrations/
 !src/dotnet/Notification/Infrastructure/Persistences/Migrations/*.cs
+!src/dotnet/RegulatoryCompliance/Infrastructure/Persistences/Migrations/
+!src/dotnet/RegulatoryCompliance/Infrastructure/Persistences/Migrations/*.cs
 # User-specific files
 *.rsuser
 *.suo
