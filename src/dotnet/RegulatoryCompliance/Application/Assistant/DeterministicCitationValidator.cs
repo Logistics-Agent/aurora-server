@@ -57,6 +57,7 @@ public sealed class DeterministicCitationValidator : IDeterministicCitationValid
         var validConflicts = new List<ValidatedConflict>();
         var missingInfo = new List<string>(rawLlm.MissingInformation ?? []);
         var invalidInlineCitation = false;
+        var invalidStructuredCitation = false;
 
         // 1. Validate Regulatory Citations
         if (rawLlm.Citations != null)
@@ -64,7 +65,10 @@ public sealed class DeterministicCitationValidator : IDeterministicCitationValid
             foreach (var item in rawLlm.Citations)
             {
                 if (string.IsNullOrWhiteSpace(item.EvidenceId))
+                {
+                    invalidStructuredCitation = true;
                     continue;
+                }
 
                 var evidence = context.Find(item.EvidenceId);
                 // Must exist in provided context and must be REGULATORY domain
@@ -75,6 +79,10 @@ public sealed class DeterministicCitationValidator : IDeterministicCitationValid
                         validRegCitations.Add(evidence);
                     }
                 }
+                else
+                {
+                    invalidStructuredCitation = true;
+                }
             }
         }
 
@@ -84,7 +92,10 @@ public sealed class DeterministicCitationValidator : IDeterministicCitationValid
             foreach (var item in rawLlm.KnowledgeReferences)
             {
                 if (string.IsNullOrWhiteSpace(item.EvidenceId))
+                {
+                    invalidStructuredCitation = true;
                     continue;
+                }
 
                 var evidence = context.Find(item.EvidenceId);
                 // Must exist in provided context and must be KNOWLEDGE domain
@@ -94,6 +105,10 @@ public sealed class DeterministicCitationValidator : IDeterministicCitationValid
                     {
                         validKnowReferences.Add(evidence);
                     }
+                }
+                else
+                {
+                    invalidStructuredCitation = true;
                 }
             }
         }
@@ -118,7 +133,7 @@ public sealed class DeterministicCitationValidator : IDeterministicCitationValid
                 validKnowReferences.Add(evidence);
         }
 
-        if (invalidInlineCitation)
+        if (invalidInlineCitation || invalidStructuredCitation)
         {
             answer = "The assistant response contained an unverified citation and was withheld.";
             missingInfo.Add("The answer referenced evidence that was not present in the retrieved context.");
@@ -147,7 +162,13 @@ public sealed class DeterministicCitationValidator : IDeterministicCitationValid
             }
         }
 
-        var isInsufficient = rawLlm.InsufficientEvidence || invalidInlineCitation;
+        var isInsufficient = rawLlm.InsufficientEvidence || invalidInlineCitation ||
+            invalidStructuredCitation || (validRegCitations.Count == 0 && validKnowReferences.Count == 0);
+        if (validRegCitations.Count == 0 && validKnowReferences.Count == 0 && !string.IsNullOrWhiteSpace(answer))
+        {
+            answer = "The assistant response had no verifiable citation and was withheld.";
+            missingInfo.Add("No verifiable citation was supplied for the answer.");
+        }
         if (string.IsNullOrWhiteSpace(answer) && validRegCitations.Count == 0 && validKnowReferences.Count == 0)
         {
             isInsufficient = true;

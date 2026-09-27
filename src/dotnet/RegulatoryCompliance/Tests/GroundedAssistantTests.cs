@@ -143,6 +143,21 @@ public sealed class GroundedAssistantTests
     }
 
     [Fact]
+    public void CitationValidator_WithholdsConfidentAnswerWithoutAnyCitation()
+    {
+        var validator = new DeterministicCitationValidator();
+        var evidence = new GroundedEvidence(
+            "R1", GroundedEvidenceDomain.Regulatory, Guid.NewGuid(), Guid.NewGuid(),
+            Guid.NewGuid(), "Law", "1", "1", "Known law", 0.9m);
+        var result = validator.Validate(
+            new LlmParsedResponse("A confident but unsupported claim.", [], [], [], false, []),
+            new EvidenceContext([evidence], []));
+
+        Assert.True(result.InsufficientEvidence);
+        Assert.DoesNotContain("confident but unsupported", result.Answer);
+    }
+
+    [Fact]
     public void CitationValidator_ValidatesCrossDomainConflicts()
     {
         var validator = new DeterministicCitationValidator();

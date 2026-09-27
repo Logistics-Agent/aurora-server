@@ -504,6 +504,18 @@ public sealed class RegulatoryComplianceGrpcService(
                 .Select(c => (RegulatoryCompliance.Domain.Enums.KnowledgeCategory)(int)c)
                 .ToList();
 
+            var callerRole = context.RequestHeaders.FirstOrDefault(header =>
+                header.Key.Equals("x-role", StringComparison.OrdinalIgnoreCase))?.Value;
+            if (string.Equals(callerRole, "CUSTOMER", StringComparison.OrdinalIgnoreCase) &&
+                (categories.Count == 0 || categories.Any(category =>
+                    category is not (RegulatoryCompliance.Domain.Enums.KnowledgeCategory.PublicFaq or
+                        RegulatoryCompliance.Domain.Enums.KnowledgeCategory.CustomerGuide or
+                        RegulatoryCompliance.Domain.Enums.KnowledgeCategory.PublicProcedure))))
+            {
+                throw new RpcException(new Status(StatusCode.PermissionDenied,
+                    "Customer knowledge searches require public document categories."));
+            }
+
             var results = await knowledgeIngestionService.QueryAsync(
                 request.Query,
                 categories,
@@ -594,6 +606,9 @@ public sealed class RegulatoryComplianceGrpcService(
                     ComplianceGrpc.KnowledgeCategory.Guide => RegulatoryCompliance.Domain.Enums.KnowledgeCategory.Guide,
                     ComplianceGrpc.KnowledgeCategory.Reference => RegulatoryCompliance.Domain.Enums.KnowledgeCategory.Reference,
                     ComplianceGrpc.KnowledgeCategory.Other => RegulatoryCompliance.Domain.Enums.KnowledgeCategory.Other,
+                    ComplianceGrpc.KnowledgeCategory.PublicFaq => RegulatoryCompliance.Domain.Enums.KnowledgeCategory.PublicFaq,
+                    ComplianceGrpc.KnowledgeCategory.CustomerGuide => RegulatoryCompliance.Domain.Enums.KnowledgeCategory.CustomerGuide,
+                    ComplianceGrpc.KnowledgeCategory.PublicProcedure => RegulatoryCompliance.Domain.Enums.KnowledgeCategory.PublicProcedure,
                     _ => throw InvalidArgument("Knowledge category is invalid.")
                 })
                 .ToList();

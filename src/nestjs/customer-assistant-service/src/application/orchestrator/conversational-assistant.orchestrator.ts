@@ -1,4 +1,4 @@
-import { Injectable, Logger, Inject } from '@nestjs/common';
+import { Injectable, Logger, Inject, ServiceUnavailableException } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import {
   IConversationRepository,
@@ -217,6 +217,7 @@ export class ConversationalAssistantOrchestrator {
     const toolCallsMetadata: Array<{ toolName: string; outcome: 'SUCCESS' | 'FAILED' | 'DENIED'; durationMs?: number }> = [];
 
     // 6. Synthesis & Routing Matrix (PATCH 2, 6, 7 & 11)
+    try {
     switch (classification.decision) {
       case NeedRagDecision.NO_RAG: {
         capabilityCode = 'assistant.general';
@@ -427,6 +428,14 @@ export class ConversationalAssistantOrchestrator {
         break;
       }
     }
+    } catch (error) {
+      if (!(error instanceof ServiceUnavailableException)) throw error;
+      answerText = 'Kho tài liệu tạm thời không truy cập được. Vui lòng thử lại sau.';
+      regulatorySources = [];
+      knowledgeSources = [];
+      conflicts = [];
+      isInsufficient = true;
+    }
 
     // 7. Save Assistant Message with Deterministic Sequence & Typed Metadata (PATCH 1, 6 & 10)
     const durationMs = Date.now() - startTime;
@@ -530,11 +539,9 @@ export class ConversationalAssistantOrchestrator {
       currentUser,
     );
 
-    const hasInvalidCitations =
-      (parsed1.citations.length > 0 && validation1.validatedRegulatoryCitations.length === 0 && regEvidence.length > 0) ||
-      (parsed1.knowledgeReferences.length > 0 && validation1.validatedKnowledgeReferences.length === 0 && knowEvidence.length > 0);
+    const firstGrounded = this.hasVerifiedSources(parsed1, validation1);
 
-    if (!hasInvalidCitations && !validation1.insufficientEvidence) {
+    if (firstGrounded && !validation1.insufficientEvidence) {
       return {
         answer: validation1.sanitizedAnswer,
         regulatoryCitations: validation1.validatedRegulatoryCitations,
@@ -567,25 +574,47 @@ export class ConversationalAssistantOrchestrator {
         currentUser,
       );
 
+      const secondGrounded = this.hasVerifiedSources(parsed2, validation2);
       return {
-        answer: validation2.sanitizedAnswer,
+        answer: secondGrounded && !validation2.insufficientEvidence
+          ? validation2.sanitizedAnswer
+          : 'Căn cứ các tài liệu hiện có, thông tin chưa đủ để đưa ra kết luận chắc chắn.',
         regulatoryCitations: validation2.validatedRegulatoryCitations,
         knowledgeReferences: validation2.validatedKnowledgeReferences,
         conflicts: validation2.validatedConflicts,
-        insufficientEvidence: validation2.insufficientEvidence,
+        insufficientEvidence: !secondGrounded || validation2.insufficientEvidence,
         governance: { decisionId: retryAiRes.decisionId, automationLevel: retryAiRes.automationLevel },
       };
-    } catch {
+    } catch (error) {
+      if (error instanceof ServiceUnavailableException) throw error;
       this.logger.error(`[Observability] assistant_grounding_validation_failed: Retry failed, returning safe fallback.`);
       return {
-        answer: validation1.sanitizedAnswer || 'Căn cứ các tài liệu hiện có, thông tin chưa đủ để đưa ra kết luận chắc chắn.',
-        regulatoryCitations: validation1.validatedRegulatoryCitations,
-        knowledgeReferences: validation1.validatedKnowledgeReferences,
-        conflicts: validation1.validatedConflicts,
+        answer: 'Căn cứ các tài liệu hiện có, thông tin chưa đủ để đưa ra kết luận chắc chắn.',
+        regulatoryCitations: [],
+        knowledgeReferences: [],
+        conflicts: [],
         insufficientEvidence: true,
         governance: { decisionId: aiRes.decisionId, automationLevel: aiRes.automationLevel },
       };
     }
+  }
+
+  private hasVerifiedSources(
+    parsed: { citations: Array<{ evidenceId: string }>; knowledgeReferences: Array<{ evidenceId: string }> },
+    validation: {
+      sanitizedAnswer: string;
+      validatedRegulatoryCitations: RegulatoryCitationInfo[];
+      validatedKnowledgeReferences: KnowledgeReferenceInfo[];
+    },
+  ): boolean {
+    const supplied = [...parsed.citations, ...parsed.knowledgeReferences];
+    const validated = [
+      ...validation.validatedRegulatoryCitations,
+      ...validation.validatedKnowledgeReferences,
+    ];
+    if (!validation.sanitizedAnswer.trim() || supplied.length === 0 || validated.length === 0) return false;
+    const validIds = new Set(validated.map((item) => item.evidenceId.toUpperCase()));
+    return supplied.every((item) => typeof item?.evidenceId === 'string' && validIds.has(item.evidenceId.toUpperCase()));
   }
 
   private parseLlmJson(rawContent: string): {
@@ -616,20 +645,20 @@ export class ConversationalAssistantOrchestrator {
       const parsed = JSON.parse(clean);
       return {
         answer: parsed.answer || clean,
-        citations: parsed.citations || [],
-        knowledgeReferences: parsed.knowledgeReferences || [],
-        conflicts: parsed.conflicts || [],
+        citations: Array.isArray(parsed.citations) ? parsed.citations : [],
+        knowledgeReferences: Array.isArray(parsed.knowledgeReferences) ? parsed.knowledgeReferences : [],
+        conflicts: Array.isArray(parsed.conflicts) ? parsed.conflicts : [],
         insufficientEvidence: Boolean(parsed.insufficientEvidence),
-        missingInformation: parsed.missingInformation || [],
+        missingInformation: Array.isArray(parsed.missingInformation) ? parsed.missingInformation : [],
       };
     } catch {
       return {
-        answer: rawContent,
+        answer: '',
         citations: [],
         knowledgeReferences: [],
         conflicts: [],
-        insufficientEvidence: false,
-        missingInformation: [],
+        insufficientEvidence: true,
+        missingInformation: ['Model output is not valid JSON.'],
       };
     }
   }

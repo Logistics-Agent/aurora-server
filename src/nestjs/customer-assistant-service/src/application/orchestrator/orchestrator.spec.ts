@@ -1,4 +1,5 @@
 import { ConversationalAssistantOrchestrator } from './conversational-assistant.orchestrator';
+import { ServiceUnavailableException } from '@nestjs/common';
 import { InMemoryConversationStore } from '../../infrastructure/persistence/in-memory-conversation.store';
 import { IntentRouterService } from '../intent/intent-router.service';
 import { ToolRegistryService } from '../tools/tool-registry.service';
@@ -214,5 +215,43 @@ describe('ConversationalAssistantOrchestrator', () => {
     expect(mockComplianceClient.validateGroundedEvidence).toHaveBeenCalled();
     expect(result.sources.regulatory.length).toBe(1);
     expect(result.sources.knowledge.length).toBe(1);
+  });
+
+  it('reports a retrieval outage instead of claiming that no documents exist', async () => {
+    mockComplianceClient.queryKnowledge.mockRejectedValueOnce(new ServiceUnavailableException());
+    const conv = await orchestrator.createConversation(staffUser, 'vi');
+    const result = await orchestrator.processMessage(
+      conv.id,
+      'Luật yêu cầu gì và SOP nội bộ xử lý ra sao đối với pin lithium?',
+      staffUser,
+    );
+
+    expect(result.insufficientEvidence).toBe(true);
+    expect(result.answer).toContain('tạm thời không truy cập được');
+    expect(mockAiGovernance.generate).not.toHaveBeenCalled();
+  });
+
+  it('withholds an answer when one of its cited sources is invalid', async () => {
+    mockAiGovernance.generate.mockResolvedValue({
+      content: JSON.stringify({
+        answer: 'An unverified claim [R99] and a valid claim [R1].',
+        citations: [{ evidenceId: 'R1' }, { evidenceId: 'R99' }],
+        knowledgeReferences: [],
+        conflicts: [],
+        insufficientEvidence: false,
+      }),
+      decisionId: 'decision-1',
+      automationLevel: 'ASSISTED',
+    });
+    const conv = await orchestrator.createConversation(staffUser, 'vi');
+    const result = await orchestrator.processMessage(
+      conv.id,
+      'Luật yêu cầu gì và SOP nội bộ xử lý ra sao đối với pin lithium?',
+      staffUser,
+    );
+
+    expect(result.insufficientEvidence).toBe(true);
+    expect(result.answer).not.toContain('unverified claim');
+    expect(mockAiGovernance.generate).toHaveBeenCalledTimes(2);
   });
 });

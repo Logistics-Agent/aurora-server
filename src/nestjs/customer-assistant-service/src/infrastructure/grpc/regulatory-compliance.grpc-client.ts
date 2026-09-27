@@ -1,9 +1,10 @@
-import { Injectable, OnModuleInit, Logger } from '@nestjs/common';
+import { Injectable, OnModuleInit, Logger, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as grpc from '@grpc/grpc-js';
 import * as protoLoader from '@grpc/proto-loader';
 import * as path from 'path';
 import { CurrentUser } from '../security/current-user.interface';
+import { ActorType } from '../../domain/enums/actor-type.enum';
 import {
   RegulatoryCitationInfo,
   KnowledgeReferenceInfo,
@@ -65,23 +66,23 @@ export class RegulatoryComplianceGrpcClient implements OnModuleInit {
     minimumScore = 0.4,
     context?: CurrentUser,
   ): Promise<RegulatoryCitationInfo[]> {
-    if (!this.client) return [];
+    if (!this.client) throw new ServiceUnavailableException('Regulatory search is unavailable');
 
     const metadata = this.buildMetadata(context);
     const request = {
       query,
       jurisdiction_code: jurisdictionCode,
       effective_at: { seconds: Math.floor(Date.now() / 1000), nanos: 0 },
-      preferred_language: 'vi',
+      language_code: 'vi',
       top_k: topK,
       minimum_relevance_score: minimumScore,
     };
 
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
       this.client.QueryRegulations(request, metadata, { deadline: Date.now() + 15000 }, (err: any, response: any) => {
         if (err) {
           this.logger.warn(`[RegulatoryComplianceGrpcClient] QueryRegulations error: ${err.message}`);
-          return resolve([]);
+          return reject(new ServiceUnavailableException('Regulatory search is unavailable'));
         }
 
         const evidence = (response.evidence || []).map((e: any, idx: number) => ({
@@ -112,17 +113,19 @@ export class RegulatoryComplianceGrpcClient implements OnModuleInit {
     minimumScore = 0.4,
     context?: CurrentUser,
   ): Promise<KnowledgeReferenceInfo[]> {
-    if (!this.client) return [];
+    if (!this.client) throw new ServiceUnavailableException('Knowledge search is unavailable');
 
     const mappedCategories = categories
       .map((c) => {
         if (typeof c === 'number') return c;
         const upper = c.toUpperCase();
-        if (upper === 'SOP' || upper === 'PUBLIC_PROCEDURE') return 1;
-        if (upper === 'POLICY' || upper === 'PRICING_POLICY') return 2;
-        if (upper === 'GUIDELINE' || upper === 'PUBLIC_FAQ' || upper === 'CUSTOMER_GUIDE') return 3;
-        if (upper === 'CARRIER_CONTRACT') return 4;
-        if (upper === 'INTERNAL_RULE') return 5;
+        if (upper === 'SOP') return 1;
+        if (upper === 'CARRIER_CONTRACT') return 2;
+        if (upper === 'POLICY' || upper === 'PRICING_POLICY' || upper === 'INTERNAL_RULE') return 3;
+        if (upper === 'GUIDELINE') return 4;
+        if (upper === 'PUBLIC_FAQ') return 7;
+        if (upper === 'CUSTOMER_GUIDE') return 8;
+        if (upper === 'PUBLIC_PROCEDURE') return 9;
         return 0;
       })
       .filter((c) => c > 0);
@@ -135,14 +138,22 @@ export class RegulatoryComplianceGrpcClient implements OnModuleInit {
       minimum_relevance_score: minimumScore,
     };
 
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
       this.client.QueryKnowledge(request, metadata, { deadline: Date.now() + 15000 }, (err: any, response: any) => {
         if (err) {
           this.logger.warn(`[RegulatoryComplianceGrpcClient] QueryKnowledge error: ${err.message}`);
-          return resolve([]);
+          return reject(new ServiceUnavailableException('Knowledge search is unavailable'));
         }
 
-        const evidence = (response.evidence || []).map((k: any, idx: number) => ({
+        const publicCategories = new Set([
+          'KNOWLEDGE_CATEGORY_PUBLIC_FAQ',
+          'KNOWLEDGE_CATEGORY_CUSTOMER_GUIDE',
+          'KNOWLEDGE_CATEGORY_PUBLIC_PROCEDURE',
+        ]);
+        const visibleEvidence = context?.actorType === ActorType.CUSTOMER
+          ? (response.evidence || []).filter((k: any) => publicCategories.has(k.category))
+          : (response.evidence || []);
+        const evidence = visibleEvidence.map((k: any, idx: number) => ({
           evidenceId: `K${idx + 1}`,
           sourceId: k.knowledge_document_id || '',
           documentVersionId: k.document_version_id || '',
@@ -300,27 +311,7 @@ export class RegulatoryComplianceGrpcClient implements OnModuleInit {
     missingInformation: string[];
   }> {
     if (!this.client) {
-      // Local fallback validator when gRPC client offline
-      const validReg = request.availableRegulatoryEvidence.filter((r) =>
-        request.citations.some((c) => c.evidenceId.toUpperCase() === r.evidenceId.toUpperCase()),
-      );
-      const validKnow = request.availableKnowledgeEvidence.filter((k) =>
-        request.knowledgeReferences.some((kr) => kr.evidenceId.toUpperCase() === k.evidenceId.toUpperCase()),
-      );
-      const validConflicts = request.conflicts.filter(
-        (c) =>
-          request.availableRegulatoryEvidence.some((r) => r.evidenceId === c.regulatoryEvidenceId) &&
-          request.availableKnowledgeEvidence.some((k) => k.evidenceId === c.knowledgeEvidenceId),
-      );
-
-      return {
-        sanitizedAnswer: request.answer,
-        validatedRegulatoryCitations: validReg,
-        validatedKnowledgeReferences: validKnow,
-        validatedConflicts: validConflicts,
-        insufficientEvidence: request.insufficientEvidence,
-        missingInformation: request.missingInformation,
-      };
+      throw new ServiceUnavailableException('Evidence validation is unavailable');
     }
 
     const metadata = this.buildMetadata(context);
@@ -364,28 +355,15 @@ export class RegulatoryComplianceGrpcClient implements OnModuleInit {
       })),
     };
 
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
       this.client.ValidateGroundedEvidence(
         rpcReq,
         metadata,
         { deadline: Date.now() + 10000 },
         (err: any, response: any) => {
           if (err) {
-            this.logger.warn(`[RegulatoryComplianceGrpcClient] ValidateGroundedEvidence error: ${err.message}. Using local fallback.`);
-            const validReg = request.availableRegulatoryEvidence.filter((r) =>
-              request.citations.some((c) => c.evidenceId.toUpperCase() === r.evidenceId.toUpperCase()),
-            );
-            const validKnow = request.availableKnowledgeEvidence.filter((k) =>
-              request.knowledgeReferences.some((kr) => kr.evidenceId.toUpperCase() === k.evidenceId.toUpperCase()),
-            );
-            return resolve({
-              sanitizedAnswer: request.answer,
-              validatedRegulatoryCitations: validReg,
-              validatedKnowledgeReferences: validKnow,
-              validatedConflicts: request.conflicts,
-              insufficientEvidence: request.insufficientEvidence,
-              missingInformation: request.missingInformation,
-            });
+            this.logger.warn(`[RegulatoryComplianceGrpcClient] ValidateGroundedEvidence error: ${err.message}.`);
+            return reject(new ServiceUnavailableException('Evidence validation is unavailable'));
           }
 
           const validatedReg: RegulatoryCitationInfo[] = (response.validated_regulatory_citations || []).map((r: any) => ({
@@ -424,7 +402,7 @@ export class RegulatoryComplianceGrpcClient implements OnModuleInit {
           }));
 
           resolve({
-            sanitizedAnswer: response.sanitized_answer || request.answer,
+            sanitizedAnswer: response.sanitized_answer || '',
             validatedRegulatoryCitations: validatedReg,
             validatedKnowledgeReferences: validatedKnow,
             validatedConflicts,
@@ -441,7 +419,9 @@ export class RegulatoryComplianceGrpcClient implements OnModuleInit {
     metadata.add('x-service-id', 'customer-assistant-orchestrator');
     if (context?.tenantId) metadata.add('x-tenant-id', context.tenantId);
     if (context?.userId) metadata.add('x-user-id', context.userId);
+    if (context?.actorType) metadata.add('x-role', context.actorType);
     if (context?.traceId) metadata.add('x-trace-id', context.traceId);
     return metadata;
   }
+
 }

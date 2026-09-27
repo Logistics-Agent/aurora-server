@@ -8,5 +8,8 @@ public enum KnowledgeCategory
     InternalPolicy = 3,
     Guide = 4,
     Reference = 5,
-    Other = 6
+    Other = 6,
+    PublicFaq = 7,
+    CustomerGuide = 8,
+    PublicProcedure = 9
 }

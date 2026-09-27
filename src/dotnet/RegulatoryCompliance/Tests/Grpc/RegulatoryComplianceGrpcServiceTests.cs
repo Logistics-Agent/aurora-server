@@ -218,6 +218,34 @@ public sealed class RegulatoryComplianceGrpcServiceTests
             Assert.Equal(StatusCode.Unauthenticated, exception.StatusCode));
     }
 
+    [Fact]
+    public async Task CustomerKnowledgeQueryRejectsInternalCategories()
+    {
+        var service = Service();
+        var customerContext = TestServerCallContext.Create(new Metadata { { "x-role", "CUSTOMER" } });
+        var internalRequest = new ComplianceGrpc.QueryKnowledgeRequest
+        {
+            Query = "shipping process",
+            TopK = 5,
+            MinimumRelevanceScore = 0.4
+        };
+        internalRequest.Categories.Add(ComplianceGrpc.KnowledgeCategory.Sop);
+
+        var error = await Assert.ThrowsAsync<RpcException>(() =>
+            service.QueryKnowledge(internalRequest, customerContext));
+        Assert.Equal(StatusCode.PermissionDenied, error.StatusCode);
+
+        var publicRequest = new ComplianceGrpc.QueryKnowledgeRequest
+        {
+            Query = "shipping process",
+            TopK = 5,
+            MinimumRelevanceScore = 0.4
+        };
+        publicRequest.Categories.Add(ComplianceGrpc.KnowledgeCategory.PublicFaq);
+        var response = await service.QueryKnowledge(publicRequest, customerContext);
+        Assert.Empty(response.Evidence);
+    }
+
     private static RegulatoryComplianceGrpcService Service(
         IRegulatoryIngestionService? ingestion = null,
         IKnowledgeIngestionService? knowledgeIngestion = null,
