@@ -115,6 +115,7 @@ services:
       Grpc__Notification__ServiceApiKey: ${NOTIFICATION_SERVICE_API_KEY:-123456}
       GrpcServices__IamTenant: http://iam-tenant:5000
       GrpcServices__ShipmentWorkflow: http://shipment-workflow:5000
+      Grpc__BillingService__Url: http://billing-service:5004
       GrpcServices__Notification: http://notification:5000
       GrpcServices__MailService: http://mail-service:5003
     depends_on:
@@ -246,6 +247,7 @@ services:
       NODE_ENV: development
       PORT: 8080
       GRPC_PORT: 5004
+      SHIPMENT_WORKFLOW_GRPC_URL: shipment-workflow:5000
       DATABASE_URL: postgresql://${POSTGRES_USER:-aurora_admin}:${POSTGRES_PASSWORD:-aurora_secure_password_2026!}@postgres:5432/billing_db?schema=public
       REDIS_HOST: redis
       REDIS_PORT: 6379
@@ -516,6 +518,7 @@ services:
       NODE_ENV: development
       PORT: 8080
       GRPC_PORT: 5006
+      BILLING_GRPC_URL: billing-service:5004
       DATABASE_URL: postgresql://${POSTGRES_USER:-aurora_admin}:${POSTGRES_PASSWORD:-aurora_secure_password_2026!}@postgres:5432/negotiation_agent_db?schema=public
       REDIS_HOST: redis
       REDIS_PORT: 6379

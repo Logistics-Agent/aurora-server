@@ -22,6 +22,7 @@ env:
   NODE_ENV: "production"
   PORT: "8080"
   GRPC_PORT: "5004"
+  SHIPMENT_WORKFLOW_GRPC_URL: "shipment-workflow:5000"
   REDIS_HOST: "redis-master.aurora.svc.cluster.local"
   REDIS_PORT: "6379"
   REDIS_TLS: "false"
@@ -38,6 +39,9 @@ externalSecret:
     - secretKey: DATABASE_URL
       remoteRef:
         key: DATABASE-URL-billing
+    - secretKey: INTERNAL_SERVICE_SECRET
+      remoteRef:
+        key: customer-assistant-internal-service-secret
     - secretKey: REDIS_PASSWORD
       remoteRef:
         key: redis-password

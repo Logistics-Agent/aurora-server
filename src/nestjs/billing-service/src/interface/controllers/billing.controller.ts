@@ -1,6 +1,13 @@
 import { Controller, UseFilters, UseInterceptors } from '@nestjs/common';
 import { GrpcMethod } from '@nestjs/microservices';
+import { RpcException } from '@nestjs/microservices';
+import { ConfigService } from '@nestjs/config';
+import { Metadata, status } from '@grpc/grpc-js';
+import { timingSafeEqual } from 'crypto';
 import { BillingService } from '../../application/services/billing.service';
+import { ShipmentQuoteService, CreateShipmentQuoteDraftRequest, ShipmentQuoteActionRequest,
+  RevokeShipmentQuoteRequest, ListShipmentQuotesRequest, GetApprovedShipmentQuoteRequest,
+} from '../../application/services/shipment-quote.service';
 import { TenantInterceptor } from '../../common/interceptors/tenant.interceptor';
 import { GrpcExceptionFilter } from '../../common/filters/grpc-exception.filter';
 import {
@@ -33,7 +40,63 @@ import {
 @UseInterceptors(TenantInterceptor)
 @UseFilters(GrpcExceptionFilter)
 export class BillingController {
-  constructor(private readonly billingService: BillingService) {}
+  constructor(
+    private readonly billingService: BillingService,
+    private readonly shipmentQuotes: ShipmentQuoteService,
+    private readonly config: ConfigService,
+  ) {}
+
+  @GrpcMethod('BillingService', 'CreateShipmentQuoteDraft')
+  createShipmentQuoteDraft(data: CreateShipmentQuoteDraftRequest, metadata: Metadata) {
+    return this.shipmentQuotes.createDraft(data, this.requireStaff(metadata, 'billing_settlement:quote:create'));
+  }
+
+  @GrpcMethod('BillingService', 'ApproveShipmentQuote')
+  approveShipmentQuote(data: ShipmentQuoteActionRequest, metadata: Metadata) {
+    return this.shipmentQuotes.approve(data, this.requireStaff(metadata, 'billing_settlement:quote:approve'));
+  }
+
+  @GrpcMethod('BillingService', 'RevokeShipmentQuote')
+  revokeShipmentQuote(data: RevokeShipmentQuoteRequest, metadata: Metadata) {
+    return this.shipmentQuotes.revoke(data, this.requireStaff(metadata, 'billing_settlement:quote:approve'));
+  }
+
+  @GrpcMethod('BillingService', 'ListShipmentQuotes')
+  listShipmentQuotes(data: ListShipmentQuotesRequest, metadata: Metadata) {
+    this.requireStaff(metadata, 'billing_settlement:quote:read');
+    return this.shipmentQuotes.list(data);
+  }
+
+  @GrpcMethod('BillingService', 'GetApprovedShipmentQuote')
+  getApprovedShipmentQuote(data: GetApprovedShipmentQuoteRequest, metadata: Metadata) {
+    this.requireInternal(metadata);
+    return this.shipmentQuotes.getApproved(data);
+  }
+
+  private requireStaff(metadata: Metadata, permission: string): string {
+    this.requireInternal(metadata);
+    const actor = metadata?.get('x-user-id')?.[0]?.toString().trim();
+    const permissions = metadata?.get('x-permissions')?.[0]?.toString().split(',') || [];
+    if (!actor || !permissions.includes(permission)) {
+      throw new RpcException({ code: status.PERMISSION_DENIED, message: 'Quote permission is required' });
+    }
+    return actor;
+  }
+
+  private requireInternal(metadata: Metadata): void {
+    const expectedSecret = this.config.get<string>('INTERNAL_SERVICE_SECRET');
+    if (!expectedSecret) {
+      if (this.config.get<string>('NODE_ENV') === 'production') {
+        throw new RpcException({ code: status.UNAVAILABLE, message: 'Quote service credentials are not configured' });
+      }
+      return;
+    }
+    const expected = Buffer.from(expectedSecret);
+    const provided = Buffer.from(metadata?.get('x-internal-secret')?.[0]?.toString() || '');
+    if (expected.length !== provided.length || !timingSafeEqual(expected, provided)) {
+      throw new RpcException({ code: status.UNAUTHENTICATED, message: 'Trusted service credentials are required' });
+    }
+  }
 
   // ── Invoice gRPC Endpoints ────────────────────────────────────────────────
 

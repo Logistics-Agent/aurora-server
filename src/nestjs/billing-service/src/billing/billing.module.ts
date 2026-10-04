@@ -7,6 +7,8 @@ import { RabbitMQMessagingService } from '../infrastructure/messaging/rabbitmq.s
 import { ShipmentCompletedEventHandler } from '../infrastructure/messaging/event-handlers/shipment-completed.handler';
 import { ShipmentCompletedConsumer } from '../infrastructure/messaging/shipment-completed.consumer';
 import { FinancialGrpcClient } from '../infrastructure/grpc-clients/financial.grpc-client';
+import { ShipmentWorkflowGrpcClient } from '../infrastructure/grpc-clients/shipment-workflow.grpc-client';
+import { ShipmentQuoteService } from '../application/services/shipment-quote.service';
 import { OverdueInvoiceCronJob } from '../infrastructure/jobs/overdue-invoice.cron';
 
 @Module({
@@ -19,6 +21,8 @@ import { OverdueInvoiceCronJob } from '../infrastructure/jobs/overdue-invoice.cr
     ShipmentCompletedEventHandler,
     ShipmentCompletedConsumer,
     FinancialGrpcClient,
+    ShipmentWorkflowGrpcClient,
+    ShipmentQuoteService,
     OverdueInvoiceCronJob,
   ],
   exports: [BillingService, GenerateInvoiceUseCase],

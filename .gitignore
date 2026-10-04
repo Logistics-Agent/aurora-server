@@ -41,6 +41,8 @@ target/
 !src/dotnet/RegulatoryCompliance/Infrastructure/Persistences/Migrations/*.cs
 !src/nestjs/negotiation-agent-service/prisma/migrations/
 !src/nestjs/negotiation-agent-service/prisma/migrations/**
+!src/nestjs/billing-service/prisma/migrations/
+!src/nestjs/billing-service/prisma/migrations/**
 # User-specific files
 *.rsuser
 *.suo

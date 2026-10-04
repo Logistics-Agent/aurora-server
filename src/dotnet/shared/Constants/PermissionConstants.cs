@@ -137,6 +137,9 @@ public static class PermissionConstants
 
         // Sensitive financial authority
         public const string SettlementManage = "billing_settlement:settlement:manage";
+        public const string QuoteRead = "billing_settlement:quote:read";
+        public const string QuoteCreate = "billing_settlement:quote:create";
+        public const string QuoteApprove = "billing_settlement:quote:approve";
     }
 
     // =========================
@@ -213,6 +216,7 @@ public static class PermissionConstants
         // Billing
         Billing.Read, Billing.InvoiceCreate, Billing.InvoiceUpdate,
         Billing.CreditCheck, Billing.EscrowRead, Billing.SettlementManage,
+        Billing.QuoteRead, Billing.QuoteCreate, Billing.QuoteApprove,
 
         // GPS
         Gps.GeofenceManage,
@@ -323,6 +327,8 @@ public static class PermissionConstants
         Billing.InvoiceCreate,
         Billing.InvoiceUpdate,
         Billing.SettlementManage,
+        Billing.QuoteRead,
+        Billing.QuoteCreate,
 
         // GPS geofence configuration
         Gps.GeofenceManage,

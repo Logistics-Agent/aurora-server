@@ -66,6 +66,32 @@ model Invoice {
   @@map("invoices")
 }
 
+model ShipmentApprovedQuote {
+  id                String    @id @default(uuid())
+  tenantId          String    @map("tenant_id")
+  shipmentId        String    @map("shipment_id")
+  customerId        String    @map("customer_id")
+  revision          Int
+  currency          String    @default("USD")
+  listPrice         Decimal   @map("list_price") @db.Decimal(18, 2)
+  floorPrice        Decimal   @map("floor_price") @db.Decimal(18, 2)
+  evidenceReference String    @map("evidence_reference")
+  validFrom         DateTime  @map("valid_from")
+  validUntil        DateTime  @map("valid_until")
+  status            String    @default("DRAFT")
+  createdBy         String    @map("created_by")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  approvedBy        String?   @map("approved_by")
+  approvedAt        DateTime? @map("approved_at")
+  revokedBy         String?   @map("revoked_by")
+  revokedAt         DateTime? @map("revoked_at")
+  revokeReason      String?   @map("revoke_reason")
+
+  @@unique([tenantId, shipmentId, customerId, revision])
+  @@index([tenantId, shipmentId, customerId, status])
+  @@map("shipment_approved_quotes")
+}
+
 model InvoiceItem {
   id          String   @id @default(uuid())
   invoiceId   String   @map("invoice_id")

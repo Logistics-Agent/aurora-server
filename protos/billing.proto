@@ -24,6 +24,67 @@ service BillingService {
   rpc FreezeEscrowAmount(FreezeEscrowRequest) returns (TransactionResponse);
   rpc ReleaseEscrowAmount(ReleaseEscrowRequest) returns (TransactionResponse);
   rpc RefundEscrowAmount(RefundEscrowRequest) returns (TransactionResponse);
+  rpc CreateShipmentQuoteDraft(CreateShipmentQuoteDraftRequest) returns (ShipmentQuoteResponse);
+  rpc ApproveShipmentQuote(ShipmentQuoteActionRequest) returns (ShipmentQuoteResponse);
+  rpc RevokeShipmentQuote(RevokeShipmentQuoteRequest) returns (ShipmentQuoteResponse);
+  rpc ListShipmentQuotes(ListShipmentQuotesRequest) returns (ListShipmentQuotesResponse);
+  rpc GetApprovedShipmentQuote(GetApprovedShipmentQuoteRequest) returns (ShipmentQuoteResponse);
+}
+
+message CreateShipmentQuoteDraftRequest {
+  string shipmentId = 1;
+  string customerId = 2;
+  string currency = 3;
+  string listPrice = 4;
+  string floorPrice = 5;
+  string evidenceReference = 6;
+  string validFrom = 7;
+  string validUntil = 8;
+}
+
+message ShipmentQuoteActionRequest {
+  string quoteId = 1;
+}
+
+message RevokeShipmentQuoteRequest {
+  string quoteId = 1;
+  string reason = 2;
+}
+
+message ListShipmentQuotesRequest {
+  string shipmentId = 1;
+  string customerId = 2;
+}
+
+message ListShipmentQuotesResponse {
+  repeated ShipmentQuoteResponse quotes = 1;
+}
+
+message GetApprovedShipmentQuoteRequest {
+  string shipmentId = 1;
+  string customerId = 2;
+}
+
+message ShipmentQuoteResponse {
+  string id = 1;
+  string tenantId = 2;
+  string shipmentId = 3;
+  string customerId = 4;
+  int32 revision = 5;
+  string currency = 6;
+  string listPrice = 7;
+  string floorPrice = 8; // Internal/staff only; never expose in customer responses
+  string evidenceReference = 9;
+  string validFrom = 10;
+  string validUntil = 11;
+  string status = 12;
+  string createdBy = 13;
+  string createdAt = 14;
+  string approvedBy = 15;
+  string approvedAt = 16;
+  string revokedBy = 17;
+  string revokedAt = 18;
+  string revokeReason = 19;
 }
 
 // ── Invoice Messages ─────────────────────────────────────────────────────────
