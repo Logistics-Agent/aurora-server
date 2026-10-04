@@ -31,6 +31,7 @@ env:
   REDIS_PORT: "6379"
   REDIS_TLS: "false"
   AI_GOVERNANCE_GRPC_URL: "ai-governance:9090"
+  BILLING_GRPC_URL: "billing-service:5004"
 
 externalSecret:
   enabled: true

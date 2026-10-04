@@ -8,6 +8,7 @@ import { NegotiationService } from './application/services/negotiation.service';
 import { NegotiationController } from './interface/controllers/negotiation.controller';
 import { HealthController } from './health/health.controller';
 import { TenantInterceptor } from './infrastructure/security/tenant.interceptor';
+import { BillingQuoteGrpcClient } from './infrastructure/grpc/billing-quote.grpc-client';
 
 @Module({
   imports: [
@@ -21,6 +22,7 @@ import { TenantInterceptor } from './infrastructure/security/tenant.interceptor'
   providers: [
     NegotiationStrategyDomainService,
     AiGovernanceNegotiationClient,
+    BillingQuoteGrpcClient,
     NegotiationService,
     TenantInterceptor,
   ],

@@ -3,7 +3,8 @@ import { NegotiationService } from './negotiation.service';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { NegotiationStrategyDomainService } from '../../domain/services/negotiation-strategy.domain-service';
 import { AiGovernanceNegotiationClient } from '../../infrastructure/grpc/ai-governance.grpc-client';
-import { ConfigService } from '@nestjs/config';
+import { BillingQuoteGrpcClient } from '../../infrastructure/grpc/billing-quote.grpc-client';
+import { NotFoundException } from '@nestjs/common';
 
 describe('NegotiationService', () => {
   let service: NegotiationService;
@@ -22,6 +23,11 @@ describe('NegotiationService', () => {
     listPrice: 5000,
     bottomPrice: 4200,
     currency: 'USD',
+    quoteId: 'quote-001',
+    quoteRevision: 1,
+    pricingEvidenceReference: 'tariff-001',
+    pricingApprovedBy: 'staff-approver',
+    pricingApprovedAt: new Date('2026-08-25T12:00:00Z'),
     suggestedSubject: 'Re: Quotation Proposal for Shipment SHP-001',
     suggestedBody: 'Thank you for your proposal.',
     suggestedLanguage: 'en',
@@ -63,11 +69,18 @@ describe('NegotiationService', () => {
     }),
     getDeterministicFallback: jest.fn().mockReturnValue('Deterministic fallback wording.'),
   };
-  const mockConfig = { get: jest.fn().mockReturnValue('test') };
+  const approvedQuote = {
+    id: 'quote-001', tenantId: 'tenant-001', shipmentId: 'SHP-001', customerId: 'cust-001',
+    revision: 1, currency: 'USD', listPrice: '5000.00', floorPrice: '4200.00',
+    evidenceReference: 'tariff-001', status: 'APPROVED', approvedBy: 'staff-approver',
+    approvedAt: '2026-08-25T12:00:00.000Z', validFrom: '2026-08-25T12:00:00.000Z',
+    validUntil: '2099-01-01T00:00:00.000Z',
+  };
+  const mockBillingQuotes = { getApproved: jest.fn().mockResolvedValue(approvedQuote) };
 
   beforeEach(async () => {
     jest.clearAllMocks();
-    mockConfig.get.mockReturnValue('test');
+    mockBillingQuotes.getApproved.mockResolvedValue(approvedQuote);
     mockAiClient.generateNegotiationDraft.mockResolvedValue({
       content: 'Dear Customer, our best counter-offer is $4,400.00 USD.',
       decisionId: 'dec-123',
@@ -90,7 +103,7 @@ describe('NegotiationService', () => {
           provide: AiGovernanceNegotiationClient,
           useValue: mockAiClient,
         },
-        { provide: ConfigService, useValue: mockConfig },
+        { provide: BillingQuoteGrpcClient, useValue: mockBillingQuotes },
       ],
     }).compile();
 
@@ -203,24 +216,63 @@ describe('NegotiationService', () => {
     });
   });
 
-  it('does not open a production session from caller-supplied prices', async () => {
-    mockConfig.get.mockReturnValue('production');
+  it('opens a session using only Billing approved prices, ignoring caller prices', async () => {
     mockPrisma.negotiationSession.findFirst.mockResolvedValueOnce(null);
-    await expect(service.submitOffer({
+    await service.submitOffer({
       tenantId: 'tenant-001', shipmentId: 'SHP-001', customerId: 'cust-001',
-      offerPrice: 4000, listPrice: 5000, bottomPrice: 4200,
+      offerPrice: 4000, listPrice: 1, bottomPrice: 1,
       sourceMessageId: 'offer-prod-1',
-    })).rejects.toThrow('Authoritative shipment pricing is not connected');
-    expect(mockPrisma.negotiationSession.create).not.toHaveBeenCalled();
+    });
+    expect(mockPrisma.negotiationSession.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        listPrice: 5000, bottomPrice: 4200, quoteId: 'quote-001', quoteRevision: 1,
+        pricingEvidenceReference: 'tariff-001', pricingApprovedBy: 'staff-approver',
+      }),
+    });
   });
 
-  it('does not process a production session without approved pricing evidence', async () => {
-    mockConfig.get.mockReturnValue('production');
+  it('does not process a session without approved pricing evidence', async () => {
+    mockBillingQuotes.getApproved.mockResolvedValueOnce({ ...approvedQuote, approvedBy: '' });
     await expect(service.submitOffer({
       tenantId: 'tenant-001', shipmentId: 'SHP-001', customerId: 'cust-001',
       offerPrice: 4300, sourceMessageId: 'offer-unapproved-1',
-    })).rejects.toThrow('no approved pricing evidence');
+    })).rejects.toThrow('invalid approved quote');
     expect(mockAiClient.generateNegotiationDraft).not.toHaveBeenCalled();
+  });
+
+  it('hands an open session to staff when its approved quote changes', async () => {
+    mockBillingQuotes.getApproved.mockResolvedValueOnce({ ...approvedQuote, id: 'quote-002', revision: 2 });
+    await expect(service.submitOffer({
+      tenantId: 'tenant-001', shipmentId: 'SHP-001', customerId: 'cust-001',
+      offerPrice: 4300, sourceMessageId: 'offer-new-quote-1',
+    })).rejects.toThrow('Approved quote changed');
+    expect(mockPrisma.negotiationSession.updateMany).toHaveBeenCalledWith({
+      where: { id: 'sess-001', tenantId: 'tenant-001', status: 'OPEN' },
+      data: { status: 'HANDOFF' },
+    });
+  });
+
+  it('hands an open session to staff when its quote is revoked', async () => {
+    mockBillingQuotes.getApproved.mockRejectedValueOnce(new NotFoundException('No approved quote'));
+    await expect(service.submitOffer({
+      tenantId: 'tenant-001', shipmentId: 'SHP-001', customerId: 'cust-001',
+      offerPrice: 4300, sourceMessageId: 'offer-revoked-1',
+    })).rejects.toThrow('no longer available');
+    expect(mockPrisma.negotiationSession.updateMany).toHaveBeenCalledWith({
+      where: { id: 'sess-001', tenantId: 'tenant-001', status: 'OPEN' },
+      data: { status: 'HANDOFF' },
+    });
+  });
+
+  it('does not save an AI response when Billing replaces the quote during generation', async () => {
+    mockBillingQuotes.getApproved
+      .mockResolvedValueOnce(approvedQuote)
+      .mockResolvedValueOnce({ ...approvedQuote, id: 'quote-002', revision: 2 });
+    await expect(service.submitOffer({
+      tenantId: 'tenant-001', shipmentId: 'SHP-001', customerId: 'cust-001',
+      offerPrice: 4000, sourceMessageId: 'offer-racing-quote-1',
+    })).rejects.toThrow('Approved quote changed');
+    expect(mockPrisma.negotiationMessage.create).not.toHaveBeenCalled();
   });
 
   it('rejects a stale round without recording an AI message', async () => {

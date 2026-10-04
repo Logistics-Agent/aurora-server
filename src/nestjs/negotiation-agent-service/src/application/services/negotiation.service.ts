@@ -1,8 +1,8 @@
 import { Injectable, Logger, NotFoundException, BadRequestException, ConflictException, ServiceUnavailableException } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { NegotiationStrategyDomainService, DEFAULT_NEGOTIATION_CURRENCY } from '../../domain/services/negotiation-strategy.domain-service';
 import { AiDraftGenerateInput, AiGovernanceNegotiationClient } from '../../infrastructure/grpc/ai-governance.grpc-client';
+import { ApprovedShipmentQuote, BillingQuoteGrpcClient } from '../../infrastructure/grpc/billing-quote.grpc-client';
 
 export interface SubmitOfferInput {
   tenantId?: string;
@@ -79,7 +79,7 @@ export class NegotiationService {
     private readonly prisma: PrismaService,
     private readonly strategy: NegotiationStrategyDomainService,
     private readonly aiGovernanceClient: AiGovernanceNegotiationClient,
-    private readonly config: ConfigService,
+    private readonly billingQuotes: BillingQuoteGrpcClient,
   ) {}
 
   async submitOffer(input: SubmitOfferInput): Promise<NegotiationResult> {
@@ -87,8 +87,6 @@ export class NegotiationService {
     const shipmentId = input.shipmentId || input.shipment_id;
     const customerId = input.customerId || input.customer_id;
     const offerPrice = input.offerPrice ?? input.offer_price ?? NaN;
-    const listPrice = input.listPrice ?? input.list_price ?? NaN;
-    const bottomPrice = input.bottomPrice ?? input.bottom_price ?? NaN;
     if (!shipmentId || !customerId || !Number.isFinite(offerPrice) || offerPrice <= 0) {
       throw new BadRequestException('shipmentId, customerId and a positive offerPrice are required');
     }
@@ -118,18 +116,27 @@ export class NegotiationService {
 
     if (requestedSessionId && !session) throw new NotFoundException('Negotiation session not found');
     if (session && session.status !== 'OPEN') throw new ConflictException('Negotiation is awaiting staff action');
-    if (session && this.config.get<string>('NODE_ENV') === 'production' &&
-        (!session.pricingEvidenceReference || !session.pricingApprovedBy || !session.pricingApprovedAt)) {
-      throw new ServiceUnavailableException('Negotiation session has no approved pricing evidence');
+    let quote: ApprovedShipmentQuote;
+    try {
+      quote = await this.billingQuotes.getApproved(tenantId, shipmentId, customerId);
+    } catch (error) {
+      if (session && error instanceof NotFoundException) {
+        await this.prisma.negotiationSession.updateMany({
+          where: { id: session.id, tenantId, status: 'OPEN' }, data: { status: 'HANDOFF' },
+        });
+        throw new ConflictException('Approved quote is no longer available; staff must review this negotiation');
+      }
+      throw error;
+    }
+    const { listPrice, floorPrice } = this.validateQuote(quote, tenantId, shipmentId, customerId);
+    if (session && (session.quoteId !== quote.id || session.quoteRevision !== quote.revision ||
+        !session.pricingEvidenceReference || !session.pricingApprovedBy || !session.pricingApprovedAt)) {
+      await this.prisma.negotiationSession.updateMany({
+        where: { id: session.id, tenantId, status: 'OPEN' }, data: { status: 'HANDOFF' },
+      });
+      throw new ConflictException('Approved quote changed; staff must review this negotiation');
     }
     if (!session) {
-      if (this.config.get<string>('NODE_ENV') === 'production') {
-        throw new ServiceUnavailableException('Authoritative shipment pricing is not connected; a negotiation session cannot be opened');
-      }
-      if (!this.isMoneyAmount(listPrice) || !this.isMoneyAmount(bottomPrice) ||
-          bottomPrice > listPrice) {
-        throw new BadRequestException('Valid listPrice and bottomPrice are required to open a session');
-      }
       try {
         session = await this.prisma.negotiationSession.create({
           data: {
@@ -140,8 +147,14 @@ export class NegotiationService {
             currentRound: 1,
             maxRounds: 5,
             listPrice,
-            bottomPrice,
+            bottomPrice: floorPrice,
             currency,
+            quoteId: quote.id,
+            quoteRevision: quote.revision,
+            quoteValidUntil: new Date(quote.validUntil),
+            pricingEvidenceReference: quote.evidenceReference,
+            pricingApprovedBy: quote.approvedBy,
+            pricingApprovedAt: new Date(quote.approvedAt),
             sourceMessageId,
             sourceThreadId,
           },
@@ -226,6 +239,27 @@ export class NegotiationService {
       newStatus = 'HANDOFF';
     } else if (strategyResult.decision === 'REJECT') {
       newStatus = 'REJECTED';
+    }
+
+    // The quote may be revoked or replaced while AI wording is generated.
+    let currentQuote: ApprovedShipmentQuote;
+    try {
+      currentQuote = await this.billingQuotes.getApproved(tenantId, shipmentId, customerId);
+    } catch (error) {
+      if (error instanceof NotFoundException) {
+        await this.prisma.negotiationSession.updateMany({
+          where: { id: session.id, tenantId, status: 'OPEN' }, data: { status: 'HANDOFF' },
+        });
+        throw new ConflictException('Approved quote is no longer available; staff must review this negotiation');
+      }
+      throw error;
+    }
+    this.validateQuote(currentQuote, tenantId, shipmentId, customerId);
+    if (currentQuote.id !== quote.id || currentQuote.revision !== quote.revision) {
+      await this.prisma.negotiationSession.updateMany({
+        where: { id: session.id, tenantId, status: 'OPEN' }, data: { status: 'HANDOFF' },
+      });
+      throw new ConflictException('Approved quote changed; staff must review this negotiation');
     }
 
     // 6. ACID Transaction: Save message + update session round/status/suggestedReply
@@ -397,6 +431,33 @@ export class NegotiationService {
     return Number.isFinite(value) && value > 0 &&
       Number.isSafeInteger(Math.round(value * 100)) &&
       Math.abs(value * 100 - Math.round(value * 100)) < 0.000001;
+  }
+
+  private validateQuote(quote: ApprovedShipmentQuote, tenantId: string, shipmentId: string,
+    customerId: string): { listPrice: number; floorPrice: number } {
+    const now = Date.now();
+    const validFrom = Date.parse(quote.validFrom);
+    const validUntil = Date.parse(quote.validUntil);
+    const approvedAt = Date.parse(quote.approvedAt);
+    const listPrice = this.quoteMoney(quote.listPrice);
+    const floorPrice = this.quoteMoney(quote.floorPrice);
+    if (quote.tenantId !== tenantId || quote.shipmentId !== shipmentId ||
+        quote.customerId !== customerId || quote.status !== 'APPROVED' ||
+        quote.currency !== DEFAULT_NEGOTIATION_CURRENCY ||
+        !quote.id || !Number.isInteger(quote.revision) || quote.revision < 1 ||
+        !quote.evidenceReference?.trim() || !quote.approvedBy?.trim() ||
+        !Number.isFinite(approvedAt) || approvedAt > now ||
+        !Number.isFinite(validFrom) || !Number.isFinite(validUntil) ||
+        validFrom > now || validUntil <= now ||
+        !this.isMoneyAmount(listPrice) || !this.isMoneyAmount(floorPrice) ||
+        floorPrice > listPrice) {
+      throw new ServiceUnavailableException('Billing returned an invalid approved quote');
+    }
+    return { listPrice, floorPrice };
+  }
+
+  private quoteMoney(value: string): number {
+    return /^(?:0|[1-9]\d{0,15})(?:\.\d{1,2})?$/.test(value || '') ? Number(value) : NaN;
   }
 
   private isUniqueConflict(error: unknown): boolean {
