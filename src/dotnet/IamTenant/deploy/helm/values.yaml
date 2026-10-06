@@ -7,7 +7,11 @@ image:
   pullPolicy: IfNotPresent
 
 service:
-  type: ClusterIP
+  type: LoadBalancer
+  annotations:
+    service.beta.kubernetes.io/azure-load-balancer-internal: "true"
+    service.beta.kubernetes.io/azure-load-balancer-internal-subnet: "snet-aks-core"
+    service.beta.kubernetes.io/azure-load-balancer-ipv4: "10.10.0.63"
   port: 5000
   targetPort: 5000
 
@@ -94,4 +98,3 @@ readinessProbe:
   periodSeconds: 5
   timeoutSeconds: 3
   failureThreshold: 6
-

@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using DocumentOcr.Application.Providers;
 using DocumentOcr.Application.Storage;
 using DocumentOcr.Application.Uploads;
 using Microsoft.Extensions.Configuration;
@@ -111,6 +112,36 @@ public sealed class FileSystemDocumentInputStorage : IDocumentInputStorage
         if (File.Exists(path))
             File.Delete(path);
         return Task.CompletedTask;
+    }
+
+    public async Task<DocumentContent> ReadContentAsync(
+        Guid tenantId,
+        string objectKey,
+        string fileName,
+        string mimeType,
+        long maximumSizeBytes,
+        CancellationToken cancellationToken = default)
+    {
+        var path = GetPath(tenantId, objectKey);
+        if (!File.Exists(path))
+            throw new FileNotFoundException("The uploaded document was not found.", path);
+
+        await using var source = new FileStream(
+            path, FileMode.Open, FileAccess.Read, FileShare.Read, 81_920, useAsync: true);
+        await using var buffer = new MemoryStream();
+        await source.CopyToAsync(buffer, cancellationToken);
+        if (buffer.Length == 0 || buffer.Length > maximumSizeBytes)
+            throw new DocumentInputTooLargeException();
+
+        var bytes = buffer.ToArray();
+        var metadata = await DocumentObjectInspector.InspectAsync(
+            objectKey,
+            new MemoryStream(bytes, writable: false),
+            cancellationToken,
+            mimeType);
+        if (!string.Equals(metadata.ContentType, mimeType, StringComparison.OrdinalIgnoreCase))
+            throw new ArgumentException("Uploaded content MIME type does not match the declared MIME type.", nameof(mimeType));
+        return DocumentContent.Create(bytes, metadata.ContentType, 1);
     }
 
     private string GetPath(Guid tenantId, string objectKey)

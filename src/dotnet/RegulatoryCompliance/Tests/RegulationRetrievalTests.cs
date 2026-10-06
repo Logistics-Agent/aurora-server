@@ -104,6 +104,42 @@ public sealed class RegulationRetrievalTests
     }
 
     [Fact]
+    public async Task ConcurrentQueriesUseFactoryOwnedContextsAndPersistIndependentTraces()
+    {
+        var tenantId = Guid.CreateVersion7();
+        var currentUser = CurrentUser(tenantId);
+        var databaseName = Guid.CreateVersion7().ToString();
+        await using var context = CreateContext(currentUser, databaseName);
+        await Seed(context, tenantId, SourceVisibility.Tenant,
+            "VN", RegulationType.Customs, "dangerous goods declaration required", "concurrent");
+        await EmbedAll(context);
+
+        var factory = new TestDbContextFactory(databaseName, currentUser);
+        var provider = new DeterministicEmbeddingProvider();
+        var service = new RegulationRetrievalService(
+            context,
+            provider,
+            new EfRegulationVectorStore(context, factory),
+            currentUser,
+            new FixedTimeProvider(Now),
+            factory);
+
+        var results = await Task.WhenAll(
+            service.QueryAsync(Query()),
+            service.QueryAsync(Query() with { Query = "declaration" }));
+
+        Assert.All(results, result =>
+        {
+            Assert.Equal(EvidenceSufficiency.Sufficient, result.EvidenceSufficiency);
+            Assert.NotEqual(Guid.Empty, result.RetrievalTraceId);
+        });
+        Assert.True(factory.CreatedCount >= 4);
+
+        await using var verification = CreateContext(currentUser, databaseName);
+        Assert.Equal(2, await verification.RetrievalTraces.CountAsync());
+    }
+
+    [Fact]
     public async Task HighlyOverlappingChunksAreDeduplicatedDeterministically()
     {
         var tenantId = Guid.CreateVersion7();
@@ -250,10 +286,15 @@ public sealed class RegulationRetrievalTests
     private static string Hash(string value) =>
         Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value))).ToLowerInvariant();
 
-    private static RegulatoryComplianceDbContext CreateContext(CurrentUserService currentUser)
+    private static RegulatoryComplianceDbContext CreateContext(CurrentUserService currentUser) =>
+        CreateContext(currentUser, Guid.CreateVersion7().ToString());
+
+    private static RegulatoryComplianceDbContext CreateContext(
+        CurrentUserService currentUser,
+        string databaseName)
     {
         var options = new DbContextOptionsBuilder<RegulatoryComplianceDbContext>()
-            .UseInMemoryDatabase(Guid.CreateVersion7().ToString())
+            .UseInMemoryDatabase(databaseName)
             .Options;
         return new RegulatoryComplianceDbContext(
             options, currentUser, new AuditSaveChangesInterceptor(currentUser));
@@ -276,8 +317,29 @@ public sealed class RegulationRetrievalTests
         public EmbeddingModelDescriptor Model { get; } = new("empty", "1", 768);
 
         public Task<IReadOnlyList<float[]>> GenerateAsync(
-            IReadOnlyList<string> texts,
+            IReadOnlyList<EmbeddingInput> inputs,
             CancellationToken cancellationToken = default) =>
             Task.FromResult<IReadOnlyList<float[]>>([]);
+    }
+
+    private sealed class TestDbContextFactory(
+        string databaseName,
+        CurrentUserService currentUser) : IDbContextFactory<RegulatoryComplianceDbContext>
+    {
+        public int CreatedCount { get; private set; }
+
+        public RegulatoryComplianceDbContext CreateDbContext()
+        {
+            CreatedCount++;
+            var options = new DbContextOptionsBuilder<RegulatoryComplianceDbContext>()
+                .UseInMemoryDatabase(databaseName)
+                .Options;
+            return new RegulatoryComplianceDbContext(
+                options, currentUser, new AuditSaveChangesInterceptor(currentUser));
+        }
+
+        public ValueTask<RegulatoryComplianceDbContext> CreateDbContextAsync(
+            CancellationToken cancellationToken = default) =>
+            ValueTask.FromResult(CreateDbContext());
     }
 }

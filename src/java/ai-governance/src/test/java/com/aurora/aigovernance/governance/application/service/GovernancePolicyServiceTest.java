@@ -15,6 +15,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.core.annotation.AnnotatedElementUtils;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.Optional;
@@ -28,6 +30,22 @@ import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 public class GovernancePolicyServiceTest {
+
+    @Test
+    public void evaluateKeepsLazyPlanCollectionsInsideAReadOnlyTransaction() throws NoSuchMethodException {
+        Transactional transaction = AnnotatedElementUtils.findMergedAnnotation(
+                GovernancePolicyService.class.getMethod(
+                        "evaluate",
+                        UUID.class,
+                        String.class,
+                        String.class,
+                        AiOperation.class,
+                        TokenBudget.class),
+                Transactional.class);
+
+        assertNotNull(transaction);
+        assertTrue(transaction.readOnly());
+    }
 
     @Mock
     private TenantPlanResolver tenantPlanResolver;
@@ -181,5 +199,40 @@ public class GovernancePolicyServiceTest {
         assertNull(decision.denyReason());
         assertNotNull(decision.decisionId());
         assertTrue(decision.allowedProviders().contains(AiProvider.GEMINI));
+    }
+
+    @Test
+    public void testPlatformEmbeddingAllowsTrustedComplianceWorkerWithoutTenant() {
+        when(planRepository.findByCode("ENTERPRISE")).thenReturn(Optional.empty());
+
+        GovernanceDecision decision = governancePolicyService.evaluate(
+                null, "regulatory-compliance-platform-rag", "compliance.embed",
+                AiOperation.EMBED, new TokenBudget(100, 0)
+        );
+
+        assertTrue(decision.allowed());
+        assertNull(decision.denyReason());
+    }
+
+    @Test
+    public void testTenantComplianceWorkerStillRequiresTenant() {
+        GovernanceDecision decision = governancePolicyService.evaluate(
+                null, "regulatory-compliance-rag", "compliance.embed",
+                AiOperation.EMBED, new TokenBudget(100, 0)
+        );
+
+        assertFalse(decision.allowed());
+        assertEquals(DenyReason.TENANT_NOT_FOUND, decision.denyReason());
+    }
+
+    @Test
+    public void testTrustedInternalCapabilitiesAreScopedToTheirWorkload() {
+        GovernanceDecision decision = governancePolicyService.evaluate(
+                null, "devops-agent", "compliance.embed",
+                AiOperation.EMBED, new TokenBudget(100, 0)
+        );
+
+        assertFalse(decision.allowed());
+        assertEquals(DenyReason.TENANT_NOT_FOUND, decision.denyReason());
     }
 }

@@ -1,3 +1,6 @@
+using System.Text;
+using DocumentOcr.Application.Providers;
+
 namespace DocumentOcr.Application.Storage;
 
 public interface IDocumentInputStorage
@@ -29,6 +32,15 @@ public interface IDocumentInputStorage
         Guid tenantId,
         string objectKey,
         CancellationToken cancellationToken = default);
+
+    Task<DocumentContent> ReadContentAsync(
+        Guid tenantId,
+        string objectKey,
+        string fileName,
+        string mimeType,
+        long maximumSizeBytes,
+        CancellationToken cancellationToken = default) =>
+        throw new NotSupportedException("The configured input storage does not support server-side reads.");
 }
 
 public interface IDocumentDownloadStorage
@@ -67,13 +79,17 @@ public static class DocumentObjectInspector
     public static async Task<DocumentObjectMetadata> InspectAsync(
         string objectKey,
         Stream content,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        string? observedContentType = null)
     {
         using var hash = System.Security.Cryptography.IncrementalHash.CreateHash(
             System.Security.Cryptography.HashAlgorithmName.SHA256);
         var header = new byte[8];
         var headerLength = 0;
         var buffer = new byte[81_920];
+        var isMarkdownCandidate = string.Equals(Path.GetExtension(objectKey), ".md", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(observedContentType, "text/markdown", StringComparison.OrdinalIgnoreCase);
+        await using var textBuffer = isMarkdownCandidate ? new MemoryStream() : null;
         long sizeBytes = 0;
 
         while (true)
@@ -89,6 +105,8 @@ public static class DocumentObjectInspector
             }
 
             hash.AppendData(buffer, 0, read);
+            if (textBuffer is not null)
+                await textBuffer.WriteAsync(buffer.AsMemory(0, read), cancellationToken);
             var remainingHeader = header.Length - headerLength;
             if (remainingHeader > 0)
             {
@@ -98,11 +116,30 @@ public static class DocumentObjectInspector
             }
         }
 
+        var detectedMimeType = DetectMimeType(header.AsSpan(0, headerLength));
+        if (detectedMimeType == "application/octet-stream" && textBuffer is not null && IsValidUtf8(textBuffer))
+            detectedMimeType = "text/markdown";
+
         return new DocumentObjectMetadata(
             objectKey,
-            DetectMimeType(header.AsSpan(0, headerLength)),
+            detectedMimeType,
             sizeBytes,
             Convert.ToHexString(hash.GetHashAndReset()).ToLowerInvariant());
+    }
+
+    private static bool IsValidUtf8(MemoryStream content)
+    {
+        try
+        {
+            var text = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true)
+                .GetString(content.ToArray());
+            return text.Length > 0 && text.All(character =>
+                !char.IsControl(character) || character is '\r' or '\n' or '\t');
+        }
+        catch (DecoderFallbackException)
+        {
+            return false;
+        }
     }
 
     private static string DetectMimeType(ReadOnlySpan<byte> header)

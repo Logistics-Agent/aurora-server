@@ -5,8 +5,17 @@ using System.Threading.Tasks;
 
 namespace MailService.Application.Interfaces.Stalwart;
 
+public record ProvisionResult(bool IsSuccess, string? StalwartAccountId, string? ErrorMessage)
+{
+    public static ProvisionResult Success(string accountId) => new(true, accountId, null);
+    public static ProvisionResult Failed(string error) => new(false, null, error);
+}
+
 public interface IStalwartManagementClient
 {
+    Task<string> ResolveOrCreateStalwartDomainIdAsync(string domainName, CancellationToken cancellationToken = default);
+    Task<ProvisionResult> ProvisionAccountAsync(string localPart, string stalwartDomainId, string? displayName = null, CancellationToken cancellationToken = default);
+    Task<string?> FindExistingAccountIdAsync(string localPart, string stalwartDomainId, CancellationToken cancellationToken = default);
     Task<bool> RegisterDomainAsync(string domainName, CancellationToken cancellationToken = default);
     Task<string> GenerateDkimKeyAsync(string domainName, string selector = "aurora-2025", CancellationToken cancellationToken = default);
     Task<bool> ProvisionAccountAsync(string fullAddress, CancellationToken cancellationToken = default);

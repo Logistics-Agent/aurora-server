@@ -20,7 +20,7 @@ env:
   RabbitMQ__Host: "rabbitmq.aurora.svc.cluster.local"
   RabbitMQ__Port: "5672"
   RabbitMQ__Username: "aurora_admin"
-  Redis__Host: "redis-master.aurora.svc.cluster.local:6379"
+  Redis__Host: "redis.aurora.svc.cluster.local:6379"
   Redis__Ssl: "false"
   Redis__AbortConnect: "false"
   Grpc__AiGovernance__Url: "http://ai-governance:9090"

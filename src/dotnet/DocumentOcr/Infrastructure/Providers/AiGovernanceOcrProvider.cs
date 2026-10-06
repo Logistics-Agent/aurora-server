@@ -90,8 +90,13 @@ public sealed class AiGovernanceOcrProvider(
             }
 
             // Structured or Both
-            var jsonText = ExtractJsonBlock(content);
-            return ParseStructuredResponse(jsonText, request, response.DecisionId ?? Guid.NewGuid().ToString(), response.Provider, response.Model);
+            var jsonText = AiGovernanceOcrResponseParser.ExtractJsonBlock(content);
+            return AiGovernanceOcrResponseParser.Parse(
+                jsonText,
+                request,
+                response.DecisionId ?? Guid.NewGuid().ToString(),
+                response.Provider,
+                response.Model);
         }
         catch (RpcException ex) when (ex.StatusCode == StatusCode.Unavailable || ex.StatusCode == StatusCode.DeadlineExceeded)
         {
@@ -116,7 +121,11 @@ public sealed class AiGovernanceOcrProvider(
         }
     }
 
-    private static OcrProviderResult ParseStructuredResponse(
+}
+
+internal static class AiGovernanceOcrResponseParser
+{
+    public static OcrProviderResult Parse(
         string jsonText,
         OcrProviderRequest request,
         string decisionId,
@@ -161,6 +170,12 @@ public sealed class AiGovernanceOcrProvider(
                 fields.Add(OcrExtractedField.Create("raw_structured_json", jsonText.Length > 3000 ? jsonText[..3000] : jsonText, 0.85m));
             }
 
+            var fullText = request.ExtractionMode == OcrExtractionMode.Both &&
+                root.TryGetProperty("full_text", out var fullTextProperty) &&
+                fullTextProperty.ValueKind == JsonValueKind.String
+                    ? fullTextProperty.GetString()
+                    : null;
+
             return OcrProviderResult.Create(
                 detectedType,
                 fields,
@@ -168,8 +183,8 @@ public sealed class AiGovernanceOcrProvider(
                 null,
                 null,
                 $"Provider: {provider}, Model: {model}",
-                null,
-                OcrExtractionMode.Structured);
+                fullText,
+                request.ExtractionMode);
         }
         catch (JsonException)
         {
@@ -182,11 +197,11 @@ public sealed class AiGovernanceOcrProvider(
                 null,
                 $"Provider: {provider}, Model: {model}, MalformedJSONFallback",
                 null,
-                OcrExtractionMode.Structured);
+                request.ExtractionMode);
         }
     }
 
-    private static string ExtractJsonBlock(string text)
+    public static string ExtractJsonBlock(string text)
     {
         var trimmed = text.Trim();
         if (trimmed.StartsWith("```json", StringComparison.OrdinalIgnoreCase))

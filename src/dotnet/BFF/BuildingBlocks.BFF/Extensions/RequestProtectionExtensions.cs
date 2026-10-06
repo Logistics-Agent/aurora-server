@@ -37,7 +37,7 @@ public static class RequestProtectionExtensions
     {
         webHost.ConfigureKestrel(kestrel =>
         {
-            kestrel.Limits.MaxRequestBodySize = 1 * 1024 * 1024; // 1 MB
+            kestrel.Limits.MaxRequestBodySize = BuildingBlocks.BFF.Mail.Models.MailLimits.MaxHttpRequestBodyBytes; // 80 MB
             kestrel.Limits.MaxRequestHeadersTotalSize = 32 * 1024;        // 32 KB
             kestrel.Limits.MinRequestBodyDataRate = new MinDataRate(
                 bytesPerSecond: 100,

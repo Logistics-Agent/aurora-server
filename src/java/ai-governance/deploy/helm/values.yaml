@@ -9,12 +9,13 @@ image:
 env:
   SPRING_PROFILES_ACTIVE: "prod"
   SERVER_PORT: "8080"
-  SPRING_REDIS_HOST: "redis-master.aurora.svc.cluster.local"
+  SPRING_REDIS_HOST: "redis.aurora.svc.cluster.local"
   SPRING_REDIS_PORT: "6379"
   SPRING_REDIS_SSL: "false"
   SPRING_RABBITMQ_HOST: "rabbitmq.aurora.svc.cluster.local"
   SPRING_RABBITMQ_PORT: "5672"
   SPRING_RABBITMQ_USERNAME: "aurora_admin"
+  IAM_TENANT_GRPC_ADDRESS: "static://10.10.0.63:5000"
 
 externalSecret:
   enabled: true

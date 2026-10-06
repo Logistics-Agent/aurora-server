@@ -138,6 +138,50 @@ public sealed class RegulatoryComplianceGrpcServiceTests
     }
 
     [Fact]
+    public async Task ListMapsTenantScopedPagingAndFreshnessMetadata()
+    {
+        var fake = new FakeEvaluationService();
+        var service = Service(evaluation: fake);
+
+        var response = await service.ListComplianceEvaluations(
+            new ComplianceGrpc.ListComplianceEvaluationsRequest
+            {
+                Page = 2,
+                PageSize = 5,
+                Status = ComplianceGrpc.ComplianceEvaluationStatus.Completed
+            },
+            TestServerCallContext.Create());
+
+        Assert.Equal(2, fake.LastListPage);
+        Assert.Equal(5, fake.LastListPageSize);
+        Assert.Equal(ComplianceEvaluationStatus.Completed, fake.LastListStatus);
+        Assert.Equal(ComplianceGrpc.ComplianceEvaluationFreshness.Current, response.Items.Single().Freshness);
+        Assert.Equal(fake.Evaluation.RequestHash, response.Items.Single().SnapshotHash);
+        Assert.Equal(0, response.Items.Single().SnapshotVersion);
+    }
+
+    [Fact]
+    public async Task Corpus_catalog_maps_domain_visibility_by_name_instead_of_numeric_value()
+    {
+        var catalog = new FakeCorpusCatalogService();
+        var service = Service(corpusCatalog: catalog);
+
+        var regulatory = await service.ListRegulatorySources(
+            new ComplianceGrpc.ListRegulatorySourcesRequest { Page = 1, PageSize = 20 },
+            TestServerCallContext.Create());
+        var knowledge = await service.ListKnowledgeDocuments(
+            new ComplianceGrpc.ListKnowledgeDocumentsRequest { Page = 1, PageSize = 20 },
+            TestServerCallContext.Create());
+
+        Assert.Equal(
+            ComplianceGrpc.RegulatorySourceVisibility.Tenant,
+            Assert.Single(regulatory.Sources).Visibility);
+        Assert.Equal(
+            ComplianceGrpc.RegulatorySourceVisibility.Platform,
+            Assert.Single(knowledge.Documents).Visibility);
+    }
+
+    [Fact]
     public async Task MissingTenantErrorsAreMappedToUnauthenticated()
     {
         var service = Service(
@@ -178,12 +222,68 @@ public sealed class RegulatoryComplianceGrpcServiceTests
         IRegulatoryIngestionService? ingestion = null,
         IKnowledgeIngestionService? knowledgeIngestion = null,
         IRegulationRetrievalService? retrieval = null,
-        IComplianceEvaluationService? evaluation = null) =>
+        IComplianceEvaluationService? evaluation = null,
+        ICorpusCatalogService? corpusCatalog = null) =>
         new(
             ingestion ?? new FakeIngestionService(),
             knowledgeIngestion ?? new FakeKnowledgeIngestionService(),
             retrieval ?? new FakeRetrievalService(),
-            evaluation ?? new FakeEvaluationService());
+            evaluation ?? new FakeEvaluationService(),
+            corpusCatalogService: corpusCatalog);
+
+    private sealed class FakeCorpusCatalogService : ICorpusCatalogService
+    {
+        public Task<CorpusPage<RegulatorySourceCatalogItem>> ListRegulatorySourcesAsync(
+            int page,
+            int pageSize,
+            RegulatoryIngestionStatus? status = null,
+            string? jurisdictionCode = null,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(new CorpusPage<RegulatorySourceCatalogItem>(
+                [new RegulatorySourceCatalogItem(
+                    Guid.CreateVersion7(),
+                    "Tenant Rule",
+                    "Authority",
+                    "VN",
+                    RegulationType.ImportRestriction,
+                    "vi",
+                    SourceVisibility.Tenant,
+                    Now,
+                    null)],
+                1,
+                20,
+                1));
+
+        public Task<RegulatorySourceCatalogDetails?> GetRegulatorySourceAsync(
+            Guid id,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult<RegulatorySourceCatalogDetails?>(null);
+
+        public Task<CorpusPage<KnowledgeDocumentCatalogItem>> ListKnowledgeDocumentsAsync(
+            int page,
+            int pageSize,
+            RegulatoryIngestionStatus? status = null,
+            Domain.Enums.KnowledgeCategory? category = null,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(new CorpusPage<KnowledgeDocumentCatalogItem>(
+                [new KnowledgeDocumentCatalogItem(
+                    Guid.CreateVersion7(),
+                    "Platform Guide",
+                    Domain.Enums.KnowledgeCategory.Guide,
+                    "https://docs.example.test/guide",
+                    "en",
+                    SourceVisibility.Platform,
+                    Now,
+                    null)],
+                1,
+                20,
+                1));
+
+        public Task<KnowledgeDocumentCatalogDetails?> GetKnowledgeDocumentAsync(
+            Guid id,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult<KnowledgeDocumentCatalogDetails?>(null);
+    }
 
     private sealed class FakeKnowledgeIngestionService : IKnowledgeIngestionService
     {
@@ -265,6 +365,9 @@ public sealed class RegulatoryComplianceGrpcServiceTests
     {
         public ComplianceEvaluationInput? LastInput { get; private set; }
         public Guid LastGetId { get; private set; }
+        public int LastListPage { get; private set; }
+        public int LastListPageSize { get; private set; }
+        public ComplianceEvaluationStatus? LastListStatus { get; private set; }
         public ComplianceEvaluation Evaluation { get; } = CreateEvaluation();
 
         public Task<ComplianceEvaluation> EvaluateAsync(
@@ -281,6 +384,18 @@ public sealed class RegulatoryComplianceGrpcServiceTests
         {
             LastGetId = evaluationId;
             return Task.FromResult(Evaluation);
+        }
+
+        public Task<ComplianceEvaluationPage> ListAsync(
+            int page,
+            int pageSize,
+            ComplianceEvaluationStatus? status = null,
+            CancellationToken cancellationToken = default)
+        {
+            LastListPage = page;
+            LastListPageSize = pageSize;
+            LastListStatus = status;
+            return Task.FromResult(new ComplianceEvaluationPage([Evaluation], page, pageSize, 1));
         }
 
         private static ComplianceEvaluation CreateEvaluation()
@@ -335,6 +450,13 @@ public sealed class RegulatoryComplianceGrpcServiceTests
 
         public Task<ComplianceEvaluation> GetAsync(
             Guid evaluationId,
+            CancellationToken cancellationToken = default) =>
+            throw new InvalidOperationException("Tenant context is required.");
+
+        public Task<ComplianceEvaluationPage> ListAsync(
+            int page,
+            int pageSize,
+            ComplianceEvaluationStatus? status = null,
             CancellationToken cancellationToken = default) =>
             throw new InvalidOperationException("Tenant context is required.");
     }

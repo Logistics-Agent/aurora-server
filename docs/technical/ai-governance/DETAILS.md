@@ -68,6 +68,21 @@ Before any prompt is sent to external LLMs, the `SecurityFilter` executes:
 2. **PII Masking**: Redacts credit card numbers, national IDs, and credentials.
 3. **Structured Output Validation**: Enforces JSON Schema validation on LLM completions before returning to domain microservices.
 
+### 4.1 Grounded Compliance Answer Contract
+
+The `compliance.answer` capability is consumed by Regulatory Compliance with a strict JSON contract. The provider adapters must request JSON output (`responseMimeType=application/json` for Gemini and `response_format.type=json_object` for Azure OpenAI). Demo/test provider paths return the same object shape, rather than provider-specific prose.
+
+The Compliance boundary validates the six required fields before citation validation:
+
+- `answer`
+- `citations`
+- `knowledgeReferences`
+- `conflicts`
+- `insufficientEvidence`
+- `missingInformation`
+
+If a provider still returns malformed output, the service does not expose unvalidated prose and deterministically returns the already retrieved evidence with the original governance metadata. This preserves traceability and avoids incorrectly reporting that retrieval returned no evidence. A live provider credential is still required for a generated natural-language answer; the deterministic test provider intentionally reports that limitation.
+
 ---
 
 ## 5. Observability, Resilience & Tradeoffs

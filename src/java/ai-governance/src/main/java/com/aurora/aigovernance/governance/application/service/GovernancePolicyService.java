@@ -12,6 +12,7 @@ import com.aurora.aigovernance.shared.domain.TokenBudget;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.util.*;
@@ -30,8 +31,10 @@ public class GovernancePolicyService {
     private static final Logger log = LoggerFactory.getLogger(GovernancePolicyService.class);
     private static final double SOFT_QUOTA_THRESHOLD = 0.95;
 
-    private static final Set<String> TRUSTED_INTERNAL_SERVICES = Set.of("devops-agent");
-    private static final Set<String> INTERNAL_CAPABILITIES = Set.of("devops.diagnose");
+    private static final Map<String, Set<String>> TRUSTED_INTERNAL_CAPABILITIES = Map.of(
+            "devops-agent", Set.of("devops.diagnose"),
+            "regulatory-compliance-platform-rag", Set.of("compliance.embed")
+    );
 
     private final TenantPlanResolver tenantPlanResolver;
     private final PlanRepository planRepository;
@@ -59,6 +62,7 @@ public class GovernancePolicyService {
      * @param tokenBudget      token budget for quota checks
      * @return GovernanceDecision — always returns, never throws for policy denial
      */
+    @Transactional(readOnly = true)
     public GovernanceDecision evaluate(
             UUID tenantId,
             String callerServiceId,
@@ -184,8 +188,9 @@ public class GovernancePolicyService {
 
     private boolean isTrustedInternalContext(String callerServiceId, String capabilityCode) {
         return callerServiceId != null &&
-                TRUSTED_INTERNAL_SERVICES.contains(callerServiceId) &&
-                INTERNAL_CAPABILITIES.contains(capabilityCode);
+                TRUSTED_INTERNAL_CAPABILITIES
+                        .getOrDefault(callerServiceId, Set.of())
+                        .contains(capabilityCode);
     }
 
     private TenantPlanContext buildInternalServiceContext(String serviceId) {
@@ -194,7 +199,7 @@ public class GovernancePolicyService {
 
         Set<String> allowedCapabilities = plan != null
                 ? plan.getCapabilities().stream().map(PlanCapability::getCapabilityCode).collect(Collectors.toSet())
-                : INTERNAL_CAPABILITIES;
+                : TRUSTED_INTERNAL_CAPABILITIES.getOrDefault(serviceId, Set.of());
 
         Set<AiProvider> allowedProviders = Set.of(AiProvider.AZURE_OPENAI, AiProvider.GEMINI);
         Set<String> allowedPools = Set.of("shared-ai");

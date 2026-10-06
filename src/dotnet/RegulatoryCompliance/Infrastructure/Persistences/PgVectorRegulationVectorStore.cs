@@ -7,16 +7,28 @@ using RegulatoryCompliance.Infrastructure.Persistences;
 
 namespace RegulatoryCompliance.Infrastructure.Persistences;
 
-public sealed class PgVectorRegulationVectorStore(RegulatoryComplianceDbContext dbContext)
+public sealed class PgVectorRegulationVectorStore(
+    RegulatoryComplianceDbContext dbContext,
+    IDbContextFactory<RegulatoryComplianceDbContext>? dbContextFactory = null)
     : IRegulationVectorStore
 {
     private const int MaximumSearchCandidates = 2_000;
 
-    public async Task UpsertAsync(
+    public Task UpsertAsync(
         EmbeddingModelDescriptor model,
         IReadOnlyList<VectorUpsert> vectors,
         DateTimeOffset embeddedAt,
         CancellationToken cancellationToken = default)
+        => ExecuteWithContextAsync(
+            context => UpsertCoreAsync(context, model, vectors, embeddedAt, cancellationToken),
+            cancellationToken);
+
+    private static async Task UpsertCoreAsync(
+        RegulatoryComplianceDbContext dbContext,
+        EmbeddingModelDescriptor model,
+        IReadOnlyList<VectorUpsert> vectors,
+        DateTimeOffset embeddedAt,
+        CancellationToken cancellationToken)
     {
         ValidateModel(model);
         ArgumentNullException.ThrowIfNull(vectors);
@@ -49,9 +61,17 @@ public sealed class PgVectorRegulationVectorStore(RegulatoryComplianceDbContext 
         await dbContext.SaveChangesAsync(cancellationToken);
     }
 
-    public async Task<IReadOnlyList<VectorSearchResult>> SearchAsync(
+    public Task<IReadOnlyList<VectorSearchResult>> SearchAsync(
         VectorSearchRequest request,
         CancellationToken cancellationToken = default)
+        => ExecuteWithContextAsync(
+            context => SearchCoreAsync(context, request, cancellationToken),
+            cancellationToken);
+
+    private static async Task<IReadOnlyList<VectorSearchResult>> SearchCoreAsync(
+        RegulatoryComplianceDbContext dbContext,
+        VectorSearchRequest request,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(request);
         if (request.TopK is < 1 or > 100)
@@ -104,6 +124,33 @@ public sealed class PgVectorRegulationVectorStore(RegulatoryComplianceDbContext 
                 item.Sequence,
                 Convert.ToDecimal(item.Score)))
             .ToArray();
+    }
+
+    private async Task ExecuteWithContextAsync(
+        Func<RegulatoryComplianceDbContext, Task> operation,
+        CancellationToken cancellationToken)
+    {
+        if (dbContextFactory is null)
+        {
+            await operation(dbContext);
+            return;
+        }
+
+        await using var ownedDbContext =
+            await dbContextFactory.CreateDbContextAsync(cancellationToken);
+        await operation(ownedDbContext);
+    }
+
+    private async Task<TResult> ExecuteWithContextAsync<TResult>(
+        Func<RegulatoryComplianceDbContext, Task<TResult>> operation,
+        CancellationToken cancellationToken)
+    {
+        if (dbContextFactory is null)
+            return await operation(dbContext);
+
+        await using var ownedDbContext =
+            await dbContextFactory.CreateDbContextAsync(cancellationToken);
+        return await operation(ownedDbContext);
     }
 
     private static double ComputeCosineDistance(float[] a, float[] b)

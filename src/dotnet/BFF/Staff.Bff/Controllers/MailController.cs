@@ -264,6 +264,7 @@ public class MailController(
 
     [HttpPost("messages/outbound")]
     [RequirePermission(PermissionConstants.Mail.Send)]
+    [RequestSizeLimit(BuildingBlocks.BFF.Mail.Models.MailLimits.MaxHttpRequestBodyBytes)]
     public async Task<IActionResult> SubmitOutboundMessage([FromBody] SubmitOutboundMessageRequest body)
     {
         if (string.IsNullOrWhiteSpace(body.BodyHtml) && !string.IsNullOrWhiteSpace(body.BodyText))
@@ -389,6 +390,7 @@ public class MailController(
     [HttpPost("inbound")]
     [HttpPost("webhook/inbound")]
     [Microsoft.AspNetCore.Authorization.AllowAnonymous]
+    [RequestSizeLimit(BuildingBlocks.BFF.Mail.Models.MailLimits.MaxHttpRequestBodyBytes)]
     public async Task<IActionResult> IngestInboundMessage()
     {
         try

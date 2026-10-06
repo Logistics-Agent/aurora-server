@@ -13,6 +13,7 @@ public sealed class RegulatoryComplianceContractTests
         {
             EvaluateComplianceRequest.Descriptor,
             GetComplianceEvaluationRequest.Descriptor,
+            ListComplianceEvaluationsRequest.Descriptor,
             QueryRegulationsRequest.Descriptor,
             IngestRegulatorySourceRequest.Descriptor,
             CreateRegulatoryCorpusVersionRequest.Descriptor,
@@ -37,7 +38,7 @@ public sealed class RegulatoryComplianceContractTests
             .ToArray();
 
         Assert.Equal(
-            ["CreateKnowledgeCorpusVersion", "CreateRegulatoryCorpusVersion", "EvaluateCompliance", "GenerateGroundedAnswer", "GetComplianceEvaluation", "GetKnowledgeDocument", "GetRegulatorySource", "IngestKnowledgeDocument", "IngestRegulatorySource", "ListKnowledgeDocuments", "ListRegulatorySources", "QueryKnowledge", "QueryRegulations", "ValidateGroundedEvidence"],
+            ["CreateKnowledgeCorpusVersion", "CreateRegulatoryCorpusVersion", "EvaluateCompliance", "GenerateGroundedAnswer", "GetComplianceEvaluation", "GetKnowledgeDocument", "GetRegulatorySource", "IngestKnowledgeDocument", "IngestRegulatorySource", "ListComplianceEvaluations", "ListKnowledgeDocuments", "ListRegulatorySources", "QueryKnowledge", "QueryRegulations", "ValidateGroundedEvidence"],
             methods);
     }
 
@@ -50,6 +51,13 @@ public sealed class RegulatoryComplianceContractTests
         Assert.NotNull(QueryRegulationsResponse.Descriptor.FindFieldByName("evidence_sufficiency"));
         Assert.NotNull(QueryRegulationsResponse.Descriptor.FindFieldByName("evidence"));
         Assert.NotNull(QueryRegulationsResponse.Descriptor.FindFieldByName("generated_explanation"));
+        Assert.NotNull(ComplianceEvaluationResponse.Descriptor.FindFieldByName("freshness"));
+        Assert.NotNull(ComplianceEvaluationResponse.Descriptor.FindFieldByName("snapshot_hash"));
+        Assert.NotNull(ComplianceEvaluationResponse.Descriptor.FindFieldByName("snapshot_version"));
+        Assert.NotNull(ComplianceEvaluationResponse.Descriptor.FindFieldByName("stale_at"));
+        Assert.NotNull(ComplianceEvaluationResponse.Descriptor.FindFieldByName("stale_reason_codes"));
+        Assert.NotNull(ListComplianceEvaluationsResponse.Descriptor.FindFieldByName("items"));
+        Assert.NotNull(ListComplianceEvaluationsResponse.Descriptor.FindFieldByName("total_count"));
     }
 
     [Fact]
@@ -58,6 +66,7 @@ public sealed class RegulatoryComplianceContractTests
         AssertTimestamp(EvaluateComplianceRequest.Descriptor, "effective_at");
         AssertTimestamp(ComplianceEvaluationResponse.Descriptor, "requested_at");
         AssertTimestamp(ComplianceEvaluationResponse.Descriptor, "completed_at");
+        AssertTimestamp(ComplianceEvaluationResponse.Descriptor, "stale_at");
         AssertTimestamp(RegulationCitation.Descriptor, "effective_from");
         AssertTimestamp(IngestRegulatorySourceRequest.Descriptor, "published_at");
     }

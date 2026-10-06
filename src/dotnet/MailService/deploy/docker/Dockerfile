@@ -20,5 +20,6 @@ WORKDIR /app
 COPY --from=build /app/publish .
 USER $APP_UID
 EXPOSE 5003
-ENV ASPNETCORE_URLS=http://+:5003
+EXPOSE 9090
+ENV ASPNETCORE_URLS=http://+:5003;http://+:9090
 ENTRYPOINT ["dotnet", "MailService.dll"]

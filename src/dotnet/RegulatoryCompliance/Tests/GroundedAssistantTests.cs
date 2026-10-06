@@ -21,6 +21,25 @@ public sealed class GroundedAssistantTests
     private static readonly Guid UserId = Guid.Parse("11111111-1111-1111-1111-111111111111");
 
     [Fact]
+    public void ResponseParser_ParsesStrictJsonAndMarkdownCodeFence()
+    {
+        var response = GroundedAnswerResponseParser.Parse("```json\n{\"answer\":\"Use [R1].\",\"citations\":[{\"evidenceId\":\"R1\"}],\"knowledgeReferences\":[],\"conflicts\":[],\"insufficientEvidence\":false,\"missingInformation\":[]}\n```");
+
+        Assert.True(response.IsStructuredOutputValid);
+        Assert.Equal("Use [R1].", response.Answer);
+        Assert.Single(response.Citations!);
+    }
+
+    [Fact]
+    public void ResponseParser_MarksProviderProseAsInvalidStructuredOutput()
+    {
+        var response = GroundedAnswerResponseParser.Parse("[Gemini Response]: Processed prompt.");
+
+        Assert.False(response.IsStructuredOutputValid);
+        Assert.Contains("structured output", response.MissingInformation![0], StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void PromptBuilder_DelimitsEvidence_AndIncludesPromptInjectionDefense()
     {
         var builder = new GroundedAnswerPromptBuilder();
@@ -493,5 +512,12 @@ public sealed class GroundedAssistantTests
             evaluation.Id == evaluationId
                 ? Task.FromResult(evaluation)
                 : throw new KeyNotFoundException();
+
+        public Task<ComplianceEvaluationPage> ListAsync(
+            int page,
+            int pageSize,
+            ComplianceEvaluationStatus? status = null,
+            CancellationToken cancellationToken = default) =>
+            throw new NotImplementedException();
     }
 }

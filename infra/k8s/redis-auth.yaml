@@ -1,0 +1,78 @@
+apiVersion: external-secrets.io/v1beta1
+kind: ExternalSecret
+metadata:
+  name: redis-external-secret
+  namespace: aurora
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: azure-keyvault-store
+    kind: ClusterSecretStore
+  target:
+    name: redis-secret
+    creationPolicy: Owner
+  data:
+    - secretKey: password
+      remoteRef:
+        key: redis-password
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis
+  namespace: aurora
+  labels:
+    app.kubernetes.io/name: redis
+    app: redis
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redis
+  template:
+    metadata:
+      labels:
+        app: redis
+    spec:
+      containers:
+        - name: redis
+          image: redis:7.2-alpine
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              umask 077
+              printf 'appendonly yes\nrequirepass %s\n' "$REDIS_PASSWORD" > /tmp/redis.conf
+              unset REDIS_PASSWORD
+              exec redis-server /tmp/redis.conf
+          env:
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: redis-secret
+                  key: password
+          ports:
+            - name: redis
+              containerPort: 6379
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 300m
+              memory: 256Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  namespace: aurora
+  labels:
+    app: redis
+spec:
+  type: ClusterIP
+  selector:
+    app: redis
+  ports:
+    - name: redis
+      port: 6379
+      targetPort: 6379

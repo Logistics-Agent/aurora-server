@@ -462,6 +462,14 @@ message ThreadDto {
   repeated ThreadAssignmentHistoryDto assignment_history = 13;
 }
 
+message ThreadAttachmentDto {
+  string id           = 1;
+  string file_name    = 2;
+  string content_type = 3;
+  int64  size_bytes   = 4;
+  string url          = 5;
+}
+
 message ThreadMessageDto {
   string message_id                       = 1;
   string direction                        = 2; // "Inbound" | "Outbound"
@@ -473,6 +481,8 @@ message ThreadMessageDto {
   string reply_to_message_id              = 8;
   google.protobuf.Timestamp received_at   = 9;
   google.protobuf.Timestamp sent_at       = 10;
+  repeated ThreadAttachmentDto attachments = 11;
+  string body_html                        = 12;
 }
 
 message ClaimThreadRequest {

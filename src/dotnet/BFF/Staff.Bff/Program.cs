@@ -22,6 +22,7 @@ builder.Services.AddBffRequestProtection();
 builder.Services.AddBffHealthChecks(config);
 builder.Services.AddBffOpenTelemetry(config);
 builder.Services.AddHttpClient();
+builder.Services.AddScoped<StaffBff.Services.ComplianceSnapshotComposer>();
 
 var app = builder.Build();
 

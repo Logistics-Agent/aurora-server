@@ -4,6 +4,23 @@ namespace RegulatoryCompliance.Application.Embeddings;
 
 public sealed record EmbeddingModelDescriptor(string Name, string Version, int Dimension);
 
+public sealed record EmbeddingInput
+{
+    public EmbeddingInput(Guid? tenantId, string text)
+    {
+        if (tenantId == Guid.Empty)
+            throw new ArgumentException("TenantId cannot be empty.", nameof(tenantId));
+        if (string.IsNullOrWhiteSpace(text))
+            throw new ArgumentException("Embedding text is required.", nameof(text));
+
+        TenantId = tenantId;
+        Text = text;
+    }
+
+    public Guid? TenantId { get; }
+    public string Text { get; }
+}
+
 public sealed record VectorUpsert(
     Guid ChunkId,
     Guid ScopeKey,
@@ -31,7 +48,7 @@ public interface IEmbeddingProvider
     EmbeddingModelDescriptor Model { get; }
 
     Task<IReadOnlyList<float[]>> GenerateAsync(
-        IReadOnlyList<string> texts,
+        IReadOnlyList<EmbeddingInput> inputs,
         CancellationToken cancellationToken = default);
 }
 
@@ -71,4 +88,3 @@ public interface IEmbeddingBatchProcessor
 {
     Task<int> ProcessPendingAsync(CancellationToken cancellationToken = default);
 }
-

@@ -152,7 +152,11 @@ public sealed class KnowledgeIngestionService(
                 draft.ContentSha256,
                 now);
 
-            var embeddings = await embeddingProvider.GenerateAsync([chunk.NormalizedText], cancellationToken);
+            var embeddingTenantId = input.Visibility == SourceVisibility.Platform
+                ? null
+                : currentUser.TenantId;
+            var embeddings = await embeddingProvider.GenerateAsync(
+                [new EmbeddingInput(embeddingTenantId, chunk.NormalizedText)], cancellationToken);
             if (embeddings.Count > 0)
             {
                 chunk.MarkEmbedded(embeddings[0], embeddingProvider.Model.Name, embeddingProvider.Model.Version, embeddingProvider.Model.Dimension, now);
@@ -479,7 +483,8 @@ public sealed class KnowledgeIngestionService(
     {
         try
         {
-            return await embeddingProvider.GenerateAsync([query.Trim()], cancellationToken);
+            return await embeddingProvider.GenerateAsync(
+                [new EmbeddingInput(currentUser.TenantId, query.Trim())], cancellationToken);
         }
         catch (Exception) when (!cancellationToken.IsCancellationRequested)
         {
