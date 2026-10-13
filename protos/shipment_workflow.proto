@@ -64,6 +64,9 @@ service ShipmentWorkflowService {
 
     rpc ImportShipments(ImportShipmentsRequest)
     returns (ImportShipmentsResponse);
+
+    rpc AssignVehicle(AssignVehicleRequest)
+    returns (ShipmentResponse);
 }
 
 message CreateShipmentRequest {
@@ -339,3 +342,10 @@ message ImportShipmentRowResult {
   string shipmentNo = 4;
   string error = 5;
 }
+
+message AssignVehicleRequest {
+  string shipmentId = 1;
+  string vehicleId = 2;
+  repeated string documentIds = 3;
+}
+

@@ -8,5 +8,6 @@ public enum DocumentType
     BillOfLading = 3,
     CustomsDeclaration = 4,
     CertificateOfOrigin = 5,
+    VehiclePhoto = 6,
     Other = 99
 }

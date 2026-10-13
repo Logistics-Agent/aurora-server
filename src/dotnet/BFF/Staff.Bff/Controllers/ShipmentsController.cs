@@ -375,9 +375,43 @@ public class ShipmentsController(
         var response = await shipmentClient.GetShipmentTimelineAsync(new GetShipmentTimelineRequest { ShipmentId = id }, cancellationToken: ct);
         return Ok(response);
     }
+
+    [HttpPost("{id}/assign-vehicle")]
+    [RequirePermission(PermissionConstants.Shipment.Update, "documents:update")]
+    public async Task<IActionResult> AssignVehicle([FromRoute] string id, [FromBody] AssignVehicleBody body, CancellationToken ct = default)
+    {
+        try
+        {
+            var req = new AssignVehicleRequest
+            {
+                ShipmentId = id,
+                VehicleId = body.VehicleId ?? string.Empty
+            };
+            if (body.DocumentIds != null)
+            {
+                req.DocumentIds.AddRange(body.DocumentIds);
+            }
+
+            var response = await shipmentClient.AssignVehicleAsync(req, cancellationToken: ct);
+            logger.LogInformation("Vehicle {VehicleId} assigned to shipment {ShipmentId} by {UserId}",
+                body.VehicleId, id, currentUser.UserId);
+
+            return Ok(response);
+        }
+        catch (RpcException ex) when (ex.StatusCode == Grpc.Core.StatusCode.NotFound)
+        {
+            return NotFound(new { detail = ex.Status.Detail });
+        }
+        catch (RpcException ex) when (ex.StatusCode == Grpc.Core.StatusCode.InvalidArgument || ex.StatusCode == Grpc.Core.StatusCode.FailedPrecondition)
+        {
+            return BadRequest(new { detail = ex.Status.Detail });
+        }
+    }
 }
 
 // ── DTOs ───────────────────────────────────────────────────────────────────
+
+public record AssignVehicleBody(string? VehicleId, List<string>? DocumentIds);
 
 public record CreateShipmentBody(
     string? OrderId,

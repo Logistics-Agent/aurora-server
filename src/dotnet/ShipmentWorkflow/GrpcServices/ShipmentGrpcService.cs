@@ -385,6 +385,46 @@ public sealed class ShipmentGrpcService(ISender sender)
         return response;
     }
 
+    public override async Task<ShipmentResponse> AssignVehicle(
+        AssignVehicleRequest request,
+        ServerCallContext context)
+    {
+        var shipmentId = ParseGuid(request.ShipmentId, "ShipmentId is required and must be a valid UUID.");
+        if (string.IsNullOrWhiteSpace(request.VehicleId))
+        {
+            throw new RpcException(new Status(StatusCode.InvalidArgument, "VehicleId is required."));
+        }
+
+        var docGuids = new List<Guid>();
+        if (request.DocumentIds != null)
+        {
+            foreach (var docIdStr in request.DocumentIds)
+            {
+                if (Guid.TryParse(docIdStr, out var docGuid))
+                {
+                    docGuids.Add(docGuid);
+                }
+            }
+        }
+
+        try
+        {
+            var result = await sender.Send(
+                new AssignVehicleCommand(shipmentId, request.VehicleId, docGuids),
+                context.CancellationToken);
+
+            return MapToResponse(result);
+        }
+        catch (Shared.Exceptions.NotFoundException ex)
+        {
+            throw new RpcException(new Status(StatusCode.NotFound, ex.Message));
+        }
+        catch (Shared.Exceptions.DomainException ex)
+        {
+            throw new RpcException(new Status(StatusCode.InvalidArgument, ex.Message));
+        }
+    }
+
     private static double? ToOptionalCoordinate(double value)
     {
         return value == 0 ? null : value;

@@ -74,6 +74,13 @@ public class ShipmentDocument : TenantAuditableEntity
             : extractedDataJson.Trim();
     }
 
+    internal void UpdateExtractedDataJson(string? extractedDataJson)
+    {
+        ExtractedDataJson = string.IsNullOrWhiteSpace(extractedDataJson)
+            ? null
+            : extractedDataJson.Trim();
+    }
+
     private static void ValidateTenantAndShipment(Guid tenantId, Guid shipmentId)
     {
         if (tenantId == Guid.Empty)
