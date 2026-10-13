@@ -1,4 +1,4 @@
-# =============================================================================
+ # =============================================================================
 # VNet Peering
 # =============================================================================
 
@@ -13,4 +13,9 @@ resource "azurerm_virtual_network_peering" "peerings" {
   allow_forwarded_traffic      = lookup(each.value, "allow_forwarded_traffic", true)
   allow_gateway_transit        = lookup(each.value, "allow_gateway_transit", false)
   use_remote_gateways          = lookup(each.value, "use_remote_gateways", false)
+
+  depends_on = [
+    azurerm_subnet.subnets,
+    azurerm_subnet_network_security_group_association.nsg_assoc
+  ]
 }

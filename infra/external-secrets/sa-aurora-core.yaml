@@ -4,6 +4,6 @@ metadata:
   name: sa-aurora-core
   namespace: aurora
   annotations:
-    azure.workload.identity/client-id: "3ca35f49-0390-431f-839f-b26c541b69ea"
+    azure.workload.identity/client-id: "8d8a2ff6-159e-4e0d-8af9-831a59d1fdbd"
   labels:
     azure.workload.identity/use: "true"
