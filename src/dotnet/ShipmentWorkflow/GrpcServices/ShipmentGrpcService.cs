@@ -39,13 +39,13 @@ public sealed class ShipmentGrpcService(ISender sender)
         GetShipmentRequest request,
         ServerCallContext context)
     {
-        if (!Guid.TryParse(request.Id, out var shipmentId))
+        if (string.IsNullOrWhiteSpace(request.Id))
         {
-            throw new RpcException(new Status(StatusCode.InvalidArgument, "Invalid shipment id."));
+            throw new RpcException(new Status(StatusCode.InvalidArgument, "Shipment id or number is required."));
         }
 
         var shipment = await sender.Send(
-            new GetShipmentQuery(shipmentId),
+            new GetShipmentQuery(request.Id.Trim()),
             context.CancellationToken);
 
         return MapToResponse(shipment);
@@ -83,13 +83,13 @@ public sealed class ShipmentGrpcService(ISender sender)
         GetShipmentTimelineRequest request,
         ServerCallContext context)
     {
-        if (!Guid.TryParse(request.ShipmentId, out var shipmentId))
+        if (string.IsNullOrWhiteSpace(request.ShipmentId))
         {
-            throw new RpcException(new Status(StatusCode.InvalidArgument, "Invalid shipment id."));
+            throw new RpcException(new Status(StatusCode.InvalidArgument, "Shipment id or number is required."));
         }
 
         var timeline = await sender.Send(
-            new GetShipmentTimelineQuery(shipmentId),
+            new GetShipmentTimelineQuery(request.ShipmentId.Trim()),
             context.CancellationToken);
 
         var response = new ShipmentTimelineResponse

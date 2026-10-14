@@ -211,7 +211,7 @@ internal static class ShipmentCommandHelpers
     {
         if (shipment.Status is not (ShipmentStatus.Draft or ShipmentStatus.Created or ShipmentStatus.Submitted))
         {
-            throw new DomainException("Shipment can only be changed before operational processing starts.");
+            throw new DomainException($"Hàng hóa (Cargo) không thể chỉnh sửa sau khi phương tiện đã rời kho/cảng hoặc bắt đầu vận chuyển (Trạng thái hiện tại: {shipment.Status}).");
         }
     }
 
