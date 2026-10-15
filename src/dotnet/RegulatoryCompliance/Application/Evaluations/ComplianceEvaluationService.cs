@@ -454,9 +454,12 @@ public sealed class ComplianceEvaluationService(
                 throw new ArgumentException("Cargo name, quantity, unit, weight, and volume are invalid.");
             if (cargo.IsDangerousGoods && string.IsNullOrWhiteSpace(cargo.DangerousGoodsCode))
                 throw new ArgumentException("DangerousGoodsCode is required for dangerous cargo.");
-            if (!string.IsNullOrWhiteSpace(cargo.HsCode) &&
-                (cargo.HsCode.Length is < 4 or > 12 || cargo.HsCode.Any(character => !char.IsDigit(character))))
-                throw new ArgumentException("Cargo HS code must contain 4-12 digits.");
+            if (!string.IsNullOrWhiteSpace(cargo.HsCode))
+            {
+                var cleanHs = cargo.HsCode.Replace(".", "").Replace("-", "").Replace(" ", "").Trim();
+                if (cleanHs.Length is < 4 or > 12 || cleanHs.Any(character => !char.IsDigit(character)))
+                    throw new ArgumentException("Cargo HS code must contain 4-12 digits.");
+            }
         }
         if (string.IsNullOrWhiteSpace(input.OriginCountryCode) ||
             string.IsNullOrWhiteSpace(input.DestinationCountryCode) ||

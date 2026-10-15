@@ -78,7 +78,7 @@ public class ComplianceController(
                 req.Cargo.AddRange(body.Cargo.Select(c => new CargoSnapshot
                 {
                     Name = c.Name,
-                    HsCode = c.HsCode ?? string.Empty,
+                    HsCode = NormalizeHsCode(c.HsCode),
                     Quantity = c.Quantity,
                     Unit = c.Unit ?? "item",
                     WeightKg = c.WeightKg,
@@ -122,7 +122,7 @@ public class ComplianceController(
                 req.Cargo.AddRange(snapshot.Cargo.Select(c => new CargoSnapshot
                 {
                     Name = c.Name,
-                    HsCode = c.HsCode ?? string.Empty,
+                    HsCode = NormalizeHsCode(c.HsCode),
                     Quantity = c.Quantity,
                     Unit = c.Unit,
                     WeightKg = c.WeightKg,
@@ -312,6 +312,12 @@ public class ComplianceController(
                 Status = StatusCodes.Status403Forbidden
             });
         }
+    }
+
+    private static string NormalizeHsCode(string? hsCode)
+    {
+        if (string.IsNullOrWhiteSpace(hsCode)) return string.Empty;
+        return hsCode.Replace(".", "").Replace("-", "").Replace(" ", "").Trim();
     }
 }
 
