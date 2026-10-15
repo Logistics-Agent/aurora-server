@@ -11,7 +11,6 @@ using IamTenant.Grpc;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
-using Npgsql;
 using Shared.Security;
 
 namespace SystemBff.Controllers;
@@ -349,99 +348,106 @@ public class AiGovernanceController(
 
         try
         {
-            await using var connection = new NpgsqlConnection(connStr);
-            await connection.OpenAsync(cancellationToken);
+            var npgsqlType = Type.GetType("Npgsql.NpgsqlConnection, Npgsql") 
+                ?? AppDomain.CurrentDomain.GetAssemblies()
+                    .SelectMany(a => { try { return a.GetTypes(); } catch { return Array.Empty<Type>(); } })
+                    .FirstOrDefault(t => t.FullName == "Npgsql.NpgsqlConnection");
 
-            var sql = @"
-                SELECT 
-                    p.id as pool_id,
-                    p.code as pool_code,
-                    p.name as pool_name,
-                    s.id as slot_id,
-                    s.slot_alias,
-                    s.provider,
-                    s.operation,
-                    s.model_name,
-                    s.rpm_limit,
-                    s.tpm_limit,
-                    s.rpd_limit,
-                    s.priority,
-                    s.weight,
-                    s.enabled,
-                    s.cooldown_until
-                FROM provider_pools p
-                LEFT JOIN provider_slots s ON s.pool_id = p.id
-                ORDER BY p.code, s.operation, s.slot_alias";
-
-            await using var cmd = new NpgsqlCommand(sql, connection);
-            await using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
-
-            var poolDict = new Dictionary<string, (string id, string code, string name, List<object> slots)>();
-
-            while (await reader.ReadAsync(cancellationToken))
+            if (npgsqlType != null)
             {
-                var poolId = reader.GetGuid(0).ToString();
-                var poolCode = reader.GetString(1);
-                var poolName = reader.GetString(2);
+                using var connection = (System.Data.Common.DbConnection)Activator.CreateInstance(npgsqlType, connStr)!;
+                await connection.OpenAsync(cancellationToken);
 
-                if (!poolDict.TryGetValue(poolId, out var poolEntry))
+                using var cmd = connection.CreateCommand();
+                cmd.CommandText = @"
+                    SELECT 
+                        p.id as pool_id,
+                        p.code as pool_code,
+                        p.name as pool_name,
+                        s.id as slot_id,
+                        s.slot_alias,
+                        s.provider,
+                        s.operation,
+                        s.model_name,
+                        s.rpm_limit,
+                        s.tpm_limit,
+                        s.rpd_limit,
+                        s.priority,
+                        s.weight,
+                        s.enabled,
+                        s.cooldown_until
+                    FROM provider_pools p
+                    LEFT JOIN provider_slots s ON s.pool_id = p.id
+                    ORDER BY p.code, s.operation, s.slot_alias";
+
+                using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
+                var poolDict = new Dictionary<string, (string id, string code, string name, List<object> slots)>();
+
+                while (await reader.ReadAsync(cancellationToken))
                 {
-                    poolEntry = (poolId, poolCode, poolName, new List<object>());
-                    poolDict[poolId] = poolEntry;
+                    var poolId = reader.GetGuid(0).ToString();
+                    var poolCode = reader.GetString(1);
+                    var poolName = reader.GetString(2);
+
+                    if (!poolDict.TryGetValue(poolId, out var poolEntry))
+                    {
+                        poolEntry = (poolId, poolCode, poolName, new List<object>());
+                        poolDict[poolId] = poolEntry;
+                    }
+
+                    if (!reader.IsDBNull(3))
+                    {
+                        var slotAlias = reader.GetString(4);
+                        var provider = reader.GetString(5);
+                        var operation = reader.GetString(6);
+                        var modelName = reader.GetString(7);
+                        var rpmLimit = reader.GetInt32(8);
+                        var tpmLimit = Convert.ToInt64(reader.GetValue(9));
+                        var rpdLimit = reader.GetInt32(10);
+                        var priority = reader.GetInt32(11);
+                        var weight = reader.GetInt32(12);
+                        var enabled = reader.GetBoolean(13);
+                        var cooldownUntil = reader.IsDBNull(14) ? (DateTime?)null : reader.GetDateTime(14);
+                        var isCooldown = cooldownUntil.HasValue && cooldownUntil.Value > DateTime.UtcNow;
+
+                        poolEntry.slots.Add(new
+                        {
+                            slotAlias,
+                            provider,
+                            operation,
+                            modelName,
+                            rpmLimit,
+                            tpmLimit,
+                            rpdLimit,
+                            priority,
+                            weight,
+                            enabled,
+                            cooldownUntil,
+                            healthStatus = enabled ? (isCooldown ? "COOLDOWN" : "HEALTHY") : "DISABLED"
+                        });
+                    }
                 }
 
-                if (!reader.IsDBNull(3))
+                if (poolDict.Count > 0)
                 {
-                    var slotAlias = reader.GetString(4);
-                    var provider = reader.GetString(5);
-                    var operation = reader.GetString(6);
-                    var modelName = reader.GetString(7);
-                    var rpmLimit = reader.GetInt32(8);
-                    var tpmLimit = reader.GetInt64(9);
-                    var rpdLimit = reader.GetInt32(10);
-                    var priority = reader.GetInt32(11);
-                    var weight = reader.GetInt32(12);
-                    var enabled = reader.GetBoolean(13);
-                    var cooldownUntil = reader.IsDBNull(14) ? (DateTime?)null : reader.GetDateTime(14);
-                    var isCooldown = cooldownUntil.HasValue && cooldownUntil.Value > DateTime.UtcNow;
-
-                    poolEntry.slots.Add(new
+                    var pools = poolDict.Values.Select(p => new
                     {
-                        slotAlias,
-                        provider,
-                        operation,
-                        modelName,
-                        rpmLimit,
-                        tpmLimit,
-                        rpdLimit,
-                        priority,
-                        weight,
-                        enabled,
-                        cooldownUntil,
-                        healthStatus = enabled ? (isCooldown ? "COOLDOWN" : "HEALTHY") : "DISABLED"
+                        id = p.id,
+                        code = p.code,
+                        name = p.name,
+                        status = "ACTIVE",
+                        slots = p.slots
+                    }).ToList();
+
+                    return Ok(new
+                    {
+                        totalPools = pools.Count,
+                        pools,
+                        circuitBreakerState = "CLOSED",
+                        updatedAt = DateTime.UtcNow,
+                        source = "DATABASE_LIVE"
                     });
                 }
-            }
-
-            if (poolDict.Count > 0)
-            {
-                var pools = poolDict.Values.Select(p => new
-                {
-                    id = p.id,
-                    code = p.code,
-                    name = p.name,
-                    status = "ACTIVE",
-                    slots = p.slots
-                }).ToList();
-
-                return Ok(new
-                {
-                    totalPools = pools.Count,
-                    pools,
-                    circuitBreakerState = "CLOSED",
-                    updatedAt = DateTime.UtcNow,
-                    source = "DATABASE_LIVE"
-                });
             }
         }
         catch (Exception ex)

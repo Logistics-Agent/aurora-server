@@ -3,8 +3,6 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Xml.Linq;
-using Amazon.S3;
-using Amazon.S3.Model;
 using Asp.Versioning;
 using Google.Protobuf;
 using Google.Protobuf.WellKnownTypes;
@@ -548,22 +546,18 @@ public sealed class SystemIngestionController(
         {
             try
             {
-                var s3Config = new AmazonS3Config
-                {
-                    ServiceURL = s3ServiceUrl,
-                    ForcePathStyle = true,
-                    AuthenticationRegion = s3Region
-                };
-                using var s3Client = new AmazonS3Client(s3AccessKey, s3SecretKey, s3Config);
+                using var httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
                 using var stream = file.OpenReadStream();
-                var putReq = new PutObjectRequest
+                using var streamContent = new StreamContent(stream);
+                if (!string.IsNullOrWhiteSpace(file.ContentType))
                 {
-                    BucketName = s3Bucket,
-                    Key = objectKey,
-                    InputStream = stream,
-                    ContentType = file.ContentType
-                };
-                await s3Client.PutObjectAsync(putReq, ct);
+                    streamContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(file.ContentType);
+                }
+
+                var putUrl = $"{s3ServiceUrl.TrimEnd('/')}/{s3Bucket}/{objectKey}";
+                using var putRequest = new HttpRequestMessage(HttpMethod.Put, putUrl) { Content = streamContent };
+                var response = await httpClient.SendAsync(putRequest, ct);
+                logger.LogInformation("R2 storage upload responded with {StatusCode} for key {Key}", response.StatusCode, objectKey);
             }
             catch (Exception ex)
             {
