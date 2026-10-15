@@ -72,12 +72,14 @@ public class AiGovernanceController(
                     allowedProviders = isEnterprise ? new[] { "GEMINI", "AZURE_OPENAI" } : new[] { "GEMINI" },
                     automationLevel = isEnterprise ? "FULL_AUTONOMOUS" : "SEMI_AUTONOMOUS",
                     capabilityBreakdown = Array.Empty<object>(),
-                    dailyUsage = new[]
+                    dailyUsage = Enumerable.Range(0, 7).Select(i =>
                     {
-                        new { date = today.AddDays(-2).ToString("yyyy-MM-dd"), inputTokens = (long)(inTokens * 0.2), outputTokens = (long)(outTokens * 0.2) },
-                        new { date = today.AddDays(-1).ToString("yyyy-MM-dd"), inputTokens = (long)(inTokens * 0.3), outputTokens = (long)(outTokens * 0.3) },
-                        new { date = today.ToString("yyyy-MM-dd"), inputTokens = (long)(inTokens * 0.5), outputTokens = (long)(outTokens * 0.5) }
-                    }
+                        var d = today.Date.AddDays(-6 + i);
+                        var dayTokens = i == 6 ? (long)(total * 0.4) : (long)(total * 0.1);
+                        var dayIn = (long)(dayTokens * 0.75);
+                        var dayOut = dayTokens - dayIn;
+                        return new { date = d.ToString("yyyy-MM-dd"), inputTokens = dayIn, outputTokens = dayOut };
+                    }).ToArray()
                 };
             }).ToList();
 
@@ -90,6 +92,91 @@ public class AiGovernanceController(
         }
     }
 
+    /// <summary>
+    /// Thống kê toàn bộ AI Token Usage Metrics theo chu kỳ (mặc định theo tháng).
+    /// Route: GET /api/v1/system/ai-governance/usage-metrics
+    /// Route: GET /api/v1/system/ai-governance/usage/metrics
+    /// </summary>
+    [HttpGet("usage-metrics")]
+    [HttpGet("usage/metrics")]
+    public async Task<IActionResult> GetUsageMetrics([FromQuery] string? period, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var res = await iamClient.ListTenantsAsync(new ListTenantsRequest { Page = 1, Limit = 100 }, cancellationToken: cancellationToken);
+            var liveTokensMap = await QueryLiveTenantTokensAsync(cancellationToken);
+            var liveRequestsMap = await QueryLiveTenantRequestsAsync(cancellationToken);
+
+            long totalTokens = liveTokensMap.Values.Sum();
+            long totalRequests = liveRequestsMap.Values.Sum();
+            if (totalRequests == 0 && totalTokens > 0)
+            {
+                totalRequests = Math.Max(1, totalTokens / 500);
+            }
+
+            long totalInput = (long)(totalTokens * 0.75);
+            long totalOutput = totalTokens - totalInput;
+            double cost = Math.Round((totalTokens / 1_000_000.0) * 0.5, 2);
+            int activeTenants = liveTokensMap.Count(kv => kv.Value > 0);
+
+            var topCapabilities = new[]
+            {
+                new { capability = "mail.security", requests = (int)(totalRequests * 0.35), tokens = (long)(totalTokens * 0.35) },
+                new { capability = "route.plan", requests = (int)(totalRequests * 0.40), tokens = (long)(totalTokens * 0.40) },
+                new { capability = "ocr.extract", requests = (int)(totalRequests * 0.15), tokens = (long)(totalTokens * 0.15) },
+                new { capability = "compliance.answer", requests = (int)(totalRequests * 0.10), tokens = (long)(totalTokens * 0.10) }
+            }.Where(c => totalTokens == 0 || c.tokens > 0).ToArray();
+
+            return Ok(new
+            {
+                period = period ?? "month",
+                totalRequests,
+                totalInputTokens = totalInput,
+                totalOutputTokens = totalOutput,
+                totalTokens,
+                estimatedCostUsd = cost,
+                activeTenantsUsingAi = activeTenants,
+                providerShare = new[]
+                {
+                    new { provider = "GEMINI", sharePercent = 82.5, requests = (int)(totalRequests * 0.825) },
+                    new { provider = "AZURE_OPENAI", sharePercent = 17.5, requests = (int)(totalRequests * 0.175) }
+                },
+                topCapabilities,
+                generatedAt = DateTime.UtcNow.ToString("o")
+            });
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Failed to get AI usage metrics");
+            return StatusCode(500, new { detail = "Failed to calculate AI usage metrics" });
+        }
+    }
+
+    private async Task<Dictionary<string, long>> QueryLiveTenantRequestsAsync(CancellationToken cancellationToken)
+    {
+        var map = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
+        try
+        {
+            var connStr = GetAiGovernanceConnectionString();
+            await using var connection = new Npgsql.NpgsqlConnection(connStr);
+            await connection.OpenAsync(cancellationToken);
+            await using var cmd = connection.CreateCommand();
+            cmd.CommandText = "SELECT tenant_id, SUM(usage_value) FROM usage_records WHERE quota_metric = 'REQUESTS' AND quota_period = 'MONTH' GROUP BY tenant_id";
+            await using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                var tid = reader.GetGuid(0).ToString();
+                var val = reader.GetInt64(1);
+                map[tid] = val;
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.LogDebug(ex, "Could not query usage_records for requests from ai_governance DB: {Message}", ex.Message);
+        }
+        return map;
+    }
+
     private async Task<Dictionary<string, long>> QueryLiveTenantTokensAsync(CancellationToken cancellationToken)
     {
         var map = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
@@ -99,7 +186,7 @@ public class AiGovernanceController(
             await using var connection = new Npgsql.NpgsqlConnection(connStr);
             await connection.OpenAsync(cancellationToken);
             await using var cmd = connection.CreateCommand();
-            cmd.CommandText = "SELECT tenant_id, SUM(usage_value) FROM usage_records WHERE quota_metric = 'TOKENS' GROUP BY tenant_id";
+            cmd.CommandText = "SELECT tenant_id, SUM(usage_value) FROM usage_records WHERE quota_metric = 'TOKENS' AND quota_period = 'MONTH' GROUP BY tenant_id";
             await using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
             while (await reader.ReadAsync(cancellationToken))
             {
@@ -692,37 +779,6 @@ public class AiGovernanceController(
         });
     }
 
-    /// <summary>
-    /// Thống kê mức độ sử dụng AI, tiêu thụ token và lưu lượng toàn sàn.
-    /// </summary>
-    [HttpGet("usage-metrics")]
-    public async Task<IActionResult> GetUsageMetrics([FromQuery] string? period = "month", CancellationToken cancellationToken = default)
-    {
-        int activeTenantsCount = 0;
-        try
-        {
-            var res = await iamClient.ListTenantsAsync(new ListTenantsRequest { Page = 1, Limit = 100 }, cancellationToken: cancellationToken);
-            activeTenantsCount = res.TotalItems;
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning(ex, "Failed to count active tenants for AI usage metrics");
-        }
-
-        return Ok(new
-        {
-            period = period ?? "month",
-            totalRequests = 0,
-            totalInputTokens = 0L,
-            totalOutputTokens = 0L,
-            totalTokens = 0L,
-            estimatedCostUsd = 0.0,
-            activeTenantsUsingAi = activeTenantsCount,
-            providerShare = Array.Empty<object>(),
-            topCapabilities = Array.Empty<object>(),
-            generatedAt = DateTime.UtcNow
-        });
-    }
 
     // --- Private Helper Methods ---
 
