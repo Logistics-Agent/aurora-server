@@ -66,6 +66,22 @@ public sealed class KnowledgeDocument : AuditableEntity
         return version;
     }
 
+    public void UpdateMetadata(
+        string? title,
+        KnowledgeCategory? category,
+        string? sourceReference,
+        string? languageCode)
+    {
+        if (!string.IsNullOrWhiteSpace(title))
+            Title = ComplianceValidation.RequiredText(title, nameof(title), 500);
+        if (category.HasValue)
+            Category = category.Value;
+        if (!string.IsNullOrWhiteSpace(sourceReference))
+            SourceReference = ComplianceValidation.RequiredText(sourceReference, nameof(sourceReference), 1000);
+        if (!string.IsNullOrWhiteSpace(languageCode))
+            LanguageCode = ComplianceValidation.RequiredText(languageCode, nameof(languageCode), 20);
+    }
+
     private static KnowledgeDocument Create(
         Guid? tenantId,
         SourceVisibility visibility,

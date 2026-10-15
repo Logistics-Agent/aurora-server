@@ -28,7 +28,8 @@ public sealed record GroundedAnswerInput(
     IReadOnlyCollection<KnowledgeCategory>? KnowledgeCategories,
     int TopK = 10,
     decimal MinimumRelevanceScore = 0.4m,
-    VerifiedAssistantContextInput? Context = null);
+    VerifiedAssistantContextInput? Context = null,
+    string? LanguageCode = null);
 
 public sealed record VerifiedAssistantContextInput(Guid? ShipmentId, Guid? EvaluationId);
 
@@ -158,7 +159,7 @@ public sealed class GroundedAnswerService(
                     input.Query,
                     jurisdiction,
                     effectiveAt,
-                    "vi",
+                    input.LanguageCode ?? string.Empty,
                     regTypes,
                     topK,
                     minScore,

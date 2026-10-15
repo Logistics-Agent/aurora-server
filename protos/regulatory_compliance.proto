@@ -22,6 +22,10 @@ service RegulatoryComplianceService {
   rpc QueryKnowledge(QueryKnowledgeRequest) returns (QueryKnowledgeResponse);
   rpc GenerateGroundedAnswer(GenerateGroundedAnswerRequest) returns (GenerateGroundedAnswerResponse);
   rpc ValidateGroundedEvidence(ValidateGroundedEvidenceRequest) returns (ValidateGroundedEvidenceResponse);
+  rpc DeleteRegulatorySource(DeleteRegulatorySourceRequest) returns (DeleteCorpusResponse);
+  rpc UpdateRegulatorySource(UpdateRegulatorySourceRequest) returns (RegulatorySourceDetails);
+  rpc DeleteKnowledgeDocument(DeleteKnowledgeSourceRequest) returns (DeleteCorpusResponse);
+  rpc UpdateKnowledgeDocument(UpdateKnowledgeSourceRequest) returns (KnowledgeDocumentDetails);
 }     
     
 enum ComplianceEvaluationStatus {
@@ -561,3 +565,36 @@ message ValidateGroundedEvidenceResponse {
   bool insufficient_evidence = 5;
   repeated string missing_information = 6;
 }
+
+message DeleteRegulatorySourceRequest {
+  string regulatory_document_id = 1;
+}
+
+message UpdateRegulatorySourceRequest {
+  string regulatory_document_id = 1;
+  string title = 2;
+  string authority = 3;
+  string jurisdiction_code = 4;
+  RegulationType regulation_type = 5;
+  string language_code = 6;
+  string canonical_source_uri = 7;
+}
+
+message DeleteKnowledgeSourceRequest {
+  string knowledge_document_id = 1;
+}
+
+message UpdateKnowledgeSourceRequest {
+  string knowledge_document_id = 1;
+  string title = 2;
+  KnowledgeCategory category = 3;
+  string source_reference = 4;
+  string language_code = 5;
+}
+
+message DeleteCorpusResponse {
+  bool success = 1;
+  string document_id = 2;
+  string message = 3;
+}
+

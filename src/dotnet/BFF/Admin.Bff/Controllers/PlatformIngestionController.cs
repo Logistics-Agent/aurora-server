@@ -642,7 +642,202 @@ public sealed class PlatformIngestionController(
             return ex.ToActionResult();
         }
     }
+
+    /// <summary>
+    /// Delete Knowledge Document
+    /// </summary>
+    [HttpDelete("knowledge-documents/{id}")]
+    [RequirePermission(PermissionConstants.Documents.Manage, PermissionConstants.Compliance.PlatformIngest)]
+    public async Task<IActionResult> DeleteKnowledgeDocument(string id, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var response = await regulatoryClient.DeleteKnowledgeDocumentAsync(new DeleteKnowledgeSourceRequest
+            {
+                KnowledgeDocumentId = id
+            }, cancellationToken: cancellationToken);
+
+            return Ok(new
+            {
+                success = response.Success,
+                documentId = response.DocumentId,
+                message = response.Message
+            });
+        }
+        catch (RpcException ex) when (ex.StatusCode == Grpc.Core.StatusCode.NotFound)
+        {
+            return NotFound(new { error = "Knowledge document not found." });
+        }
+        catch (RpcException ex)
+        {
+            logger.LogError(ex, "Failed to delete knowledge document {Id}", id);
+            return ex.ToActionResult();
+        }
+    }
+
+    /// <summary>
+    /// Update Knowledge Document Metadata
+    /// </summary>
+    [HttpPut("knowledge-documents/{id}")]
+    [RequirePermission(PermissionConstants.Documents.Manage, PermissionConstants.Compliance.PlatformIngest)]
+    public async Task<IActionResult> UpdateKnowledgeDocument(
+        string id,
+        [FromBody] AdminUpdateKnowledgeRequest request,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var categoryEnum = KnowledgeCategory.Unspecified;
+            if (!string.IsNullOrWhiteSpace(request.Category))
+            {
+                categoryEnum = request.Category.Trim() switch
+                {
+                    "SOP" => KnowledgeCategory.Sop,
+                    "Carrier Contract" or "Contract" => KnowledgeCategory.Contract,
+                    "Customs Guideline" or "Guide" => KnowledgeCategory.Guide,
+                    "Internal Policy" => KnowledgeCategory.InternalPolicy,
+                    _ => int.TryParse(request.Category, out var cInt) ? (KnowledgeCategory)cInt : KnowledgeCategory.Unspecified
+                };
+            }
+
+            var response = await regulatoryClient.UpdateKnowledgeDocumentAsync(new UpdateKnowledgeSourceRequest
+            {
+                KnowledgeDocumentId = id,
+                Title = request.Title ?? string.Empty,
+                Category = categoryEnum,
+                SourceReference = request.SourceReference ?? string.Empty,
+                LanguageCode = request.LanguageCode ?? string.Empty
+            }, cancellationToken: cancellationToken);
+
+            var summary = response.Summary;
+            var catName = summary.Category switch
+            {
+                KnowledgeCategory.Sop => "SOP",
+                KnowledgeCategory.Contract => "Carrier Contract",
+                KnowledgeCategory.Guide => "Customs Guideline",
+                KnowledgeCategory.InternalPolicy => "Internal Policy",
+                _ => summary.Category.ToString()
+            };
+
+            return Ok(new
+            {
+                id = summary.Id,
+                title = summary.Title,
+                category = catName,
+                language = string.IsNullOrWhiteSpace(summary.LanguageCode) ? "English" : summary.LanguageCode,
+                sourceReference = summary.SourceReference,
+                status = "Completed",
+                message = "Knowledge document updated successfully."
+            });
+        }
+        catch (RpcException ex) when (ex.StatusCode == Grpc.Core.StatusCode.NotFound)
+        {
+            return NotFound(new { error = "Knowledge document not found." });
+        }
+        catch (RpcException ex)
+        {
+            logger.LogError(ex, "Failed to update knowledge document {Id}", id);
+            return ex.ToActionResult();
+        }
+    }
+
+    /// <summary>
+    /// Delete Regulatory Source
+    /// </summary>
+    [HttpDelete("regulatory-sources/{id}")]
+    [RequirePermission(PermissionConstants.Compliance.PlatformIngest)]
+    public async Task<IActionResult> DeleteRegulatorySource(string id, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var response = await regulatoryClient.DeleteRegulatorySourceAsync(new DeleteRegulatorySourceRequest
+            {
+                RegulatoryDocumentId = id
+            }, cancellationToken: cancellationToken);
+
+            return Ok(new
+            {
+                success = response.Success,
+                documentId = response.DocumentId,
+                message = response.Message
+            });
+        }
+        catch (RpcException ex) when (ex.StatusCode == Grpc.Core.StatusCode.NotFound)
+        {
+            return NotFound(new { error = "Regulatory source not found." });
+        }
+        catch (RpcException ex)
+        {
+            logger.LogError(ex, "Failed to delete regulatory source {Id}", id);
+            return ex.ToActionResult();
+        }
+    }
+
+    /// <summary>
+    /// Update Regulatory Source Metadata
+    /// </summary>
+    [HttpPut("regulatory-sources/{id}")]
+    [RequirePermission(PermissionConstants.Compliance.PlatformIngest)]
+    public async Task<IActionResult> UpdateRegulatorySource(
+        string id,
+        [FromBody] AdminUpdateRegulatoryRequest request,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var regType = request.RegulationType.HasValue
+                ? (RegulationType)request.RegulationType.Value
+                : RegulationType.Unspecified;
+
+            var response = await regulatoryClient.UpdateRegulatorySourceAsync(new UpdateRegulatorySourceRequest
+            {
+                RegulatoryDocumentId = id,
+                Title = request.Title ?? string.Empty,
+                Authority = request.Authority ?? string.Empty,
+                JurisdictionCode = request.JurisdictionCode ?? string.Empty,
+                RegulationType = regType,
+                LanguageCode = request.LanguageCode ?? string.Empty,
+                CanonicalSourceUri = request.CanonicalSourceUri ?? string.Empty
+            }, cancellationToken: cancellationToken);
+
+            var summary = response.Summary;
+            return Ok(new
+            {
+                id = summary.Id,
+                title = summary.Title,
+                authority = summary.Authority,
+                jurisdictionCode = summary.JurisdictionCode,
+                regulationType = summary.RegulationType.ToString(),
+                languageCode = summary.LanguageCode,
+                canonicalSourceUri = summary.CanonicalSourceUri,
+                message = "Regulatory source updated successfully."
+            });
+        }
+        catch (RpcException ex) when (ex.StatusCode == Grpc.Core.StatusCode.NotFound)
+        {
+            return NotFound(new { error = "Regulatory source not found." });
+        }
+        catch (RpcException ex)
+        {
+            logger.LogError(ex, "Failed to update regulatory source {Id}", id);
+            return ex.ToActionResult();
+        }
+    }
 }
+
+public sealed record AdminUpdateKnowledgeRequest(
+    string? Title,
+    string? Category,
+    string? SourceReference,
+    string? LanguageCode);
+
+public sealed record AdminUpdateRegulatoryRequest(
+    string? Title,
+    string? Authority,
+    string? JurisdictionCode,
+    int? RegulationType,
+    string? LanguageCode,
+    string? CanonicalSourceUri);
 
 public sealed record AdminPlatformRegulatoryRequest(
     string? IdempotencyKey,

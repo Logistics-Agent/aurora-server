@@ -309,6 +309,89 @@ public sealed class SystemIngestionController(
     }
 
     /// <summary>
+    /// Delete System Regulatory Source
+    /// </summary>
+    [HttpDelete("regulatory-sources/{id}")]
+    public async Task<IActionResult> DeleteSystemRegulatorySource(string id, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var headers = CreateHeaders();
+            var response = await regulatoryClient.DeleteRegulatorySourceAsync(new DeleteRegulatorySourceRequest
+            {
+                RegulatoryDocumentId = id
+            }, headers, cancellationToken: cancellationToken);
+
+            return Ok(new
+            {
+                success = response.Success,
+                documentId = response.DocumentId,
+                message = response.Message
+            });
+        }
+        catch (RpcException ex) when (ex.StatusCode == Grpc.Core.StatusCode.NotFound)
+        {
+            return NotFound(new { error = "Regulatory source not found." });
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Failed to delete regulatory source {Id}", id);
+            return StatusCode(StatusCodes.Status500InternalServerError, new { error = ex.Message });
+        }
+    }
+
+    /// <summary>
+    /// Update System Regulatory Source Metadata
+    /// </summary>
+    [HttpPut("regulatory-sources/{id}")]
+    public async Task<IActionResult> UpdateSystemRegulatorySource(
+        string id,
+        [FromBody] UpdateSystemRegulatoryRequest request,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var headers = CreateHeaders();
+            var regType = request.RegulationType.HasValue
+                ? (RegulationType)request.RegulationType.Value
+                : RegulationType.Unspecified;
+
+            var response = await regulatoryClient.UpdateRegulatorySourceAsync(new UpdateRegulatorySourceRequest
+            {
+                RegulatoryDocumentId = id,
+                Title = request.Title ?? string.Empty,
+                Authority = request.Authority ?? string.Empty,
+                JurisdictionCode = request.JurisdictionCode ?? string.Empty,
+                RegulationType = regType,
+                LanguageCode = request.LanguageCode ?? string.Empty,
+                CanonicalSourceUri = request.CanonicalSourceUri ?? string.Empty
+            }, headers, cancellationToken: cancellationToken);
+
+            var s = response.Summary;
+            return Ok(new
+            {
+                id = s.Id,
+                title = s.Title,
+                authority = s.Authority,
+                canonicalSourceUri = s.CanonicalSourceUri,
+                jurisdictionCode = s.JurisdictionCode,
+                regulationType = s.RegulationType.ToString(),
+                languageCode = s.LanguageCode,
+                message = "Regulatory source updated successfully."
+            });
+        }
+        catch (RpcException ex) when (ex.StatusCode == Grpc.Core.StatusCode.NotFound)
+        {
+            return NotFound(new { error = "Regulatory source not found." });
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Failed to update regulatory source {Id}", id);
+            return StatusCode(StatusCodes.Status500InternalServerError, new { error = ex.Message });
+        }
+    }
+
+    /// <summary>
     /// Knowledge Document Pipeline: Upload Original File (.pdf, .docx, .md, .txt) -> R2 -> Extract -> Ingest
     /// </summary>
     [HttpPost("knowledge-documents/upload")]
@@ -521,6 +604,85 @@ public sealed class SystemIngestionController(
         catch (Exception)
         {
             return Ok(new { items = Array.Empty<object>(), total = 0 });
+        }
+    }
+
+    /// <summary>
+    /// Delete System Knowledge Document
+    /// </summary>
+    [HttpDelete("knowledge-documents/{id}")]
+    public async Task<IActionResult> DeleteSystemKnowledgeDocument(string id, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var headers = CreateHeaders();
+            var response = await regulatoryClient.DeleteKnowledgeDocumentAsync(new DeleteKnowledgeSourceRequest
+            {
+                KnowledgeDocumentId = id
+            }, headers, cancellationToken: cancellationToken);
+
+            return Ok(new
+            {
+                success = response.Success,
+                documentId = response.DocumentId,
+                message = response.Message
+            });
+        }
+        catch (RpcException ex) when (ex.StatusCode == Grpc.Core.StatusCode.NotFound)
+        {
+            return NotFound(new { error = "Knowledge document not found." });
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Failed to delete knowledge document {Id}", id);
+            return StatusCode(StatusCodes.Status500InternalServerError, new { error = ex.Message });
+        }
+    }
+
+    /// <summary>
+    /// Update System Knowledge Document Metadata
+    /// </summary>
+    [HttpPut("knowledge-documents/{id}")]
+    public async Task<IActionResult> UpdateSystemKnowledgeDocument(
+        string id,
+        [FromBody] UpdateSystemKnowledgeRequest request,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var headers = CreateHeaders();
+            var cat = request.Category.HasValue
+                ? (KnowledgeCategory)request.Category.Value
+                : KnowledgeCategory.Unspecified;
+
+            var response = await regulatoryClient.UpdateKnowledgeDocumentAsync(new UpdateKnowledgeSourceRequest
+            {
+                KnowledgeDocumentId = id,
+                Title = request.Title ?? string.Empty,
+                Category = cat,
+                SourceReference = request.SourceReference ?? string.Empty,
+                LanguageCode = request.LanguageCode ?? string.Empty
+            }, headers, cancellationToken: cancellationToken);
+
+            var s = response.Summary;
+            return Ok(new
+            {
+                id = s.Id,
+                title = s.Title,
+                category = s.Category.ToString(),
+                sourceReference = s.SourceReference,
+                languageCode = s.LanguageCode,
+                message = "Knowledge document updated successfully."
+            });
+        }
+        catch (RpcException ex) when (ex.StatusCode == Grpc.Core.StatusCode.NotFound)
+        {
+            return NotFound(new { error = "Knowledge document not found." });
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Failed to update knowledge document {Id}", id);
+            return StatusCode(StatusCodes.Status500InternalServerError, new { error = ex.Message });
         }
     }
 
@@ -948,3 +1110,18 @@ public sealed record SystemKnowledgeRequest(
     long SizeBytes,
     string? ContentSha256,
     string? RawText);
+
+public sealed record UpdateSystemRegulatoryRequest(
+    string? Title,
+    string? Authority,
+    string? JurisdictionCode,
+    int? RegulationType,
+    string? LanguageCode,
+    string? CanonicalSourceUri);
+
+public sealed record UpdateSystemKnowledgeRequest(
+    string? Title,
+    int? Category,
+    string? SourceReference,
+    string? LanguageCode);
+

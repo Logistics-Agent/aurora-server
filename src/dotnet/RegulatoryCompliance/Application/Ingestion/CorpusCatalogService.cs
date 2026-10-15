@@ -132,6 +132,90 @@ public sealed class CorpusCatalogService(
             versions);
     }
 
+    public async Task<bool> DeleteRegulatorySourceAsync(
+        Guid id,
+        CancellationToken cancellationToken = default)
+    {
+        var document = await dbContext.RegulatoryDocuments
+            .SingleOrDefaultAsync(item => item.Id == id, cancellationToken);
+        if (document is null)
+            return false;
+
+        dbContext.RegulatoryDocuments.Remove(document);
+        await dbContext.SaveChangesAsync(cancellationToken);
+        return true;
+    }
+
+    public async Task<RegulatorySourceCatalogDetails?> UpdateRegulatorySourceAsync(
+        Guid id,
+        string? authority,
+        string? title,
+        string? jurisdictionCode,
+        RegulationType? regulationType,
+        string? languageCode,
+        string? canonicalSourceUri = null,
+        CancellationToken cancellationToken = default)
+    {
+        var document = await dbContext.RegulatoryDocuments
+            .Include(item => item.Versions)
+            .ThenInclude(version => version.Chunks)
+            .SingleOrDefaultAsync(item => item.Id == id, cancellationToken);
+        if (document is null)
+            return null;
+
+        document.UpdateMetadata(authority, title, jurisdictionCode, regulationType, languageCode, canonicalSourceUri);
+        await dbContext.SaveChangesAsync(cancellationToken);
+
+        var versions = document.Versions
+            .OrderByDescending(version => version.CreatedAt)
+            .Select(MapVersion)
+            .ToArray();
+        return new RegulatorySourceCatalogDetails(
+            MapRegulatory(document, document.Versions.OrderByDescending(version => version.CreatedAt).FirstOrDefault()),
+            versions);
+    }
+
+    public async Task<bool> DeleteKnowledgeDocumentAsync(
+        Guid id,
+        CancellationToken cancellationToken = default)
+    {
+        var document = await dbContext.KnowledgeDocuments
+            .SingleOrDefaultAsync(item => item.Id == id, cancellationToken);
+        if (document is null)
+            return false;
+
+        dbContext.KnowledgeDocuments.Remove(document);
+        await dbContext.SaveChangesAsync(cancellationToken);
+        return true;
+    }
+
+    public async Task<KnowledgeDocumentCatalogDetails?> UpdateKnowledgeDocumentAsync(
+        Guid id,
+        string? title,
+        KnowledgeCategory? category,
+        string? sourceReference,
+        string? languageCode,
+        CancellationToken cancellationToken = default)
+    {
+        var document = await dbContext.KnowledgeDocuments
+            .Include(item => item.Versions)
+            .ThenInclude(version => version.Chunks)
+            .SingleOrDefaultAsync(item => item.Id == id, cancellationToken);
+        if (document is null)
+            return null;
+
+        document.UpdateMetadata(title, category, sourceReference, languageCode);
+        await dbContext.SaveChangesAsync(cancellationToken);
+
+        var versions = document.Versions
+            .OrderByDescending(version => version.CreatedAt)
+            .Select(MapVersion)
+            .ToArray();
+        return new KnowledgeDocumentCatalogDetails(
+            MapKnowledge(document, document.Versions.OrderByDescending(version => version.CreatedAt).FirstOrDefault()),
+            versions);
+    }
+
     private static (int Page, int PageSize) NormalizePage(int page, int pageSize) =>
         (Math.Max(page, 1), Math.Clamp(pageSize <= 0 ? 20 : pageSize, 1, 100));
 

@@ -1086,10 +1086,10 @@ public sealed class DocumentsController(
         {
             Query = request.Query,
             JurisdictionCode = string.IsNullOrWhiteSpace(request.JurisdictionCode) ? "GLOBAL" : request.JurisdictionCode.Trim().ToUpperInvariant(),
-            LanguageCode = "vi",
+            LanguageCode = string.IsNullOrWhiteSpace(request.LanguageCode) ? string.Empty : request.LanguageCode.Trim(),
             EffectiveAt = request.EffectiveAt.HasValue ? Timestamp.FromDateTimeOffset(request.EffectiveAt.Value) : Timestamp.FromDateTimeOffset(DateTimeOffset.UtcNow),
             TopK = request.TopK > 0 ? request.TopK : 10,
-            MinimumRelevanceScore = (double)(request.MinimumRelevanceScore > 0 ? request.MinimumRelevanceScore : 0.4m)
+            MinimumRelevanceScore = (double)(request.MinimumRelevanceScore > 0 ? request.MinimumRelevanceScore : 0.2m)
         };
 
         if (request.RegulationTypes != null)
@@ -1342,6 +1342,106 @@ public sealed class DocumentsController(
             return result;
         return Ok(details.LatestVersion ?? new CorpusVersionStatusResponse(
             null, null, "UNKNOWN", 0, 0, null, null, 0, null, null, null, null, null, null, null));
+    }
+
+    [HttpDelete("regulatory-sources/{id:guid}")]
+    [RequirePermission(PermissionConstants.Documents.Manage)]
+    public async Task<IActionResult> DeleteRegulatorySource(Guid id, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var response = await regulatoryClient.DeleteRegulatorySourceAsync(new DeleteRegulatorySourceRequest
+            {
+                RegulatoryDocumentId = id.ToString()
+            }, cancellationToken: cancellationToken);
+
+            return Ok(new { success = response.Success, documentId = response.DocumentId, message = response.Message });
+        }
+        catch (RpcException exception)
+        {
+            return MapCorpusRpcError(exception, "Unable to delete regulatory source.");
+        }
+    }
+
+    [HttpPut("regulatory-sources/{id:guid}")]
+    [RequirePermission(PermissionConstants.Documents.Manage)]
+    public async Task<IActionResult> UpdateRegulatorySource(
+        Guid id,
+        [FromBody] UpdateStaffRegulatoryRequest request,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var regType = request.RegulationType.HasValue
+                ? (RegulationType)request.RegulationType.Value
+                : RegulationType.Unspecified;
+
+            var response = await regulatoryClient.UpdateRegulatorySourceAsync(new UpdateRegulatorySourceRequest
+            {
+                RegulatoryDocumentId = id.ToString(),
+                Title = request.Title ?? string.Empty,
+                Authority = request.Authority ?? string.Empty,
+                JurisdictionCode = request.JurisdictionCode ?? string.Empty,
+                RegulationType = regType,
+                LanguageCode = request.LanguageCode ?? string.Empty,
+                CanonicalSourceUri = request.CanonicalSourceUri ?? string.Empty
+            }, cancellationToken: cancellationToken);
+
+            return Ok(MapRegulatoryDetails(response));
+        }
+        catch (RpcException exception)
+        {
+            return MapCorpusRpcError(exception, "Unable to update regulatory source.");
+        }
+    }
+
+    [HttpDelete("knowledge-documents/{id:guid}")]
+    [RequirePermission(PermissionConstants.Documents.Manage)]
+    public async Task<IActionResult> DeleteKnowledgeDocument(Guid id, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var response = await regulatoryClient.DeleteKnowledgeDocumentAsync(new DeleteKnowledgeSourceRequest
+            {
+                KnowledgeDocumentId = id.ToString()
+            }, cancellationToken: cancellationToken);
+
+            return Ok(new { success = response.Success, documentId = response.DocumentId, message = response.Message });
+        }
+        catch (RpcException exception)
+        {
+            return MapCorpusRpcError(exception, "Unable to delete knowledge document.");
+        }
+    }
+
+    [HttpPut("knowledge-documents/{id:guid}")]
+    [RequirePermission(PermissionConstants.Documents.Manage)]
+    public async Task<IActionResult> UpdateKnowledgeDocument(
+        Guid id,
+        [FromBody] UpdateStaffKnowledgeRequest request,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var category = request.Category.HasValue
+                ? (KnowledgeCategory)request.Category.Value
+                : KnowledgeCategory.Unspecified;
+
+            var response = await regulatoryClient.UpdateKnowledgeDocumentAsync(new UpdateKnowledgeSourceRequest
+            {
+                KnowledgeDocumentId = id.ToString(),
+                Title = request.Title ?? string.Empty,
+                Category = category,
+                SourceReference = request.SourceReference ?? string.Empty,
+                LanguageCode = request.LanguageCode ?? string.Empty
+            }, cancellationToken: cancellationToken);
+
+            return Ok(MapKnowledgeDetails(response));
+        }
+        catch (RpcException exception)
+        {
+            return MapCorpusRpcError(exception, "Unable to update knowledge document.");
+        }
     }
 
     /// <summary>
@@ -1852,7 +1952,8 @@ public sealed record RegulatoryQueryRequest(
     DateTimeOffset? EffectiveAt,
     IReadOnlyList<int>? RegulationTypes,
     int TopK,
-    decimal MinimumRelevanceScore);
+    decimal MinimumRelevanceScore,
+    string? LanguageCode = null);
 
 public sealed record RegulatoryQueryResponse(
     string Query,
@@ -1934,3 +2035,18 @@ public sealed record PromoteGeneralDocumentRequest(
     long SizeBytes,
     string? LanguageCode,
     IReadOnlyList<string>? Tags);
+
+public sealed record UpdateStaffRegulatoryRequest(
+    string? Title,
+    string? Authority,
+    string? JurisdictionCode,
+    int? RegulationType,
+    string? LanguageCode,
+    string? CanonicalSourceUri);
+
+public sealed record UpdateStaffKnowledgeRequest(
+    string? Title,
+    int? Category,
+    string? SourceReference,
+    string? LanguageCode);
+
