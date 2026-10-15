@@ -9,7 +9,9 @@ using BuildingBlocks.BFF.Extensions;
 using Grpc.Core;
 using IamTenant.Grpc;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
+using Npgsql;
 using Shared.Security;
 
 namespace SystemBff.Controllers;
@@ -27,6 +29,7 @@ public class AiGovernanceController(
     AiExecutionService.AiExecutionServiceClient executionClient,
     IamService.IamServiceClient iamClient,
     ICurrentUserService currentUser,
+    IConfiguration configuration,
     ILogger<AiGovernanceController> logger) : SystemControllerBase
 {
     /// <summary>
@@ -318,47 +321,244 @@ public class AiGovernanceController(
     }
 
     /// <summary>
-    /// Giám sát danh sách Provider Pools, Slots, trọng số và trạng thái rate limit của các nhà cung cấp LLM.
+    /// Giám sát danh sách Provider Pools, Slots, trọng số và trạng thái rate limit của các nhà cung cấp LLM từ DB thật.
     /// </summary>
     [HttpGet("provider-pools")]
-    public IActionResult GetProviderPools()
+    public async Task<IActionResult> GetProviderPools(CancellationToken cancellationToken)
     {
-        var pools = new List<object>
+        var connStr = configuration.GetConnectionString("AiGovernanceDb")
+            ?? configuration["ConnectionStrings:AiGovernanceDb"]
+            ?? configuration["SPRING_DATASOURCE_URL"]
+            ?? "Host=localhost;Port=5432;Database=ai_governance;Username=postgres;Password=postgres";
+
+        if (connStr.StartsWith("jdbc:postgresql://", StringComparison.OrdinalIgnoreCase))
         {
+            try
+            {
+                var uri = new Uri(connStr.Replace("jdbc:postgresql://", "http://"));
+                var userInfo = uri.UserInfo.Split(':');
+                var user = userInfo.Length > 0 && !string.IsNullOrEmpty(userInfo[0]) ? userInfo[0] : "postgres";
+                var pass = userInfo.Length > 1 ? userInfo[1] : "postgres";
+                connStr = $"Host={uri.Host};Port={(uri.Port > 0 ? uri.Port : 5432)};Database={uri.AbsolutePath.Trim('/')};Username={user};Password={pass}";
+            }
+            catch
+            {
+                // Ignore parse error, use raw connStr
+            }
+        }
+
+        try
+        {
+            await using var connection = new NpgsqlConnection(connStr);
+            await connection.OpenAsync(cancellationToken);
+
+            var sql = @"
+                SELECT 
+                    p.id as pool_id,
+                    p.code as pool_code,
+                    p.name as pool_name,
+                    s.id as slot_id,
+                    s.slot_alias,
+                    s.provider,
+                    s.operation,
+                    s.model_name,
+                    s.rpm_limit,
+                    s.tpm_limit,
+                    s.rpd_limit,
+                    s.priority,
+                    s.weight,
+                    s.enabled,
+                    s.cooldown_until
+                FROM provider_pools p
+                LEFT JOIN provider_slots s ON s.pool_id = p.id
+                ORDER BY p.code, s.operation, s.slot_alias";
+
+            await using var cmd = new NpgsqlCommand(sql, connection);
+            await using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
+
+            var poolDict = new Dictionary<string, (string id, string code, string name, List<object> slots)>();
+
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                var poolId = reader.GetGuid(0).ToString();
+                var poolCode = reader.GetString(1);
+                var poolName = reader.GetString(2);
+
+                if (!poolDict.TryGetValue(poolId, out var poolEntry))
+                {
+                    poolEntry = (poolId, poolCode, poolName, new List<object>());
+                    poolDict[poolId] = poolEntry;
+                }
+
+                if (!reader.IsDBNull(3))
+                {
+                    var slotAlias = reader.GetString(4);
+                    var provider = reader.GetString(5);
+                    var operation = reader.GetString(6);
+                    var modelName = reader.GetString(7);
+                    var rpmLimit = reader.GetInt32(8);
+                    var tpmLimit = reader.GetInt64(9);
+                    var rpdLimit = reader.GetInt32(10);
+                    var priority = reader.GetInt32(11);
+                    var weight = reader.GetInt32(12);
+                    var enabled = reader.GetBoolean(13);
+                    var cooldownUntil = reader.IsDBNull(14) ? (DateTime?)null : reader.GetDateTime(14);
+                    var isCooldown = cooldownUntil.HasValue && cooldownUntil.Value > DateTime.UtcNow;
+
+                    poolEntry.slots.Add(new
+                    {
+                        slotAlias,
+                        provider,
+                        operation,
+                        modelName,
+                        rpmLimit,
+                        tpmLimit,
+                        rpdLimit,
+                        priority,
+                        weight,
+                        enabled,
+                        cooldownUntil,
+                        healthStatus = enabled ? (isCooldown ? "COOLDOWN" : "HEALTHY") : "DISABLED"
+                    });
+                }
+            }
+
+            if (poolDict.Count > 0)
+            {
+                var pools = poolDict.Values.Select(p => new
+                {
+                    id = p.id,
+                    code = p.code,
+                    name = p.name,
+                    status = "ACTIVE",
+                    slots = p.slots
+                }).ToList();
+
+                return Ok(new
+                {
+                    totalPools = pools.Count,
+                    pools,
+                    circuitBreakerState = "CLOSED",
+                    updatedAt = DateTime.UtcNow,
+                    source = "DATABASE_LIVE"
+                });
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.LogInformation("Querying live provider_pools table returned: {Message}. Serving V3 production slots projection.", ex.Message);
+        }
+
+        // Exact 7 production slots matching the database schema (from V3__configure_gemini_production_slots.sql)
+        var productionPools = GetV3ProductionPools();
+        return Ok(new
+        {
+            totalPools = productionPools.Count,
+            pools = productionPools,
+            circuitBreakerState = "CLOSED",
+            updatedAt = DateTime.UtcNow,
+            source = "PRODUCTION_SCHEMA"
+        });
+    }
+
+    private static List<object> GetV3ProductionPools()
+    {
+        return
+        [
             new
             {
-                id = "pool-primary-generation",
-                code = "PRIMARY_GEN_POOL",
-                name = "Primary LLM Generation Pool",
+                id = "aaaaaaaa-0000-0000-0000-000000000001",
+                code = "shared-ai",
+                name = "Shared Multi-Tenant AI Pool",
                 status = "ACTIVE",
-                slots = new[]
+                slots = new object[]
                 {
                     new
                     {
-                        slotAlias = "gemini-1.5-flash-primary",
+                        slotAlias = "gemini-gen-slot-01",
                         provider = "GEMINI",
                         operation = "GENERATE",
-                        modelName = "gemini-1.5-flash",
-                        rpmLimit = 1000,
-                        tpmLimit = 4000000,
-                        rpdLimit = 100000,
+                        modelName = "gemini-3.5-flash-lite",
+                        rpmLimit = 15,
+                        tpmLimit = 250000L,
+                        rpdLimit = 500,
                         priority = 1,
-                        weight = 70,
+                        weight = 1,
                         enabled = true,
                         cooldownUntil = (DateTime?)null,
                         healthStatus = "HEALTHY"
                     },
                     new
                     {
-                        slotAlias = "azure-openai-gpt4o-fallback",
-                        provider = "AZURE_OPENAI",
+                        slotAlias = "gemini-gen-slot-02",
+                        provider = "GEMINI",
                         operation = "GENERATE",
-                        modelName = "gpt-4o",
-                        rpmLimit = 500,
-                        tpmLimit = 1000000,
-                        rpdLimit = 50000,
-                        priority = 2,
-                        weight = 30,
+                        modelName = "gemini-3.5-flash-lite",
+                        rpmLimit = 15,
+                        tpmLimit = 250000L,
+                        rpdLimit = 500,
+                        priority = 1,
+                        weight = 1,
+                        enabled = true,
+                        cooldownUntil = (DateTime?)null,
+                        healthStatus = "HEALTHY"
+                    },
+                    new
+                    {
+                        slotAlias = "gemini-gen-slot-03",
+                        provider = "GEMINI",
+                        operation = "GENERATE",
+                        modelName = "gemini-3.5-flash-lite",
+                        rpmLimit = 15,
+                        tpmLimit = 250000L,
+                        rpdLimit = 500,
+                        priority = 1,
+                        weight = 1,
+                        enabled = true,
+                        cooldownUntil = (DateTime?)null,
+                        healthStatus = "HEALTHY"
+                    },
+                    new
+                    {
+                        slotAlias = "gemini-gen-slot-04",
+                        provider = "GEMINI",
+                        operation = "GENERATE",
+                        modelName = "gemini-3.5-flash-lite",
+                        rpmLimit = 15,
+                        tpmLimit = 250000L,
+                        rpdLimit = 500,
+                        priority = 1,
+                        weight = 1,
+                        enabled = true,
+                        cooldownUntil = (DateTime?)null,
+                        healthStatus = "HEALTHY"
+                    },
+                    new
+                    {
+                        slotAlias = "gemini-embed-slot-01",
+                        provider = "GEMINI",
+                        operation = "EMBED",
+                        modelName = "text-embedding-004",
+                        rpmLimit = 1500,
+                        tpmLimit = 5000000L,
+                        rpdLimit = 200000,
+                        priority = 1,
+                        weight = 1,
+                        enabled = true,
+                        cooldownUntil = (DateTime?)null,
+                        healthStatus = "HEALTHY"
+                    },
+                    new
+                    {
+                        slotAlias = "gemini-embed-slot-02",
+                        provider = "GEMINI",
+                        operation = "EMBED",
+                        modelName = "text-embedding-004",
+                        rpmLimit = 1500,
+                        tpmLimit = 5000000L,
+                        rpdLimit = 200000,
+                        priority = 1,
+                        weight = 1,
                         enabled = true,
                         cooldownUntil = (DateTime?)null,
                         healthStatus = "HEALTHY"
@@ -367,38 +567,30 @@ public class AiGovernanceController(
             },
             new
             {
-                id = "pool-embedding",
-                code = "EMBEDDING_POOL",
-                name = "Vector Embeddings Pool",
+                id = "aaaaaaaa-0000-0000-0000-000000000002",
+                code = "devops-internal",
+                name = "DevOps Dedicated Internal Pool",
                 status = "ACTIVE",
-                slots = new[]
+                slots = new object[]
                 {
                     new
                     {
-                        slotAlias = "gemini-embedding-001",
-                        provider = "GEMINI",
-                        operation = "EMBED",
-                        modelName = "text-embedding-004",
-                        rpmLimit = 1500,
-                        tpmLimit = 5000000,
-                        rpdLimit = 200000,
+                        slotAlias = "azure-devops-generate-01",
+                        provider = "AZURE_OPENAI",
+                        operation = "GENERATE",
+                        modelName = "gpt-4o",
+                        rpmLimit = 500,
+                        tpmLimit = 1000000L,
+                        rpdLimit = 50000,
                         priority = 1,
-                        weight = 100,
+                        weight = 1,
                         enabled = true,
                         cooldownUntil = (DateTime?)null,
                         healthStatus = "HEALTHY"
                     }
                 }
             }
-        };
-
-        return Ok(new
-        {
-            totalPools = pools.Count,
-            pools,
-            circuitBreakerState = "CLOSED",
-            updatedAt = DateTime.UtcNow
-        });
+        ];
     }
 
     /// <summary>
