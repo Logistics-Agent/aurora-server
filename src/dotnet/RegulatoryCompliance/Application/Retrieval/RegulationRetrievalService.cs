@@ -85,7 +85,9 @@ public sealed class RegulationRetrievalService(
         var types = input.RegulationTypes.Count == 0
             ? Enum.GetValues<RegulationType>()
             : input.RegulationTypes.Distinct().ToArray();
-        var jurisdiction = (input.JurisdictionCode ?? string.Empty).Trim().ToUpperInvariant();
+        var jurisdiction = string.IsNullOrWhiteSpace(input.JurisdictionCode)
+            ? "GLOBAL"
+            : input.JurisdictionCode.Trim().ToUpperInvariant();
         var language = (input.LanguageCode ?? string.Empty).Trim().ToLowerInvariant();
 
         if (string.IsNullOrWhiteSpace(input.Query) || input.Query.Trim() == "*")

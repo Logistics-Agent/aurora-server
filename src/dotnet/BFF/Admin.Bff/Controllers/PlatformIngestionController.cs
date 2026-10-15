@@ -19,6 +19,8 @@ using Microsoft.Extensions.Logging;
 using RegulatoryCompliance.Grpc;
 using Shared.Constants;
 using Shared.Security;
+using Amazon.S3;
+using Amazon.S3.Model;
 
 namespace AdminBff.Controllers;
 
@@ -204,38 +206,68 @@ public sealed class PlatformIngestionController(
         var objectKey = $"{folder}/{uploadId}_{safeFileName}";
         var s3ServiceUrl = configuration["Storage:S3:ServiceUrl"]
             ?? configuration["R2:ServiceUrl"]
+            ?? (!string.IsNullOrWhiteSpace(configuration["R2:AccountId"]) ? $"https://{configuration["R2:AccountId"]}.r2.cloudflarestorage.com" : null)
             ?? "https://0e000fc3102c5511f71eaab39664a054.r2.cloudflarestorage.com";
         var s3Bucket = configuration["Storage:S3:Bucket"]
             ?? configuration["R2:BucketName"]
             ?? "aurora-document-ocr";
         var s3AccessKey = configuration["Storage:S3:AccessKey"] ?? configuration["R2:AccessKey"];
         var s3SecretKey = configuration["Storage:S3:SecretKey"] ?? configuration["R2:SecretKey"];
+        var s3Region = configuration["Storage:S3:Region"] ?? "auto";
+        var publicDomain = configuration["R2:PublicUrl"] ?? configuration["Storage:S3:PublicUrl"] ?? configuration["Storage:S3:PublicDomain"];
 
         if (!string.IsNullOrWhiteSpace(s3AccessKey) && !string.IsNullOrWhiteSpace(s3SecretKey))
         {
             try
             {
-                using var httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
-                using var stream = file.OpenReadStream();
-                using var streamContent = new StreamContent(stream);
-                if (!string.IsNullOrWhiteSpace(file.ContentType))
+                var s3Config = new AmazonS3Config
                 {
-                    streamContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(file.ContentType);
+                    ServiceURL = s3ServiceUrl,
+                    ForcePathStyle = true,
+                    AuthenticationRegion = s3Region
+                };
+                using var s3Client = new AmazonS3Client(s3AccessKey, s3SecretKey, s3Config);
+                using var stream = file.OpenReadStream();
+                var putReq = new PutObjectRequest
+                {
+                    BucketName = s3Bucket,
+                    Key = objectKey,
+                    InputStream = stream,
+                    ContentType = !string.IsNullOrWhiteSpace(file.ContentType) ? file.ContentType : "application/octet-stream"
+                };
+                await s3Client.PutObjectAsync(putReq, ct);
+                logger.LogInformation("Successfully uploaded original file to R2 with key {Key}", objectKey);
+
+                string storageUrl;
+                if (!string.IsNullOrWhiteSpace(publicDomain))
+                {
+                    storageUrl = $"{publicDomain.TrimEnd('/')}/{objectKey}";
+                }
+                else
+                {
+                    var getReq = new GetPreSignedUrlRequest
+                    {
+                        BucketName = s3Bucket,
+                        Key = objectKey,
+                        Verb = HttpVerb.GET,
+                        Protocol = Protocol.HTTPS,
+                        Expires = DateTime.UtcNow.AddDays(7)
+                    };
+                    storageUrl = s3Client.GetPreSignedURL(getReq);
                 }
 
-                var putUrl = $"{s3ServiceUrl.TrimEnd('/')}/{s3Bucket}/{objectKey}";
-                using var putRequest = new HttpRequestMessage(HttpMethod.Put, putUrl) { Content = streamContent };
-                var response = await httpClient.SendAsync(putRequest, ct);
-                logger.LogInformation("R2 storage upload responded with {StatusCode} for key {Key}", response.StatusCode, objectKey);
+                return (objectKey, storageUrl);
             }
             catch (Exception ex)
             {
-                logger.LogWarning(ex, "Failed to upload original file to R2, proceeding with object key {Key}", objectKey);
+                logger.LogWarning(ex, "Failed to upload original file to R2 via S3 client, proceeding with object key {Key}", objectKey);
             }
         }
 
-        var storageUrl = $"{s3ServiceUrl.TrimEnd('/')}/{s3Bucket}/{objectKey}";
-        return (objectKey, storageUrl);
+        var fallbackUrl = !string.IsNullOrWhiteSpace(publicDomain)
+            ? $"{publicDomain.TrimEnd('/')}/{objectKey}"
+            : $"{s3ServiceUrl.TrimEnd('/')}/{s3Bucket}/{objectKey}";
+        return (objectKey, fallbackUrl);
     }
 
     private static (byte[] Bytes, string MimeType) ExtractTextFromBytes(byte[] rawBytes, string fileName)

@@ -1085,7 +1085,7 @@ public sealed class DocumentsController(
         var rpcRequest = new QueryRegulationsRequest
         {
             Query = request.Query,
-            JurisdictionCode = request.JurisdictionCode ?? string.Empty,
+            JurisdictionCode = string.IsNullOrWhiteSpace(request.JurisdictionCode) ? "GLOBAL" : request.JurisdictionCode.Trim().ToUpperInvariant(),
             LanguageCode = "vi",
             EffectiveAt = request.EffectiveAt.HasValue ? Timestamp.FromDateTimeOffset(request.EffectiveAt.Value) : Timestamp.FromDateTimeOffset(DateTimeOffset.UtcNow),
             TopK = request.TopK > 0 ? request.TopK : 10,
