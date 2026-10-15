@@ -14,6 +14,7 @@ using Grpc.Core;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using RegulatoryCompliance.Grpc;
 using Shared.Constants;
@@ -29,6 +30,7 @@ namespace AdminBff.Controllers;
 public sealed class PlatformIngestionController(
     RegulatoryComplianceService.RegulatoryComplianceServiceClient regulatoryClient,
     ICurrentUserService currentUser,
+    IConfiguration configuration,
     ILogger<PlatformIngestionController> logger)
     : AdminControllerBase
 {
@@ -146,15 +148,20 @@ public sealed class PlatformIngestionController(
             // Extract UTF-8 text for knowledge chunking & vector embedding
             var (processedBytes, processedMimeType) = ExtractTextFromBytes(fileBytes, file.FileName);
 
+            var uploadId = Guid.NewGuid().ToString("N");
+            var safeFileName = Path.GetFileName(file.FileName);
+            var (storageRef, storageUrl) = await UploadOriginalFileToR2Async(
+                file, uploadId, safeFileName, $"knowledge/{storageScope}", cancellationToken);
+
             var ingestRequest = new IngestKnowledgeSourceRequest
             {
                 IdempotencyKey = Guid.NewGuid().ToString(),
                 Title = title,
                 Category = categoryEnum,
-                SourceReference = $"https://knowledge.aurora.local/{Uri.EscapeDataString(file.FileName)}",
+                SourceReference = storageUrl,
                 LanguageCode = language ?? "en",
                 VersionLabel = version ?? "v1.0",
-                ContentReference = $"knowledge/{storageScope}/{Guid.NewGuid():N}/{Path.GetFileName(file.FileName)}",
+                ContentReference = storageRef,
                 FileName = file.FileName,
                 MimeType = processedMimeType,
                 SizeBytes = processedBytes.Length,
@@ -185,6 +192,50 @@ public sealed class PlatformIngestionController(
             logger.LogWarning(ex, "gRPC error during file upload ingestion");
             return ex.ToActionResult();
         }
+    }
+
+    private async Task<(string StorageReference, string StorageUrl)> UploadOriginalFileToR2Async(
+        IFormFile file,
+        string uploadId,
+        string safeFileName,
+        string folder,
+        CancellationToken ct)
+    {
+        var objectKey = $"{folder}/{uploadId}_{safeFileName}";
+        var s3ServiceUrl = configuration["Storage:S3:ServiceUrl"]
+            ?? configuration["R2:ServiceUrl"]
+            ?? "https://0e000fc3102c5511f71eaab39664a054.r2.cloudflarestorage.com";
+        var s3Bucket = configuration["Storage:S3:Bucket"]
+            ?? configuration["R2:BucketName"]
+            ?? "aurora-document-ocr";
+        var s3AccessKey = configuration["Storage:S3:AccessKey"] ?? configuration["R2:AccessKey"];
+        var s3SecretKey = configuration["Storage:S3:SecretKey"] ?? configuration["R2:SecretKey"];
+
+        if (!string.IsNullOrWhiteSpace(s3AccessKey) && !string.IsNullOrWhiteSpace(s3SecretKey))
+        {
+            try
+            {
+                using var httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
+                using var stream = file.OpenReadStream();
+                using var streamContent = new StreamContent(stream);
+                if (!string.IsNullOrWhiteSpace(file.ContentType))
+                {
+                    streamContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(file.ContentType);
+                }
+
+                var putUrl = $"{s3ServiceUrl.TrimEnd('/')}/{s3Bucket}/{objectKey}";
+                using var putRequest = new HttpRequestMessage(HttpMethod.Put, putUrl) { Content = streamContent };
+                var response = await httpClient.SendAsync(putRequest, ct);
+                logger.LogInformation("R2 storage upload responded with {StatusCode} for key {Key}", response.StatusCode, objectKey);
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "Failed to upload original file to R2, proceeding with object key {Key}", objectKey);
+            }
+        }
+
+        var storageUrl = $"{s3ServiceUrl.TrimEnd('/')}/{s3Bucket}/{objectKey}";
+        return (objectKey, storageUrl);
     }
 
     private static (byte[] Bytes, string MimeType) ExtractTextFromBytes(byte[] rawBytes, string fileName)
