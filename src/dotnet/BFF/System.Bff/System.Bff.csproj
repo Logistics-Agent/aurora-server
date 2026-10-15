@@ -6,6 +6,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
   </PropertyGroup>
 
+
   <!-- gRPC client stubs + packages đến từ BuildingBlocks.BFF (nơi duy nhất include Protobuf) -->
   <ItemGroup>
     <ProjectReference Include="..\BuildingBlocks.BFF\BuildingBlocks.BFF.csproj" />
