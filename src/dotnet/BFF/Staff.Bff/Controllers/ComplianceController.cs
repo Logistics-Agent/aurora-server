@@ -22,6 +22,13 @@ public class ComplianceController(
     ICurrentUserService currentUser,
     ILogger<ComplianceController> logger) : StaffControllerBase
 {
+    [HttpPost("evaluations")]
+    [RequirePermission(PermissionConstants.Compliance.Read)]
+    public Task<IActionResult> EvaluateComplianceDirect(
+        [FromBody] StartComplianceEvaluationRequest body,
+        CancellationToken ct = default) =>
+        StartEvaluation(body.ExternalShipmentId ?? body.ShipmentId ?? string.Empty, body, ct);
+
     [HttpPost("~/api/v{version:apiVersion}/shipments/{shipmentId}/compliance-evaluations")]
     [RequirePermission(PermissionConstants.Compliance.Read)]
     public async Task<IActionResult> StartEvaluation(
@@ -31,53 +38,115 @@ public class ComplianceController(
     {
         try
         {
-            if (string.IsNullOrWhiteSpace(body.IdempotencyKey) || body.IdempotencyKey.Trim().Length > 150)
-                throw new ArgumentException("idempotencyKey is required.", nameof(body.IdempotencyKey));
+            var effectiveShipmentId = !string.IsNullOrWhiteSpace(shipmentId)
+                ? shipmentId
+                : (!string.IsNullOrWhiteSpace(body.ExternalShipmentId) ? body.ExternalShipmentId : body.ShipmentId);
 
-            var snapshot = await snapshotComposer.ComposeAsync(
-                shipmentId,
-                body.EffectiveAt ?? DateTimeOffset.UtcNow,
-                ct);
+            if (string.IsNullOrWhiteSpace(effectiveShipmentId))
+                throw new ArgumentException("Shipment ID or ExternalShipmentId is required.");
 
-            var req = new EvaluateComplianceRequest
-            {
-                IdempotencyKey = body.IdempotencyKey.Trim(),
-                ExternalShipmentId = snapshot.ShipmentId.ToString(),
-                OriginCountryCode = snapshot.OriginCountryCode,
-                DestinationCountryCode = snapshot.DestinationCountryCode,
-                TransportMode = snapshot.TransportMode,
-                EffectiveAt = Timestamp.FromDateTimeOffset(snapshot.EffectiveAt),
-                ShipmentVersion = snapshot.ShipmentVersion
-            };
+            var idempotencyKey = !string.IsNullOrWhiteSpace(body.IdempotencyKey)
+                ? body.IdempotencyKey.Trim()
+                : $"eval-{effectiveShipmentId}-{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}";
 
-            req.JurisdictionCodes.AddRange(snapshot.JurisdictionCodes);
-            req.Cargo.AddRange(snapshot.Cargo.Select(c => new CargoSnapshot
+            EvaluateComplianceRequest req;
+
+            if (body.Cargo != null && body.Cargo.Count > 0 && !string.IsNullOrWhiteSpace(body.OriginCountryCode))
             {
-                Name = c.Name,
-                HsCode = c.HsCode ?? string.Empty,
-                Quantity = c.Quantity,
-                Unit = c.Unit,
-                WeightKg = c.WeightKg,
-                VolumeM3 = c.VolumeM3,
-                IsDangerousGoods = c.IsDangerousGoods,
-                DangerousGoodsCode = c.DangerousGoodsCode ?? string.Empty,
-                PackageType = c.PackageType ?? string.Empty
-            }));
-            req.Documents.AddRange(snapshot.Documents.Select(d => new OcrDocumentSnapshot
+                var originCountry = body.OriginCountryCode.Trim().ToUpperInvariant();
+                var destinationCountry = (!string.IsNullOrWhiteSpace(body.DestinationCountryCode) ? body.DestinationCountryCode : "GLOBAL").Trim().ToUpperInvariant();
+                req = new EvaluateComplianceRequest
+                {
+                    IdempotencyKey = idempotencyKey,
+                    ExternalShipmentId = effectiveShipmentId,
+                    OriginCountryCode = originCountry,
+                    DestinationCountryCode = destinationCountry,
+                    TransportMode = (!string.IsNullOrWhiteSpace(body.TransportMode) ? body.TransportMode : "ROAD").Trim().ToUpperInvariant(),
+                    EffectiveAt = Timestamp.FromDateTimeOffset(body.EffectiveAt ?? DateTimeOffset.UtcNow),
+                    ShipmentVersion = body.ShipmentVersion ?? DateTimeOffset.UtcNow.ToString("O")
+                };
+
+                if (body.JurisdictionCodes != null && body.JurisdictionCodes.Count > 0)
+                {
+                    req.JurisdictionCodes.AddRange(body.JurisdictionCodes);
+                }
+                else
+                {
+                    req.JurisdictionCodes.AddRange([originCountry, destinationCountry]);
+                }
+
+                req.Cargo.AddRange(body.Cargo.Select(c => new CargoSnapshot
+                {
+                    Name = c.Name,
+                    HsCode = c.HsCode ?? string.Empty,
+                    Quantity = c.Quantity,
+                    Unit = c.Unit ?? "item",
+                    WeightKg = c.WeightKg,
+                    VolumeM3 = c.VolumeM3,
+                    IsDangerousGoods = c.IsDangerousGoods,
+                    DangerousGoodsCode = c.DangerousGoodsCode ?? string.Empty,
+                    PackageType = c.PackageType ?? string.Empty
+                }));
+
+                if (body.Documents != null)
+                {
+                    req.Documents.AddRange(body.Documents.Select(d => new OcrDocumentSnapshot
+                    {
+                        ExternalDocumentId = d.ExternalDocumentId ?? string.Empty,
+                        DocumentType = d.DocumentType ?? "Other",
+                        NormalizedJson = d.NormalizedJson ?? "{}",
+                        ExtractionConfidence = d.ExtractionConfidence,
+                        NeedsReview = d.NeedsReview
+                    }));
+                }
+            }
+            else
             {
-                ExternalDocumentId = d.ExternalDocumentId.ToString(),
-                DocumentType = d.DocumentType,
-                NormalizedJson = d.NormalizedJson,
-                ExtractionConfidence = d.ExtractionConfidence,
-                NeedsReview = d.NeedsReview
-            }));
+                var snapshot = await snapshotComposer.ComposeAsync(
+                    effectiveShipmentId,
+                    body.EffectiveAt ?? DateTimeOffset.UtcNow,
+                    ct);
+
+                req = new EvaluateComplianceRequest
+                {
+                    IdempotencyKey = idempotencyKey,
+                    ExternalShipmentId = snapshot.ShipmentId.ToString(),
+                    OriginCountryCode = snapshot.OriginCountryCode,
+                    DestinationCountryCode = snapshot.DestinationCountryCode,
+                    TransportMode = snapshot.TransportMode,
+                    EffectiveAt = Timestamp.FromDateTimeOffset(snapshot.EffectiveAt),
+                    ShipmentVersion = snapshot.ShipmentVersion
+                };
+
+                req.JurisdictionCodes.AddRange(snapshot.JurisdictionCodes);
+                req.Cargo.AddRange(snapshot.Cargo.Select(c => new CargoSnapshot
+                {
+                    Name = c.Name,
+                    HsCode = c.HsCode ?? string.Empty,
+                    Quantity = c.Quantity,
+                    Unit = c.Unit,
+                    WeightKg = c.WeightKg,
+                    VolumeM3 = c.VolumeM3,
+                    IsDangerousGoods = c.IsDangerousGoods,
+                    DangerousGoodsCode = c.DangerousGoodsCode ?? string.Empty,
+                    PackageType = c.PackageType ?? string.Empty
+                }));
+                req.Documents.AddRange(snapshot.Documents.Select(d => new OcrDocumentSnapshot
+                {
+                    ExternalDocumentId = d.ExternalDocumentId.ToString(),
+                    DocumentType = d.DocumentType,
+                    NormalizedJson = d.NormalizedJson,
+                    ExtractionConfidence = d.ExtractionConfidence,
+                    NeedsReview = d.NeedsReview
+                }));
+            }
 
             var response = await complianceClient.EvaluateComplianceAsync(req, cancellationToken: ct);
             var location = $"/api/v1/compliance/evaluations/{response.EvaluationId}";
             logger.LogInformation(
                 "Compliance evaluation {EvaluationId} accepted for shipment {ShipmentId} in tenant {TenantId}",
                 response.EvaluationId,
-                snapshot.ShipmentId,
+                req.ExternalShipmentId,
                 currentUser.TenantId);
             return Accepted(location, response);
         }
@@ -248,7 +317,36 @@ public class ComplianceController(
 
 // ── DTOs ───────────────────────────────────────────────────────────────────
 
-public record StartComplianceEvaluationRequest(string? IdempotencyKey, DateTimeOffset? EffectiveAt);
+public record CargoSnapshotItemDto(
+    string Name,
+    string? HsCode = null,
+    int Quantity = 1,
+    string? Unit = null,
+    double WeightKg = 0,
+    double VolumeM3 = 0,
+    bool IsDangerousGoods = false,
+    string? DangerousGoodsCode = null,
+    string? PackageType = null);
+
+public record DocumentSnapshotItemDto(
+    string? ExternalDocumentId = null,
+    string? DocumentType = null,
+    string? NormalizedJson = null,
+    double ExtractionConfidence = 0.95,
+    bool NeedsReview = false);
+
+public record StartComplianceEvaluationRequest(
+    string? IdempotencyKey,
+    DateTimeOffset? EffectiveAt,
+    string? ExternalShipmentId = null,
+    string? ShipmentId = null,
+    string? OriginCountryCode = null,
+    string? DestinationCountryCode = null,
+    string? TransportMode = null,
+    List<string>? JurisdictionCodes = null,
+    string? ShipmentVersion = null,
+    List<CargoSnapshotItemDto>? Cargo = null,
+    List<DocumentSnapshotItemDto>? Documents = null);
 
 public record AskComplianceCopilotBody(
     string? Query,
