@@ -237,39 +237,158 @@ public sealed class PlatformIngestionController(
 
     /// <summary>
     /// List & Query Ingested Knowledge Documents
+    /// <summary>
+    /// List & Query Ingested Knowledge Documents with flexible search and category filter.
     /// </summary>
     [HttpGet("knowledge-documents")]
     [HttpPost("knowledge/query")]
     [RequirePermission(PermissionConstants.Documents.Read, PermissionConstants.Compliance.Read, PermissionConstants.Compliance.PlatformIngest, PermissionConstants.Documents.Manage, PermissionConstants.Documents.Ingest)]
     public async Task<IActionResult> QueryKnowledgeDocuments(
         [FromQuery] string? query = null,
+        [FromQuery] string? category = null,
         CancellationToken cancellationToken = default)
     {
         try
         {
             var searchTerms = query?.Trim() ?? string.Empty;
-            var rpcRequest = new QueryKnowledgeRequest
+            var categoryFilter = category?.Trim();
+
+            // 1. Fetch catalog documents
+            var listRequest = new ListKnowledgeDocumentsRequest
             {
-                Query = searchTerms,
-                TopK = 50,
-                MinimumRelevanceScore = 0.0
+                Page = 1,
+                PageSize = 100
             };
 
-            var response = await regulatoryClient.QueryKnowledgeAsync(rpcRequest, cancellationToken: cancellationToken);
+            ListKnowledgeDocumentsResponse? listResponse = null;
+            try
+            {
+                listResponse = await regulatoryClient.ListKnowledgeDocumentsAsync(listRequest, cancellationToken: cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "ListKnowledgeDocumentsAsync encountered an error, trying query fallback");
+            }
 
-            var items = response.Evidence
+            // 2. If search terms provided, also query pgvector evidence
+            QueryKnowledgeResponse? queryResponse = null;
+            if (!string.IsNullOrWhiteSpace(searchTerms))
+            {
+                try
+                {
+                    queryResponse = await regulatoryClient.QueryKnowledgeAsync(new QueryKnowledgeRequest
+                    {
+                        Query = searchTerms,
+                        TopK = 50,
+                        MinimumRelevanceScore = 0.0
+                    }, cancellationToken: cancellationToken);
+                }
+                catch (Exception ex)
+                {
+                    logger.LogWarning(ex, "QueryKnowledgeAsync encountered an error");
+                }
+            }
+
+            var evidenceByDocId = queryResponse?.Evidence?
                 .GroupBy(e => e.KnowledgeDocumentId)
-                .Select(g =>
+                .ToDictionary(g => g.Key, g => g.ToList()) ?? new System.Collections.Generic.Dictionary<string, System.Collections.Generic.List<KnowledgeEvidence>>();
+
+            var resultItems = new System.Collections.Generic.List<object>();
+
+            if (listResponse?.Documents != null && listResponse.Documents.Count > 0)
+            {
+                foreach (var doc in listResponse.Documents)
+                {
+                    var catName = doc.Category switch
+                    {
+                        KnowledgeCategory.Sop => "SOP",
+                        KnowledgeCategory.Contract => "Carrier Contract",
+                        KnowledgeCategory.Guide => "Customs Guideline",
+                        KnowledgeCategory.InternalPolicy => "Internal Policy",
+                        _ => doc.Category.ToString()
+                    };
+
+                    // Category filter
+                    if (!string.IsNullOrWhiteSpace(categoryFilter) &&
+                        !string.Equals(categoryFilter, "All", StringComparison.OrdinalIgnoreCase) &&
+                        !string.Equals(catName, categoryFilter, StringComparison.OrdinalIgnoreCase))
+                    {
+                        continue;
+                    }
+
+                    evidenceByDocId.TryGetValue(doc.Id, out var evidences);
+                    var bestEvidence = evidences?.FirstOrDefault();
+
+                    // Search filter: if query provided, match Title, Category, FileName, or Excerpt
+                    if (!string.IsNullOrWhiteSpace(searchTerms))
+                    {
+                        bool matches = doc.Title.Contains(searchTerms, StringComparison.OrdinalIgnoreCase) ||
+                                       catName.Contains(searchTerms, StringComparison.OrdinalIgnoreCase) ||
+                                       (doc.LatestVersion?.FileName?.Contains(searchTerms, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                                       (bestEvidence?.Excerpt?.Contains(searchTerms, StringComparison.OrdinalIgnoreCase) ?? false);
+
+                        if (!matches && (evidences == null || evidences.Count == 0))
+                            continue;
+                    }
+
+                    var version = doc.LatestVersion;
+                    var status = version?.Status switch
+                    {
+                        RegulatoryIngestionStatus.Completed => "Completed",
+                        RegulatoryIngestionStatus.Processing => "Processing",
+                        RegulatoryIngestionStatus.Failed => "Failed",
+                        RegulatoryIngestionStatus.Pending => "Processing",
+                        _ => "Completed"
+                    };
+
+                    resultItems.Add(new
+                    {
+                        id = doc.Id,
+                        title = doc.Title,
+                        category = catName,
+                        language = string.IsNullOrWhiteSpace(doc.LanguageCode) ? "English" : doc.LanguageCode,
+                        version = version?.VersionLabel ?? "v1.0",
+                        chunks = version?.ChunkCount ?? evidences?.Count ?? 1,
+                        ingestDate = doc.CreatedAt != null ? doc.CreatedAt.ToDateTime().ToString("yyyy-MM-dd") : DateTime.UtcNow.ToString("yyyy-MM-dd"),
+                        status,
+                        relevanceScore = bestEvidence?.RelevanceScore ?? 1.0,
+                        excerpt = bestEvidence?.Excerpt ?? $"# Document: {doc.Title}\nCategory: {catName}\nLanguage: {doc.LanguageCode}",
+                        section = bestEvidence?.SectionLabel,
+                        fileName = version?.FileName ?? $"{doc.Title}.pdf",
+                        fileSize = version?.SizeBytes ?? 0,
+                        mimeType = version?.MimeType ?? "application/pdf",
+                        sourceReference = doc.SourceReference,
+                        contentSha256 = version?.ContentSha256
+                    });
+                }
+            }
+            else if (queryResponse?.Evidence != null && queryResponse.Evidence.Count > 0)
+            {
+                // Fallback to evidence grouping if catalog is empty
+                foreach (var g in queryResponse.Evidence.GroupBy(e => e.KnowledgeDocumentId))
                 {
                     var e = g.First();
-                    return new
+                    var catName = e.Category switch
+                    {
+                        KnowledgeCategory.Sop => "SOP",
+                        KnowledgeCategory.Contract => "Carrier Contract",
+                        KnowledgeCategory.Guide => "Customs Guideline",
+                        KnowledgeCategory.InternalPolicy => "Internal Policy",
+                        _ => e.Category.ToString()
+                    };
+
+                    if (!string.IsNullOrWhiteSpace(categoryFilter) &&
+                        !string.Equals(categoryFilter, "All", StringComparison.OrdinalIgnoreCase) &&
+                        !string.Equals(catName, categoryFilter, StringComparison.OrdinalIgnoreCase))
+                    {
+                        continue;
+                    }
+
+                    resultItems.Add(new
                     {
                         id = e.KnowledgeDocumentId,
                         title = e.Title,
-                        category = e.Category == KnowledgeCategory.Sop ? "SOP" :
-                                   e.Category == KnowledgeCategory.Contract ? "Carrier Contract" :
-                                   e.Category == KnowledgeCategory.Guide ? "Customs Guideline" :
-                                   e.Category == KnowledgeCategory.InternalPolicy ? "Internal Policy" : e.Category.ToString(),
+                        category = catName,
                         language = "English",
                         version = "v1.0",
                         chunks = g.Count(),
@@ -277,11 +396,17 @@ public sealed class PlatformIngestionController(
                         status = "Completed",
                         relevanceScore = e.RelevanceScore,
                         excerpt = e.Excerpt,
-                        section = e.SectionLabel
-                    };
-                }).ToList();
+                        section = e.SectionLabel,
+                        fileName = $"{e.Title}.pdf",
+                        fileSize = 0L,
+                        mimeType = "application/pdf",
+                        sourceReference = e.SourceReference,
+                        contentSha256 = ""
+                    });
+                }
+            }
 
-            return Ok(new { items, total = items.Count });
+            return Ok(new { items = resultItems, total = resultItems.Count });
         }
         catch (RpcException ex)
         {
@@ -292,6 +417,80 @@ public sealed class PlatformIngestionController(
         {
             logger.LogError(ex, "Unexpected error querying knowledge documents");
             return Problem(title: "KNOWLEDGE_QUERY_FAILED", detail: "Knowledge query failed.");
+        }
+    }
+
+    /// <summary>
+    /// Get single knowledge document details and chunks for viewing
+    /// </summary>
+    [HttpGet("knowledge-documents/{id}")]
+    [RequirePermission(PermissionConstants.Documents.Read, PermissionConstants.Compliance.Read, PermissionConstants.Documents.Manage)]
+    public async Task<IActionResult> GetKnowledgeDocumentDetails(string id, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var docDetails = await regulatoryClient.GetKnowledgeDocumentAsync(new GetKnowledgeDocumentRequest
+            {
+                KnowledgeDocumentId = id
+            }, cancellationToken: cancellationToken);
+
+            var summary = docDetails.Summary;
+            var catName = summary.Category switch
+            {
+                KnowledgeCategory.Sop => "SOP",
+                KnowledgeCategory.Contract => "Carrier Contract",
+                KnowledgeCategory.Guide => "Customs Guideline",
+                KnowledgeCategory.InternalPolicy => "Internal Policy",
+                _ => summary.Category.ToString()
+            };
+
+            // Query chunks for this document
+            var queryResponse = await regulatoryClient.QueryKnowledgeAsync(new QueryKnowledgeRequest
+            {
+                Query = summary.Title,
+                TopK = 50,
+                MinimumRelevanceScore = 0.0
+            }, cancellationToken: cancellationToken);
+
+            var chunks = queryResponse.Evidence
+                .Where(e => e.KnowledgeDocumentId == id)
+                .Select(e => new
+                {
+                    chunkId = e.ChunkId,
+                    section = e.SectionLabel,
+                    page = e.PageLabel,
+                    excerpt = e.Excerpt,
+                    score = e.RelevanceScore
+                }).ToList();
+
+            var version = summary.LatestVersion;
+            var fullExcerpt = chunks.Count > 0
+                ? string.Join("\n\n---\n\n", chunks.Select(c => $"[Section: {c.section ?? "General"} | Page: {c.page ?? "1"}]\n{c.excerpt}"))
+                : $"# {summary.Title}\n\nCategory: {catName}\nLanguage: {summary.LanguageCode}\nSource: {summary.SourceReference}\n\n[Document is indexed and ready in pgvector]";
+
+            return Ok(new
+            {
+                id = summary.Id,
+                title = summary.Title,
+                category = catName,
+                language = string.IsNullOrWhiteSpace(summary.LanguageCode) ? "English" : summary.LanguageCode,
+                version = version?.VersionLabel ?? "v1.0",
+                chunks = version?.ChunkCount ?? chunks.Count,
+                ingestDate = summary.CreatedAt != null ? summary.CreatedAt.ToDateTime().ToString("yyyy-MM-dd") : DateTime.UtcNow.ToString("yyyy-MM-dd"),
+                status = version?.Status == RegulatoryIngestionStatus.Completed ? "Completed" : "Processing",
+                fileName = version?.FileName ?? $"{summary.Title}.pdf",
+                fileSize = version?.SizeBytes ?? 0,
+                mimeType = version?.MimeType ?? "application/pdf",
+                sourceReference = summary.SourceReference,
+                contentSha256 = version?.ContentSha256,
+                excerpt = fullExcerpt,
+                chunksList = chunks
+            });
+        }
+        catch (RpcException ex)
+        {
+            logger.LogWarning(ex, "Failed to get knowledge document details for {Id}", id);
+            return ex.ToActionResult();
         }
     }
 
