@@ -226,6 +226,73 @@ public class AiGovernanceController(
         return connStr;
     }
 
+    private async Task RecordDirectUsageAsync(Guid tenantId, long totalTokens, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var connStr = GetAiGovernanceConnectionString();
+            await using var connection = new Npgsql.NpgsqlConnection(connStr);
+            await connection.OpenAsync(cancellationToken);
+            var now = DateTime.UtcNow;
+            var monthKey = now.ToString("yyyy-MM");
+            var dayKey = now.ToString("yyyy-MM-dd");
+
+            // Month record for TOKENS
+            await using (var cmd = connection.CreateCommand())
+            {
+                cmd.CommandText = @"
+                    INSERT INTO usage_records (id, tenant_id, quota_metric, quota_period, period_key, usage_value, created_at, version)
+                    VALUES (@id, @tenantId, 'TOKENS', 'MONTH', @periodKey, @val, @now, 1)
+                    ON CONFLICT (tenant_id, quota_metric, quota_period, period_key)
+                    DO UPDATE SET usage_value = usage_records.usage_value + @val, updated_at = @now;
+                ";
+                cmd.Parameters.AddWithValue("id", Guid.NewGuid());
+                cmd.Parameters.AddWithValue("tenantId", tenantId);
+                cmd.Parameters.AddWithValue("periodKey", monthKey);
+                cmd.Parameters.AddWithValue("val", totalTokens);
+                cmd.Parameters.AddWithValue("now", now);
+                await cmd.ExecuteNonQueryAsync(cancellationToken);
+            }
+
+            // Month record for REQUESTS
+            await using (var cmdReq = connection.CreateCommand())
+            {
+                cmdReq.CommandText = @"
+                    INSERT INTO usage_records (id, tenant_id, quota_metric, quota_period, period_key, usage_value, created_at, version)
+                    VALUES (@id, @tenantId, 'REQUESTS', 'MONTH', @periodKey, 1, @now, 1)
+                    ON CONFLICT (tenant_id, quota_metric, quota_period, period_key)
+                    DO UPDATE SET usage_value = usage_records.usage_value + 1, updated_at = @now;
+                ";
+                cmdReq.Parameters.AddWithValue("id", Guid.NewGuid());
+                cmdReq.Parameters.AddWithValue("tenantId", tenantId);
+                cmdReq.Parameters.AddWithValue("periodKey", monthKey);
+                cmdReq.Parameters.AddWithValue("now", now);
+                await cmdReq.ExecuteNonQueryAsync(cancellationToken);
+            }
+
+            // Day record for TOKENS
+            await using (var cmdDay = connection.CreateCommand())
+            {
+                cmdDay.CommandText = @"
+                    INSERT INTO usage_records (id, tenant_id, quota_metric, quota_period, period_key, usage_value, created_at, version)
+                    VALUES (@id, @tenantId, 'TOKENS', 'DAY', @periodKey, @val, @now, 1)
+                    ON CONFLICT (tenant_id, quota_metric, quota_period, period_key)
+                    DO UPDATE SET usage_value = usage_records.usage_value + @val, updated_at = @now;
+                ";
+                cmdDay.Parameters.AddWithValue("id", Guid.NewGuid());
+                cmdDay.Parameters.AddWithValue("tenantId", tenantId);
+                cmdDay.Parameters.AddWithValue("periodKey", dayKey);
+                cmdDay.Parameters.AddWithValue("val", totalTokens);
+                cmdDay.Parameters.AddWithValue("now", now);
+                await cmdDay.ExecuteNonQueryAsync(cancellationToken);
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.LogDebug(ex, "Direct record usage failed: {Message}", ex.Message);
+        }
+    }
+
     /// <summary>
     /// Lấy AI usage & token metrics của một Tenant cụ thể từ IAM Service.
     /// Route: GET /api/v1/system/ai-governance/usage/{tenantId}
@@ -381,16 +448,26 @@ public class AiGovernanceController(
 
             var response = await executionClient.GenerateAsync(request, headers, cancellationToken: cancellationToken);
 
+            var totalTokens = response.InputTokens + response.OutputTokens;
+            var targetTenantId = !string.IsNullOrWhiteSpace(body.TenantId) && Guid.TryParse(body.TenantId, out var parsedTid)
+                ? (Guid?)parsedTid
+                : currentUser.TenantId;
+
+            if (targetTenantId.HasValue && totalTokens > 0)
+            {
+                await RecordDirectUsageAsync(targetTenantId.Value, totalTokens, cancellationToken);
+            }
+
             logger.LogInformation(
-                "System Admin {UserId} executed playground generation for {CapabilityCode} via {Provider}/{Model}",
-                currentUser.UserId, body.CapabilityCode, response.Provider, response.Model);
+                "System Admin {UserId} executed playground generation for {CapabilityCode} via {Provider}/{Model}. Generated {Tokens} tokens for Tenant {TenantId}",
+                currentUser.UserId, body.CapabilityCode, response.Provider, response.Model, totalTokens, targetTenantId);
 
             return Ok(new
             {
                 content = response.Content,
                 inputTokens = response.InputTokens,
                 outputTokens = response.OutputTokens,
-                totalTokens = response.InputTokens + response.OutputTokens,
+                totalTokens = totalTokens,
                 decisionId = response.DecisionId,
                 automationLevel = response.AutomationLevel,
                 requiresApproval = response.RequiresApproval,
