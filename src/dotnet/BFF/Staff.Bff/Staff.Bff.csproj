@@ -8,6 +8,10 @@
 
   <!-- gRPC client stubs + packages đến từ BuildingBlocks.BFF (nơi duy nhất include Protobuf) -->
   <ItemGroup>
+    <PackageReference Include="AWSSDK.S3" Version="3.7.402.1" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\BuildingBlocks.BFF\BuildingBlocks.BFF.csproj" />
   </ItemGroup>
 

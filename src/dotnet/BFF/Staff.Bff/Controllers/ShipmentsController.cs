@@ -1,8 +1,11 @@
+using Amazon.S3;
+using Amazon.S3.Model;
 using Asp.Versioning;
 using BuildingBlocks.BFF.Attributes;
 using Google.Protobuf.WellKnownTypes;
 using Grpc.Core;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Configuration;
 using Shared.Constants;
 using Shared.Security;
 using ShipmentWorkflow.Grpc;
@@ -17,6 +20,7 @@ namespace StaffBff.Controllers;
 public class ShipmentsController(
     ShipmentWorkflowService.ShipmentWorkflowServiceClient shipmentClient,
     ICurrentUserService currentUser,
+    IConfiguration configuration,
     ILogger<ShipmentsController> logger) : StaffControllerBase
 {
     [HttpPost]
@@ -407,9 +411,185 @@ public class ShipmentsController(
             return BadRequest(new { detail = ex.Status.Detail });
         }
     }
+
+    /// <summary>
+    /// Tạo Presigned URL đẩy file trực tiếp lên Cloudflare R2 với Object Key chuẩn cho Shipment:
+    /// - Phương tiện: tenants/{tenantId}/shipments/{id}/vehicles/{uploadId}_{fileName}
+    /// - Chứng từ:   tenants/{tenantId}/shipments/{id}/documents/{uploadId}_{fileName}
+    /// </summary>
+    [HttpPost("{id}/upload-session")]
+    [RequirePermission(PermissionConstants.Shipment.Update, "documents:create")]
+    public Task<IActionResult> CreateShipmentUploadSession(
+        [FromRoute] string id,
+        [FromBody] ShipmentUploadSessionRequest body,
+        CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(body.FileName))
+        {
+            return Task.FromResult<IActionResult>(BadRequest(new { detail = "FileName is required." }));
+        }
+
+        var tenantId = currentUser.TenantId?.ToString() ?? "00000000-0000-0000-0000-000000000000";
+        var uploadId = Guid.CreateVersion7().ToString();
+        var rawFileName = Path.GetFileName(body.FileName).Trim();
+        var safeFileName = string.Join("_", rawFileName.Split(Path.GetInvalidFileNameChars())).Replace(" ", "_");
+
+        var category = (body.Category ?? "documents").Trim().ToLowerInvariant();
+        var categoryFolder = category is "vehicle" or "vehicles" ? "vehicles" : "documents";
+
+        // Format chuẩn rõ ràng thuộc về Shipment
+        var objectKey = $"tenants/{tenantId}/shipments/{id}/{categoryFolder}/{uploadId}_{safeFileName}";
+
+        var mimeType = !string.IsNullOrWhiteSpace(body.MimeType) ? body.MimeType : "application/octet-stream";
+        var expiresAt = DateTimeOffset.UtcNow.AddMinutes(30);
+
+        var s3ServiceUrl = configuration["Storage:S3:ServiceUrl"]
+            ?? (!string.IsNullOrWhiteSpace(configuration["R2:AccountId"]) ? $"https://{configuration["R2:AccountId"]}.r2.cloudflarestorage.com" : null)
+            ?? "https://0e000fc3102c5511f71eaab39664a054.r2.cloudflarestorage.com";
+
+        var s3Bucket = configuration["Storage:S3:Bucket"] 
+            ?? configuration["R2:BucketName"] 
+            ?? "aurora-document-ocr";
+
+        var s3AccessKey = configuration["Storage:S3:AccessKey"] ?? configuration["R2:AccessKey"];
+        var s3SecretKey = configuration["Storage:S3:SecretKey"] ?? configuration["R2:SecretKey"];
+        var s3Region = configuration["Storage:S3:Region"] ?? "auto";
+
+        string writeUrl;
+        var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["Content-Type"] = mimeType
+        };
+
+        if (!string.IsNullOrWhiteSpace(s3AccessKey) && !string.IsNullOrWhiteSpace(s3SecretKey))
+        {
+            try
+            {
+                var s3Config = new AmazonS3Config
+                {
+                    ServiceURL = s3ServiceUrl,
+                    ForcePathStyle = true,
+                    AuthenticationRegion = s3Region
+                };
+                using var s3Client = new AmazonS3Client(s3AccessKey, s3SecretKey, s3Config);
+                var preSignRequest = new GetPreSignedUrlRequest
+                {
+                    BucketName = s3Bucket,
+                    Key = objectKey,
+                    Verb = HttpVerb.PUT,
+                    Protocol = Protocol.HTTPS,
+                    Expires = expiresAt.UtcDateTime,
+                    ContentType = mimeType
+                };
+                preSignRequest.Headers["Content-Type"] = mimeType;
+                writeUrl = s3Client.GetPreSignedURL(preSignRequest);
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "Failed to generate presigned R2 URL, falling back to direct target URL");
+                writeUrl = $"{s3ServiceUrl.TrimEnd('/')}/{s3Bucket}/{objectKey}";
+            }
+        }
+        else
+        {
+            writeUrl = $"{s3ServiceUrl.TrimEnd('/')}/{s3Bucket}/{objectKey}";
+        }
+
+        var response = new ShipmentUploadSessionResponse(
+            UploadId: uploadId,
+            StorageReference: objectKey,
+            WriteUrl: writeUrl,
+            RequiredHeaders: headers,
+            ExpiresAt: expiresAt,
+            Category: categoryFolder,
+            FileName: safeFileName
+        );
+
+        logger.LogInformation("Generated R2 upload session for shipment {ShipmentId}, category {Category}, key: {ObjectKey}",
+            id, categoryFolder, objectKey);
+
+        return Task.FromResult<IActionResult>(Ok(response));
+    }
+
+    /// <summary>
+    /// Upload trực tiếp file lên R2 qua BFF (relay fallback nếu trình duyệt gặp lỗi CORS hoặc network chặn PUT trực tiếp)
+    /// </summary>
+    [HttpPost("{id}/upload-direct")]
+    [RequirePermission(PermissionConstants.Shipment.Update, "documents:create")]
+    public async Task<IActionResult> DirectUploadFile(
+        [FromRoute] string id,
+        [FromForm] IFormFile file,
+        [FromForm] string? category = "documents",
+        CancellationToken ct = default)
+    {
+        if (file == null || file.Length == 0)
+            return BadRequest(new { detail = "No file uploaded." });
+
+        var tenantId = currentUser.TenantId?.ToString() ?? "00000000-0000-0000-0000-000000000000";
+        var uploadId = Guid.CreateVersion7().ToString();
+        var rawFileName = Path.GetFileName(file.FileName).Trim();
+        var safeFileName = string.Join("_", rawFileName.Split(Path.GetInvalidFileNameChars())).Replace(" ", "_");
+
+        var categoryNorm = (category ?? "documents").Trim().ToLowerInvariant();
+        var categoryFolder = categoryNorm is "vehicle" or "vehicles" ? "vehicles" : "documents";
+        var objectKey = $"tenants/{tenantId}/shipments/{id}/{categoryFolder}/{uploadId}_{safeFileName}";
+
+        var s3ServiceUrl = configuration["Storage:S3:ServiceUrl"]
+            ?? (!string.IsNullOrWhiteSpace(configuration["R2:AccountId"]) ? $"https://{configuration["R2:AccountId"]}.r2.cloudflarestorage.com" : null)
+            ?? "https://0e000fc3102c5511f71eaab39664a054.r2.cloudflarestorage.com";
+        var s3Bucket = configuration["Storage:S3:Bucket"] ?? configuration["R2:BucketName"] ?? "aurora-document-ocr";
+        var s3AccessKey = configuration["Storage:S3:AccessKey"] ?? configuration["R2:AccessKey"];
+        var s3SecretKey = configuration["Storage:S3:SecretKey"] ?? configuration["R2:SecretKey"];
+        var s3Region = configuration["Storage:S3:Region"] ?? "auto";
+
+        if (!string.IsNullOrWhiteSpace(s3AccessKey) && !string.IsNullOrWhiteSpace(s3SecretKey))
+        {
+            var s3Config = new AmazonS3Config
+            {
+                ServiceURL = s3ServiceUrl,
+                ForcePathStyle = true,
+                AuthenticationRegion = s3Region
+            };
+            using var s3Client = new AmazonS3Client(s3AccessKey, s3SecretKey, s3Config);
+            using var stream = file.OpenReadStream();
+            var putReq = new PutObjectRequest
+            {
+                BucketName = s3Bucket,
+                Key = objectKey,
+                InputStream = stream,
+                ContentType = file.ContentType
+            };
+            await s3Client.PutObjectAsync(putReq, ct);
+        }
+
+        var storageUrl = $"{s3ServiceUrl.TrimEnd('/')}/{s3Bucket}/{objectKey}";
+        return Ok(new
+        {
+            uploadId,
+            storageReference = objectKey,
+            storageUrl,
+            fileName = safeFileName,
+            category = categoryFolder
+        });
+    }
 }
 
 // ── DTOs ───────────────────────────────────────────────────────────────────
+
+public record ShipmentUploadSessionRequest(
+    string FileName,
+    string? MimeType,
+    long? FileSize,
+    string? Category);
+
+public record ShipmentUploadSessionResponse(
+    string UploadId,
+    string StorageReference,
+    string WriteUrl,
+    Dictionary<string, string> RequiredHeaders,
+    DateTimeOffset ExpiresAt,
+    string Category,
+    string FileName);
 
 public record AssignVehicleBody(string? VehicleId, List<string>? DocumentIds);
 
