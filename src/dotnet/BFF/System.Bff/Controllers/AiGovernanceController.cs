@@ -7,6 +7,7 @@ using AiGovernance.Grpc;
 using Asp.Versioning;
 using BuildingBlocks.BFF.Extensions;
 using Grpc.Core;
+using IamTenant.Grpc;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
 using Shared.Security;
@@ -24,59 +25,106 @@ namespace SystemBff.Controllers;
 public class AiGovernanceController(
     AiGovernanceService.AiGovernanceServiceClient policyClient,
     AiExecutionService.AiExecutionServiceClient executionClient,
+    IamService.IamServiceClient iamClient,
     ICurrentUserService currentUser,
     ILogger<AiGovernanceController> logger) : SystemControllerBase
 {
     /// <summary>
-    /// Lấy danh sách tổng hợp AI usage & token metrics của tất cả các Tenants.
+    /// Lấy danh sách tổng hợp AI usage & token metrics của tất cả các Tenants từ IAM Service.
     /// Route: GET /api/v1/system/ai-governance/usage
     /// </summary>
     [HttpGet("usage")]
-    public IActionResult ListTenantAiUsage()
+    public async Task<IActionResult> ListTenantAiUsage(CancellationToken cancellationToken)
     {
-        var tenantUsages = GetMockTenantAiUsages();
-        return Ok(tenantUsages);
+        try
+        {
+            var res = await iamClient.ListTenantsAsync(new ListTenantsRequest { Page = 1, Limit = 100 }, cancellationToken: cancellationToken);
+            var today = DateTime.UtcNow;
+            var usages = res.Tenants.Select(t =>
+            {
+                var isEnterprise = string.Equals(t.PlanType.ToString(), "ENTERPRISE", StringComparison.OrdinalIgnoreCase);
+                var limit = isEnterprise ? 100_000_000L : 10_000_000L;
+                return new
+                {
+                    tenantId = t.Id,
+                    tenantName = t.Name,
+                    tenantCode = t.TenantCode,
+                    planType = t.PlanType.ToString(),
+                    totalInputTokens = 0L,
+                    totalOutputTokens = 0L,
+                    totalTokens = 0L,
+                    tokenLimit = limit,
+                    usagePercent = 0.0,
+                    modelTier = isEnterprise ? "HIGH" : "MEDIUM",
+                    allowedProviders = isEnterprise ? new[] { "GEMINI", "AZURE_OPENAI" } : new[] { "GEMINI" },
+                    automationLevel = isEnterprise ? "FULL_AUTONOMOUS" : "SEMI_AUTONOMOUS",
+                    capabilityBreakdown = Array.Empty<object>(),
+                    dailyUsage = new[]
+                    {
+                        new { date = today.AddDays(-2).ToString("yyyy-MM-dd"), inputTokens = 0L, outputTokens = 0L },
+                        new { date = today.AddDays(-1).ToString("yyyy-MM-dd"), inputTokens = 0L, outputTokens = 0L },
+                        new { date = today.ToString("yyyy-MM-dd"), inputTokens = 0L, outputTokens = 0L }
+                    }
+                };
+            }).ToList();
+
+            return Ok(usages);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Failed to list tenant AI usages from IAM service");
+            return StatusCode(500, new { detail = "Failed to fetch tenant usages from IAM service" });
+        }
     }
 
     /// <summary>
-    /// Lấy AI usage & token metrics của một Tenant cụ thể.
+    /// Lấy AI usage & token metrics của một Tenant cụ thể từ IAM Service.
     /// Route: GET /api/v1/system/ai-governance/usage/{tenantId}
     /// </summary>
     [HttpGet("usage/{tenantId}")]
-    public IActionResult GetTenantAiUsage([FromRoute] string tenantId)
+    public async Task<IActionResult> GetTenantAiUsage([FromRoute] string tenantId, CancellationToken cancellationToken)
     {
-        var usages = GetMockTenantAiUsages();
-        var tenant = usages.FirstOrDefault(u => (u.tenantId as string) == tenantId || string.Equals(u.tenantCode as string, tenantId, StringComparison.OrdinalIgnoreCase));
-        if (tenant == null)
+        try
         {
+            var res = await iamClient.ListTenantsAsync(new ListTenantsRequest { Page = 1, Limit = 100 }, cancellationToken: cancellationToken);
+            var t = res.Tenants.FirstOrDefault(x => x.Id == tenantId || string.Equals(x.TenantCode, tenantId, StringComparison.OrdinalIgnoreCase));
+            if (t == null)
+            {
+                return NotFound(new { detail = $"Tenant '{tenantId}' not found." });
+            }
+
+            var isEnterprise = string.Equals(t.PlanType.ToString(), "ENTERPRISE", StringComparison.OrdinalIgnoreCase);
+            var limit = isEnterprise ? 100_000_000L : 10_000_000L;
+            var today = DateTime.UtcNow;
+
             return Ok(new
             {
-                tenantId,
-                tenantName = $"Tenant {tenantId}",
-                tenantCode = tenantId.ToUpperInvariant(),
-                planType = "STANDARD",
-                totalInputTokens = 120000L,
-                totalOutputTokens = 35000L,
-                totalTokens = 155000L,
-                tokenLimit = 10000000L,
-                usagePercent = 1.55,
-                modelTier = "HIGH",
-                allowedProviders = new[] { "GEMINI", "AZURE_OPENAI" },
-                automationLevel = "SEMI_AUTONOMOUS",
-                capabilityBreakdown = new[]
-                {
-                    new { capabilityCode = "route.plan", inputTokens = 80000L, outputTokens = 20000L, callCount = 45, avgLatencyMs = 620 },
-                    new { capabilityCode = "compliance.rag", inputTokens = 40000L, outputTokens = 15000L, callCount = 30, avgLatencyMs = 450 }
-                },
+                tenantId = t.Id,
+                tenantName = t.Name,
+                tenantCode = t.TenantCode,
+                planType = t.PlanType.ToString(),
+                totalInputTokens = 0L,
+                totalOutputTokens = 0L,
+                totalTokens = 0L,
+                tokenLimit = limit,
+                usagePercent = 0.0,
+                modelTier = isEnterprise ? "HIGH" : "MEDIUM",
+                allowedProviders = isEnterprise ? new[] { "GEMINI", "AZURE_OPENAI" } : new[] { "GEMINI" },
+                automationLevel = isEnterprise ? "FULL_AUTONOMOUS" : "SEMI_AUTONOMOUS",
+                capabilityBreakdown = Array.Empty<object>(),
                 dailyUsage = new[]
                 {
-                    new { date = DateTime.UtcNow.AddDays(-2).ToString("yyyy-MM-dd"), inputTokens = 40000L, outputTokens = 12000L },
-                    new { date = DateTime.UtcNow.AddDays(-1).ToString("yyyy-MM-dd"), inputTokens = 45000L, outputTokens = 13000L },
-                    new { date = DateTime.UtcNow.ToString("yyyy-MM-dd"), inputTokens = 35000L, outputTokens = 10000L }
+                    new { date = today.AddDays(-2).ToString("yyyy-MM-dd"), inputTokens = 0L, outputTokens = 0L },
+                    new { date = today.AddDays(-1).ToString("yyyy-MM-dd"), inputTokens = 0L, outputTokens = 0L },
+                    new { date = today.ToString("yyyy-MM-dd"), inputTokens = 0L, outputTokens = 0L }
                 }
             });
         }
-        return Ok(tenant);
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Failed to get tenant AI usage for {TenantId}", tenantId);
+            return StatusCode(500, new { detail = ex.Message });
+        }
     }
 
     /// <summary>
@@ -417,29 +465,30 @@ public class AiGovernanceController(
     /// Thống kê mức độ sử dụng AI, tiêu thụ token và lưu lượng toàn sàn.
     /// </summary>
     [HttpGet("usage-metrics")]
-    public IActionResult GetUsageMetrics([FromQuery] string? period = "month")
+    public async Task<IActionResult> GetUsageMetrics([FromQuery] string? period = "month", CancellationToken cancellationToken = default)
     {
+        int activeTenantsCount = 0;
+        try
+        {
+            var res = await iamClient.ListTenantsAsync(new ListTenantsRequest { Page = 1, Limit = 100 }, cancellationToken: cancellationToken);
+            activeTenantsCount = res.TotalItems;
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Failed to count active tenants for AI usage metrics");
+        }
+
         return Ok(new
         {
             period = period ?? "month",
-            totalRequests = 142850,
-            totalInputTokens = 42560120L,
-            totalOutputTokens = 12894500L,
-            totalTokens = 55454620L,
-            estimatedCostUsd = 28.45,
-            activeTenantsUsingAi = 48,
-            providerShare = new[]
-            {
-                new { provider = "GEMINI", sharePercent = 82.5, requests = 117850 },
-                new { provider = "AZURE_OPENAI", sharePercent = 17.5, requests = 25000 }
-            },
-            topCapabilities = new[]
-            {
-                new { capability = "mail.bec_check", requests = 64200, tokens = 18400000L },
-                new { capability = "route.plan", requests = 38100, tokens = 21500000L },
-                new { capability = "ocr.invoice_extraction", requests = 22400, tokens = 9800000L },
-                new { capability = "compliance.rag", requests = 18150, tokens = 5754620L }
-            },
+            totalRequests = 0,
+            totalInputTokens = 0L,
+            totalOutputTokens = 0L,
+            totalTokens = 0L,
+            estimatedCostUsd = 0.0,
+            activeTenantsUsingAi = activeTenantsCount,
+            providerShare = Array.Empty<object>(),
+            topCapabilities = Array.Empty<object>(),
             generatedAt = DateTime.UtcNow
         });
     }
@@ -632,92 +681,7 @@ public class AiGovernanceController(
         }
     ];
 
-    private static List<dynamic> GetMockTenantAiUsages()
-    {
-        var today = DateTime.UtcNow;
-        return new List<dynamic>
-        {
-            new
-            {
-                tenantId = "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
-                tenantName = "Global Logistics Express",
-                tenantCode = "GLE",
-                planType = "ENTERPRISE",
-                totalInputTokens = 15400000L,
-                totalOutputTokens = 4100000L,
-                totalTokens = 19500000L,
-                tokenLimit = 100000000L,
-                usagePercent = 19.5,
-                modelTier = "HIGH",
-                allowedProviders = new[] { "GEMINI", "AZURE_OPENAI" },
-                automationLevel = "FULL_AUTONOMOUS",
-                capabilityBreakdown = new[]
-                {
-                    new { capabilityCode = "route.plan", inputTokens = 8500000L, outputTokens = 2100000L, callCount = 4200, avgLatencyMs = 580 },
-                    new { capabilityCode = "mail.bec_check", inputTokens = 4200000L, outputTokens = 1100000L, callCount = 18500, avgLatencyMs = 210 },
-                    new { capabilityCode = "compliance.rag", inputTokens = 2700000L, outputTokens = 900000L, callCount = 3100, avgLatencyMs = 420 }
-                },
-                dailyUsage = new[]
-                {
-                    new { date = today.AddDays(-2).ToString("yyyy-MM-dd"), inputTokens = 5100000L, outputTokens = 1350000L },
-                    new { date = today.AddDays(-1).ToString("yyyy-MM-dd"), inputTokens = 5200000L, outputTokens = 1400000L },
-                    new { date = today.ToString("yyyy-MM-dd"), inputTokens = 5100000L, outputTokens = 1350000L }
-                }
-            },
-            new
-            {
-                tenantId = "b2c3d4e5-f6a7-8901-bcde-f12345678901",
-                tenantName = "Pacific Freight Systems",
-                tenantCode = "PFS",
-                planType = "STANDARD",
-                totalInputTokens = 6800000L,
-                totalOutputTokens = 1700000L,
-                totalTokens = 8500000L,
-                tokenLimit = 10000000L,
-                usagePercent = 85.0,
-                modelTier = "HIGH",
-                allowedProviders = new[] { "GEMINI" },
-                automationLevel = "SEMI_AUTONOMOUS",
-                capabilityBreakdown = new[]
-                {
-                    new { capabilityCode = "ocr.invoice_extraction", inputTokens = 4500000L, outputTokens = 1100000L, callCount = 3200, avgLatencyMs = 950 },
-                    new { capabilityCode = "route.plan", inputTokens = 2300000L, outputTokens = 600000L, callCount = 1100, avgLatencyMs = 610 }
-                },
-                dailyUsage = new[]
-                {
-                    new { date = today.AddDays(-2).ToString("yyyy-MM-dd"), inputTokens = 2200000L, outputTokens = 550000L },
-                    new { date = today.AddDays(-1).ToString("yyyy-MM-dd"), inputTokens = 2300000L, outputTokens = 580000L },
-                    new { date = today.ToString("yyyy-MM-dd"), inputTokens = 2300000L, outputTokens = 570000L }
-                }
-            },
-            new
-            {
-                tenantId = "c3d4e5f6-a7b8-9012-cdef-123456789012",
-                tenantName = "Apex Maritime Corp",
-                tenantCode = "AMC",
-                planType = "STANDARD",
-                totalInputTokens = 8400000L,
-                totalOutputTokens = 2100000L,
-                totalTokens = 10500000L,
-                tokenLimit = 10000000L,
-                usagePercent = 105.0,
-                modelTier = "HIGH",
-                allowedProviders = new[] { "GEMINI", "AZURE_OPENAI" },
-                automationLevel = "SEMI_AUTONOMOUS",
-                capabilityBreakdown = new[]
-                {
-                    new { capabilityCode = "negotiation.strategy", inputTokens = 5200000L, outputTokens = 1300000L, callCount = 1900, avgLatencyMs = 820 },
-                    new { capabilityCode = "compliance.rag", inputTokens = 3200000L, outputTokens = 800000L, callCount = 2400, avgLatencyMs = 460 }
-                },
-                dailyUsage = new[]
-                {
-                    new { date = today.AddDays(-2).ToString("yyyy-MM-dd"), inputTokens = 2700000L, outputTokens = 680000L },
-                    new { date = today.AddDays(-1).ToString("yyyy-MM-dd"), inputTokens = 2800000L, outputTokens = 710000L },
-                    new { date = today.ToString("yyyy-MM-dd"), inputTokens = 2900000L, outputTokens = 710000L }
-                }
-            }
-        };
-    }
+
 
     // --- DTOs ---
     public record TestPolicyBody(string CapabilityCode, long EstimatedInputTokens, long MaxOutputTokens, string? TenantId);
