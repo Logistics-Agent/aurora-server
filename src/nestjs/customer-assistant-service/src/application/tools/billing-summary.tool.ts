@@ -19,6 +19,10 @@ export class BillingSummaryTool implements IAssistantTool {
     if (!this.allowedActors.includes(actorType)) {
       throw new ForbiddenException(`Actor ${actorType} is not authorized to execute ${this.name}`);
     }
+    if (actorType !== ActorType.CUSTOMER &&
+        !context.currentUser.permissions.includes('billing_settlement:read')) {
+      throw new ForbiddenException('Billing read permission is required');
+    }
 
     const targetCustomerId =
       actorType === ActorType.CUSTOMER
@@ -26,7 +30,7 @@ export class BillingSummaryTool implements IAssistantTool {
         : params?.targetCustomerId || customerId;
     if (!targetCustomerId) throw new BadRequestException('customerId is required for billing lookup');
 
-    const summary = this.readModel.getCustomerBalanceSummary(targetCustomerId, tenantId);
+    const summary = await this.readModel.getCustomerBalanceSummary(targetCustomerId, tenantId);
 
     return {
       toolName: this.name,

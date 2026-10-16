@@ -63,7 +63,8 @@ public sealed class ShipmentGrpcService(ISender sender)
                 request.ShipmentNo,
                 request.CustomerName,
                 request.CreatedFrom?.ToDateTimeOffset(),
-                request.CreatedTo?.ToDateTimeOffset()),
+                request.CreatedTo?.ToDateTimeOffset(),
+                request.CustomerId),
             context.CancellationToken);
 
         var response = new ListShipmentsResponse
@@ -405,7 +406,9 @@ public sealed class ShipmentGrpcService(ISender sender)
             return fallback;
         }
 
-        return System.Enum.TryParse<TEnum>(value, ignoreCase: true, out var parsed)
+        var normalized = value.Trim().Replace("_", string.Empty, StringComparison.Ordinal)
+            .Replace("-", string.Empty, StringComparison.Ordinal);
+        return System.Enum.TryParse<TEnum>(normalized, ignoreCase: true, out var parsed)
             ? parsed
             : throw new RpcException(new Status(StatusCode.InvalidArgument, $"Invalid {typeof(TEnum).Name}."));
     }

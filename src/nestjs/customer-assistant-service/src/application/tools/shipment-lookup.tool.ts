@@ -19,23 +19,29 @@ export class ShipmentLookupTool implements IAssistantTool {
     if (!this.allowedActors.includes(actorType)) {
       throw new ForbiddenException(`Actor ${actorType} is not authorized to execute ${this.name}`);
     }
+    if (actorType !== ActorType.CUSTOMER && !context.currentUser.permissions.includes('shipments:read')) {
+      throw new ForbiddenException('Shipment read permission is required');
+    }
 
     const specificShipmentId = params?.shipmentId;
+    const specificShipmentNo = params?.shipmentNo;
     if (actorType === ActorType.CUSTOMER && !customerId) {
       throw new ForbiddenException('Customer identity is required for shipment lookup');
     }
 
     // 1. Specific Shipment Lookup
-    if (specificShipmentId) {
-      const shipment = this.readModel.getShipment(specificShipmentId, tenantId);
+    if (specificShipmentId || specificShipmentNo) {
+      const shipment = specificShipmentId
+        ? await this.readModel.getShipment(specificShipmentId, tenantId)
+        : await this.readModel.getShipmentByNumber(specificShipmentNo, tenantId);
       if (shipment) {
         // Enforce customer boundary: Customer can only view their own shipment
-        if (actorType === ActorType.CUSTOMER && shipment.customerId !== customerId) {
+        if (actorType === ActorType.CUSTOMER && shipment.customerId.toLowerCase() !== customerId!.toLowerCase()) {
           return {
             toolName: this.name,
             success: false,
             data: null,
-            summary: `Không tìm thấy hoặc quý khách không có quyền truy cập lô hàng ${specificShipmentId}.`,
+            summary: `Không tìm thấy hoặc quý khách không có quyền truy cập lô hàng ${specificShipmentId || specificShipmentNo}.`,
           };
         }
 
@@ -43,14 +49,18 @@ export class ShipmentLookupTool implements IAssistantTool {
           toolName: this.name,
           success: true,
           data: shipment,
-          summary: `Lô hàng ${shipment.shipmentId} (${shipment.originPort} -> ${shipment.destinationPort}) hiện có trạng thái ${shipment.status}. Vị trí hiện tại: ${shipment.currentLocation || 'Đang vận chuyển'}.`,
+          summary: `Lô hàng ${shipment.shipmentId} (${shipment.originPort} -> ${shipment.destinationPort}) hiện có trạng thái ${shipment.status}${shipment.currentLocation ? `. Vị trí hiện tại: ${shipment.currentLocation}` : ''}.`,
         };
       }
+      return {
+        toolName: this.name, success: false, data: null,
+        summary: `Không tìm thấy lô hàng ${specificShipmentId || specificShipmentNo}.`,
+      };
     }
 
     // 2. Customer Scoped List
     if (actorType === ActorType.CUSTOMER) {
-      const shipments = this.readModel.getShipmentsByCustomer(customerId!, tenantId);
+      const shipments = await this.readModel.getShipmentsByCustomer(customerId!, tenantId);
       if (shipments.length === 0) {
         return {
           toolName: this.name,
@@ -65,14 +75,14 @@ export class ShipmentLookupTool implements IAssistantTool {
         toolName: this.name,
         success: true,
         data: shipments,
-        summary: `Quý khách có ${shipments.length} lô hàng. Lô gần nhất ${primary.shipmentId} (${primary.originPort} -> ${primary.destinationPort}) trạng thái: ${primary.status}. Vị trí: ${primary.currentLocation || 'Đang vận chuyển'}.`,
+        summary: `Hiển thị ${shipments.length} lô hàng gần nhất. Lô ${primary.shipmentId} (${primary.originPort} -> ${primary.destinationPort}) trạng thái: ${primary.status}.`,
       };
     }
 
     // 3. Staff / Admin Tenant Scope List
     const targetCustId = params?.targetCustomerId || customerId;
     if (!targetCustId) throw new BadRequestException('customerId is required for shipment list');
-    const shipments = this.readModel.getShipmentsByCustomer(targetCustId, tenantId);
+    const shipments = await this.readModel.getShipmentsByCustomer(targetCustId, tenantId);
     if (shipments.length === 0) {
       return {
         toolName: this.name,

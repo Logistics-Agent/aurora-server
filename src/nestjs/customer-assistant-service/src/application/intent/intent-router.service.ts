@@ -19,6 +19,7 @@ export class IntentRouterService {
 
   async classify(query: string, context: CurrentUser): Promise<IntentClassificationResult> {
     const qLower = query.toLowerCase().trim();
+    const uuidPattern = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
 
     // ==========================================
     // Layer 1: Deterministic Fast-Path Rules
@@ -46,13 +47,18 @@ export class IntentRouterService {
       qLower.includes('ở đâu') ||
       /shp-[a-zA-Z0-9_-]+/i.test(query)
     ) {
-      const match = query.match(/shp-[a-zA-Z0-9_-]+/i);
+      const targetCustomerId = query.match(new RegExp(`(?:khách hàng|customer)\\s*(?:id|mã|số)?\\s*[:#-]?\\s*(${uuidPattern})`, 'i'))?.[1];
+      const shipmentId = query.match(new RegExp(uuidPattern, 'i'))?.[0] === targetCustomerId
+        ? undefined : query.match(new RegExp(uuidPattern, 'i'))?.[0];
+      const shipmentNo = query.match(/shp-[a-zA-Z0-9_-]+/i)?.[0];
       return {
         intent: AssistantIntent.SHIPMENT_QUERY,
         decision: NeedRagDecision.DOMAIN_QUERY,
         confidence: 0.95,
         extractedParameters: {
-          shipmentId: match ? match[0] : undefined,
+          shipmentId,
+          shipmentNo,
+          targetCustomerId,
         },
       };
     }
@@ -66,10 +72,12 @@ export class IntentRouterService {
       qLower.includes('thanh toán') ||
       qLower.includes('số dư')
     ) {
+      const customerId = query.match(new RegExp(`(?:khách hàng|customer)\\s*(?:id|mã|số)?\\s*[:#-]?\\s*(${uuidPattern})`, 'i'))?.[1];
       return {
         intent: AssistantIntent.BILLING_QUERY,
         decision: NeedRagDecision.DOMAIN_QUERY,
         confidence: 0.95,
+        extractedParameters: { targetCustomerId: customerId },
       };
     }
 

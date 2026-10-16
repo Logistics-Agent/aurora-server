@@ -45,6 +45,13 @@ public sealed class ChatController(
             client.DefaultRequestHeaders.Add("x-user-id", currentUser.UserId.Value.ToString());
 
         client.DefaultRequestHeaders.Add("x-actor-type", "STAFF");
+        var assistantReadPermissions = new[]
+        {
+            PermissionConstants.Shipment.Read,
+            PermissionConstants.Billing.Read
+        }.Where(currentUser.HasPermission).ToArray();
+        if (assistantReadPermissions.Length > 0)
+            client.DefaultRequestHeaders.Add("x-permissions", string.Join(",", assistantReadPermissions));
 
         if (!string.IsNullOrEmpty(currentUser.TraceId))
             client.DefaultRequestHeaders.Add("x-trace-id", currentUser.TraceId);

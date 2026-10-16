@@ -77,7 +77,8 @@ export class AuthGuard implements CanActivate {
       customerId,
       actorType,
       roles: roles.length > 0 ? roles : [actorType.toString()],
-      permissions: [],
+      permissions: (headers['x-permissions'] || '').toString().split(',')
+        .map((permission: string) => permission.trim()).filter(Boolean),
       traceId,
     };
 

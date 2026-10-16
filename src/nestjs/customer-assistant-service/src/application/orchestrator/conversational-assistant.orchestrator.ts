@@ -1,4 +1,4 @@
-import { Injectable, Logger, Inject } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, Logger, Inject } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import {
   IConversationRepository,
@@ -238,8 +238,9 @@ export class ConversationalAssistantOrchestrator {
       }
 
       case NeedRagDecision.DOMAIN_QUERY: {
-        capabilityCode = 'assistant.general';
+        capabilityCode = 'assistant.domain.read';
         let toolSummary = '';
+        let toolSucceeded = false;
         const toolStart = Date.now();
 
         if (classification.intent === AssistantIntent.SHIPMENT_QUERY) {
@@ -250,40 +251,32 @@ export class ConversationalAssistantOrchestrator {
               classification.extractedParameters,
             );
             toolSummary = toolRes.summary;
+            toolSucceeded = toolRes.success;
             toolCallsMetadata.push({ toolName: 'ShipmentLookupTool', outcome: toolRes.success ? 'SUCCESS' : 'FAILED', durationMs: Date.now() - toolStart });
           } catch (e) {
-            toolCallsMetadata.push({ toolName: 'ShipmentLookupTool', outcome: 'DENIED', durationMs: Date.now() - toolStart });
-            toolSummary = 'Không có quyền truy cập dữ liệu lô hàng.';
+            toolCallsMetadata.push({ toolName: 'ShipmentLookupTool', outcome: e instanceof ForbiddenException ? 'DENIED' : 'FAILED', durationMs: Date.now() - toolStart });
+            toolSummary = e instanceof ForbiddenException ? 'Không có quyền truy cập dữ liệu lô hàng.'
+              : e instanceof BadRequestException ? 'Cần cung cấp mã lô hàng hoặc mã khách hàng để tra cứu.'
+              : 'Dữ liệu lô hàng tạm thời không truy cập được. Vui lòng thử lại sau.';
           }
         } else if (classification.intent === AssistantIntent.BILLING_QUERY) {
           try {
             const toolRes = await this.toolRegistry.executeTool('BillingSummaryTool', {
               currentUser,
               conversationId,
-            });
+            }, classification.extractedParameters);
             toolSummary = toolRes.summary;
+            toolSucceeded = toolRes.success;
             toolCallsMetadata.push({ toolName: 'BillingSummaryTool', outcome: toolRes.success ? 'SUCCESS' : 'FAILED', durationMs: Date.now() - toolStart });
           } catch (e) {
-            toolCallsMetadata.push({ toolName: 'BillingSummaryTool', outcome: 'DENIED', durationMs: Date.now() - toolStart });
-            toolSummary = 'Không có quyền truy cập thông tin công nợ.';
+            toolCallsMetadata.push({ toolName: 'BillingSummaryTool', outcome: e instanceof ForbiddenException ? 'DENIED' : 'FAILED', durationMs: Date.now() - toolStart });
+            toolSummary = e instanceof ForbiddenException ? 'Không có quyền truy cập thông tin công nợ.'
+              : e instanceof BadRequestException ? 'Cần cung cấp mã khách hàng để tra cứu công nợ.'
+              : 'Dữ liệu công nợ tạm thời không truy cập được. Vui lòng thử lại sau.';
           }
         }
-
-        const prompt = this.promptBuilder.buildPrompt({
-          userQuery: trimmedMessage,
-          recentMessages,
-          conversationSummary: conv.summary,
-          toolSummary,
-          userLanguage: conv.preferredLanguage,
-        });
-
-        const aiRes = await this.aiGovernanceClient.generate(capabilityCode, prompt, currentUser);
-        answerText = aiRes.content;
-        governanceInfo = {
-          decisionId: aiRes.decisionId,
-          automationLevel: aiRes.automationLevel,
-          capabilityCode,
-        };
+        answerText = toolSummary;
+        isInsufficient = !toolSucceeded;
         break;
       }
 

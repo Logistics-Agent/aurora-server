@@ -1,11 +1,8 @@
 import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
-import { InvoiceDomainService } from '../../domain/services/invoice.domain-service';
 import { GenerateInvoiceUseCase } from '../use-cases/generate-invoice.use-case';
 import { RabbitMQMessagingService } from '../../infrastructure/messaging/rabbitmq.service';
-import { RpcException } from '@nestjs/microservices';
-import { status } from '@grpc/grpc-js';
-import { allocateInvoiceNumber } from '../../domain/services/invoice-number';
+import { CommercialAuthorityService } from './commercial-authority.service';
 import {
   GenerateInvoiceRequest,
   CreateInvoiceRequest,
@@ -38,9 +35,9 @@ export class BillingService {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly domainService: InvoiceDomainService,
     private readonly generateInvoiceUseCase: GenerateInvoiceUseCase,
     private readonly messagingService: RabbitMQMessagingService,
+    private readonly commercialAuthority: CommercialAuthorityService,
   ) {}
 
   private requireTenant(tenantId?: string): string {
@@ -65,13 +62,6 @@ export class BillingService {
     const invoice = await this.generateInvoiceUseCase.execute({
       tenantId: effectiveTenantId,
       shipmentId: request.shipmentId,
-      customerId: request.customerId,
-      paymentTermsDays: request.paymentTermsDays,
-      originPort: request.originPort,
-      destinationPort: request.destinationPort,
-      weightKg: request.weightKg,
-      volumeCbm: request.volumeCbm,
-      podS3Key: request.podS3Key,
     });
 
     return this.mapInvoiceResponse(invoice);
@@ -112,67 +102,15 @@ export class BillingService {
     request: CreditCheckRequest,
     tenantId?: string,
   ): Promise<CreditCheckResponse> {
-    this.requireTenant(tenantId || request.tenantId);
-    if (!request.customerId) throw new BadRequestException('customerId is required');
-    throw new RpcException({
-      code: status.UNAVAILABLE,
-      message: 'Customer credit limits are not connected to an authoritative source',
-    });
+    return this.commercialAuthority.checkCredit({ ...request, tenantId: this.requireTenant(tenantId || request.tenantId) });
   }
 
   async createInvoice(
     request: CreateInvoiceRequest,
     tenantId?: string,
   ): Promise<InvoiceResponse> {
-    const effectiveTenantId = this.requireTenant(tenantId || request.tenantId);
-    if (!request.shipmentId || !request.customerId || !Array.isArray(request.items) || request.items.length === 0) {
-      throw new BadRequestException('shipmentId, customerId and invoice items are required');
-    }
-
-    const items = request.items.map((i) => {
-      const quantity = i.quantity ?? 1;
-      const unitPrice = i.unitPrice ?? i.amount;
-      if (!i.description || !Number.isInteger(quantity) || quantity <= 0 ||
-          !Number.isFinite(unitPrice) || unitPrice < 0 ||
-          !Number.isFinite(i.amount) || Math.abs(i.amount - quantity * unitPrice) > 0.01) {
-        throw new BadRequestException('Invoice item amount must equal quantity × unitPrice');
-      }
-      return {
-        quantity, unitPrice, amount: i.amount,
-        description: i.description,
-        category: i.category || 'FREIGHT',
-      };
-    });
-
-    const totals = this.domainService.calculateInvoiceTotals(items, 5.0);
-
-    const dueDate = request.dueDate
-      ? new Date(request.dueDate)
-      : this.domainService.calculateDueDate(new Date(), 30);
-    if (Number.isNaN(dueDate.getTime())) throw new BadRequestException('Invalid dueDate');
-
-    const invoice = await this.prisma.$transaction(async (tx) => {
-      const invoiceNumber = await allocateInvoiceNumber(tx, this.domainService);
-      return tx.invoice.create({
-      data: {
-        tenantId: effectiveTenantId,
-        shipmentId: request.shipmentId,
-        customerId: request.customerId,
-        invoiceNumber: invoiceNumber,
-        subtotal: totals.subtotal,
-        taxAmount: totals.taxAmount,
-        totalAmount: totals.totalAmount,
-        status: 'UNPAID',
-        dueDate: dueDate,
-        items: {
-          create: items,
-        },
-      },
-      include: { items: true },
-      });
-    });
-
-    return this.mapInvoiceResponse(invoice);
+    this.requireTenant(tenantId || request.tenantId);
+    throw new BadRequestException('Manual invoice creation is unavailable; record an agreed price and use GenerateInvoice');
   }
 
   async getInvoice(request: GetInvoiceRequest): Promise<InvoiceResponse> {

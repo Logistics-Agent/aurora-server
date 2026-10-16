@@ -31,6 +31,10 @@ export class EnvironmentVariables {
   @IsOptional()
   FINANCIAL_SERVICE_GRPC_URL: string = 'localhost:5003';
 
+  @IsString()
+  @IsOptional()
+  SHIPMENT_WORKFLOW_GRPC_URL: string = 'localhost:5001';
+
   @IsNumber()
   @IsOptional()
   DEFAULT_PAYMENT_TERMS_DAYS: number = 30;

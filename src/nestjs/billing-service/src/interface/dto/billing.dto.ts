@@ -26,6 +26,78 @@ export interface CreditCheckResponse {
   message: string;
 }
 
+export interface RecordShipmentAgreementRequest {
+  tenantId?: string;
+  actorUserId?: string;
+  permissions?: string[];
+  shipmentId: string;
+  customerId: string;
+  subtotal: string;
+  taxAmount: string;
+  currency: string;
+  evidenceReference: string;
+}
+
+export interface GetShipmentAgreementRequest {
+  tenantId?: string;
+  shipmentId: string;
+}
+
+export interface ShipmentAgreementResponse {
+  id: string;
+  tenantId: string;
+  shipmentId: string;
+  customerId: string;
+  subtotal: string;
+  taxAmount: string;
+  totalAmount: string;
+  currency: string;
+  evidenceReference: string;
+  recordedBy: string;
+  recordedAt: string;
+}
+
+export interface SetCustomerCreditAccountRequest {
+  tenantId?: string;
+  actorUserId?: string;
+  permissions?: string[];
+  customerId: string;
+  creditLimit: string;
+  currency: string;
+  termsDays: number;
+  onHold: boolean;
+  reason: string;
+}
+
+export interface CustomerCreditAccountResponse {
+  customerId: string;
+  creditLimit: string;
+  currency: string;
+  termsDays: number;
+  onHold: boolean;
+  approvedBy: string;
+  approvedAt: string;
+}
+
+export interface GetCustomerBillingSummaryRequest {
+  tenantId?: string;
+  customerId: string;
+}
+
+export interface CustomerBillingSummaryResponse {
+  customerId: string;
+  totalDebt: number;
+  unpaidCount: number;
+  invoices: Array<{
+    invoiceId: string;
+    invoiceNumber: string;
+    totalAmount: number;
+    remainingBalance: number;
+    status: string;
+    dueDate: string;
+  }>;
+}
+
 export interface InvoiceLineItemInput {
   description: string;
   amount: number;

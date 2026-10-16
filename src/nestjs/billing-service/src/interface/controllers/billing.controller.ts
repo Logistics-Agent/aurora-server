@@ -1,6 +1,7 @@
 import { Controller, UseFilters, UseInterceptors } from '@nestjs/common';
 import { GrpcMethod } from '@nestjs/microservices';
 import { BillingService } from '../../application/services/billing.service';
+import { CommercialAuthorityService } from '../../application/services/commercial-authority.service';
 import { TenantInterceptor } from '../../common/interceptors/tenant.interceptor';
 import { GrpcExceptionFilter } from '../../common/filters/grpc-exception.filter';
 import {
@@ -27,13 +28,43 @@ import {
   IssueDebitNoteRequest,
   IssueCreditNoteRequest,
   AdjustmentNoteResponse,
+  RecordShipmentAgreementRequest,
+  GetShipmentAgreementRequest,
+  ShipmentAgreementResponse,
+  SetCustomerCreditAccountRequest,
+  CustomerCreditAccountResponse,
+  CustomerBillingSummaryResponse,
+  GetCustomerBillingSummaryRequest,
 } from '../dto/billing.dto';
 
 @Controller()
 @UseInterceptors(TenantInterceptor)
 @UseFilters(GrpcExceptionFilter)
 export class BillingController {
-  constructor(private readonly billingService: BillingService) {}
+  constructor(
+    private readonly billingService: BillingService,
+    private readonly commercialAuthority: CommercialAuthorityService,
+  ) {}
+
+  @GrpcMethod('BillingService', 'RecordShipmentAgreement')
+  recordShipmentAgreement(data: RecordShipmentAgreementRequest): Promise<ShipmentAgreementResponse> {
+    return this.commercialAuthority.recordAgreement(data);
+  }
+
+  @GrpcMethod('BillingService', 'GetShipmentAgreement')
+  getShipmentAgreement(data: GetShipmentAgreementRequest): Promise<ShipmentAgreementResponse> {
+    return this.commercialAuthority.getAgreement(data);
+  }
+
+  @GrpcMethod('BillingService', 'SetCustomerCreditAccount')
+  setCustomerCreditAccount(data: SetCustomerCreditAccountRequest): Promise<CustomerCreditAccountResponse> {
+    return this.commercialAuthority.setCreditAccount(data);
+  }
+
+  @GrpcMethod('BillingService', 'GetCustomerBillingSummary')
+  getCustomerBillingSummary(data: GetCustomerBillingSummaryRequest): Promise<CustomerBillingSummaryResponse> {
+    return this.commercialAuthority.getCustomerBillingSummary(data);
+  }
 
   // ── Invoice gRPC Endpoints ────────────────────────────────────────────────
 

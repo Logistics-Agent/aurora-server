@@ -44,12 +44,12 @@ export class CustomerAssistantService {
       queryLower.includes('đơn hàng')
     ) {
       intent = 'TRACK_SHIPMENT';
-      const shipments = this.readModel.getShipmentsByCustomer(customerId, input.tenantId);
+      const shipments = await this.readModel.getShipmentsByCustomer(customerId, input.tenantId);
 
       if (shipments.length > 0) {
         const primary = shipments[0];
         readModelData = primary;
-        replyMessage = `Lô hàng ${primary.shipmentId} (${primary.originPort} ➔ ${primary.destinationPort}) hiện có trạng thái: **${primary.status}**. Vị trí hiện tại: ${primary.currentLocation || 'Đang di chuyển theo lịch trình'}.`;
+        replyMessage = `Lô hàng ${primary.shipmentId} (${primary.originPort} ➔ ${primary.destinationPort}) hiện có trạng thái: **${primary.status}**${primary.currentLocation ? `. Vị trí hiện tại: ${primary.currentLocation}.` : '.'}`;
       } else {
         replyMessage = `Hiện tại không tìm thấy lô hàng nào đang hoạt động cho khách hàng ${customerId}.`;
       }
@@ -61,7 +61,7 @@ export class CustomerAssistantService {
       queryLower.includes('tài khoản')
     ) {
       intent = 'CHECK_BALANCE';
-      const summary = this.readModel.getCustomerBalanceSummary(customerId, input.tenantId);
+      const summary = await this.readModel.getCustomerBalanceSummary(customerId, input.tenantId);
       readModelData = summary;
 
       replyMessage = `Tổng công nợ hiện tại của quý khách là **$${summary.totalDebt}** (${summary.unpaidCount} hóa đơn chưa thanh toán hoàn tất). Hóa đơn mới nhất số ${summary.invoices[0]?.invoiceNumber || 'N/A'} có số dư còn lại: $${summary.invoices[0]?.remainingBalance || 0}.`;

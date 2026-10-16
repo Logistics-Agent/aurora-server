@@ -36,6 +36,9 @@ export class GrpcExceptionFilter implements RpcExceptionFilter<RpcException | Er
         case HttpStatus.CONFLICT:
           statusCode = status.ALREADY_EXISTS;
           break;
+        case HttpStatus.SERVICE_UNAVAILABLE:
+          statusCode = status.UNAVAILABLE;
+          break;
         case HttpStatus.UNAUTHORIZED:
         case HttpStatus.FORBIDDEN:
           statusCode = status.PERMISSION_DENIED;

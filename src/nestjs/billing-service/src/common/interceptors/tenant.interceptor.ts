@@ -25,6 +25,12 @@ export class TenantInterceptor implements NestInterceptor {
         throw new RpcException({ code: status.UNAUTHENTICATED, message: 'x-tenant-id metadata is required' });
       }
       data.tenantId = String(tenantHeader[0]).trim();
+      const userHeader = metadata.get('x-user-id');
+      const permissionsHeader = metadata.get('x-permissions');
+      data.actorUserId = userHeader.length ? String(userHeader[0]).trim() : undefined;
+      data.permissions = permissionsHeader.length
+        ? String(permissionsHeader[0]).split(',').map((permission) => permission.trim())
+        : [];
     }
 
     return next.handle();

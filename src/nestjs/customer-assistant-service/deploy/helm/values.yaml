@@ -26,6 +26,8 @@ env:
   REDIS_TLS: "false"
   REGULATORY_COMPLIANCE_GRPC_URL: "regulatory-compliance:5000"
   AI_GOVERNANCE_GRPC_URL: "ai-governance:9090"
+  SHIPMENT_WORKFLOW_GRPC_URL: "shipment-workflow.aurora.svc.cluster.local:5000"
+  BILLING_GRPC_URL: "billing-service.aurora.svc.cluster.local:5004"
 
 externalSecret:
   enabled: true

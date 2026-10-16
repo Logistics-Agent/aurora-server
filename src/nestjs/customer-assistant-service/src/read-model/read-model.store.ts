@@ -1,8 +1,10 @@
-import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
+import { Injectable, Logger, Optional, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { BillingResponse, LiveReadModelGrpcClient } from '../infrastructure/grpc/live-read-model.grpc-client';
 
 export interface ReadModelShipment {
   shipmentId: string;
+  shipmentNo?: string;
   tenantId: string;
   customerId: string;
   originPort: string;
@@ -30,13 +32,13 @@ export class ReadModelStore {
 
   private readonly shipments: Map<string, ReadModelShipment> = new Map();
   private readonly invoices: Map<string, ReadModelInvoice> = new Map();
-  private readonly isProduction: boolean;
-  private hasExternalData = false;
+  private readonly useLiveData: boolean;
 
-  constructor(configService?: ConfigService) {
-    this.isProduction = configService?.get<string>('NODE_ENV') === 'production';
-    if (this.isProduction) return;
-    // Seed mock read-model data for testing
+  constructor(@Optional() configService?: ConfigService,
+              @Optional() private readonly live?: LiveReadModelGrpcClient) {
+    this.useLiveData = Boolean(configService && configService.get<string>('NODE_ENV') !== 'test');
+    if (this.useLiveData) return;
+    // Unit tests can use a local read model. Runtime always queries source services.
     this.upsertShipment({
       shipmentId: 'shp_33019284',
       tenantId: 'a0000000-0000-0000-0000-000000000001',
@@ -62,35 +64,45 @@ export class ReadModelStore {
   }
 
   upsertShipment(shipment: ReadModelShipment): void {
-    this.hasExternalData = true;
     this.shipments.set(`${shipment.tenantId}:${shipment.shipmentId}`, shipment);
     this.logger.log(`[ReadModel] Upserted shipment ${shipment.shipmentId} (Status: ${shipment.status})`);
   }
 
   upsertInvoice(invoice: ReadModelInvoice): void {
-    this.hasExternalData = true;
     this.invoices.set(`${invoice.tenantId}:${invoice.invoiceId}`, invoice);
     this.logger.log(`[ReadModel] Upserted invoice ${invoice.invoiceNumber} (Status: ${invoice.status})`);
   }
 
-  getShipment(shipmentId: string, tenantId: string): ReadModelShipment | undefined {
-    this.ensureReady();
+  async getShipment(shipmentId: string, tenantId: string): Promise<ReadModelShipment | undefined> {
+    if (this.useLiveData) return this.requireLive().getShipment(shipmentId, tenantId);
     const shipment = this.shipments.get(`${tenantId}:${shipmentId}`);
     return shipment?.tenantId === tenantId ? shipment : undefined;
   }
 
-  getShipmentsByCustomer(customerId: string, tenantId: string): ReadModelShipment[] {
-    this.ensureReady();
+  async getShipmentByNumber(shipmentNo: string, tenantId: string): Promise<ReadModelShipment | undefined> {
+    if (this.useLiveData) return this.requireLive().getShipmentByNumber(shipmentNo, tenantId);
+    return Array.from(this.shipments.values()).find((shipment) =>
+      shipment.tenantId === tenantId && shipment.shipmentNo?.toLowerCase() === shipmentNo.toLowerCase());
+  }
+
+  async getShipmentsByCustomer(customerId: string, tenantId: string): Promise<ReadModelShipment[]> {
+    if (this.useLiveData) return this.requireLive().getShipmentsByCustomer(customerId, tenantId);
     return Array.from(this.shipments.values()).filter((s) => s.tenantId === tenantId && s.customerId === customerId);
   }
 
-  getInvoicesByCustomer(customerId: string, tenantId: string): ReadModelInvoice[] {
-    this.ensureReady();
+  async getInvoicesByCustomer(customerId: string, tenantId: string): Promise<ReadModelInvoice[]> {
+    if (this.useLiveData) {
+      const summary = await this.requireLive().getCustomerBalanceSummary(customerId, tenantId);
+      return summary.invoices.map((invoice) => ({ ...invoice, tenantId, customerId,
+        updatedAt: '',
+      }));
+    }
     return Array.from(this.invoices.values()).filter((i) => i.tenantId === tenantId && i.customerId === customerId);
   }
 
-  getCustomerBalanceSummary(customerId: string, tenantId: string) {
-    const invoices = this.getInvoicesByCustomer(customerId, tenantId);
+  async getCustomerBalanceSummary(customerId: string, tenantId: string): Promise<BillingResponse> {
+    if (this.useLiveData) return this.requireLive().getCustomerBalanceSummary(customerId, tenantId);
+    const invoices = await this.getInvoicesByCustomer(customerId, tenantId);
     const totalDebt = invoices.reduce((sum, inv) => sum + inv.remainingBalance, 0);
     const unpaidCount = invoices.filter((inv) => inv.status !== 'PAID').length;
     return {
@@ -101,9 +113,8 @@ export class ReadModelStore {
     };
   }
 
-  private ensureReady(): void {
-    if (this.isProduction && !this.hasExternalData) {
-      throw new ServiceUnavailableException('Assistant read model is not connected to live shipment and billing data');
-    }
+  private requireLive(): LiveReadModelGrpcClient {
+    if (!this.live) throw new ServiceUnavailableException('Assistant live data clients are not configured');
+    return this.live;
   }
 }

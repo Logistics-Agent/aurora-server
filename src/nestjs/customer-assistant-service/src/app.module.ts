@@ -14,6 +14,7 @@ import { AuthGuard } from './infrastructure/security/auth.guard';
 // gRPC Clients
 import { AiGovernanceGrpcClient } from './infrastructure/grpc/ai-governance.grpc-client';
 import { RegulatoryComplianceGrpcClient } from './infrastructure/grpc/regulatory-compliance.grpc-client';
+import { LiveReadModelGrpcClient } from './infrastructure/grpc/live-read-model.grpc-client';
 
 // Application Services & Tools
 import { IntentRouterService } from './application/intent/intent-router.service';
@@ -50,6 +51,7 @@ import { HealthController } from './health/health.controller';
     AuthGuard,
     AiGovernanceGrpcClient,
     RegulatoryComplianceGrpcClient,
+    LiveReadModelGrpcClient,
     IntentRouterService,
     AssistantCorpusAccessPolicy,
     ConversationSummaryService,

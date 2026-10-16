@@ -35,6 +35,8 @@ terraform.tfvars
 dist/
 target/
 *Migrations
+!src/nestjs/billing-service/prisma/migrations/
+!src/nestjs/billing-service/prisma/migrations/**
 !src/dotnet/Notification/Infrastructure/Persistences/Migrations/
 !src/dotnet/Notification/Infrastructure/Persistences/Migrations/*.cs
 # User-specific files

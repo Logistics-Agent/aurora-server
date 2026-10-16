@@ -15,7 +15,8 @@ public sealed record ListShipmentsQuery(
     string? ShipmentNo,
     string? CustomerName,
     DateTimeOffset? CreatedFrom,
-    DateTimeOffset? CreatedTo) : IRequest<ListShipmentsResult>;
+    DateTimeOffset? CreatedTo,
+    string? CustomerId = null) : IRequest<ListShipmentsResult>;
 
 public sealed class ListShipmentsQueryHandler(
     ShipmentWorkflowDbContext dbContext,
@@ -64,6 +65,16 @@ public sealed class ListShipmentsQueryHandler(
         {
             var customerName = request.CustomerName.Trim();
             query = query.Where(shipment => shipment.CustomerName.Contains(customerName));
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.CustomerId))
+        {
+            if (!Guid.TryParse(request.CustomerId, out var customerId))
+            {
+                throw new DomainException("Invalid customer id filter.");
+            }
+
+            query = query.Where(shipment => shipment.CustomerId == customerId);
         }
 
         if (request.CreatedFrom.HasValue)

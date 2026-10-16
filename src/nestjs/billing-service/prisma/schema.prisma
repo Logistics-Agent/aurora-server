@@ -54,16 +54,70 @@ model Invoice {
   pdfS3Key         String?           @map("pdf_s3_key")
   pdfUrl           String?           @map("pdf_url")
   podS3Key         String?           @map("pod_s3_key")  // TASK-004: Proof of Delivery S3 key
+  agreementId      String?           @unique @map("agreement_id")
   createdAt        DateTime          @default(now()) @map("created_at")
   updatedAt        DateTime          @updatedAt @map("updated_at")
   items            InvoiceItem[]
   payments         PaymentRecord[]
   adjustmentNotes  AdjustmentNote[]  // TASK-003
+  agreement        ShipmentPriceAgreement? @relation(fields: [agreementId], references: [id])
 
   @@index([tenantId])
   @@index([shipmentId])
   @@index([customerId])
   @@map("invoices")
+}
+
+model ShipmentPriceAgreement {
+  id                String    @id @default(uuid())
+  tenantId          String    @map("tenant_id")
+  shipmentId        String    @map("shipment_id")
+  customerId        String    @map("customer_id")
+  subtotal          Decimal   @db.Decimal(18, 2)
+  taxAmount         Decimal   @map("tax_amount") @db.Decimal(18, 2)
+  totalAmount       Decimal   @map("total_amount") @db.Decimal(18, 2)
+  currency          String    @default("USD")
+  evidenceReference String    @map("evidence_reference")
+  recordedBy        String    @map("recorded_by")
+  recordedAt        DateTime  @default(now()) @map("recorded_at")
+  invoice           Invoice?
+
+  @@unique([tenantId, shipmentId])
+  @@index([tenantId, customerId])
+  @@map("shipment_price_agreements")
+}
+
+model CustomerCreditAccount {
+  id             String                        @id @default(uuid())
+  tenantId       String                        @map("tenant_id")
+  customerId     String                        @map("customer_id")
+  creditLimit    Decimal                       @map("credit_limit") @db.Decimal(18, 2)
+  currency       String                        @default("USD")
+  termsDays      Int                           @map("terms_days")
+  onHold         Boolean                       @default(false) @map("on_hold")
+  approvedBy     String                        @map("approved_by")
+  approvedAt     DateTime                      @map("approved_at")
+  createdAt      DateTime                      @default(now()) @map("created_at")
+  updatedAt      DateTime                      @updatedAt @map("updated_at")
+  revisions      CustomerCreditLimitRevision[]
+
+  @@unique([tenantId, customerId])
+  @@map("customer_credit_accounts")
+}
+
+model CustomerCreditLimitRevision {
+  id           String                @id @default(uuid())
+  accountId    String                @map("account_id")
+  creditLimit  Decimal               @map("credit_limit") @db.Decimal(18, 2)
+  termsDays    Int                   @map("terms_days")
+  onHold       Boolean               @map("on_hold")
+  approvedBy   String                @map("approved_by")
+  reason       String
+  createdAt    DateTime              @default(now()) @map("created_at")
+  account      CustomerCreditAccount @relation(fields: [accountId], references: [id])
+
+  @@index([accountId, createdAt])
+  @@map("customer_credit_limit_revisions")
 }
 
 model InvoiceItem {

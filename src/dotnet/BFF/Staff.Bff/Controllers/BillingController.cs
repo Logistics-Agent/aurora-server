@@ -5,6 +5,8 @@ using Grpc.Core;
 using Microsoft.AspNetCore.Mvc;
 using Shared.Constants;
 using Shared.Security;
+using System.Globalization;
+using BuildingBlocks.BFF.Extensions;
 
 namespace StaffBff.Controllers;
 
@@ -29,14 +31,7 @@ public class BillingController(
             var req = new GenerateInvoiceRequest
             {
                 TenantId = currentUser.TenantId.ToString(),
-                ShipmentId = body.ShipmentId ?? string.Empty,
-                CustomerId = body.CustomerId ?? string.Empty,
-                PaymentTermsDays = body.PaymentTermsDays > 0 ? body.PaymentTermsDays : 30,
-                OriginPort = body.OriginPort ?? string.Empty,
-                DestinationPort = body.DestinationPort ?? string.Empty,
-                WeightKg = (double)body.WeightKg,
-                VolumeCbm = (double)body.VolumeCbm,
-                PodS3Key = body.PodS3Key ?? string.Empty
+                ShipmentId = body.ShipmentId ?? string.Empty
             };
 
             var response = await billingClient.GenerateInvoiceAsync(req, cancellationToken: ct);
@@ -50,6 +45,72 @@ public class BillingController(
         {
             return NotFound(new { detail = ex.Status.Detail });
         }
+    }
+
+    [HttpPost("/api/v{version:apiVersion}/billing/shipment-agreements")]
+    [RequirePermission(PermissionConstants.Billing.SettlementManage)]
+    public async Task<IActionResult> RecordShipmentAgreement(
+        [FromBody] RecordShipmentAgreementBody body,
+        CancellationToken ct = default)
+    {
+        if (body.Subtotal <= 0 || body.TaxAmount < 0 ||
+            decimal.Round(body.Subtotal, 2) != body.Subtotal ||
+            decimal.Round(body.TaxAmount, 2) != body.TaxAmount)
+            return BadRequest(new { detail = "Subtotal must be positive and money may have at most two decimal places." });
+        try
+        {
+            var response = await billingClient.RecordShipmentAgreementAsync(new RecordShipmentAgreementRequest
+            {
+                ShipmentId = body.ShipmentId ?? string.Empty,
+                CustomerId = body.CustomerId ?? string.Empty,
+                Subtotal = body.Subtotal.ToString("0.00", CultureInfo.InvariantCulture),
+                TaxAmount = body.TaxAmount.ToString("0.00", CultureInfo.InvariantCulture),
+                Currency = body.Currency ?? string.Empty,
+                EvidenceReference = body.EvidenceReference ?? string.Empty
+            }, cancellationToken: ct);
+            return Created($"/api/v1/billing/shipment-agreements/{response.ShipmentId}", response);
+        }
+        catch (RpcException ex) { return ex.ToActionResult(); }
+    }
+
+    [HttpGet("/api/v{version:apiVersion}/billing/shipment-agreements/{shipmentId}")]
+    [RequirePermission(PermissionConstants.Billing.Read)]
+    public async Task<IActionResult> GetShipmentAgreement(
+        [FromRoute] string shipmentId,
+        CancellationToken ct = default)
+    {
+        try
+        {
+            var response = await billingClient.GetShipmentAgreementAsync(
+                new GetShipmentAgreementRequest { ShipmentId = shipmentId }, cancellationToken: ct);
+            return Ok(response);
+        }
+        catch (RpcException ex) { return ex.ToActionResult(); }
+    }
+
+    [HttpPut("/api/v{version:apiVersion}/billing/customer-credit/{customerId}")]
+    [RequirePermission(PermissionConstants.Billing.SettlementManage)]
+    public async Task<IActionResult> SetCustomerCreditAccount(
+        [FromRoute] string customerId,
+        [FromBody] SetCustomerCreditAccountBody body,
+        CancellationToken ct = default)
+    {
+        if (body.CreditLimit < 0 || decimal.Round(body.CreditLimit, 2) != body.CreditLimit)
+            return BadRequest(new { detail = "Credit limit must be non-negative with at most two decimal places." });
+        try
+        {
+            var response = await billingClient.SetCustomerCreditAccountAsync(new SetCustomerCreditAccountRequest
+            {
+                CustomerId = customerId,
+                CreditLimit = body.CreditLimit.ToString("0.00", CultureInfo.InvariantCulture),
+                Currency = body.Currency ?? string.Empty,
+                TermsDays = body.TermsDays,
+                OnHold = body.OnHold,
+                Reason = body.Reason ?? string.Empty
+            }, cancellationToken: ct);
+            return Ok(response);
+        }
+        catch (RpcException ex) { return ex.ToActionResult(); }
     }
 
     [HttpPost("/api/v{version:apiVersion}/invoices")]
@@ -186,15 +247,14 @@ public class BillingController(
 
 // ── DTOs ───────────────────────────────────────────────────────────────────
 
-public record GenerateInvoiceBody(
-    string? ShipmentId,
-    string? CustomerId,
-    int PaymentTermsDays,
-    string? OriginPort,
-    string? DestinationPort,
-    decimal WeightKg,
-    decimal VolumeCbm,
-    string? PodS3Key);
+public record GenerateInvoiceBody(string? ShipmentId);
+
+public record RecordShipmentAgreementBody(
+    string? ShipmentId, string? CustomerId, decimal Subtotal, decimal TaxAmount,
+    string? Currency, string? EvidenceReference);
+
+public record SetCustomerCreditAccountBody(
+    decimal CreditLimit, string? Currency, int TermsDays, bool OnHold, string? Reason);
 
 public record CreateInvoiceBody(
     string? ShipmentId,

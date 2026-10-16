@@ -8,6 +8,7 @@ export default () => ({
     host: process.env.GRPC_HOST || '0.0.0.0',
     port: parseInt(process.env.GRPC_PORT, 10) || 5004,
     financialServiceUrl: process.env.FINANCIAL_SERVICE_GRPC_URL || 'localhost:5003',
+    shipmentWorkflowUrl: process.env.SHIPMENT_WORKFLOW_GRPC_URL || 'localhost:5001',
   },
   billing: {
     defaultPaymentTermsDays: parseInt(process.env.DEFAULT_PAYMENT_TERMS_DAYS, 10) || 30,
