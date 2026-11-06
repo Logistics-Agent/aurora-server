@@ -1,6 +1,7 @@
 syntax = "proto3";
 
 option csharp_namespace = "RoutePlanningAgent.Grpc";
+option go_package = "aurora/route-planning-agent/proto/routeplanningpb";
 
 package route_planning;
 
