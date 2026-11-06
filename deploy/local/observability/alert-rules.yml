@@ -1,0 +1,52 @@
+groups:
+  - name: aurora-ai-services
+    rules:
+      - alert: DevOpsAgentTargetDown
+        expr: up{job="devops-agent"} == 0
+        for: 15s
+        labels:
+          severity: critical
+          service: devops-agent
+          environment: local
+        annotations:
+          summary: DevOps Agent Prometheus target is down
+
+      - alert: AiGovernanceTargetDown
+        expr: up{job="ai-governance"} == 0
+        for: 15s
+        labels:
+          severity: critical
+          service: ai-governance
+          environment: local
+        annotations:
+          summary: AI Governance Prometheus target is down
+
+      - alert: DevOpsAgentHighErrorRate
+        expr: sum(rate(http_server_requests_seconds_count{application="devops-agent",status=~"5.."}[5m])) / clamp_min(sum(rate(http_server_requests_seconds_count{application="devops-agent"}[5m])), 0.001) > 0.05
+        for: 2m
+        labels:
+          severity: high
+          service: devops-agent
+          environment: local
+        annotations:
+          summary: DevOps Agent HTTP 5xx rate is above 5 percent
+
+      - alert: AiGovernanceHighErrorRate
+        expr: sum(rate(http_server_requests_seconds_count{application="ai-governance-service",status=~"5.."}[5m])) / clamp_min(sum(rate(http_server_requests_seconds_count{application="ai-governance-service"}[5m])), 0.001) > 0.05
+        for: 2m
+        labels:
+          severity: high
+          service: ai-governance
+          environment: local
+        annotations:
+          summary: AI Governance HTTP 5xx rate is above 5 percent
+
+      - alert: AiGovernanceProviderFailure
+        expr: sum(rate(ai_governance_requests_failed_total[5m])) > 0
+        for: 1m
+        labels:
+          severity: high
+          service: ai-governance
+          environment: local
+        annotations:
+          summary: AI Governance observed provider or execution failures

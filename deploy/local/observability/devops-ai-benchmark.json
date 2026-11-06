@@ -1,0 +1,68 @@
+{
+  "uid": "aurora-devops-ai-benchmark",
+  "title": "Aurora DevOps Agent and AI Governance Benchmark",
+  "tags": ["aurora", "devops", "ai-governance", "benchmark"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "5s",
+  "time": { "from": "now-1h", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Alert ingestion rate",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "expr": "sum(rate(devops_alerts_ingested_total[5m]))", "legendFormat": "alerts/sec", "refId": "A" }]
+    },
+    {
+      "id": 2,
+      "title": "Alert deduplication rate (%)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "expr": "100 * sum(rate(devops_alerts_deduplicated_total[5m])) / clamp_min(sum(rate(devops_alerts_ingested_total[5m])), 0.000001)", "legendFormat": "deduplicated %", "refId": "A" }]
+    },
+    {
+      "id": 3,
+      "title": "RCA duration p95 (seconds)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "expr": "histogram_quantile(0.95, sum by (le) (rate(devops_rca_duration_seconds_bucket[5m])))", "legendFormat": "RCA p95", "refId": "A" }]
+    },
+    {
+      "id": 4,
+      "title": "AI Governance generate duration p95 (seconds)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "expr": "histogram_quantile(0.95, sum by (le) (rate(ai_governance_request_duration_seconds_bucket{operation=\"generate\"}[5m])))", "legendFormat": "AI generate p95", "refId": "A" }]
+    },
+    {
+      "id": 5,
+      "title": "Governance decisions by caller and capability",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "expr": "sum by (callerServiceId, capability) (rate(governance_policy_allowed_total[5m]))", "legendFormat": "{{callerServiceId}} / {{capability}}", "refId": "A" }, { "expr": "sum by (capability, reason) (rate(governance_policy_denied_total[5m]))", "legendFormat": "denied / {{capability}} / {{reason}}", "refId": "B" }]
+    },
+    {
+      "id": 6,
+      "title": "AI provider calls by service, operation, and provider",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "expr": "sum by (callerServiceId, operation, provider, result) (rate(ai_gateway_requests_total[5m]))", "legendFormat": "{{callerServiceId}} / {{operation}} / {{provider}} / {{result}}", "refId": "A" }]
+    },
+    {
+      "id": 7,
+      "title": "RCA and governance failures",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 24 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "expr": "sum(rate(devops_rca_failures_total[5m]))", "legendFormat": "RCA failures/sec", "refId": "A" }, { "expr": "sum by (operation) (rate(ai_governance_requests_failed_total[5m]))", "legendFormat": "AI Governance {{operation}} failures/sec", "refId": "B" }, { "expr": "sum(rate(devops_outbox_publish_failures_total[5m]))", "legendFormat": "outbox failures/sec", "refId": "C" }]
+    }
+  ]
+}

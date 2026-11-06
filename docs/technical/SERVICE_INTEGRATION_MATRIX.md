@@ -37,7 +37,7 @@
 | **billing-service** | `billing.escrow.released` | `logistics_events (billing.#)` | **RealtimeHub** | CloudEvents / JSON | **VERIFIED IN CODE** | Carrier payment release confirmed. |
 | **negotiation-agent** | `negotiation.offer.submitted` | `logistics_events (negotiation.#)` | **RealtimeHub** | CloudEvents / JSON | **VERIFIED IN CODE** | Counter-bid pushed to real-time broker UI. |
 | **ai-governance** | `ai.usage.tracked` | `ai.usage.tracked` | **billing-service** (SaaS Metering) | JSON / CloudEvent | **VERIFIED IN CODE** | Records token consumption against tenant tier limits. |
-| **devops-agent** | `devops.incident.detected` | `devops.incident.detected` | **Notification** | JSON / CloudEvent | **VERIFIED IN CODE** | SRE alert broadcast for autonomous remediation. |
+| **devops-agent** | `devops.incident.detected` | `devops.events.exchange` / `devops.alert.incident.detected` | **Notification** | JSON (`DevOpsAlertEventDto`) | **VERIFIED IN CODE** | Transactional outbox delivers a normalized incident alert to the Notification consumer. |
 
 ---
 

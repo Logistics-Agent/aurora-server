@@ -1,0 +1,16 @@
+route:
+  receiver: devops-agent
+  group_by: [alertname, service, environment]
+  group_wait: 2s
+  group_interval: 10s
+  repeat_interval: 1h
+
+receivers:
+  - name: devops-agent
+    webhook_configs:
+      - url: http://devops-agent:8080/api/v1/alerts/prometheus
+        http_config:
+          authorization:
+            type: Bearer
+            credentials: local-dev-only-token
+        send_resolved: true

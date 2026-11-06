@@ -2,6 +2,7 @@ package com.aurora.devopsagent.Domain.Enums;
 
 public enum AuditActionType {
     INCIDENT_CREATED,
+    INCIDENT_DETECTED,
     CONTEXT_BUILD_STARTED,
     CONTEXT_BUILD_COMPLETED,
     CONTEXT_BUILD_FAILED,

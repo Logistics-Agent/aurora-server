@@ -11,6 +11,7 @@ import com.aurora.devopsagent.Infrastructure.Persistence.IncidentJpaRepository;
 import com.aurora.devopsagent.Infrastructure.Persistence.RcaAnalysisJpaRepository;
 import com.aurora.devopsagent.Infrastructure.RAG.DevOpsRagClient;
 import com.aurora.devopsagent.Infrastructure.Security.RedactionService;
+import com.aurora.devopsagent.Infrastructure.Metrics.DevOpsMetrics;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -49,7 +50,8 @@ class RagUnavailableFallbackTest {
                 redactionService,
                 ragClient,
                 aiGovernanceClient,
-                outboxService
+                outboxService,
+                mock(DevOpsMetrics.class)
         );
     }
 

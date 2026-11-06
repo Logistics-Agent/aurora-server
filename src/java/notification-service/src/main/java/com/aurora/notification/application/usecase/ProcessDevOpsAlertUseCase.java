@@ -26,10 +26,18 @@ public class ProcessDevOpsAlertUseCase {
     @Value("${telegram.bot.chat-id}")
     private String chatId;
 
+    @Value("${telegram.bot.enabled:true}")
+    private boolean telegramDeliveryEnabled;
+
     @Async
     public void execute(DevOpsAlertEventDto alert) {
         log.info("Processing DevOps Alert: eventId={}, service={}, severity={}",
                 alert.getEventId(), alert.getServiceName(), alert.getSeverity());
+
+        if (!telegramDeliveryEnabled) {
+            log.info("Telegram delivery disabled; consumed DevOps alert eventId={}", alert.getEventId());
+            return;
+        }
 
         try {
             String htmlMessage = telegramMessageFormatter.formatDevOpsAlert(alert);

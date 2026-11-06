@@ -1,0 +1,17 @@
+{
+  "status": "template",
+  "note": "Replace with runner output. Do not invent or manually estimate benchmark values.",
+  "runs": 0,
+  "environment": null,
+  "provider_expected": null,
+  "provider_observed": null,
+  "scenario_ids": [],
+  "metrics": {
+    "ingestion_latency_ms_median": null,
+    "rca_completion_latency_ms_median": null,
+    "rca_completion_latency_ms_p95": null,
+    "deduplication_rate": null,
+    "root_cause_accuracy": null
+  },
+  "invalid_or_failed_runs": []
+}

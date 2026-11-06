@@ -64,6 +64,12 @@ service:
   targetPort: 9090
   name: grpc
 
+additionalPorts:
+  - name: http
+    port: 8080
+    targetPort: 8080
+    containerPort: 8080
+
 startupProbe:
   httpGet: null
   grpc:

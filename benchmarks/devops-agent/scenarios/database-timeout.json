@@ -1,0 +1,15 @@
+{
+  "scenario_id": "database-timeout",
+  "title": "Synthetic database connection timeout",
+  "source": "prometheus",
+  "service": "synthetic-api",
+  "environment": "benchmark",
+  "severity": "high",
+  "alertname": "BenchmarkDatabaseConnectionTimeout",
+  "summary": "Synthetic database timeout alert for benchmark; no database is contacted by this fixture.",
+  "evidence": "Ground truth: application connection attempts to the isolated benchmark database endpoint exceed the configured connection timeout. Dependency: benchmark-postgres. Error class: SQLTransientConnectionException. No credentials or customer records.",
+  "ground_truth": {
+    "root_cause": "The application cannot acquire a database connection before its configured timeout, due to the benchmark database dependency being unavailable or too slow.",
+    "acceptable_terms": ["database", "connection", "timeout", "pool"]
+  }
+}

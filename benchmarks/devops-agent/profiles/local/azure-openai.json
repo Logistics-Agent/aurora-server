@@ -1,0 +1,12 @@
+{
+  "environment": "local",
+  "provider_expected": "AZURE_OPENAI",
+  "provider_label": "AZURE_OPENAI",
+  "agent_url": "http://localhost:8082",
+  "ai_governance_metrics_url": "http://localhost:8081/actuator/prometheus",
+  "prometheus_url": "http://localhost:9091",
+  "prometheus_job_query": "up{job=\"devops-agent\"}",
+  "webhook_token_env": "DEVOPS_ALERT_WEBHOOK_TOKEN",
+  "allow_live_provider_claim": false,
+  "notes": "Only count as live after AI Governance confirms AZURE_OPENAI routing; local demo fallback is not Azure OpenAI."
+}

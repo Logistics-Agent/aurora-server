@@ -1,0 +1,28 @@
+global:
+  scrape_interval: 5s
+  evaluation_interval: 5s
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ["alertmanager:9093"]
+
+rule_files:
+  - /etc/prometheus/alert-rules.yml
+
+scrape_configs:
+  - job_name: devops-agent
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ["devops-agent:8080"]
+        labels:
+          service: devops-agent
+          environment: local
+
+  - job_name: ai-governance
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ["ai-governance:8080"]
+        labels:
+          service: ai-governance
+          environment: local

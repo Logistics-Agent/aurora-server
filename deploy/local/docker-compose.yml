@@ -372,6 +372,7 @@ services:
       SPRING_RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-aurora_secure_password_2026!}
       SPRING_REDIS_HOST: redis
       SPRING_REDIS_PORT: 6379
+      TELEGRAM_BOT_ENABLED: "false"
     depends_on:
       - postgres
       - rabbitmq
@@ -401,10 +402,12 @@ services:
       SpamAssassin__Host: spamassassin
       SpamAssassin__Port: 783
       IamTenant__GrpcUrl: http://iam-tenant:5000
+      AiGovernance__GrpcEndpoint: http://ai-governance:9090
     depends_on:
       - postgres
       - redis
       - stalwart
+      - ai-governance
     networks:
       - aurora-local
 
@@ -440,9 +443,10 @@ services:
       context: ../../
       dockerfile: src/java/ai-governance/deploy/docker/Dockerfile
     container_name: aurora-ai-governance
-    profiles: ["ai", "full"]
+    profiles: ["ai", "mail", "full"]
     ports:
       - "8081:8080"
+      - "9090:9090"
     environment:
       SPRING_PROFILES_ACTIVE: dev
       SERVER_PORT: 8080
@@ -451,11 +455,22 @@ services:
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-aurora_secure_password_2026!}
       SPRING_REDIS_HOST: redis
       SPRING_REDIS_PORT: 6379
+      SPRING_RABBITMQ_HOST: rabbitmq
+      SPRING_RABBITMQ_PORT: 5672
+      SPRING_RABBITMQ_USERNAME: ${RABBITMQ_USER:-aurora_admin}
+      SPRING_RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-aurora_secure_password_2026!}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-mock-dev-key}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-mock-dev-key}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-mock-dev-key}
+      AZURE_OPENAI_KEY_DEVOPS: ${AZURE_OPENAI_KEY_DEVOPS:-demo-local-key}
+      GEMINI_API_KEY_DEVOPS_01: ${GEMINI_API_KEY_DEVOPS_01:-demo-local-key}
+      GEMINI_API_KEY_DEVOPS_02: ${GEMINI_API_KEY_DEVOPS_02:-demo-local-key}
+      GEMINI_API_KEY_DEVOPS_03: ${GEMINI_API_KEY_DEVOPS_03:-demo-local-key}
+      GEMINI_API_KEY_DEVOPS_04: ${GEMINI_API_KEY_DEVOPS_04:-demo-local-key}
     depends_on:
       - postgres
       - redis
+      - rabbitmq
     networks:
       - aurora-local
 
@@ -473,12 +488,20 @@ services:
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/devops_agent_db
       SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-aurora_admin}
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-aurora_secure_password_2026!}
+      SPRING_RABBITMQ_HOST: rabbitmq
+      SPRING_RABBITMQ_PORT: 5672
+      SPRING_RABBITMQ_USERNAME: ${RABBITMQ_USER:-aurora_admin}
+      SPRING_RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-aurora_secure_password_2026!}
       SPRING_REDIS_HOST: redis
       SPRING_REDIS_PORT: 6379
       GITHUB_TOKEN: ${GITHUB_TOKEN:-mock-dev-token}
+      DEVOPS_ALERT_WEBHOOK_TOKEN: local-dev-only-token
+      AI_GOVERNANCE_GRPC_ADDRESS: static://ai-governance:9090
     depends_on:
       - postgres
       - redis
+      - rabbitmq
+      - ai-governance
     networks:
       - aurora-local
 
@@ -498,9 +521,11 @@ services:
       REDIS_HOST: redis
       REDIS_PORT: 6379
       OPENAI_API_KEY: ${OPENAI_API_KEY:-mock-dev-key}
+      AI_GOVERNANCE_GRPC_URL: ai-governance:9090
     depends_on:
       - postgres
       - redis
+      - ai-governance
     networks:
       - aurora-local
 
@@ -520,9 +545,11 @@ services:
       REDIS_HOST: redis
       REDIS_PORT: 6379
       OPENAI_API_KEY: ${OPENAI_API_KEY:-mock-dev-key}
+      AI_GOVERNANCE_GRPC_URL: ai-governance:9090
     depends_on:
       - postgres
       - redis
+      - ai-governance
     networks:
       - aurora-local
 
@@ -542,9 +569,11 @@ services:
       RabbitMQ__Port: 5672
       RabbitMQ__Username: ${RABBITMQ_USER:-aurora_admin}
       RabbitMQ__Password: ${RABBITMQ_PASSWORD:-aurora_secure_password_2026!}
+      Grpc__AiGovernance__Url: http://ai-governance:9090
     depends_on:
       - postgres
       - rabbitmq
+      - ai-governance
     networks:
       - aurora-local
 
@@ -564,9 +593,11 @@ services:
       RabbitMQ__Port: 5672
       RabbitMQ__Username: ${RABBITMQ_USER:-aurora_admin}
       RabbitMQ__Password: ${RABBITMQ_PASSWORD:-aurora_secure_password_2026!}
+      Grpc__AiGovernance__Url: http://ai-governance:9090
     depends_on:
       - postgres
       - rabbitmq
+      - ai-governance
     networks:
       - aurora-local
 
@@ -602,6 +633,57 @@ services:
     volumes:
       - ./data/osrm:/data:ro
     command: ["osrm-routed", "--algorithm", "mld", "/data/central-america-260901.osrm"]
+    networks:
+      - aurora-local
+
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    container_name: aurora-prometheus
+    profiles: ["ai", "full"]
+    ports:
+      - "9091:9090"
+    volumes:
+      - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./observability/alert-rules.yml:/etc/prometheus/alert-rules.yml:ro
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=7d
+    depends_on:
+      - devops-agent
+      - ai-governance
+      - alertmanager
+    networks:
+      - aurora-local
+
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    container_name: aurora-alertmanager
+    profiles: ["ai", "full"]
+    ports:
+      - "9093:9093"
+    volumes:
+      - ./observability/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+    command:
+      - --config.file=/etc/alertmanager/alertmanager.yml
+    networks:
+      - aurora-local
+
+  grafana:
+    image: grafana/grafana:11.3.0
+    container_name: aurora-grafana
+    profiles: ["ai", "full"]
+    ports:
+      - "3001:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-local-dev-only}
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+    volumes:
+      - ./observability/grafana-datasource.yml:/etc/grafana/provisioning/datasources/prometheus.yml:ro
+      - ./observability/grafana-dashboards.yml:/etc/grafana/provisioning/dashboards/devops.yml:ro
+      - ./observability/devops-ai-benchmark.json:/var/lib/grafana/dashboards/devops-ai-benchmark.json:ro
+    depends_on:
+      - prometheus
     networks:
       - aurora-local
 

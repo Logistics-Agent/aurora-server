@@ -9,6 +9,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.amqp.AmqpException;
 import org.springframework.amqp.core.MessagePostProcessor;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
+import com.aurora.devopsagent.Infrastructure.Metrics.DevOpsMetrics;
 
 import java.util.List;
 
@@ -26,7 +27,7 @@ class OutboxBrokerFailureTest {
     void setUp() {
         outboxRepository = mock(AuditEventOutboxJpaRepository.class);
         rabbitTemplate = mock(RabbitTemplate.class);
-        worker = new OutboxPollerWorker(outboxRepository, rabbitTemplate);
+        worker = new OutboxPollerWorker(outboxRepository, rabbitTemplate, mock(DevOpsMetrics.class));
     }
 
     @Test

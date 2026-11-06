@@ -82,6 +82,13 @@ management:
   endpoint:
     health:
       show-details: when-authorized
+  metrics:
+    tags:
+      application: ${spring.application.name}
+
+devops:
+  alertmanager:
+    webhook-token: ${DEVOPS_ALERT_WEBHOOK_TOKEN:}
 
 logging:
   level:

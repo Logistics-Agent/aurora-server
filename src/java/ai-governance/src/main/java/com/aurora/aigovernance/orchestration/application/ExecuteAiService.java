@@ -13,6 +13,7 @@ import com.aurora.aigovernance.governance.infrastructure.messaging.RabbitMqConfi
 import com.aurora.aigovernance.shared.domain.AiOperation;
 import com.aurora.aigovernance.shared.domain.TokenBudget;
 import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
@@ -55,6 +56,26 @@ public class ExecuteAiService {
      * Orchestrate AI Generation.
      */
     public GovernedGenerateResult generate(GenerateAiCommand command) {
+        Timer.Sample sample = Timer.start(meterRegistry);
+        String outcome = "success";
+        try {
+            GovernedGenerateResult result = generateInternal(command);
+            outcome = result.decision().allowed() ? "success" : "denied";
+            return result;
+        } catch (RuntimeException exception) {
+            outcome = "error";
+            meterRegistry.counter("ai_governance_requests_failed_total", "operation", "generate").increment();
+            throw exception;
+        } finally {
+            sample.stop(Timer.builder("ai_governance_request_duration")
+                    .tag("operation", "generate")
+                    .tag("outcome", outcome)
+                    .publishPercentileHistogram()
+                    .register(meterRegistry));
+        }
+    }
+
+    private GovernedGenerateResult generateInternal(GenerateAiCommand command) {
         long startTime = System.currentTimeMillis();
 
         // 1. Governance policy evaluation
@@ -138,6 +159,26 @@ public class ExecuteAiService {
      * Orchestrate AI Embedding.
      */
     public GovernedEmbedResult embed(EmbedAiCommand command) {
+        Timer.Sample sample = Timer.start(meterRegistry);
+        String outcome = "success";
+        try {
+            GovernedEmbedResult result = embedInternal(command);
+            outcome = result.decision().allowed() ? "success" : "denied";
+            return result;
+        } catch (RuntimeException exception) {
+            outcome = "error";
+            meterRegistry.counter("ai_governance_requests_failed_total", "operation", "embed").increment();
+            throw exception;
+        } finally {
+            sample.stop(Timer.builder("ai_governance_request_duration")
+                    .tag("operation", "embed")
+                    .tag("outcome", outcome)
+                    .publishPercentileHistogram()
+                    .register(meterRegistry));
+        }
+    }
+
+    private GovernedEmbedResult embedInternal(EmbedAiCommand command) {
         long startTime = System.currentTimeMillis();
         TokenBudget embedBudget = TokenBudget.forEmbedding(command.estimatedInputTokens());
 

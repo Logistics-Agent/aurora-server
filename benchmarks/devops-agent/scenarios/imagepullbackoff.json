@@ -1,0 +1,15 @@
+{
+  "scenario_id": "imagepullbackoff",
+  "title": "Synthetic ImagePullBackOff alert",
+  "source": "prometheus",
+  "service": "synthetic-worker",
+  "environment": "benchmark",
+  "severity": "high",
+  "alertname": "BenchmarkImagePullBackOff",
+  "summary": "Synthetic image pull alert for benchmark; no real registry request is made by this fixture.",
+  "evidence": "Ground truth: Kubernetes cannot fetch the requested image because the synthetic image reference is invalid or unavailable. Image: example.invalid/benchmark/worker:does-not-exist. No real credentials included.",
+  "ground_truth": {
+    "root_cause": "The pod cannot start because its configured container image cannot be pulled (invalid or unavailable image reference).",
+    "acceptable_terms": ["image", "pull", "registry", "ImagePullBackOff"]
+  }
+}

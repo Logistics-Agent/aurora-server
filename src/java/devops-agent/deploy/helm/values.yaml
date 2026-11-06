@@ -21,6 +21,7 @@ env:
   SPRING_REDIS_HOST: "redis-master.aurora.svc.cluster.local"
   SPRING_REDIS_PORT: "6379"
   SPRING_REDIS_SSL: "false"
+  AI_GOVERNANCE_GRPC_ADDRESS: "static://ai-governance.aurora-ai.svc.cluster.local:9090"
 
 externalSecret:
   enabled: true
@@ -43,6 +44,9 @@ externalSecret:
     - secretKey: GITHUB_TOKEN
       remoteRef:
         key: devops-github-token
+    - secretKey: DEVOPS_ALERT_WEBHOOK_TOKEN
+      remoteRef:
+        key: devops-alert-webhook-token
 
 resources:
   requests:

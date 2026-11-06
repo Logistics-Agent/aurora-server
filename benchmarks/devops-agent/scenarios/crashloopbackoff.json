@@ -1,0 +1,15 @@
+{
+  "scenario_id": "crashloopbackoff",
+  "title": "Synthetic CrashLoopBackOff alert",
+  "source": "prometheus",
+  "service": "synthetic-worker",
+  "environment": "benchmark",
+  "severity": "critical",
+  "alertname": "BenchmarkCrashLoopBackOff",
+  "summary": "Synthetic pod restart alert for benchmark; no real workload is affected.",
+  "evidence": "Ground truth: synthetic worker container exits immediately after startup; restart backoff observed. Pod: benchmark-worker-001. No production data.",
+  "ground_truth": {
+    "root_cause": "The benchmark worker process exits during startup, causing repeated container restarts and CrashLoopBackOff.",
+    "acceptable_terms": ["startup", "container exits", "restarts", "CrashLoopBackOff"]
+  }
+}

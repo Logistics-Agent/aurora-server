@@ -1,0 +1,12 @@
+{
+  "environment": "demo",
+  "provider_expected": "GEMINI",
+  "provider_label": "GEMINI",
+  "agent_url": "https://<private-demo-agent-host>",
+  "ai_governance_metrics_url": "https://<private-demo-ai-governance-host>/actuator/prometheus",
+  "prometheus_url": "https://<private-demo-prometheus-host>",
+  "prometheus_job_query": "up{job=\"devops-agent\"}",
+  "webhook_token_env": "DEVOPS_ALERT_WEBHOOK_TOKEN",
+  "allow_live_provider_claim": true,
+  "notes": "Replace private URLs locally; retrieve token from Key Vault into the environment, never this file."
+}

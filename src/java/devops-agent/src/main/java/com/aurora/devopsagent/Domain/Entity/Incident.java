@@ -46,6 +46,9 @@ public class Incident extends AuditableEntity {
     @Column(name = "error_signature", nullable = false, columnDefinition = "TEXT")
     private String errorSignature;
 
+    @Column(name = "evidence_json", nullable = false, columnDefinition = "TEXT")
+    private String evidenceJson = "{}";
+
     @Enumerated(EnumType.STRING)
     @Column(name = "severity", nullable = false)
     private Severity severity;
@@ -145,6 +148,14 @@ public class Incident extends AuditableEntity {
 
     public String getErrorSignature() {
         return errorSignature;
+    }
+
+    public String getEvidenceJson() {
+        return evidenceJson;
+    }
+
+    public void setEvidenceJson(String evidenceJson) {
+        this.evidenceJson = evidenceJson != null ? evidenceJson : "{}";
     }
 
     public void setErrorSignature(String errorSignature) {

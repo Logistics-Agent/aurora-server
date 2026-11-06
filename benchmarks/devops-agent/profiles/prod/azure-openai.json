@@ -1,0 +1,12 @@
+{
+  "environment": "prod",
+  "provider_expected": "AZURE_OPENAI",
+  "provider_label": "AZURE_OPENAI",
+  "agent_url": "https://<private-prod-agent-host>",
+  "ai_governance_metrics_url": "https://<private-prod-ai-governance-host>/actuator/prometheus",
+  "prometheus_url": "https://<private-prod-prometheus-host>",
+  "prometheus_job_query": "up{job=\"devops-agent\"}",
+  "webhook_token_env": "DEVOPS_ALERT_WEBHOOK_TOKEN",
+  "allow_live_provider_claim": true,
+  "notes": "Production profile is blocked by default in the runner. Prefer demo. Synthetic-only, explicitly approved, low-volume checks."
+}

@@ -2,6 +2,9 @@ package com.aurora.devopsagent.Infrastructure.Metrics;
 
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
+
+import java.util.concurrent.TimeUnit;
 import org.springframework.stereotype.Component;
 
 /**
@@ -21,6 +24,7 @@ public class DevOpsMetrics {
     private final Counter actionsBlocked;
     private final Counter approvalTimeouts;
     private final Counter outboxPublishFailures;
+    private final Timer rcaDuration;
 
     public DevOpsMetrics(MeterRegistry registry) {
         this.alertsIngested = Counter.builder("devops_alerts_ingested_total")
@@ -62,6 +66,11 @@ public class DevOpsMetrics {
         this.outboxPublishFailures = Counter.builder("devops_outbox_publish_failures_total")
                 .description("Total number of outbox message publish failures")
                 .register(registry);
+
+        this.rcaDuration = Timer.builder("devops_rca_duration")
+                .description("End-to-end duration of successful RCA analyses")
+                .publishPercentileHistogram()
+                .register(registry);
     }
 
     public void incrementAlertsIngested() { alertsIngested.increment(); }
@@ -74,4 +83,5 @@ public class DevOpsMetrics {
     public void incrementActionsBlocked() { actionsBlocked.increment(); }
     public void incrementApprovalTimeouts() { approvalTimeouts.increment(); }
     public void incrementOutboxPublishFailures() { outboxPublishFailures.increment(); }
+    public void recordRcaDuration(long durationMs) { rcaDuration.record(durationMs, TimeUnit.MILLISECONDS); }
 }

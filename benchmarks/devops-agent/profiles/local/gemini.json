@@ -1,0 +1,12 @@
+{
+  "environment": "local",
+  "provider_expected": "GEMINI",
+  "provider_label": "GEMINI",
+  "agent_url": "http://localhost:8082",
+  "ai_governance_metrics_url": "http://localhost:8081/actuator/prometheus",
+  "prometheus_url": "http://localhost:9091",
+  "prometheus_job_query": "up{job=\"devops-agent\"}",
+  "webhook_token_env": "DEVOPS_ALERT_WEBHOOK_TOKEN",
+  "allow_live_provider_claim": false,
+  "notes": "Local defaults may use deterministic demo/mock credentials; verify actual provider metrics before labeling a run live."
+}
