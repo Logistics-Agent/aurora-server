@@ -92,14 +92,25 @@ func (c *Client) reconnectLoop() {
 	}
 }
 
-// PublishJSON gửi payload JSON tới exchange với routing key tương ứng
+// PublishJSON gửi payload JSON tới exchange với routing key tương ứng (thread-safe)
 func (c *Client) PublishJSON(ctx context.Context, exchange, routingKey string, payload any) error {
-	c.mu.RLock()
-	ch := c.ch
-	c.mu.RUnlock()
+	c.mu.Lock()
+	defer c.mu.Unlock()
 
-	if ch == nil {
+	if c.ch == nil {
 		return fmt.Errorf("kênh RabbitMQ chưa sẵn sàng")
+	}
+
+	if exchange != "" {
+		_ = c.ch.ExchangeDeclare(
+			exchange,
+			"fanout",
+			true,  // durable
+			false, // auto-deleted
+			false, // internal
+			false, // no-wait
+			nil,
+		)
 	}
 
 	body, err := json.Marshal(payload)
@@ -114,7 +125,81 @@ func (c *Client) PublishJSON(ctx context.Context, exchange, routingKey string, p
 		Body:         body,
 	}
 
-	return ch.PublishWithContext(ctx, exchange, routingKey, false, false, msg)
+	return c.ch.PublishWithContext(ctx, exchange, routingKey, false, false, msg)
+}
+
+// Subscribe đăng ký lắng nghe message từ một queue và bind tới exchange
+func (c *Client) Subscribe(
+	ctx context.Context,
+	queueName, exchange, routingKey string,
+	handler func(d amqp.Delivery),
+) error {
+	c.mu.Lock()
+	ch := c.ch
+	c.mu.Unlock()
+
+	if ch == nil {
+		return fmt.Errorf("kênh RabbitMQ chưa sẵn sàng")
+	}
+
+	if exchange != "" {
+		_ = ch.ExchangeDeclare(
+			exchange,
+			"fanout",
+			true,
+			false,
+			false,
+			false,
+			nil,
+		)
+	}
+
+	q, err := ch.QueueDeclare(
+		queueName,
+		true,  // durable
+		false, // auto-delete
+		false, // exclusive
+		false, // no-wait
+		nil,
+	)
+	if err != nil {
+		return fmt.Errorf("lỗi khai báo queue %s: %w", queueName, err)
+	}
+
+	if exchange != "" {
+		if err := ch.QueueBind(q.Name, routingKey, exchange, false, nil); err != nil {
+			return fmt.Errorf("lỗi bind queue %s tới exchange %s: %w", q.Name, exchange, err)
+		}
+	}
+
+	msgs, err := ch.Consume(
+		q.Name,
+		"",    // consumer tag
+		false, // auto-ack
+		false, // exclusive
+		false, // no-local
+		false, // no-wait
+		nil,
+	)
+	if err != nil {
+		return fmt.Errorf("lỗi đăng ký consume từ queue %s: %w", q.Name, err)
+	}
+
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case d, ok := <-msgs:
+				if !ok {
+					return
+				}
+				handler(d)
+			}
+		}
+	}()
+
+	return nil
 }
 
 // Close đóng kết nối an toàn

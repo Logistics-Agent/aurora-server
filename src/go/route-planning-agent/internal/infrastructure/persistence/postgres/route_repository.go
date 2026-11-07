@@ -138,38 +138,55 @@ func (r *routeRepository) UpdateWithVersion(ctx context.Context, route *entities
 	route.UpdatedAt = &now
 	newVersion := expectedVersion + 1
 
-	res := db.Model(&entities.Route{}).
-		Scopes(TenantScope(route.TenantID)).
-		Where(`"Id" = ? AND "Version" = ?`, route.ID, expectedVersion).
-		Updates(map[string]any{
-			"Name":                     route.Name,
-			"Description":              route.Description,
-			"Type":                     route.Type,
-			"Status":                   route.Status,
-			"RiskLevel":                route.RiskLevel,
-			"GovernanceDecision":       route.GovernanceDecision,
-			"LastAssessedAt":           route.LastAssessedAt,
-			"EstimatedDistanceKm":      route.EstimatedDistanceKm,
-			"EstimatedDurationMinutes": route.EstimatedDurationMinutes,
-			"MaxWeightKg":              route.MaxWeightKg,
-			"MaxVolumeM3":              route.MaxVolumeM3,
-			"IsAiGenerated":            route.IsAiGenerated,
-			"OptimizedAt":              route.OptimizedAt,
-			"Version":                  newVersion,
-			"UpdatedAt":                now,
-			"UpdatedBy":                route.UpdatedBy,
-		})
+	return db.Transaction(func(tx *gorm.DB) error {
+		res := tx.Model(&entities.Route{}).
+			Scopes(TenantScope(route.TenantID)).
+			Where(`"Id" = ? AND "Version" = ?`, route.ID, expectedVersion).
+			Updates(map[string]any{
+				"Name":                     route.Name,
+				"Description":              route.Description,
+				"Type":                     route.Type,
+				"Status":                   route.Status,
+				"RiskLevel":                route.RiskLevel,
+				"GovernanceDecision":       route.GovernanceDecision,
+				"LastAssessedAt":           route.LastAssessedAt,
+				"EstimatedDistanceKm":      route.EstimatedDistanceKm,
+				"EstimatedDurationMinutes": route.EstimatedDurationMinutes,
+				"MaxWeightKg":              route.MaxWeightKg,
+				"MaxVolumeM3":              route.MaxVolumeM3,
+				"IsAiGenerated":            route.IsAiGenerated,
+				"OptimizedAt":              route.OptimizedAt,
+				"Version":                  newVersion,
+				"UpdatedAt":                now,
+				"UpdatedBy":                route.UpdatedBy,
+			})
 
-	if res.Error != nil {
-		return res.Error
-	}
+		if res.Error != nil {
+			return res.Error
+		}
 
-	if res.RowsAffected == 0 {
-		return domain.ErrOptimisticLock
-	}
+		if res.RowsAffected == 0 {
+			return domain.ErrOptimisticLock
+		}
 
-	route.Version = newVersion
-	return nil
+		if len(route.Stops) > 0 {
+			if err := tx.Where(`"RouteId" = ?`, route.ID).Delete(&entities.RouteStop{}).Error; err != nil {
+				return err
+			}
+			for i := range route.Stops {
+				if route.Stops[i].ID == uuid.Nil {
+					route.Stops[i].ID = uuid.New()
+				}
+				route.Stops[i].RouteID = route.ID
+			}
+			if err := tx.Create(&route.Stops).Error; err != nil {
+				return err
+			}
+		}
+
+		route.Version = newVersion
+		return nil
+	})
 }
 
 func (r *routeRepository) Delete(ctx context.Context, tenantID, id uuid.UUID) error {

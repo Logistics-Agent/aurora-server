@@ -88,6 +88,7 @@ func (p *Processor) processBatch(ctx context.Context) {
 	p.logger.Debug("Đang xử lý lô Outbox messages", slog.Int("count", len(messages)))
 
 	for _, msg := range messages {
+		targetExchange := MapExchange(msg.EventType)
 		routingKey := MapRoutingKey(msg.EventType)
 
 		var payloadMap any
@@ -97,17 +98,57 @@ func (p *Processor) processBatch(ctx context.Context) {
 			continue
 		}
 
-		err := p.rabbitClient.PublishJSON(ctx, p.cfg.Exchange, routingKey, payloadMap)
+		err := p.rabbitClient.PublishJSON(ctx, targetExchange, routingKey, payloadMap)
 		if err != nil {
 			p.logger.Error("Publish event sang RabbitMQ thất bại",
 				slog.String("message_id", msg.ID.String()),
 				slog.String("event_type", msg.EventType),
+				slog.String("exchange", targetExchange),
 				slog.Any("error", err),
 			)
 			_ = p.repo.MarkFailed(ctx, msg.ID, err.Error())
 		} else {
 			_ = p.repo.MarkProcessed(ctx, msg.ID, time.Now().UTC())
 		}
+	}
+}
+
+// MapExchange chuyển đổi EventType sang exchange name tương thích MassTransit [EntityName]
+func MapExchange(eventType string) string {
+	switch eventType {
+	case "RouteCreatedEvent":
+		return "route_created_event"
+	case "RouteUpdatedEvent":
+		return "route_updated_event"
+	case "RouteDeletedEvent":
+		return "route_deleted_event"
+	case "RouteStatusChangedEvent":
+		return "route_status_changed_event"
+	case "RouteOptimizedEvent":
+		return "route_optimized_event"
+	case "RouteApprovalRequestedEvent":
+		return "route_approval_requested_event"
+	case "TenantRuleConfigChangedEvent":
+		return "tenant_rule_config_changed_event"
+	case "TenantAiConfigChangedEvent":
+		return "tenant_ai_config_changed_event"
+	case "RouteRiskEvaluatedEvent":
+		return "route_risk_evaluated_event"
+	case "RouteApprovedEvent":
+		return "route_approved_event"
+	case "TenantRiskPolicySupersededEvent":
+		return "tenant_risk_policy_superseded_event"
+	case "AiUsageEvent":
+		return "ai_usage_event"
+	default:
+		var b strings.Builder
+		for i, r := range eventType {
+			if i > 0 && r >= 'A' && r <= 'Z' {
+				b.WriteRune('_')
+			}
+			b.WriteRune(r)
+		}
+		return strings.ToLower(b.String())
 	}
 }
 

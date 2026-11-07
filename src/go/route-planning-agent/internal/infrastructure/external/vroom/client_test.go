@@ -1,10 +1,11 @@
 package vroom_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
-	"net/http/httptest"
 	"testing"
 
 	"aurora/route-planning-agent/internal/domain"
@@ -14,13 +15,19 @@ import (
 	"github.com/google/uuid"
 )
 
+type mockRoundTripper func(req *http.Request) (*http.Response, error)
+
+func (m mockRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+	return m(req)
+}
+
 func TestVroomClientOptimizeSuccess(t *testing.T) {
 	stop1ID := uuid.New()
 	stop2ID := uuid.New()
 	stop3ID := uuid.New()
 
-	// Giả lập VROOM server response
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	// Giả lập VROOM server response qua in-memory mock RoundTripper (không cần mở cổng TCP socket)
+	mockRT := mockRoundTripper(func(r *http.Request) (*http.Response, error) {
 		if r.Method != http.MethodPost {
 			t.Errorf("expected POST, got %s", r.Method)
 		}
@@ -44,12 +51,16 @@ func TestVroomClientOptimizeSuccess(t *testing.T) {
 			},
 		}
 
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(resp)
-	}))
-	defer server.Close()
+		bodyBytes, _ := json.Marshal(resp)
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(bytes.NewReader(bodyBytes)),
+		}, nil
+	})
 
-	client := vroom.NewClient(server.URL, 0, nil)
+	httpClient := &http.Client{Transport: mockRT}
+	client := vroom.NewClientWithHTTPClient("http://vroom-mock", httpClient, nil)
 
 	route := &entities.Route{
 		Stops: []entities.RouteStop{

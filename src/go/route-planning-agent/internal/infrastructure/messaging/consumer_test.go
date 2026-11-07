@@ -3,7 +3,6 @@ package messaging_test
 import (
 	"encoding/json"
 	"testing"
-	"time"
 
 	"aurora/route-planning-agent/internal/application/dtos"
 	"aurora/route-planning-agent/internal/infrastructure/messaging"
@@ -27,9 +26,8 @@ func TestRuleConfigConsumerProcessMessage(t *testing.T) {
 
 	tenantID := uuid.New()
 	event := dtos.TenantRuleConfigChangedEvent{
-		TenantID:   tenantID,
-		RuleName:   "HeavyWeightRule",
-		OccurredAt: time.Now().UTC(),
+		TenantID: tenantID,
+		RuleName: "HeavyWeightRule",
 	}
 
 	body, err := json.Marshal(event)
@@ -46,6 +44,16 @@ func TestRuleConfigConsumerProcessMessage(t *testing.T) {
 	}
 	if invalidator.invalidatedRule != "HeavyWeightRule" {
 		t.Errorf("expected rule HeavyWeightRule, got %s", invalidator.invalidatedRule)
+	}
+}
+
+func TestRuleConfigConsumerProcessMessage_InvalidJSON(t *testing.T) {
+	invalidator := &mockCacheInvalidator{}
+	consumer := messaging.NewRuleConfigConsumer(nil, invalidator, "route.events", nil)
+
+	err := consumer.ProcessMessage([]byte("invalid-json"))
+	if err == nil {
+		t.Errorf("expected error when processing invalid json body")
 	}
 }
 

@@ -97,6 +97,40 @@ func (r *riskPolicyRepository) GetActivePolicy(ctx context.Context, tenantID uui
 	return &policy, nil
 }
 
+func (r *riskPolicyRepository) GetActivePoliciesByScope(ctx context.Context, tenantID uuid.UUID, scope string) ([]entities.TenantRiskPolicy, error) {
+	db := getDB(ctx, r.db)
+
+	var policies []entities.TenantRiskPolicy
+	err := db.Scopes(TenantScope(tenantID), ActiveOnlyScope()).
+		Where(`"Scope" = ? AND "Status" = ?`, scope, int(enums.TenantRiskPolicyStatusActive)).
+		Find(&policies).Error
+
+	if err != nil {
+		return nil, fmt.Errorf("lỗi truy vấn danh sách chính sách rủi ro active: %w", err)
+	}
+
+	return policies, nil
+}
+
+func (r *riskPolicyRepository) GetMaxVersion(ctx context.Context, tenantID uuid.UUID, scope string) (int32, error) {
+	db := getDB(ctx, r.db)
+
+	var maxVersion *int32
+	err := db.Model(&entities.TenantRiskPolicy{}).
+		Where(`"TenantId" = ? AND "Scope" = ?`, tenantID, scope).
+		Select(`COALESCE(MAX("Version"), 0)`).
+		Scan(&maxVersion).Error
+
+	if err != nil {
+		return 0, fmt.Errorf("lỗi lấy version lớn nhất của policy: %w", err)
+	}
+
+	if maxVersion == nil {
+		return 0, nil
+	}
+	return *maxVersion, nil
+}
+
 func (r *riskPolicyRepository) GetPolicyByVersion(ctx context.Context, tenantID uuid.UUID, scope string, version int32) (*entities.TenantRiskPolicy, error) {
 	db := getDB(ctx, r.db)
 
@@ -170,7 +204,31 @@ func (r *riskPolicyRepository) CreatePolicyDraft(ctx context.Context, policy *en
 		}
 	}
 
-	return db.Create(policy).Error
+	fn := func(tx *gorm.DB) error {
+		if tx.Dialector != nil && tx.Dialector.Name() == "postgres" {
+			lockKey := fmt.Sprintf("policy_version:%s:%s", policy.TenantID.String(), policy.Scope)
+			if err := tx.Exec("SELECT pg_advisory_xact_lock(hashtext(?))", lockKey).Error; err != nil {
+				return fmt.Errorf("lỗi khóa phiên bản policy: %w", err)
+			}
+		}
+
+		var maxVersion int32
+		err := tx.Model(&entities.TenantRiskPolicy{}).
+			Where(`"TenantId" = ? AND "Scope" = ?`, policy.TenantID, policy.Scope).
+			Select(`COALESCE(MAX("Version"), 0)`).
+			Scan(&maxVersion).Error
+		if err != nil {
+			return fmt.Errorf("lỗi lấy version lớn nhất của policy: %w", err)
+		}
+
+		policy.Version = maxVersion + 1
+		return tx.Create(policy).Error
+	}
+
+	if GetTx(ctx) != nil {
+		return fn(db)
+	}
+	return db.Transaction(fn)
 }
 
 func (r *riskPolicyRepository) UpdatePolicyDraft(ctx context.Context, policy *entities.TenantRiskPolicy) error {

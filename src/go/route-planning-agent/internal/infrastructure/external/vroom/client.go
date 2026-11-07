@@ -49,6 +49,23 @@ func NewClient(baseURL string, timeout time.Duration, logger *slog.Logger) *Clie
 	}
 }
 
+// NewClientWithHTTPClient cho phép cấu hình custom httpClient (hữu ích cho unit test mock RoundTripper)
+func NewClientWithHTTPClient(baseURL string, httpClient *http.Client, logger *slog.Logger) *Client {
+	if logger == nil {
+		logger = slog.Default()
+	}
+	if httpClient == nil {
+		httpClient = &http.Client{Timeout: 30 * time.Second}
+	}
+	baseURL = strings.TrimRight(baseURL, "/")
+
+	return &Client{
+		baseURL:    baseURL,
+		httpClient: httpClient,
+		logger:     logger,
+	}
+}
+
 func (c *Client) Optimize(ctx context.Context, route *entities.Route) (*OptimizationResult, error) {
 	if route == nil || len(route.Stops) < 2 {
 		return nil, domain.ErrRouteHasTooFewStops

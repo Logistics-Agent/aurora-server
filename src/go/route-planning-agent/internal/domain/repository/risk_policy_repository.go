@@ -14,6 +14,8 @@ type RiskPolicyRepository interface {
 
 	GetPolicyByID(ctx context.Context, tenantID, id uuid.UUID) (*entities.TenantRiskPolicy, error)
 	GetActivePolicy(ctx context.Context, tenantID uuid.UUID, scope string) (*entities.TenantRiskPolicy, error)
+	GetActivePoliciesByScope(ctx context.Context, tenantID uuid.UUID, scope string) ([]entities.TenantRiskPolicy, error)
+	GetMaxVersion(ctx context.Context, tenantID uuid.UUID, scope string) (int32, error)
 	GetPolicyByVersion(ctx context.Context, tenantID uuid.UUID, scope string, version int32) (*entities.TenantRiskPolicy, error)
 	ListPolicyVersions(ctx context.Context, tenantID uuid.UUID, scope string, page, limit int32) ([]entities.TenantRiskPolicy, int64, error)
 	CreatePolicyDraft(ctx context.Context, policy *entities.TenantRiskPolicy) error

@@ -62,6 +62,32 @@ func (r *approvalRepository) GetPendingByRouteID(ctx context.Context, tenantID, 
 	return &req, nil
 }
 
+func (r *approvalRepository) GetValidApproved(
+	ctx context.Context,
+	tenantID, routeID uuid.UUID,
+	routeVersion int32,
+	policyID string,
+	policyVersion int32,
+) (*entities.ApprovalRequest, error) {
+	db := getDB(ctx, r.db)
+
+	var req entities.ApprovalRequest
+	err := db.Scopes(TenantScope(tenantID)).
+		Where(`"RouteId" = ? AND "Status" = ? AND "RouteVersion" = ? AND "PolicyId" = ? AND "PolicyVersion" = ?`,
+			routeID, int(enums.ApprovalStatusApproved), routeVersion, policyID, policyVersion).
+		Order(`"ReviewedAt" DESC, "CreatedAt" DESC`).
+		First(&req).Error
+
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("lỗi kiểm tra phê duyệt hợp lệ: %w", err)
+	}
+
+	return &req, nil
+}
+
 func (r *approvalRepository) ListPending(ctx context.Context, tenantID uuid.UUID, page, limit int32) ([]entities.ApprovalRequest, int64, error) {
 	db := getDB(ctx, r.db)
 

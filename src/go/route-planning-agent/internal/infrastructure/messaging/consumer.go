@@ -34,7 +34,7 @@ func NewRuleConfigConsumer(
 		logger = slog.Default()
 	}
 	if exchange == "" {
-		exchange = "route.events"
+		exchange = "tenant_rule_config_changed_event"
 	}
 
 	return &RuleConfigConsumer{
@@ -44,6 +44,25 @@ func NewRuleConfigConsumer(
 		exchange:     exchange,
 		logger:       logger,
 	}
+}
+
+// Start bắt đầu lắng nghe sự kiện thay đổi cấu hình rule từ RabbitMQ, chặn cho tới khi context bị hủy
+func (c *RuleConfigConsumer) Start(ctx context.Context) error {
+	c.logger.Info("Khởi động RuleConfigConsumer",
+		slog.String("queue", c.queueName),
+		slog.String("exchange", c.exchange),
+	)
+
+	err := c.rabbitClient.Subscribe(ctx, c.queueName, c.exchange, "", func(d amqp.Delivery) {
+		c.HandleDelivery(ctx, d)
+	})
+	if err != nil {
+		return err
+	}
+
+	<-ctx.Done()
+	c.logger.Info("RuleConfigConsumer đã dừng an toàn theo context")
+	return nil
 }
 
 // ProcessMessage giải mã message và xử lý invalidate cache

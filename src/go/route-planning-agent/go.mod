@@ -1,6 +1,6 @@
 module aurora/route-planning-agent
 
-go 1.26.0
+go 1.22
 
 require (
 	aurora/shared v0.0.0-00010101000000-000000000000
@@ -18,6 +18,7 @@ require (
 	github.com/jackc/puddle/v2 v2.2.2 // indirect
 	github.com/jinzhu/inflection v1.0.0 // indirect
 	github.com/jinzhu/now v1.1.5 // indirect
+	github.com/rabbitmq/amqp091-go v1.16.0
 	golang.org/x/net v0.60.0 // indirect
 	golang.org/x/sync v0.23.0 // indirect
 	golang.org/x/sys v0.48.0 // indirect
