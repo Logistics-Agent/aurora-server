@@ -168,7 +168,7 @@ export class CostCalculatorDomainService {
     const safeCost = costPrice > 0 ? costPrice : 0;
     const safeTotal = totalSeconds > 0 ? totalSeconds : 1;
     const safeRemaining = Math.max(0, Math.min(remainingSeconds, safeTotal));
-    const safeGamma = gamma >= 1 ? gamma : 2;
+    const safeGamma = gamma > 0 ? gamma : 2;
 
     const decayFactor = Math.pow(safeRemaining / safeTotal, safeGamma);
     const currentMarginPercent = (baseMarginPercent || 0) * decayFactor;

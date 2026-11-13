@@ -299,7 +299,7 @@ export class BillingService {
 
     const cancelled = await this.prisma.invoice.update({
       where: { id: request.invoiceId },
-      data: { status: 'CANCELLED' },
+      data: { status: 'CANCELLED', agreementId: null },
       include: { items: true },
     });
 

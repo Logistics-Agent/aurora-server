@@ -108,7 +108,7 @@ export class MQConsumerService implements OnModuleInit, OnModuleDestroy {
       if (routingKey.startsWith('billing.')) {
         const eventName = routingKey.replace('billing.', '').toUpperCase();
         if (userId) await this.eventsGateway.sendToUser(tenantId, userId, eventName, parsed);
-        if (customerId) this.eventsGateway.sendToCustomer(tenantId, customerId, eventName, parsed);
+        if (customerId) await this.eventsGateway.sendToCustomer(tenantId, customerId, eventName, parsed);
         this.eventsGateway.sendToTenant(tenantId, eventName, parsed);
       } else if (routingKey.startsWith('negotiation.')) {
         const eventName = routingKey.replace('negotiation.', '').toUpperCase();

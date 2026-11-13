@@ -3,6 +3,7 @@ import { GrpcMethod } from '@nestjs/microservices';
 import { BillingService } from '../../application/services/billing.service';
 import { CommercialAuthorityService } from '../../application/services/commercial-authority.service';
 import { TenantInterceptor } from '../../common/interceptors/tenant.interceptor';
+import { IdempotencyInterceptor } from '../../common/interceptors/idempotency.interceptor';
 import { GrpcExceptionFilter } from '../../common/filters/grpc-exception.filter';
 import {
   GenerateInvoiceRequest,
@@ -38,7 +39,7 @@ import {
 } from '../dto/billing.dto';
 
 @Controller()
-@UseInterceptors(TenantInterceptor)
+@UseInterceptors(TenantInterceptor, IdempotencyInterceptor)
 @UseFilters(GrpcExceptionFilter)
 export class BillingController {
   constructor(

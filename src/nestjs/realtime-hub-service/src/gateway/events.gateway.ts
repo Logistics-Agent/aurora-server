@@ -57,7 +57,11 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
       });
 
       // ── TASK-005: Flush Offline Buffered Messages on Connect ─────────────
-      const bufferedMsgs = await this.offlineBuffer.flush(tenantId, userId);
+      const bufferedUserMsgs = await this.offlineBuffer.flush(tenantId, userId);
+      const bufferedCustomerMsgs = client.data.customerId
+        ? await this.offlineBuffer.flush(tenantId, `customer:${client.data.customerId}`)
+        : [];
+      const bufferedMsgs = [...bufferedUserMsgs, ...bufferedCustomerMsgs];
       if (bufferedMsgs.length > 0) {
         this.logger.log(`Flushing ${bufferedMsgs.length} offline message(s) for User ${userId}`);
         for (const msg of bufferedMsgs) {
@@ -134,7 +138,12 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @MessageBody() data: { msgId: string },
   ) {
     const pending = data?.msgId ? this.pendingAcks.get(data.msgId) : undefined;
-    if (pending && pending.tenantId === client.data?.tenantId && pending.userId === client.data?.userId) {
+    const isRecipient =
+      pending &&
+      pending.tenantId === client.data?.tenantId &&
+      (pending.userId === client.data?.userId ||
+        (Boolean(client.data?.customerId) && pending.userId === `customer:${client.data.customerId}`));
+    if (isRecipient) {
       clearTimeout(pending.timeout);
       this.pendingAcks.delete(data.msgId);
       this.logger.log(`[ACK Received] Client ${client.id} acknowledged msgId '${data.msgId}'`);
@@ -190,10 +199,32 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     this.pendingAcks.set(msgId, { timeout, tenantId, userId });
   }
 
-  sendToCustomer<T>(tenantId: string, customerId: string, event: string, data: T) {
-    this.server.to(`customer:${tenantId}:${customerId}`).emit(event, {
-      event, tenantId, timestamp: Date.now(), data,
+  async sendToCustomer<T>(tenantId: string, customerId: string, event: string, data: T) {
+    const room = `customer:${tenantId}:${customerId}`;
+    const bufferRecipientKey = `customer:${customerId}`;
+    const msgId = `msg_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    this.server.to(room).emit(event, {
+      event,
+      tenantId,
+      timestamp: Date.now(),
+      msgId,
+      data,
     });
+    const timeout = setTimeout(async () => {
+      if (this.pendingAcks.has(msgId)) {
+        this.pendingAcks.delete(msgId);
+        this.logger.warn(`[ACK Timeout] No ACK received for msgId '${msgId}'. Buffering for Customer ${customerId}...`);
+        await this.offlineBuffer.bufferMessage({
+          msgId,
+          tenantId,
+          userId: bufferRecipientKey,
+          event,
+          payload: data,
+          timestamp: Date.now(),
+        });
+      }
+    }, 5000);
+    this.pendingAcks.set(msgId, { timeout, tenantId, userId: bufferRecipientKey });
   }
 
   private isStaff(client: AuthenticatedSocket): boolean {

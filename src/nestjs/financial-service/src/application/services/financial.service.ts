@@ -372,7 +372,7 @@ export class FinancialService {
         fromCurrency: request.fromCurrency.toUpperCase(),
         toCurrency: request.toCurrency.toUpperCase(),
         validDate: { gte: oldestAllowed, lte: targetDate },
-        source: { notIn: ['MOCK', 'FALLBACK'] },
+        ...(this.configService.get<string>('environment') === 'production' ? { source: { notIn: ['MOCK', 'FALLBACK'] } } : {}),
       },
       orderBy: { validDate: 'desc' },
     });

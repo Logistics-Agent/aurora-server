@@ -7,6 +7,7 @@ import { GenerateInvoiceUseCase } from '../application/use-cases/generate-invoic
 import { RabbitMQMessagingService } from '../infrastructure/messaging/rabbitmq.service';
 import { ShipmentWorkflowGrpcClient } from '../infrastructure/grpc-clients/shipment-workflow.grpc-client';
 import { OverdueInvoiceCronJob } from '../infrastructure/jobs/overdue-invoice.cron';
+import { IdempotencyInterceptor } from '../common/interceptors/idempotency.interceptor';
 
 @Module({
   controllers: [BillingController],
@@ -18,6 +19,7 @@ import { OverdueInvoiceCronJob } from '../infrastructure/jobs/overdue-invoice.cr
     RabbitMQMessagingService,
     ShipmentWorkflowGrpcClient,
     OverdueInvoiceCronJob,
+    IdempotencyInterceptor,
   ],
   exports: [BillingService, GenerateInvoiceUseCase],
 })

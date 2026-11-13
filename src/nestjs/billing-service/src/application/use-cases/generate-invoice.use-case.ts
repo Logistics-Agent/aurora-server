@@ -61,7 +61,7 @@ export class GenerateInvoiceUseCase {
     const createdInvoice = await this.prisma.$transaction(async (tx) => {
       const invoiceNumber = await allocateInvoiceNumber(tx, this.domainService);
       const duplicate = await tx.invoice.findFirst({
-        where: { tenantId, shipmentId },
+        where: { tenantId, shipmentId, status: { not: 'CANCELLED' } },
       });
       if (duplicate) throw new ConflictException(`Invoice ${duplicate.invoiceNumber} already exists for shipment`);
       return tx.invoice.create({
