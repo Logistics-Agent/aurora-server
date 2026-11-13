@@ -73,4 +73,14 @@ describe('IntentRouterService', () => {
     expect(res.intent).toBe(AssistantIntent.HYBRID_RAG_QUERY);
     expect(res.decision).toBe(NeedRagDecision.RAG_HYBRID);
   });
+
+  it('prioritizes REGULATORY_QUERY and BILLING_QUERY over generic "lô hàng" keyword when no SHP code is present', async () => {
+    const reg = await router.classify('Lô hàng xuất khẩu pin lithium cần chứng từ hải quan gì?', user);
+    expect(reg.intent).toBe(AssistantIntent.REGULATORY_QUERY);
+    expect(reg.decision).toBe(NeedRagDecision.RAG_REGULATORY);
+
+    const bill = await router.classify('Hóa đơn của lô hàng này thanh toán chưa?', user);
+    expect(bill.intent).toBe(AssistantIntent.BILLING_QUERY);
+    expect(bill.decision).toBe(NeedRagDecision.DOMAIN_QUERY);
+  });
 });

@@ -12,6 +12,7 @@ export interface StrategyInput {
   maxRounds: number;
   customerTier?: string; // 'STANDARD' | 'VIP' | 'ENTERPRISE'
   currency?: string;
+  previousApprovedAmount?: number;
 }
 
 export interface StrategyResult {
@@ -70,7 +71,11 @@ export class NegotiationStrategyDomainService {
     // Rule 4: Offer is below bottom price and rounds available -> COUNTER_OFFER
     // Step formula: Counter = Max(bottomPrice, offerPrice + (listPrice - offerPrice) * 0.4)
     const rawCounter = offerPrice + (listPrice - offerPrice) * 0.4;
-    const counterOfferPrice = Number(Math.max(bottomPrice, rawCounter).toFixed(2));
+    const boundedCounter =
+      currentRound > 1 && input.previousApprovedAmount && input.previousApprovedAmount >= bottomPrice
+        ? Math.max(input.previousApprovedAmount, rawCounter)
+        : rawCounter;
+    const counterOfferPrice = Number(Math.min(listPrice, Math.max(bottomPrice, boundedCounter)).toFixed(2));
 
     return {
       decision: 'COUNTER_OFFER',

@@ -37,7 +37,77 @@ export class IntentRouterService {
       };
     }
 
-    // 2. Shipment queries -> DOMAIN_QUERY
+    // 2. Billing & Debt queries -> DOMAIN_QUERY (evaluated before generic "lô hàng" keyword)
+    if (
+      qLower.includes('công nợ') ||
+      qLower.includes('hóa đơn') ||
+      qLower.includes('invoice') ||
+      qLower.includes('tiền nợ') ||
+      qLower.includes('thanh toán') ||
+      qLower.includes('số dư')
+    ) {
+      const customerId = query.match(new RegExp(`(?:khách hàng|customer)\\s*(?:id|mã|số)?\\s*[:#-]?\\s*(${uuidPattern})`, 'i'))?.[1];
+      return {
+        intent: AssistantIntent.BILLING_QUERY,
+        decision: NeedRagDecision.DOMAIN_QUERY,
+        confidence: 0.95,
+        extractedParameters: { targetCustomerId: customerId },
+      };
+    }
+
+    // 3. Hybrid / SOP / Regulatory queries (evaluated before generic "lô hàng" keyword unless SHP-... is present)
+    const mentionsLaw =
+      qLower.includes('luật') ||
+      qLower.includes('nghị định') ||
+      qLower.includes('thông tư') ||
+      qLower.includes('hải quan') ||
+      qLower.includes('quy định pháp lý') ||
+      qLower.includes('customs regulation');
+
+    const mentionsSop =
+      qLower.includes('sop') ||
+      qLower.includes('quy trình nội bộ') ||
+      qLower.includes('hướng dẫn nội bộ') ||
+      qLower.includes('hợp đồng') ||
+      qLower.includes('công ty chúng tôi');
+
+    const mentionsRegulatoryTopic =
+      mentionsLaw ||
+      qLower.includes('thủ tục') ||
+      qLower.includes('chứng từ') ||
+      qLower.includes('hs code') ||
+      qLower.includes('thuế') ||
+      qLower.includes('dangerous goods') ||
+      qLower.includes('hàng nguy hiểm') ||
+      qLower.includes('pin lithium') ||
+      qLower.includes('xuất khẩu') ||
+      qLower.includes('nhập khẩu');
+
+    if (mentionsLaw && mentionsSop) {
+      return {
+        intent: AssistantIntent.HYBRID_RAG_QUERY,
+        decision: NeedRagDecision.RAG_HYBRID,
+        confidence: 0.9,
+      };
+    }
+
+    if (mentionsSop) {
+      return {
+        intent: AssistantIntent.KNOWLEDGE_QUERY,
+        decision: NeedRagDecision.RAG_KNOWLEDGE,
+        confidence: 0.85,
+      };
+    }
+
+    if (mentionsRegulatoryTopic && !/shp-[a-zA-Z0-9_-]+/i.test(query)) {
+      return {
+        intent: AssistantIntent.REGULATORY_QUERY,
+        decision: NeedRagDecision.RAG_REGULATORY,
+        confidence: 0.85,
+      };
+    }
+
+    // 4. Shipment queries -> DOMAIN_QUERY
     if (
       qLower.includes('vận đơn') ||
       qLower.includes('lô hàng') ||
@@ -60,77 +130,6 @@ export class IntentRouterService {
           shipmentNo,
           targetCustomerId,
         },
-      };
-    }
-
-    // 3. Billing & Debt queries -> DOMAIN_QUERY
-    if (
-      qLower.includes('công nợ') ||
-      qLower.includes('hóa đơn') ||
-      qLower.includes('invoice') ||
-      qLower.includes('tiền nợ') ||
-      qLower.includes('thanh toán') ||
-      qLower.includes('số dư')
-    ) {
-      const customerId = query.match(new RegExp(`(?:khách hàng|customer)\\s*(?:id|mã|số)?\\s*[:#-]?\\s*(${uuidPattern})`, 'i'))?.[1];
-      return {
-        intent: AssistantIntent.BILLING_QUERY,
-        decision: NeedRagDecision.DOMAIN_QUERY,
-        confidence: 0.95,
-        extractedParameters: { targetCustomerId: customerId },
-      };
-    }
-
-    // 4. Hybrid (Laws + SOPs) -> RAG_HYBRID
-    const mentionsLaw =
-      qLower.includes('luật') ||
-      qLower.includes('nghị định') ||
-      qLower.includes('thông tư') ||
-      qLower.includes('hải quan') ||
-      qLower.includes('quy định pháp lý') ||
-      qLower.includes('customs regulation');
-
-    const mentionsSop =
-      qLower.includes('sop') ||
-      qLower.includes('quy trình nội bộ') ||
-      qLower.includes('hướng dẫn nội bộ') ||
-      qLower.includes('hợp đồng') ||
-      qLower.includes('công ty chúng tôi');
-
-    if (mentionsLaw && mentionsSop) {
-      return {
-        intent: AssistantIntent.HYBRID_RAG_QUERY,
-        decision: NeedRagDecision.RAG_HYBRID,
-        confidence: 0.9,
-      };
-    }
-
-    // 5. Knowledge query -> RAG_KNOWLEDGE
-    if (mentionsSop) {
-      return {
-        intent: AssistantIntent.KNOWLEDGE_QUERY,
-        decision: NeedRagDecision.RAG_KNOWLEDGE,
-        confidence: 0.85,
-      };
-    }
-
-    // 6. Regulatory query -> RAG_REGULATORY
-    if (
-      mentionsLaw ||
-      qLower.includes('thủ tục') ||
-      qLower.includes('chứng từ') ||
-      qLower.includes('hs code') ||
-      qLower.includes('thuế') ||
-      qLower.includes('dangerous goods') ||
-      qLower.includes('hàng nguy hiểm') ||
-      qLower.includes('pin lithium') ||
-      qLower.includes('xuất khẩu') ||
-      qLower.includes('nhập khẩu')
-    ) {
-      return {
-        intent: AssistantIntent.REGULATORY_QUERY,
-        decision: NeedRagDecision.RAG_REGULATORY,
-        confidence: 0.85,
       };
     }
 

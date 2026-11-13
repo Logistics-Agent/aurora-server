@@ -197,4 +197,27 @@ describe('NegotiationService', () => {
     })).rejects.toThrow('Authoritative shipment pricing is not connected');
     expect(mockPrisma.negotiationSession.create).not.toHaveBeenCalled();
   });
+
+  it('accepts AI draft that echoes customer offer ($4,000) alongside approved counter-offer ($4,400)', async () => {
+    mockAiClient.generateNegotiationDraft.mockResolvedValueOnce({
+      content: 'Thank you for your offer of $4,000.00 USD. Our best counter-offer is $4,400.00 USD.',
+      decisionId: 'dec-126',
+      automationLevel: 'ASSISTED',
+      requiresApproval: false,
+      inputTokens: 20,
+      outputTokens: 40,
+      isFallback: false,
+    });
+
+    const result = await service.submitOffer({
+      tenantId: 'tenant-001',
+      shipmentId: 'SHP-001',
+      customerId: 'cust-001',
+      offerPrice: 4000,
+    });
+
+    expect(result.aiDraftUsed).toBe(true);
+    expect(result.fallbackUsed).toBe(false);
+    expect(mockPrisma.negotiationMessage.create).toHaveBeenCalledTimes(2);
+  });
 });

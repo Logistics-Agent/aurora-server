@@ -143,6 +143,7 @@ export class NegotiationService {
       maxRounds: session.maxRounds,
       customerTier,
       currency,
+      previousApprovedAmount: session.currentRound > 1 ? (session.lastApprovedAmount ?? undefined) : undefined,
     });
 
     // 3. Generate Wording via AiGovernance under capability 'negotiation.draft'
@@ -170,6 +171,7 @@ export class NegotiationService {
       strategyResult.decision,
       strategyResult.approvedAmount,
       strategyResult.currency,
+      offerPrice,
     );
 
     if (!isWordingValid && !aiResult.isFallback) {
@@ -201,8 +203,19 @@ export class NegotiationService {
       newStatus = 'REJECTED';
     }
 
-    // 6. ACID Transaction: Save message + update session round/status/suggestedReply
-    const [savedMsg, updatedSession] = await this.prisma.$transaction([
+    // 6. ACID Transaction: Save customer & AI messages + update session round/status/suggestedReply
+    const [, savedMsg, updatedSession] = await this.prisma.$transaction([
+      this.prisma.negotiationMessage.create({
+        data: {
+          sessionId: session.id,
+          round: session.currentRound,
+          sender: 'CUSTOMER',
+          message: `Customer submitted offer of ${offerPrice} ${strategyResult.currency}`,
+          offerPrice,
+          decision: 'OFFER_SUBMITTED',
+          currency: strategyResult.currency,
+        },
+      }),
       this.prisma.negotiationMessage.create({
         data: {
           sessionId: session.id,
@@ -300,19 +313,22 @@ export class NegotiationService {
 
   /**
    * Validates that LLM generated text respects approved pricing and decision semantics.
-   * Handles thousand separators (e.g. $4,520.00 or 4,520 USD) without false rejections.
+   * Handles thousand separators (e.g. $4,520.00 or 4,520 USD) and allows referencing
+   * the customer's offer alongside the approved counter-offer without false rejections.
    */
   private validateAiWording(
     content: string,
     expectedDecision: string,
     approvedAmount: number,
     expectedCurrency: string,
+    customerOffer?: number,
   ): boolean {
     if (!content || content.trim().length === 0) return false;
 
-    // In COUNTER_OFFER or ACCEPT, validate any mentioned prices against approved amount
+    // In COUNTER_OFFER or ACCEPT, validate any mentioned prices against approvedAmount (and optional customerOffer echo)
     if (expectedDecision === 'COUNTER_OFFER' || expectedDecision === 'ACCEPT') {
       const priceRegex = /\$\s*([\d,]+(?:\.\d+)?)|([\d,]+(?:\.\d+)?)\s*USD/gi;
+      const mentionedPrices: number[] = [];
       let match: RegExpExecArray | null;
       while ((match = priceRegex.exec(content)) !== null) {
         const rawNum = match[1] || match[2];
@@ -320,11 +336,22 @@ export class NegotiationService {
           const sanitized = rawNum.replace(/,/g, '');
           const foundVal = parseFloat(sanitized);
           if (!isNaN(foundVal)) {
-            // If price deviates by more than $1.00 from approved counter offer, reject AI output
-            if (Math.abs(foundVal - approvedAmount) > 1.0) {
-              return false;
-            }
+            mentionedPrices.push(foundVal);
           }
+        }
+      }
+
+      if (mentionedPrices.length > 0) {
+        const hasApprovedAmount = mentionedPrices.some(
+          (val) => Math.abs(val - approvedAmount) <= 1.0,
+        );
+        const allAllowed = mentionedPrices.every(
+          (val) =>
+            Math.abs(val - approvedAmount) <= 1.0 ||
+            (customerOffer !== undefined && Math.abs(val - customerOffer) <= 1.0),
+        );
+        if (!hasApprovedAmount || !allAllowed) {
+          return false;
         }
       }
     }
