@@ -185,6 +185,23 @@ public sealed class RegulationRetrievalTests
             validService.QueryAsync(Query() with { MinimumRelevanceScore = 1.1m }));
     }
 
+    [Fact]
+    public async Task CrossLingualFallbackFindsEnglishRegulationsWhenQueriedInVietnamese()
+    {
+        var tenantId = Guid.CreateVersion7();
+        var currentUser = CurrentUser(tenantId);
+        await using var context = CreateContext(currentUser);
+        var chunk = await Seed(context, tenantId, SourceVisibility.Tenant,
+            "VN", RegulationType.Customs, "UN3480 lithium battery declaration required", "cross-lang");
+        await EmbedAll(context);
+
+        var result = await CreateService(context, currentUser).QueryAsync(
+            Query() with { LanguageCode = "vi", Query = "UN3480 lithium battery" });
+
+        Assert.Equal(EvidenceSufficiency.Sufficient, result.EvidenceSufficiency);
+        Assert.Contains(result.Evidence, e => e.ChunkId == chunk.Id);
+    }
+
     private static RegulationQueryInput Query() =>
         new(
             "dangerous goods declaration",

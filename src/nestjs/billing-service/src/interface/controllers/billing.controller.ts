@@ -1,4 +1,4 @@
-import { Controller, UseFilters, UseInterceptors } from '@nestjs/common';
+import { Body, Controller, Headers, Param, Post, UseFilters, UseInterceptors } from '@nestjs/common';
 import { GrpcMethod } from '@nestjs/microservices';
 import { BillingService } from '../../application/services/billing.service';
 import { CommercialAuthorityService } from '../../application/services/commercial-authority.service';
@@ -107,6 +107,25 @@ export class BillingController {
   @GrpcMethod('BillingService', 'RecordPayment')
   async recordPayment(data: RecordPaymentRequest): Promise<RecordPaymentResponse> {
     return this.billingService.recordPayment(data, data.tenantId);
+  }
+
+  @Post('api/v1/invoices/:id/payment-webhook')
+  async handlePaymentWebhook(
+    @Param('id') invoiceId: string,
+    @Body() body: Omit<RecordPaymentRequest, 'invoiceId'>,
+    @Headers('x-payment-signature') signature: string,
+    @Headers('x-tenant-id') tenantHeader?: string,
+  ): Promise<RecordPaymentResponse> {
+    const tenantId = tenantHeader || body.tenantId;
+    return this.billingService.recordPayment(
+      {
+        ...body,
+        invoiceId,
+        tenantId,
+        webhookSignature: signature || '',
+      },
+      tenantId,
+    );
   }
 
   @GrpcMethod('BillingService', 'CancelInvoice')

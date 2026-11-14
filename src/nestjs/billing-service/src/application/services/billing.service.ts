@@ -1,4 +1,5 @@
-import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, BadRequestException, UnauthorizedException } from '@nestjs/common';
+import { createHmac, timingSafeEqual } from 'crypto';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { GenerateInvoiceUseCase } from '../use-cases/generate-invoice.use-case';
 import { RabbitMQMessagingService } from '../../infrastructure/messaging/rabbitmq.service';
@@ -189,13 +190,24 @@ export class BillingService {
   // ── RecordPayment: Ghi nhận thanh toán + tự động cập nhật trạng thái PAID ──
 
   async recordPayment(
-    request: RecordPaymentRequest,
+    request: RecordPaymentRequest & { webhookSignature?: string },
     tenantId?: string,
   ): Promise<RecordPaymentResponse> {
     const effectiveTenantId = this.requireTenant(tenantId || request.tenantId);
 
     this.requirePositiveAmount(request.amountPaid);
     if (!request.transactionRef?.trim()) throw new BadRequestException('transactionRef is required');
+    if ((request as RecordPaymentRequest & { webhookSignature?: string }).webhookSignature !== undefined) {
+      this.verifyPaymentWebhookSignature(
+        {
+          tenantId: effectiveTenantId,
+          invoiceId: request.invoiceId,
+          amountPaid: request.amountPaid,
+          transactionRef: request.transactionRef.trim(),
+        },
+        (request as RecordPaymentRequest & { webhookSignature?: string }).webhookSignature || '',
+      );
+    }
 
     const result = await this.prisma.$transaction(async (tx) => {
       const locked = await tx.$queryRaw<Array<{ id: string }>>`
@@ -633,6 +645,24 @@ export class BillingService {
       availableAmount: Number((wallet.balance - wallet.frozenAmount).toFixed(2)),
       currency: wallet.currency,
     };
+  }
+
+  verifyPaymentWebhookSignature(
+    payload: { tenantId: string; invoiceId: string; amountPaid: number; transactionRef: string },
+    signature: string,
+    secretOverride?: string,
+  ): void {
+    const secret = secretOverride || process.env.PAYMENT_WEBHOOK_SECRET || 'aurora-webhook-secret';
+    const canonical = `${payload.tenantId}:${payload.invoiceId}:${Number(payload.amountPaid).toFixed(2)}:${payload.transactionRef}`;
+    const expectedHex = createHmac('sha256', secret).update(canonical).digest('hex');
+    const providedHex = (signature || '').trim().replace(/^sha256=/i, '');
+
+    const expectedBuf = Buffer.from(expectedHex, 'utf8');
+    const providedBuf = Buffer.from(providedHex, 'utf8');
+
+    if (expectedBuf.length !== providedBuf.length || !timingSafeEqual(expectedBuf, providedBuf)) {
+      throw new UnauthorizedException('Invalid payment webhook HMAC-SHA256 signature');
+    }
   }
 
   private mapTransactionResponse(tx: any): TransactionResponse {

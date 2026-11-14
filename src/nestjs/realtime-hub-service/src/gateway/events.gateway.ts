@@ -8,10 +8,10 @@ import {
   ConnectedSocket,
 } from '@nestjs/websockets';
 import { Server } from 'socket.io';
-import { Logger, UseGuards } from '@nestjs/common';
+import { Logger } from '@nestjs/common';
 import { WsJwtGuard, AuthenticatedSocket } from '../common/guards/ws-jwt.guard';
 import { RealtimePayloadDto } from './dto/realtime-payload.dto';
-import { OfflineBufferService, BufferedMessage } from '../messaging/offline-buffer.service';
+import { OfflineBufferService } from '../messaging/offline-buffer.service';
 
 @WebSocketGateway({
   cors: {
@@ -130,25 +130,43 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     return { event: 'pong', timestamp: Date.now() };
   }
 
-  // ── TASK-005: Client ACK Handler ─────────────────────────────────────────
+  // ── TASK-005: Client ACK Handler (Cluster-Aware via Redis) ───────────────
 
   @SubscribeMessage('ack')
-  handleAck(
+  async handleAck(
     @ConnectedSocket() client: AuthenticatedSocket,
     @MessageBody() data: { msgId: string },
   ) {
-    const pending = data?.msgId ? this.pendingAcks.get(data.msgId) : undefined;
-    const isRecipient =
+    if (!data?.msgId || !client.data?.tenantId) {
+      return { status: 'ACK_RECEIVED', msgId: data?.msgId };
+    }
+
+    const candidateKeys = [client.data.userId];
+    if (client.data.customerId) {
+      candidateKeys.push(`customer:${client.data.customerId}`);
+    }
+
+    const pending = this.pendingAcks.get(data.msgId);
+    const isLocalRecipient =
       pending &&
-      pending.tenantId === client.data?.tenantId &&
-      (pending.userId === client.data?.userId ||
-        (Boolean(client.data?.customerId) && pending.userId === `customer:${client.data.customerId}`));
-    if (isRecipient) {
+      pending.tenantId === client.data.tenantId &&
+      candidateKeys.includes(pending.userId);
+
+    if (isLocalRecipient) {
       clearTimeout(pending.timeout);
       this.pendingAcks.delete(data.msgId);
+    }
+
+    const confirmedClusterWide = await this.offlineBuffer.confirmAck(
+      data.msgId,
+      client.data.tenantId,
+      candidateKeys,
+    );
+
+    if (isLocalRecipient || confirmedClusterWide) {
       this.logger.log(`[ACK Received] Client ${client.id} acknowledged msgId '${data.msgId}'`);
     }
-    return { status: 'ACK_RECEIVED', msgId: data?.msgId };
+    return { status: 'ACK_RECEIVED', msgId: data.msgId };
   }
 
   // ── Helper Broadcast Methods ─────────────────────────────────────────────
@@ -176,14 +194,17 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
       data,
     };
 
+    await this.offlineBuffer.markPendingAck(msgId, tenantId, userId);
+
     // Emit event with msgId
     this.server.to(room).emit(event, payload);
     this.logger.log(`[Broadcast -> Room ${room}] Event: ${event} | msgId: ${msgId}`);
 
-    // TASK-005: 5-second ACK timeout check
+    // TASK-005: 5-second ACK timeout check (cluster-safe via Redis pending_ack key)
     const timeout = setTimeout(async () => {
-      if (this.pendingAcks.has(msgId)) {
-        this.pendingAcks.delete(msgId);
+      this.pendingAcks.delete(msgId);
+      const stillPending = await this.offlineBuffer.isStillPendingAck(msgId);
+      if (stillPending) {
         this.logger.warn(`[ACK Timeout] No ACK received for msgId '${msgId}'. Buffering for User ${userId}...`);
         await this.offlineBuffer.bufferMessage({
           msgId,
@@ -203,6 +224,9 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     const room = `customer:${tenantId}:${customerId}`;
     const bufferRecipientKey = `customer:${customerId}`;
     const msgId = `msg_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+
+    await this.offlineBuffer.markPendingAck(msgId, tenantId, bufferRecipientKey);
+
     this.server.to(room).emit(event, {
       event,
       tenantId,
@@ -211,8 +235,9 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
       data,
     });
     const timeout = setTimeout(async () => {
-      if (this.pendingAcks.has(msgId)) {
-        this.pendingAcks.delete(msgId);
+      this.pendingAcks.delete(msgId);
+      const stillPending = await this.offlineBuffer.isStillPendingAck(msgId);
+      if (stillPending) {
         this.logger.warn(`[ACK Timeout] No ACK received for msgId '${msgId}'. Buffering for Customer ${customerId}...`);
         await this.offlineBuffer.bufferMessage({
           msgId,
@@ -243,4 +268,3 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     this.logger.log(`[Broadcast -> Room ${room}] Event: ${event}`);
   }
 }
-

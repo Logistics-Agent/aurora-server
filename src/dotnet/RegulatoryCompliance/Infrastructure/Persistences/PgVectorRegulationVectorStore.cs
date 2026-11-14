@@ -1,3 +1,4 @@
+using System.Numerics.Tensors;
 using Microsoft.EntityFrameworkCore;
 using Pgvector;
 using Pgvector.EntityFrameworkCore;
@@ -155,6 +156,12 @@ public sealed class PgVectorRegulationVectorStore(
 
     private static double ComputeCosineDistance(float[] a, float[] b)
     {
+        if (a.Length == b.Length && a.Length > 0)
+        {
+            float sim = TensorPrimitives.CosineSimilarity(a, b);
+            if (!float.IsFinite(sim)) return 1.0;
+            return Math.Max(0.0, 1.0 - sim);
+        }
         double dot = 0.0, normA = 0.0, normB = 0.0;
         for (int i = 0; i < Math.Min(a.Length, b.Length); i++)
         {

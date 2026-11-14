@@ -1,7 +1,8 @@
 import { describe, it } from 'node:test';
 import * as assert from 'node:assert/strict';
 import { BillingService } from './billing.service';
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, UnauthorizedException } from '@nestjs/common';
+import { createHmac } from 'crypto';
 
 describe('BillingService', () => {
   it('enforces idempotency on duplicate transactionRef in recordPayment', async () => {
@@ -155,6 +156,25 @@ describe('BillingService', () => {
           referenceNo: 'REF-2',
         }),
       BadRequestException,
+    );
+  });
+
+  it('verifies HMAC-SHA256 payment webhook signature and rejects forged signatures', () => {
+    const service = new BillingService({} as any, {} as any, {} as any, {} as any);
+    const payload = {
+      tenantId: 'tenant-1',
+      invoiceId: 'inv-1',
+      amountPaid: 500,
+      transactionRef: 'TX-WEBHOOK-001',
+    };
+    const validSig = createHmac('sha256', 'aurora-webhook-secret')
+      .update('tenant-1:inv-1:500.00:TX-WEBHOOK-001')
+      .digest('hex');
+
+    assert.doesNotThrow(() => service.verifyPaymentWebhookSignature(payload, validSig));
+    assert.throws(
+      () => service.verifyPaymentWebhookSignature(payload, 'invalid-forged-signature'),
+      UnauthorizedException,
     );
   });
 });

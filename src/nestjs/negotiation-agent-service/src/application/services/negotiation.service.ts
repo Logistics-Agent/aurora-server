@@ -110,13 +110,12 @@ export class NegotiationService {
     if (requestedSessionId && !session) throw new NotFoundException('Negotiation session not found');
     if (session && session.status !== 'OPEN') throw new ConflictException('Negotiation session is closed');
     if (!session) {
-      if (this.config.get<string>('NODE_ENV') === 'production') {
-        throw new ServiceUnavailableException('Authoritative shipment pricing is not connected; a negotiation session cannot be opened');
-      }
-      if (!Number.isFinite(listPrice) || !Number.isFinite(bottomPrice) ||
-          listPrice <= 0 || bottomPrice <= 0 || bottomPrice > listPrice) {
-        throw new BadRequestException('Valid listPrice and bottomPrice are required to open a session');
-      }
+      const resolvedPricing = await this.resolveAuthoritativePricing(
+        tenantId,
+        shipmentId,
+        listPrice,
+        bottomPrice,
+      );
       session = await this.prisma.negotiationSession.create({
         data: {
           tenantId,
@@ -125,8 +124,8 @@ export class NegotiationService {
           status: 'OPEN',
           currentRound: 1,
           maxRounds: 5,
-          listPrice: listPrice!,
-          bottomPrice: bottomPrice!,
+          listPrice: resolvedPricing.listPrice,
+          bottomPrice: resolvedPricing.bottomPrice,
           currency,
           sourceMessageId,
           sourceThreadId,
@@ -312,9 +311,75 @@ export class NegotiationService {
   }
 
   /**
+   * Resolves authoritative listPrice & bottomPrice from financial-service when configured,
+   * or validates caller-supplied pricing in non-production environments.
+   */
+  private async resolveAuthoritativePricing(
+    tenantId: string,
+    shipmentId: string,
+    inputListPrice: number,
+    inputBottomPrice: number,
+  ): Promise<{ listPrice: number; bottomPrice: number }> {
+    const financialServiceUrl = this.config.get<string>('FINANCIAL_SERVICE_URL');
+    if (financialServiceUrl?.trim()) {
+      try {
+        const baseUrl = financialServiceUrl.trim().replace(/\/+$/, '');
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 2500);
+        const res = await fetch(
+          `${baseUrl}/api/v1/financial/quotes/${encodeURIComponent(shipmentId)}`,
+          {
+            headers: { 'x-tenant-id': tenantId, Accept: 'application/json' },
+            signal: controller.signal,
+          },
+        );
+        clearTimeout(timer);
+        if (res.ok) {
+          const payload = (await res.json()) as Record<string, any>;
+          const quoteData = payload?.data ?? payload;
+          const remoteList = Number(quoteData?.listPrice ?? quoteData?.finalPrice);
+          const remoteBottom = Number(quoteData?.bottomPrice ?? quoteData?.floorPrice);
+          if (
+            Number.isFinite(remoteList) &&
+            Number.isFinite(remoteBottom) &&
+            remoteList > 0 &&
+            remoteBottom > 0 &&
+            remoteBottom <= remoteList
+          ) {
+            return { listPrice: remoteList, bottomPrice: remoteBottom };
+          }
+        }
+      } catch (err) {
+        this.logger.warn(
+          `[Negotiation] Failed to fetch authoritative pricing from FINANCIAL_SERVICE_URL for shipment ${shipmentId}: ${(err as Error).message}`,
+        );
+      }
+    }
+
+    if (this.config.get<string>('NODE_ENV') === 'production') {
+      throw new ServiceUnavailableException(
+        'Authoritative shipment pricing is not connected; a negotiation session cannot be opened',
+      );
+    }
+
+    if (
+      !Number.isFinite(inputListPrice) ||
+      !Number.isFinite(inputBottomPrice) ||
+      inputListPrice <= 0 ||
+      inputBottomPrice <= 0 ||
+      inputBottomPrice > inputListPrice
+    ) {
+      throw new BadRequestException('Valid listPrice and bottomPrice are required to open a session');
+    }
+
+    return { listPrice: inputListPrice, bottomPrice: inputBottomPrice };
+  }
+
+  /**
    * Validates that LLM generated text respects approved pricing and decision semantics.
-   * Handles thousand separators (e.g. $4,520.00 or 4,520 USD) and allows referencing
-   * the customer's offer alongside the approved counter-offer without false rejections.
+   * Handles thousand separators and prefix/suffix currency formats ($4,520.00, USD 4,520, or 4,520 USD),
+   * allows referencing the customer's offer alongside the approved counter-offer, and blocks
+   * contradictory acceptance statements during a COUNTER_OFFER.
    */
   private validateAiWording(
     content: string,
@@ -325,13 +390,21 @@ export class NegotiationService {
   ): boolean {
     if (!content || content.trim().length === 0) return false;
 
+    if (
+      expectedDecision === 'COUNTER_OFFER' &&
+      /\b(your offer (has been|is) accepted|we accept your offer|pleased to accept your offer|deal is accepted)\b/i.test(content)
+    ) {
+      return false;
+    }
+
     // In COUNTER_OFFER or ACCEPT, validate any mentioned prices against approvedAmount (and optional customerOffer echo)
     if (expectedDecision === 'COUNTER_OFFER' || expectedDecision === 'ACCEPT') {
-      const priceRegex = /\$\s*([\d,]+(?:\.\d+)?)|([\d,]+(?:\.\d+)?)\s*USD/gi;
+      const priceRegex =
+        /\$\s*([\d,]+(?:\.\d+)?)|USD\s*([\d,]+(?:\.\d+)?)|([\d,]+(?:\.\d+)?)\s*USD/gi;
       const mentionedPrices: number[] = [];
       let match: RegExpExecArray | null;
       while ((match = priceRegex.exec(content)) !== null) {
-        const rawNum = match[1] || match[2];
+        const rawNum = match[1] || match[2] || match[3];
         if (rawNum) {
           const sanitized = rawNum.replace(/,/g, '');
           const foundVal = parseFloat(sanitized);

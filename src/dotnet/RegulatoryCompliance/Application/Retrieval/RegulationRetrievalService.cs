@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
 using RegulatoryCompliance.Application.Embeddings;
 using RegulatoryCompliance.Domain.Entities;
@@ -101,20 +102,27 @@ public sealed class RegulationRetrievalService(
                 docQuery = docQuery.Where(d => d.JurisdictionCode == jurisdiction || d.JurisdictionCode == "GLOBAL");
             }
 
-            if (!string.IsNullOrWhiteSpace(language))
-            {
-                docQuery = docQuery.Where(d => d.LanguageCode == language);
-            }
-
             if (types.Length > 0)
             {
                 docQuery = docQuery.Where(d => types.Contains(d.RegulationType));
             }
 
-            var docList = await docQuery
-                .OrderByDescending(d => d.CreatedAt)
-                .Take(input.TopK)
-                .ToListAsync(cancellationToken);
+            var docList = !string.IsNullOrWhiteSpace(language)
+                ? await docQuery
+                    .Where(d => d.LanguageCode == language)
+                    .OrderByDescending(d => d.CreatedAt)
+                    .Take(input.TopK)
+                    .ToListAsync(cancellationToken)
+                : [];
+
+            // Cross-lingual fallback when strict language filter yields 0 documents
+            if (docList.Count == 0)
+            {
+                docList = await docQuery
+                    .OrderByDescending(d => d.CreatedAt)
+                    .Take(input.TopK)
+                    .ToListAsync(cancellationToken);
+            }
 
             var listResults = new List<RegulationEvidenceResult>();
             foreach (var doc in docList)
@@ -145,23 +153,25 @@ public sealed class RegulationRetrievalService(
             return await BuildResultAsync(dbContext, input, tenantId, jurisdiction, language, types, listResults, "Retrieved all regulatory sources.", cancellationToken);
         }
 
-        var candidateIds = await (
-                from chunk in dbContext.RegulatoryChunks.AsNoTracking()
-                join version in dbContext.RegulatoryDocumentVersions.AsNoTracking()
-                    on chunk.RegulatoryDocumentVersionId equals version.Id
-                join document in dbContext.RegulatoryDocuments.AsNoTracking()
-                    on version.RegulatoryDocumentId equals document.Id
-                where version.IngestionStatus == RegulatoryIngestionStatus.Completed
-                      && version.SupersededAt == null
-                      && version.EffectiveFrom <= input.EffectiveAt
-                      && (version.EffectiveTo == null || input.EffectiveAt < version.EffectiveTo)
-                      && (string.IsNullOrWhiteSpace(jurisdiction) || document.JurisdictionCode == jurisdiction || document.JurisdictionCode == "GLOBAL")
-                      && (string.IsNullOrWhiteSpace(language) || document.LanguageCode == language)
-                      && types.Contains(document.RegulationType)
-                orderby chunk.Id
-                select chunk.Id)
-            .Take(MaximumCandidateChunks)
-            .ToArrayAsync(cancellationToken);
+        var candidateIds = await QueryCandidateChunkIdsAsync(
+            dbContext,
+            input.EffectiveAt,
+            jurisdiction,
+            language,
+            types,
+            cancellationToken);
+
+        // Cross-lingual fallback (Item 9): If strict language filter returns 0 chunks (e.g. 'en' query against 'vi' corpus or vice versa), retry across all languages
+        if (candidateIds.Length == 0 && !string.IsNullOrWhiteSpace(language))
+        {
+            candidateIds = await QueryCandidateChunkIdsAsync(
+                dbContext,
+                input.EffectiveAt,
+                jurisdiction,
+                string.Empty,
+                types,
+                cancellationToken);
+        }
 
         if (candidateIds.Length == 0)
             return await BuildResultAsync(dbContext, input, tenantId, jurisdiction, language, types, [], "Insufficient regulatory evidence was found for the supplied filters.", cancellationToken);
@@ -204,28 +214,40 @@ public sealed class RegulationRetrievalService(
                 where selectedIds.Contains(chunk.Id)
                 select new { Chunk = chunk, Version = version, Document = document })
             .ToDictionaryAsync(item => item.Chunk.Id, cancellationToken);
-        var evidence = Deduplicate(selected.Select(item =>
-        {
-            var source = metadata[item.ChunkId];
-            return new RegulationEvidenceResult(
-                source.Document.Id,
-                source.Version.Id,
-                source.Chunk.Id,
-                source.Document.RegulationType,
-                source.Document.JurisdictionCode,
-                source.Document.LanguageCode,
-                source.Document.Authority,
-                source.Document.Title,
-                source.Document.CanonicalSourceUri,
-                source.Version.VersionLabel,
-                source.Chunk.SectionLabel,
-                source.Chunk.PageLabel,
-                source.Version.EffectiveFrom,
-                source.Version.EffectiveTo,
-                source.Chunk.NormalizedText[..Math.Min(
-                    source.Chunk.NormalizedText.Length, MaximumExcerptCharacters)],
-                item.Score);
-        })).Take(input.TopK).ToArray();
+
+        // Hybrid Search (Item 8): Combine Vector Similarity with Exact Code / Lexical Boost (HS Codes, UN Codes, Decree Numbers)
+        var boostedResults = selected
+            .Select(item =>
+            {
+                var source = metadata[item.ChunkId];
+                var hybridBoost = ComputeHybridLexicalBoost(
+                    input.Query,
+                    source.Chunk.NormalizedText,
+                    source.Document.Title);
+                var finalScore = Math.Clamp(decimal.Round(item.Score + hybridBoost, 4), 0m, 1m);
+                return new RegulationEvidenceResult(
+                    source.Document.Id,
+                    source.Version.Id,
+                    source.Chunk.Id,
+                    source.Document.RegulationType,
+                    source.Document.JurisdictionCode,
+                    source.Document.LanguageCode,
+                    source.Document.Authority,
+                    source.Document.Title,
+                    source.Document.CanonicalSourceUri,
+                    source.Version.VersionLabel,
+                    source.Chunk.SectionLabel,
+                    source.Chunk.PageLabel,
+                    source.Version.EffectiveFrom,
+                    source.Version.EffectiveTo,
+                    source.Chunk.NormalizedText[..Math.Min(
+                        source.Chunk.NormalizedText.Length, MaximumExcerptCharacters)],
+                    finalScore);
+            })
+            .OrderByDescending(item => item.RelevanceScore)
+            .ThenBy(item => item.ChunkId);
+
+        var evidence = Deduplicate(boostedResults).Take(input.TopK).ToArray();
         var explanation = evidence.Length == 0
             ? "Insufficient regulatory evidence was found for the supplied filters."
             : $"Retrieved {evidence.Length} evidence passage(s). Conclusions must be limited to the cited source text.";
@@ -239,6 +261,55 @@ public sealed class RegulationRetrievalService(
             evidence,
             explanation,
             cancellationToken);
+    }
+
+    private static async Task<Guid[]> QueryCandidateChunkIdsAsync(
+        RegulatoryComplianceDbContext dbContext,
+        DateTimeOffset effectiveAt,
+        string jurisdiction,
+        string language,
+        RegulationType[] types,
+        CancellationToken cancellationToken)
+    {
+        return await (
+                from chunk in dbContext.RegulatoryChunks.AsNoTracking()
+                join version in dbContext.RegulatoryDocumentVersions.AsNoTracking()
+                    on chunk.RegulatoryDocumentVersionId equals version.Id
+                join document in dbContext.RegulatoryDocuments.AsNoTracking()
+                    on version.RegulatoryDocumentId equals document.Id
+                where version.IngestionStatus == RegulatoryIngestionStatus.Completed
+                      && version.SupersededAt == null
+                      && version.EffectiveFrom <= effectiveAt
+                      && (version.EffectiveTo == null || effectiveAt < version.EffectiveTo)
+                      && (string.IsNullOrWhiteSpace(jurisdiction) || document.JurisdictionCode == jurisdiction || document.JurisdictionCode == "GLOBAL")
+                      && (string.IsNullOrWhiteSpace(language) || document.LanguageCode == language)
+                      && types.Contains(document.RegulationType)
+                orderby chunk.Id
+                select chunk.Id)
+            .Take(MaximumCandidateChunks)
+            .ToArrayAsync(cancellationToken);
+    }
+
+    private static decimal ComputeHybridLexicalBoost(string query, string chunkText, string documentTitle)
+    {
+        if (string.IsNullOrWhiteSpace(query) || string.IsNullOrWhiteSpace(chunkText))
+            return 0m;
+
+        decimal boost = 0m;
+        var combinedTarget = $"{documentTitle} {chunkText}";
+
+        // Exact HS Code / UN Code / Regulation Number match boost (+0.12m)
+        var codeMatches = Regex.Matches(query, @"\b(?:UN\s?\d{2,4}(?:\.\d+)?|\d{4,12})\b", RegexOptions.IgnoreCase);
+        foreach (Match match in codeMatches)
+        {
+            if (combinedTarget.Contains(match.Value, StringComparison.OrdinalIgnoreCase))
+            {
+                boost += 0.12m;
+                break;
+            }
+        }
+
+        return Math.Min(0.15m, boost);
     }
 
     private async Task<RegulationQueryResult> QueryByKeywordAsync(
@@ -270,6 +341,25 @@ public sealed class RegulationRetrievalService(
             select new { Chunk = chunk, Version = version, Document = document })
             .Take(MaximumCandidateChunks)
             .ToListAsync(cancellationToken);
+
+        if (rows.Count == 0 && !string.IsNullOrWhiteSpace(language))
+        {
+            rows = await (
+                from chunk in dbContext.RegulatoryChunks.AsNoTracking()
+                join version in dbContext.RegulatoryDocumentVersions.AsNoTracking()
+                    on chunk.RegulatoryDocumentVersionId equals version.Id
+                join document in dbContext.RegulatoryDocuments.AsNoTracking()
+                    on version.RegulatoryDocumentId equals document.Id
+                where version.IngestionStatus == RegulatoryIngestionStatus.Completed
+                      && version.SupersededAt == null
+                      && version.EffectiveFrom <= input.EffectiveAt
+                      && (version.EffectiveTo == null || input.EffectiveAt < version.EffectiveTo)
+                      && (string.IsNullOrWhiteSpace(jurisdiction) || document.JurisdictionCode == jurisdiction || document.JurisdictionCode == "GLOBAL")
+                      && types.Contains(document.RegulationType)
+                select new { Chunk = chunk, Version = version, Document = document })
+                .Take(MaximumCandidateChunks)
+                .ToListAsync(cancellationToken);
+        }
 
         var evidence = rows
             .Select(row =>

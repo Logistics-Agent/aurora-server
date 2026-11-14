@@ -190,6 +190,36 @@ public sealed class ComplianceEvaluationServiceTests
             tenantBService.GetAsync(evaluationId));
     }
 
+    [Fact]
+    public async Task CrossDocumentWeightAndHsCodeMismatchProducesHighRiskViolation()
+    {
+        var tenantId = Guid.CreateVersion7();
+        var currentUser = CurrentUser(tenantId);
+        await using var context = CreateContext(currentUser);
+        var retrieval = new FakeRetrievalService(context, tenantId, EvidenceSufficiency.Sufficient);
+        var service = CreateService(context, currentUser, retrieval);
+
+        var mismatchedInput = Input() with
+        {
+            Documents =
+            [
+                new OcrEvaluationSnapshot(
+                    Guid.CreateVersion7(),
+                    "CommercialInvoice",
+                    "{\"fields\":{\"weightKg\":620,\"hsCode\":\"999900\"}}",
+                    0.95m,
+                    false),
+                Document("PackingList")
+            ]
+        };
+
+        var evaluation = await service.EvaluateAsync(mismatchedInput);
+
+        Assert.Equal(ComplianceRiskLevel.High, evaluation.RiskLevel);
+        Assert.Contains(evaluation.Findings, f => f.Code == "CROSS-DOC-WEIGHT-MISMATCH" && f.Type == ComplianceFindingType.Violation);
+        Assert.Contains(evaluation.Findings, f => f.Code == "CROSS-DOC-HSCODE-MISMATCH" && f.Type == ComplianceFindingType.Violation);
+    }
+
     private static ComplianceEvaluationService CreateService(
         RegulatoryComplianceDbContext context,
         ICurrentUserService currentUser,

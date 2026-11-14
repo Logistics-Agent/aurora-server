@@ -15,6 +15,7 @@ export class ShipmentLookupTool implements IAssistantTool {
 
   async execute(context: ToolExecutionContext, params?: any): Promise<ToolResult> {
     const { actorType, customerId, tenantId } = context.currentUser;
+    const isEn = String(params?.language || '').toLowerCase() === 'en';
 
     if (!this.allowedActors.includes(actorType)) {
       throw new ForbiddenException(`Actor ${actorType} is not authorized to execute ${this.name}`);
@@ -41,7 +42,9 @@ export class ShipmentLookupTool implements IAssistantTool {
             toolName: this.name,
             success: false,
             data: null,
-            summary: `Không tìm thấy hoặc quý khách không có quyền truy cập lô hàng ${specificShipmentId || specificShipmentNo}.`,
+            summary: isEn
+              ? `Shipment ${specificShipmentId || specificShipmentNo} was not found or access is denied.`
+              : `Không tìm thấy hoặc quý khách không có quyền truy cập lô hàng ${specificShipmentId || specificShipmentNo}.`,
           };
         }
 
@@ -49,12 +52,18 @@ export class ShipmentLookupTool implements IAssistantTool {
           toolName: this.name,
           success: true,
           data: shipment,
-          summary: `Lô hàng ${shipment.shipmentId} (${shipment.originPort} -> ${shipment.destinationPort}) hiện có trạng thái ${shipment.status}${shipment.currentLocation ? `. Vị trí hiện tại: ${shipment.currentLocation}` : ''}.`,
+          summary: isEn
+            ? `Shipment ${shipment.shipmentId} (${shipment.originPort} -> ${shipment.destinationPort}) is currently ${shipment.status}${shipment.currentLocation ? `. Current location: ${shipment.currentLocation}` : ''}.`
+            : `Lô hàng ${shipment.shipmentId} (${shipment.originPort} -> ${shipment.destinationPort}) hiện có trạng thái ${shipment.status}${shipment.currentLocation ? `. Vị trí hiện tại: ${shipment.currentLocation}` : ''}.`,
         };
       }
       return {
-        toolName: this.name, success: false, data: null,
-        summary: `Không tìm thấy lô hàng ${specificShipmentId || specificShipmentNo}.`,
+        toolName: this.name,
+        success: false,
+        data: null,
+        summary: isEn
+          ? `Shipment ${specificShipmentId || specificShipmentNo} was not found.`
+          : `Không tìm thấy lô hàng ${specificShipmentId || specificShipmentNo}.`,
       };
     }
 
@@ -66,7 +75,9 @@ export class ShipmentLookupTool implements IAssistantTool {
           toolName: this.name,
           success: true,
           data: [],
-          summary: `Hiện tại không tìm thấy lô hàng nào đang hoạt động cho tài khoản quý khách.`,
+          summary: isEn
+            ? `No active shipments were found for your account.`
+            : `Hiện tại không tìm thấy lô hàng nào đang hoạt động cho tài khoản quý khách.`,
         };
       }
 
@@ -75,7 +86,9 @@ export class ShipmentLookupTool implements IAssistantTool {
         toolName: this.name,
         success: true,
         data: shipments,
-        summary: `Hiển thị ${shipments.length} lô hàng gần nhất. Lô ${primary.shipmentId} (${primary.originPort} -> ${primary.destinationPort}) trạng thái: ${primary.status}.`,
+        summary: isEn
+          ? `Showing ${shipments.length} recent shipment(s). Shipment ${primary.shipmentId} (${primary.originPort} -> ${primary.destinationPort}) status: ${primary.status}.`
+          : `Hiển thị ${shipments.length} lô hàng gần nhất. Lô ${primary.shipmentId} (${primary.originPort} -> ${primary.destinationPort}) trạng thái: ${primary.status}.`,
       };
     }
 
@@ -88,7 +101,9 @@ export class ShipmentLookupTool implements IAssistantTool {
         toolName: this.name,
         success: true,
         data: [],
-        summary: `Không tìm thấy lô hàng nào cho khách hàng ${targetCustId} trong hệ thống.`,
+        summary: isEn
+          ? `No shipments were found for customer ${targetCustId} in the system.`
+          : `Không tìm thấy lô hàng nào cho khách hàng ${targetCustId} trong hệ thống.`,
       };
     }
 
@@ -97,7 +112,9 @@ export class ShipmentLookupTool implements IAssistantTool {
       toolName: this.name,
       success: true,
       data: shipments,
-      summary: `[Staff View] Khách hàng ${targetCustId} có ${shipments.length} lô hàng. Lô ${primary.shipmentId} (${primary.originPort} -> ${primary.destinationPort}) trạng thái: ${primary.status}.`,
+      summary: isEn
+        ? `[Staff View] Customer ${targetCustId} has ${shipments.length} shipment(s). Shipment ${primary.shipmentId} (${primary.originPort} -> ${primary.destinationPort}) status: ${primary.status}.`
+        : `[Staff View] Khách hàng ${targetCustId} có ${shipments.length} lô hàng. Lô ${primary.shipmentId} (${primary.originPort} -> ${primary.destinationPort}) trạng thái: ${primary.status}.`,
     };
   }
 }

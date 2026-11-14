@@ -59,22 +59,7 @@ export class IntentRouterService {
       qLower.includes('vị trí') ||
       qLower.includes('theo dõi');
 
-    // 2. Billing & Debt queries (supports parallel multi-tool execution if shipment tracking is also requested)
-    if (mentionsBilling) {
-      return {
-        intent: AssistantIntent.BILLING_QUERY,
-        decision: NeedRagDecision.DOMAIN_QUERY,
-        confidence: 0.95,
-        extractedParameters: {
-          targetCustomerId,
-          shipmentId,
-          shipmentNo,
-          includeShipmentLookup: mentionsShipmentTracking,
-        },
-      };
-    }
-
-    // 3. Hybrid / SOP / Regulatory queries (evaluated before generic "lô hàng" keyword unless SHP-... is present)
+    // 2. Hybrid / SOP / Regulatory queries (supports cross-domain execution if shipment/billing is also mentioned)
     const mentionsLaw =
       qLower.includes('luật') ||
       qLower.includes('nghị định') ||
@@ -102,11 +87,20 @@ export class IntentRouterService {
       qLower.includes('xuất khẩu') ||
       qLower.includes('nhập khẩu');
 
+    const crossDomainParams = {
+      targetCustomerId,
+      shipmentId,
+      shipmentNo,
+      includeShipmentLookup: mentionsShipmentTracking,
+      includeBillingSummary: mentionsBilling,
+    };
+
     if (mentionsLaw && mentionsSop) {
       return {
         intent: AssistantIntent.HYBRID_RAG_QUERY,
         decision: NeedRagDecision.RAG_HYBRID,
         confidence: 0.9,
+        extractedParameters: crossDomainParams,
       };
     }
 
@@ -115,14 +109,26 @@ export class IntentRouterService {
         intent: AssistantIntent.KNOWLEDGE_QUERY,
         decision: NeedRagDecision.RAG_KNOWLEDGE,
         confidence: 0.85,
+        extractedParameters: crossDomainParams,
       };
     }
 
-    if (mentionsRegulatoryTopic && !shipmentNo) {
+    if (mentionsRegulatoryTopic) {
       return {
         intent: AssistantIntent.REGULATORY_QUERY,
         decision: NeedRagDecision.RAG_REGULATORY,
         confidence: 0.85,
+        extractedParameters: crossDomainParams,
+      };
+    }
+
+    // 3. Billing & Debt queries (supports parallel multi-tool execution if shipment tracking is also requested)
+    if (mentionsBilling) {
+      return {
+        intent: AssistantIntent.BILLING_QUERY,
+        decision: NeedRagDecision.DOMAIN_QUERY,
+        confidence: 0.95,
+        extractedParameters: crossDomainParams,
       };
     }
 

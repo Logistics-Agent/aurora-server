@@ -15,7 +15,7 @@ import {
 import { AssistantIntent } from '../../domain/enums/assistant-intent.enum';
 import { NeedRagDecision } from '../../domain/enums/need-rag-decision.enum';
 import { CurrentUser } from '../../infrastructure/security/current-user.interface';
-import { IntentRouterService } from '../intent/intent-router.service';
+import { IntentRouterService, IntentClassificationResult } from '../intent/intent-router.service';
 import { ToolRegistryService } from '../tools/tool-registry.service';
 import { ConversationalPromptBuilder } from '../prompt/conversational-prompt-builder';
 import { AiGovernanceGrpcClient } from '../../infrastructure/grpc/ai-governance.grpc-client';
@@ -239,96 +239,20 @@ export class ConversationalAssistantOrchestrator {
 
       case NeedRagDecision.DOMAIN_QUERY: {
         capabilityCode = 'assistant.domain.read';
-        const runShipment =
-          classification.intent === AssistantIntent.SHIPMENT_QUERY ||
-          Boolean(classification.extractedParameters?.includeShipmentLookup);
-        const runBilling =
-          classification.intent === AssistantIntent.BILLING_QUERY ||
-          Boolean(classification.extractedParameters?.includeBillingSummary);
-
-        const summaries: string[] = [];
-        let anySucceeded = false;
-
-        const tasks: Array<Promise<void>> = [];
-
-        if (runShipment) {
-          tasks.push(
-            (async () => {
-              const toolStart = Date.now();
-              try {
-                const toolRes = await this.toolRegistry.executeTool(
-                  'ShipmentLookupTool',
-                  { currentUser, conversationId },
-                  classification.extractedParameters,
-                );
-                summaries.push(toolRes.summary);
-                if (toolRes.success) anySucceeded = true;
-                toolCallsMetadata.push({
-                  toolName: 'ShipmentLookupTool',
-                  outcome: toolRes.success ? 'SUCCESS' : 'FAILED',
-                  durationMs: Date.now() - toolStart,
-                });
-              } catch (e) {
-                toolCallsMetadata.push({
-                  toolName: 'ShipmentLookupTool',
-                  outcome: e instanceof ForbiddenException ? 'DENIED' : 'FAILED',
-                  durationMs: Date.now() - toolStart,
-                });
-                summaries.push(
-                  e instanceof ForbiddenException
-                    ? 'Không có quyền truy cập dữ liệu lô hàng.'
-                    : e instanceof BadRequestException
-                      ? 'Cần cung cấp mã lô hàng hoặc mã khách hàng để tra cứu.'
-                      : 'Dữ liệu lô hàng tạm thời không truy cập được. Vui lòng thử lại sau.',
-                );
-              }
-            })(),
-          );
-        }
-
-        if (runBilling) {
-          tasks.push(
-            (async () => {
-              const toolStart = Date.now();
-              try {
-                const toolRes = await this.toolRegistry.executeTool(
-                  'BillingSummaryTool',
-                  { currentUser, conversationId },
-                  classification.extractedParameters,
-                );
-                summaries.push(toolRes.summary);
-                if (toolRes.success) anySucceeded = true;
-                toolCallsMetadata.push({
-                  toolName: 'BillingSummaryTool',
-                  outcome: toolRes.success ? 'SUCCESS' : 'FAILED',
-                  durationMs: Date.now() - toolStart,
-                });
-              } catch (e) {
-                toolCallsMetadata.push({
-                  toolName: 'BillingSummaryTool',
-                  outcome: e instanceof ForbiddenException ? 'DENIED' : 'FAILED',
-                  durationMs: Date.now() - toolStart,
-                });
-                summaries.push(
-                  e instanceof ForbiddenException
-                    ? 'Không có quyền truy cập thông tin công nợ.'
-                    : e instanceof BadRequestException
-                      ? 'Cần cung cấp mã khách hàng để tra cứu công nợ.'
-                      : 'Dữ liệu công nợ tạm thời không truy cập được. Vui lòng thử lại sau.',
-                );
-              }
-            })(),
-          );
-        }
-
-        await Promise.all(tasks);
-        answerText = summaries.join('\n\n');
-        isInsufficient = !anySucceeded;
+        const domainExec = await this.executeRequestedDomainTools(
+          classification,
+          currentUser,
+          conversationId,
+          conv.preferredLanguage,
+          toolCallsMetadata,
+        );
+        answerText = domainExec.summaryText;
+        isInsufficient = !domainExec.anySucceeded;
         break;
       }
 
       case NeedRagDecision.RAG_KNOWLEDGE: {
-        // Pure Knowledge RAG (capability: knowledge.answer)
+        // Pure Knowledge RAG (capability: knowledge.answer) + optional cross-domain tool execution
         capabilityCode = 'knowledge.answer';
         const access = this.accessPolicy.canSearchKnowledge(currentUser.actorType, currentUser.tenantId, [], currentUser);
         if (!access.allowed) {
@@ -337,17 +261,28 @@ export class ConversationalAssistantOrchestrator {
           break;
         }
 
-        const knowEvidence = await this.complianceClient.queryKnowledge(
-          trimmedMessage,
-          access.effectiveCategories || [],
-          5,
-          0.4,
-          currentUser,
-        );
+        const [knowEvidence, domainExec] = await Promise.all([
+          this.complianceClient.queryKnowledge(
+            trimmedMessage,
+            access.effectiveCategories || [],
+            5,
+            0.4,
+            currentUser,
+          ),
+          this.executeRequestedDomainTools(
+            classification,
+            currentUser,
+            conversationId,
+            conv.preferredLanguage,
+            toolCallsMetadata,
+          ),
+        ]);
 
         if (knowEvidence.length === 0) {
-          answerText = 'Không tìm thấy quy trình SOP hoặc tài liệu nội bộ nào phù hợp với yêu cầu của quý khách.';
-          isInsufficient = true;
+          answerText = domainExec.summaryText
+            ? `${domainExec.summaryText}\n\nKhông tìm thấy quy trình SOP hoặc tài liệu nội bộ nào phù hợp với yêu cầu của quý khách.`
+            : 'Không tìm thấy quy trình SOP hoặc tài liệu nội bộ nào phù hợp với yêu cầu của quý khách.';
+          isInsufficient = !domainExec.anySucceeded;
           break;
         }
 
@@ -362,10 +297,12 @@ export class ConversationalAssistantOrchestrator {
           currentUser,
         );
 
-        answerText = groundedRes.answer;
+        answerText = domainExec.summaryText
+          ? `${domainExec.summaryText}\n\n${groundedRes.answer}`
+          : groundedRes.answer;
         knowledgeSources = groundedRes.knowledgeReferences;
         conflicts = groundedRes.conflicts;
-        isInsufficient = groundedRes.insufficientEvidence;
+        isInsufficient = groundedRes.insufficientEvidence && !domainExec.anySucceeded;
         governanceInfo = {
           decisionId: groundedRes.governance.decisionId,
           automationLevel: groundedRes.governance.automationLevel,
@@ -375,7 +312,7 @@ export class ConversationalAssistantOrchestrator {
       }
 
       case NeedRagDecision.RAG_REGULATORY: {
-        // Pure Regulatory RAG (capability: compliance.answer)
+        // Pure Regulatory RAG (capability: compliance.answer) + optional cross-domain tool execution
         capabilityCode = 'compliance.answer';
         const access = this.accessPolicy.canSearchRegulatory(currentUser.actorType, currentUser.tenantId, '', currentUser);
         if (!access.allowed) {
@@ -384,17 +321,28 @@ export class ConversationalAssistantOrchestrator {
           break;
         }
 
-        const regEvidence = await this.complianceClient.queryRegulations(
-          trimmedMessage,
-          access.effectiveJurisdictions?.[0] || '',
-          5,
-          0.4,
-          currentUser,
-        );
+        const [regEvidence, domainExec] = await Promise.all([
+          this.complianceClient.queryRegulations(
+            trimmedMessage,
+            access.effectiveJurisdictions?.[0] || '',
+            5,
+            0.4,
+            currentUser,
+          ),
+          this.executeRequestedDomainTools(
+            classification,
+            currentUser,
+            conversationId,
+            conv.preferredLanguage,
+            toolCallsMetadata,
+          ),
+        ]);
 
         if (regEvidence.length === 0) {
-          answerText = 'Không tìm thấy văn bản pháp luật hoặc quy định hải quan nào phù hợp với câu hỏi của quý khách.';
-          isInsufficient = true;
+          answerText = domainExec.summaryText
+            ? `${domainExec.summaryText}\n\nKhông tìm thấy văn bản pháp luật hoặc quy định hải quan nào phù hợp với câu hỏi của quý khách.`
+            : 'Không tìm thấy văn bản pháp luật hoặc quy định hải quan nào phù hợp với câu hỏi của quý khách.';
+          isInsufficient = !domainExec.anySucceeded;
           break;
         }
 
@@ -409,10 +357,12 @@ export class ConversationalAssistantOrchestrator {
           currentUser,
         );
 
-        answerText = groundedRes.answer;
+        answerText = domainExec.summaryText
+          ? `${domainExec.summaryText}\n\n${groundedRes.answer}`
+          : groundedRes.answer;
         regulatorySources = groundedRes.regulatoryCitations;
         conflicts = groundedRes.conflicts;
-        isInsufficient = groundedRes.insufficientEvidence;
+        isInsufficient = groundedRes.insufficientEvidence && !domainExec.anySucceeded;
         governanceInfo = {
           decisionId: groundedRes.governance.decisionId,
           automationLevel: groundedRes.governance.automationLevel,
@@ -423,23 +373,32 @@ export class ConversationalAssistantOrchestrator {
 
       case NeedRagDecision.RAG_HYBRID:
       default: {
-        // Stage 3: CustomerAssistant owns HYBRID synthesis (capability: assistant.answer)
+        // Stage 3: CustomerAssistant owns HYBRID synthesis (capability: assistant.answer) + optional cross-domain tools
         capabilityCode = 'assistant.answer';
         const regAccess = this.accessPolicy.canSearchRegulatory(currentUser.actorType, currentUser.tenantId, '', currentUser);
         const knowAccess = this.accessPolicy.canSearchKnowledge(currentUser.actorType, currentUser.tenantId, [], currentUser);
 
-        const [regEvidence, knowEvidence] = await Promise.all([
+        const [regEvidence, knowEvidence, domainExec] = await Promise.all([
           regAccess.allowed
             ? this.complianceClient.queryRegulations(trimmedMessage, regAccess.effectiveJurisdictions?.[0] || '', 5, 0.4, currentUser)
             : Promise.resolve([]),
           knowAccess.allowed
             ? this.complianceClient.queryKnowledge(trimmedMessage, knowAccess.effectiveCategories || [], 5, 0.4, currentUser)
             : Promise.resolve([]),
+          this.executeRequestedDomainTools(
+            classification,
+            currentUser,
+            conversationId,
+            conv.preferredLanguage,
+            toolCallsMetadata,
+          ),
         ]);
 
         if (regEvidence.length === 0 && knowEvidence.length === 0) {
-          answerText = 'Không tìm thấy quy định pháp luật hoặc tài liệu nghiệp vụ công ty phù hợp với câu hỏi của quý khách.';
-          isInsufficient = true;
+          answerText = domainExec.summaryText
+            ? `${domainExec.summaryText}\n\nKhông tìm thấy quy định pháp luật hoặc tài liệu nghiệp vụ công ty phù hợp với câu hỏi của quý khách.`
+            : 'Không tìm thấy quy định pháp luật hoặc tài liệu nghiệp vụ công ty phù hợp với câu hỏi của quý khách.';
+          isInsufficient = !domainExec.anySucceeded;
           break;
         }
 
@@ -454,11 +413,13 @@ export class ConversationalAssistantOrchestrator {
           currentUser,
         );
 
-        answerText = groundedRes.answer;
+        answerText = domainExec.summaryText
+          ? `${domainExec.summaryText}\n\n${groundedRes.answer}`
+          : groundedRes.answer;
         regulatorySources = groundedRes.regulatoryCitations;
         knowledgeSources = groundedRes.knowledgeReferences;
         conflicts = groundedRes.conflicts;
-        isInsufficient = groundedRes.insufficientEvidence;
+        isInsufficient = groundedRes.insufficientEvidence && !domainExec.anySucceeded;
         governanceInfo = {
           decisionId: groundedRes.governance.decisionId,
           automationLevel: groundedRes.governance.automationLevel,
@@ -523,6 +484,119 @@ export class ConversationalAssistantOrchestrator {
       metadata: { ...msgMetadata, outputSequenceNumber },
       timestamp: new Date().toISOString(),
     };
+  }
+
+  private async executeRequestedDomainTools(
+    classification: IntentClassificationResult,
+    currentUser: CurrentUser,
+    conversationId: string,
+    preferredLanguage: string,
+    toolCallsMetadata: Array<{ toolName: string; outcome: 'SUCCESS' | 'FAILED' | 'DENIED'; durationMs?: number }>,
+  ): Promise<{ summaryText: string; anySucceeded: boolean }> {
+    const runShipment =
+      classification.intent === AssistantIntent.SHIPMENT_QUERY ||
+      Boolean(classification.extractedParameters?.includeShipmentLookup);
+    const runBilling =
+      classification.intent === AssistantIntent.BILLING_QUERY ||
+      Boolean(classification.extractedParameters?.includeBillingSummary);
+
+    if (!runShipment && !runBilling) {
+      return { summaryText: '', anySucceeded: false };
+    }
+
+    const toolParams = {
+      ...classification.extractedParameters,
+      language: preferredLanguage,
+    };
+    const isEn = String(preferredLanguage || '').toLowerCase() === 'en';
+    const summaries: string[] = [];
+    let anySucceeded = false;
+    const tasks: Array<Promise<void>> = [];
+
+    if (runShipment) {
+      tasks.push(
+        (async () => {
+          const toolStart = Date.now();
+          try {
+            const toolRes = await this.toolRegistry.executeTool(
+              'ShipmentLookupTool',
+              { currentUser, conversationId },
+              toolParams,
+            );
+            summaries.push(toolRes.summary);
+            if (toolRes.success) anySucceeded = true;
+            toolCallsMetadata.push({
+              toolName: 'ShipmentLookupTool',
+              outcome: toolRes.success ? 'SUCCESS' : 'FAILED',
+              durationMs: Date.now() - toolStart,
+            });
+          } catch (e) {
+            toolCallsMetadata.push({
+              toolName: 'ShipmentLookupTool',
+              outcome: e instanceof ForbiddenException ? 'DENIED' : 'FAILED',
+              durationMs: Date.now() - toolStart,
+            });
+            summaries.push(
+              e instanceof ForbiddenException
+                ? isEn
+                  ? 'Access denied to shipment data.'
+                  : 'Không có quyền truy cập dữ liệu lô hàng.'
+                : e instanceof BadRequestException
+                  ? isEn
+                    ? 'A shipment ID or customer ID is required for lookup.'
+                    : 'Cần cung cấp mã lô hàng hoặc mã khách hàng để tra cứu.'
+                  : isEn
+                    ? 'Shipment data is temporarily unavailable. Please try again later.'
+                    : 'Dữ liệu lô hàng tạm thời không truy cập được. Vui lòng thử lại sau.',
+            );
+          }
+        })(),
+      );
+    }
+
+    if (runBilling) {
+      tasks.push(
+        (async () => {
+          const toolStart = Date.now();
+          try {
+            const toolRes = await this.toolRegistry.executeTool(
+              'BillingSummaryTool',
+              { currentUser, conversationId },
+              toolParams,
+            );
+            summaries.push(toolRes.summary);
+            if (toolRes.success) anySucceeded = true;
+            toolCallsMetadata.push({
+              toolName: 'BillingSummaryTool',
+              outcome: toolRes.success ? 'SUCCESS' : 'FAILED',
+              durationMs: Date.now() - toolStart,
+            });
+          } catch (e) {
+            toolCallsMetadata.push({
+              toolName: 'BillingSummaryTool',
+              outcome: e instanceof ForbiddenException ? 'DENIED' : 'FAILED',
+              durationMs: Date.now() - toolStart,
+            });
+            summaries.push(
+              e instanceof ForbiddenException
+                ? isEn
+                  ? 'Access denied to billing information.'
+                  : 'Không có quyền truy cập thông tin công nợ.'
+                : e instanceof BadRequestException
+                  ? isEn
+                    ? 'A customer ID is required for billing lookup.'
+                    : 'Cần cung cấp mã khách hàng để tra cứu công nợ.'
+                  : isEn
+                    ? 'Billing data is temporarily unavailable. Please try again later.'
+                    : 'Dữ liệu công nợ tạm thời không truy cập được. Vui lòng thử lại sau.',
+            );
+          }
+        })(),
+      );
+    }
+
+    await Promise.all(tasks);
+    return { summaryText: summaries.join('\n\n'), anySucceeded };
   }
 
   private async synthesizeWithValidationRetry(
@@ -621,7 +695,7 @@ export class ConversationalAssistantOrchestrator {
         answer: validation1.sanitizedAnswer || 'Căn cứ các tài liệu hiện có, thông tin chưa đủ để đưa ra kết luận chắc chắn.',
         regulatoryCitations: validation1.validatedRegulatoryCitations,
         knowledgeReferences: validation1.validatedKnowledgeReferences,
-        conflicts: validation1.validatedConflicts,
+        conflicts: validation2SafeFallback(validation1),
         insufficientEvidence: true,
         governance: { decisionId: aiRes.decisionId, automationLevel: aiRes.automationLevel },
       };
@@ -673,4 +747,8 @@ export class ConversationalAssistantOrchestrator {
       };
     }
   }
+}
+
+function validation2SafeFallback(validation1: { validatedConflicts: GroundedConflictInfo[] }): GroundedConflictInfo[] {
+  return validation1.validatedConflicts;
 }
