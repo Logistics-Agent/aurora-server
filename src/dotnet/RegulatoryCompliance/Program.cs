@@ -15,6 +15,8 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddGrpc(options =>
 {
+    options.MaxReceiveMessageSize = 32 * 1024 * 1024; // 32 MB
+    options.MaxSendMessageSize = 32 * 1024 * 1024;
     options.Interceptors.Add<AuthInterceptor>();
     options.Interceptors.Add<ExceptionInterceptor>();
 });

@@ -143,6 +143,11 @@ public class SubmitOutboundMessageCommandHandler : IRequestHandler<SubmitOutboun
                     }
                 }
             }
+            else
+            {
+                // Thread not found in this tenant -> clear thread reference to prevent foreign key constraint violation
+                resolvedThreadId = null;
+            }
         }
 
         // Prepare Outbound Pipeline Context
@@ -171,6 +176,19 @@ public class SubmitOutboundMessageCommandHandler : IRequestHandler<SubmitOutboun
         if (!resultContext.IsRejected && request.DraftRootId.HasValue && request.DraftRootId.Value != Guid.Empty)
         {
             await _draftRepository.MarkAsSentAsync(request.DraftRootId.Value, cancellationToken);
+        }
+
+        // Update Thread message count and timestamp on successful reply
+        if (!resultContext.IsRejected && resolvedThreadId.HasValue)
+        {
+            var thread = await _dbContext.EmailThreads
+                .FirstOrDefaultAsync(t => t.Id == resolvedThreadId.Value && t.TenantId == tenantId, cancellationToken);
+            if (thread != null)
+            {
+                thread.LastMessageAt = DateTimeOffset.UtcNow;
+                thread.MessageCount++;
+                await _dbContext.SaveChangesAsync(cancellationToken);
+            }
         }
 
         return resultContext;

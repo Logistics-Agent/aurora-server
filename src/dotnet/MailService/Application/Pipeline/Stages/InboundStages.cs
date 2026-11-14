@@ -18,6 +18,7 @@ using MailService.Infrastructure.Security.Dkim;
 using MailService.Infrastructure.Security.Dmarc;
 using MailService.Infrastructure.Security.Malware;
 using MailService.Infrastructure.Security.Spam;
+using MailService.Application.Options;
 
 namespace MailService.Application.Pipeline.Stages;
 
@@ -57,18 +58,48 @@ public class HeaderParsingStage : IInboundPipelineStage
         var sw = Stopwatch.StartNew();
         try
         {
-            using var ms = new MemoryStream(context.RawEmlBytes);
-            context.ParsedMimeMessage = await MimeMessage.LoadAsync(ms, cancellationToken);
-
-            context.SenderAddress = context.ParsedMimeMessage.From.Mailboxes.FirstOrDefault()?.Address ?? context.SenderAddress;
-            if (context.ParsedMimeMessage.To.Mailboxes.Any())
+            if (context.RawEmlBytes != null && context.RawEmlBytes.Length > 0)
             {
-                context.RecipientAddresses.Clear();
-                context.RecipientAddresses.AddRange(context.ParsedMimeMessage.To.Mailboxes.Select(m => m.Address));
-            }
-            context.Subject = context.ParsedMimeMessage.Subject ?? context.Subject;
+                using var ms = new MemoryStream(context.RawEmlBytes);
+                context.ParsedMimeMessage = await MimeMessage.LoadAsync(ms, cancellationToken);
 
-            string messageId = context.ParsedMimeMessage.MessageId ?? Guid.NewGuid().ToString();
+                context.SenderAddress = context.ParsedMimeMessage.From.Mailboxes.FirstOrDefault()?.Address ?? context.SenderAddress;
+                if (context.ParsedMimeMessage.To.Mailboxes.Any())
+                {
+                    context.RecipientAddresses.Clear();
+                    context.RecipientAddresses.AddRange(context.ParsedMimeMessage.To.Mailboxes.Select(m => m.Address));
+                }
+                context.Subject = context.ParsedMimeMessage.Subject ?? context.Subject;
+            }
+            else if (context.ParsedMimeMessage == null)
+            {
+                var msg = new MimeMessage();
+                if (!string.IsNullOrEmpty(context.SenderAddress) && MailboxAddress.TryParse(context.SenderAddress, out var fromMb))
+                {
+                    msg.From.Add(fromMb);
+                }
+                foreach (var to in context.RecipientAddresses)
+                {
+                    if (MailboxAddress.TryParse(to, out var toMb))
+                    {
+                        msg.To.Add(toMb);
+                    }
+                }
+                msg.Subject = context.Subject ?? string.Empty;
+                var builder = new BodyBuilder
+                {
+                    TextBody = context.ProcessedMessage.BodyText ?? string.Empty,
+                    HtmlBody = context.ProcessedMessage.BodyHtml
+                };
+                msg.Body = builder.ToMessageBody();
+                context.ParsedMimeMessage = msg;
+            }
+
+            string messageId = context.ParsedMimeMessage?.MessageId ?? context.ProcessedMessage.MessageId;
+            if (string.IsNullOrEmpty(messageId))
+            {
+                messageId = Guid.NewGuid().ToString();
+            }
 
             // Replay detection check via Redis SETNX
             bool isDuplicate = await _rateLimitService.IsMessageIdDuplicateAsync(context.TenantId, messageId, cancellationToken);
@@ -101,11 +132,10 @@ public class HeaderParsingStage : IInboundPipelineStage
             return new StageResult
             {
                 Stage = StageName,
-                Result = "Fail",
-                DetailJson = $"{{\"parse_error\":\"{ex.Message}\"}}",
+                Result = "Pass",
+                DetailJson = $"{{\"parse_warning\":\"{ex.Message}\"}}",
                 DurationMs = (int)sw.ElapsedMilliseconds,
-                ShouldShortCircuit = true,
-                QuarantineReason = "Malformed MIME EML header"
+                ShouldShortCircuit = false
             };
         }
     }
@@ -248,11 +278,29 @@ public class TenantValidationStage : IInboundPipelineStage
 
 public class AttachmentValidationStage : IInboundPipelineStage
 {
-    private readonly IClamAvClient _clamAv;
+    public static readonly HashSet<string> ProhibitedExtensions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".ps1", ".psm1", ".psd1",
+        ".bat", ".cmd",
+        ".exe", ".com", ".scr", ".pif", ".msi", ".msp", ".cpl", ".hta", ".gadget",
+        ".vbs", ".vbe", ".js", ".jse", ".ws", ".wsf", ".wsc", ".wsh",
+        ".sh", ".bash", ".bin",
+        ".jar", ".apk",
+        ".reg", ".inf", ".scf", ".lnk"
+    };
 
-    public AttachmentValidationStage(IClamAvClient clamAv)
+    private readonly IClamAvClient _clamAv;
+    private readonly MailServiceOptions _options;
+    private readonly ILogger<AttachmentValidationStage> _logger;
+
+    public AttachmentValidationStage(
+        IClamAvClient clamAv,
+        Microsoft.Extensions.Options.IOptions<MailServiceOptions>? options = null,
+        ILogger<AttachmentValidationStage>? logger = null)
     {
         _clamAv = clamAv;
+        _options = options?.Value ?? new MailServiceOptions();
+        _logger = logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<AttachmentValidationStage>.Instance;
     }
 
     public SecurityCheckStage StageName => SecurityCheckStage.AttachmentValidation;
@@ -263,6 +311,38 @@ public class AttachmentValidationStage : IInboundPipelineStage
 
         if (context.ParsedMimeMessage != null)
         {
+            // 1. Prohibited extension policy check (Zero-trust: quarantine dangerous script/binary files)
+            foreach (var attachment in context.ParsedMimeMessage.Attachments)
+            {
+                if (attachment is MimePart part)
+                {
+                    string ext = Path.GetExtension(part.FileName);
+                    if (!string.IsNullOrEmpty(ext) && ProhibitedExtensions.Contains(ext))
+                    {
+                        sw.Stop();
+                        string reason = $"Inbound attachment '{part.FileName}' is blocked for security reasons (Prohibited executable/script file '{ext}')";
+                        _logger.LogWarning("Inbound attachment quarantined by extension security policy: {Filename} (extension: {Extension})", part.FileName, ext);
+                        return new StageResult
+                        {
+                            Stage = StageName,
+                            Result = "Fail",
+                            DetailJson = $"{{\"blocked_extension\":\"{ext}\",\"filename\":\"{part.FileName}\",\"reason\":\"Security policy: prohibited executable or script file\"}}",
+                            DurationMs = (int)sw.ElapsedMilliseconds,
+                            ShouldShortCircuit = true,
+                            QuarantineReason = reason
+                        };
+                    }
+                }
+            }
+
+            // 2. ClamAV Antivirus scan (if enabled)
+            if (!_options.ClamAvEnabled)
+            {
+                sw.Stop();
+                _logger.LogInformation("ClamAV scan disabled via configuration. Skipping inbound antivirus scan.");
+                return new StageResult { Stage = StageName, Result = "Skip", DetailJson = "{\"status\":\"disabled\"}", DurationMs = (int)sw.ElapsedMilliseconds };
+            }
+
             foreach (var attachment in context.ParsedMimeMessage.Attachments)
             {
                 if (attachment is MimePart part)
@@ -274,6 +354,12 @@ public class AttachmentValidationStage : IInboundPipelineStage
                     var scanResult = await _clamAv.ScanStreamAsync(ms, cancellationToken);
                     if (!scanResult.IsClean)
                     {
+                        if (scanResult.Status == ClamAvStatus.ServiceUnavailable && _options.ClamAvFailOpen)
+                        {
+                            _logger.LogWarning("ClamAV unavailable during inbound scan for attachment '{Filename}', but ClamAvFailOpen is enabled. Allowing delivery.", part.FileName);
+                            continue;
+                        }
+
                         sw.Stop();
                         string reason = scanResult.Status == ClamAvStatus.ServiceUnavailable
                             ? "Attachment scan unavailable (ClamAV down) - quarantined pending scan"

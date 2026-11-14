@@ -494,6 +494,98 @@ public sealed class RegulatoryComplianceGrpcService(
         return response;
     }
 
+    public override async Task<ComplianceGrpc.DeleteCorpusResponse> DeleteRegulatorySource(
+        ComplianceGrpc.DeleteRegulatorySourceRequest request,
+        ServerCallContext context)
+    {
+        var id = ParseRequiredId(request.RegulatoryDocumentId, "RegulatoryDocumentId");
+        var success = await RequireCorpusCatalog().DeleteRegulatorySourceAsync(id, context.CancellationToken);
+        if (!success)
+            throw new RpcException(new Status(StatusCode.NotFound, "Regulatory source was not found."));
+
+        return new ComplianceGrpc.DeleteCorpusResponse
+        {
+            Success = true,
+            DocumentId = request.RegulatoryDocumentId,
+            Message = "Regulatory source and associated versions/embeddings successfully deleted."
+        };
+    }
+
+    public override async Task<ComplianceGrpc.RegulatorySourceDetails> UpdateRegulatorySource(
+        ComplianceGrpc.UpdateRegulatorySourceRequest request,
+        ServerCallContext context)
+    {
+        var id = ParseRequiredId(request.RegulatoryDocumentId, "RegulatoryDocumentId");
+        var regType = request.RegulationType == ComplianceGrpc.RegulationType.Unspecified
+            ? (DomainRegulationType?)null
+            : MapRegulationType(request.RegulationType);
+
+        var result = await RequireCorpusCatalog().UpdateRegulatorySourceAsync(
+            id,
+            string.IsNullOrWhiteSpace(request.Authority) ? null : request.Authority.Trim(),
+            string.IsNullOrWhiteSpace(request.Title) ? null : request.Title.Trim(),
+            string.IsNullOrWhiteSpace(request.JurisdictionCode) ? null : request.JurisdictionCode.Trim(),
+            regType,
+            string.IsNullOrWhiteSpace(request.LanguageCode) ? null : request.LanguageCode.Trim(),
+            string.IsNullOrWhiteSpace(request.CanonicalSourceUri) ? null : request.CanonicalSourceUri.Trim(),
+            context.CancellationToken);
+
+        if (result is null)
+            throw new RpcException(new Status(StatusCode.NotFound, "Regulatory source was not found."));
+
+        var response = new ComplianceGrpc.RegulatorySourceDetails
+        {
+            Summary = MapRegulatorySummary(result.Summary)
+        };
+        response.Versions.AddRange(result.Versions.Select(MapRegulatoryVersion));
+        return response;
+    }
+
+    public override async Task<ComplianceGrpc.DeleteCorpusResponse> DeleteKnowledgeDocument(
+        ComplianceGrpc.DeleteKnowledgeSourceRequest request,
+        ServerCallContext context)
+    {
+        var id = ParseRequiredId(request.KnowledgeDocumentId, "KnowledgeDocumentId");
+        var success = await RequireCorpusCatalog().DeleteKnowledgeDocumentAsync(id, context.CancellationToken);
+        if (!success)
+            throw new RpcException(new Status(StatusCode.NotFound, "Knowledge document was not found."));
+
+        return new ComplianceGrpc.DeleteCorpusResponse
+        {
+            Success = true,
+            DocumentId = request.KnowledgeDocumentId,
+            Message = "Knowledge document and associated versions/embeddings successfully deleted."
+        };
+    }
+
+    public override async Task<ComplianceGrpc.KnowledgeDocumentDetails> UpdateKnowledgeDocument(
+        ComplianceGrpc.UpdateKnowledgeSourceRequest request,
+        ServerCallContext context)
+    {
+        var id = ParseRequiredId(request.KnowledgeDocumentId, "KnowledgeDocumentId");
+        var category = request.Category == ComplianceGrpc.KnowledgeCategory.Unspecified
+            ? (RegulatoryCompliance.Domain.Enums.KnowledgeCategory?)null
+            : MapKnowledgeCategory(request.Category);
+
+        var result = await RequireCorpusCatalog().UpdateKnowledgeDocumentAsync(
+            id,
+            string.IsNullOrWhiteSpace(request.Title) ? null : request.Title.Trim(),
+            category,
+            string.IsNullOrWhiteSpace(request.SourceReference) ? null : request.SourceReference.Trim(),
+            string.IsNullOrWhiteSpace(request.LanguageCode) ? null : request.LanguageCode.Trim(),
+            context.CancellationToken);
+
+        if (result is null)
+            throw new RpcException(new Status(StatusCode.NotFound, "Knowledge document was not found."));
+
+        var response = new ComplianceGrpc.KnowledgeDocumentDetails
+        {
+            Summary = MapKnowledgeSummary(result.Summary)
+        };
+        response.Versions.AddRange(result.Versions.Select(MapKnowledgeVersion));
+        return response;
+    }
+
     public override async Task<ComplianceGrpc.QueryKnowledgeResponse> QueryKnowledge(
         ComplianceGrpc.QueryKnowledgeRequest request,
         ServerCallContext context)

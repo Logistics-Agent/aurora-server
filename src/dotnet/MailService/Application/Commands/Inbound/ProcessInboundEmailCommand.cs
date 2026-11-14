@@ -9,6 +9,8 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using MimeKit;
 using MailService.Application.Pipeline;
+using MailService.Application.Common;
+using MailService.Application.Interfaces.Storage;
 using MailService.Domain.Entities;
 using MailService.Domain.Enums;
 using MailService.Infrastructure.Persistence;
@@ -37,16 +39,19 @@ public class ProcessInboundEmailCommandHandler : IRequestHandler<ProcessInboundE
 {
     private readonly MailServiceDbContext _dbContext;
     private readonly InboundPipelineRunner _pipelineRunner;
+    private readonly IR2StorageClient? _storageClient;
     private readonly ILogger<ProcessInboundEmailCommandHandler> _logger;
 
     public ProcessInboundEmailCommandHandler(
         MailServiceDbContext dbContext,
         InboundPipelineRunner pipelineRunner,
-        ILogger<ProcessInboundEmailCommandHandler> logger)
+        IR2StorageClient? storageClient = null,
+        ILogger<ProcessInboundEmailCommandHandler>? logger = null)
     {
         _dbContext = dbContext;
         _pipelineRunner = pipelineRunner;
-        _logger = logger;
+        _storageClient = storageClient;
+        _logger = logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<ProcessInboundEmailCommandHandler>.Instance;
     }
 
     public async Task<ProcessInboundEmailResult> Handle(ProcessInboundEmailCommand request, CancellationToken cancellationToken)
@@ -148,6 +153,11 @@ public class ProcessInboundEmailCommandHandler : IRequestHandler<ProcessInboundE
         string bodyText = mimeMessage.TextBody ?? string.Empty;
         string bodyHtml = mimeMessage.HtmlBody ?? string.Empty;
 
+        if (!string.IsNullOrWhiteSpace(bodyHtml))
+        {
+            bodyHtml = MimeMessageHelper.ReplaceCidWithDataUris(bodyHtml, mimeMessage);
+        }
+
         if (string.IsNullOrWhiteSpace(bodyText) && !string.IsNullOrWhiteSpace(bodyHtml))
         {
             bodyText = Regex.Replace(bodyHtml, @"<style.*?</style>", string.Empty, RegexOptions.Singleline | RegexOptions.IgnoreCase);
@@ -236,6 +246,7 @@ public class ProcessInboundEmailCommandHandler : IRequestHandler<ProcessInboundE
         }
 
         // 5. Run Inbound Pipeline
+        string rfcMessageId = mimeMessage.MessageId ?? $"<{Guid.NewGuid():N}@aurora.inbound>";
         var context = new InboundPipelineContext
         {
             TenantId = tenantId,
@@ -245,11 +256,24 @@ public class ProcessInboundEmailCommandHandler : IRequestHandler<ProcessInboundE
             Subject = subject
         };
         context.RecipientAddresses.Add(recipient);
-        context.ProcessedMessage.MessageId = mimeMessage.MessageId ?? $"<{Guid.NewGuid():N}@aurora.inbound>";
+        context.ProcessedMessage.MessageId = rfcMessageId;
         context.ProcessedMessage.MailboxId = mailbox.Id;
         context.ProcessedMessage.ThreadId = thread.Id;
         context.ProcessedMessage.BodyText = bodyText;
         context.ProcessedMessage.BodyHtml = bodyHtml;
+
+        // Extract and upload all attachments
+        var attachmentsMeta = await MimeMessageHelper.ExtractAndUploadAttachmentsAsync(
+            mimeMessage,
+            tenantId,
+            rfcMessageId,
+            _storageClient,
+            cancellationToken);
+
+        if (attachmentsMeta.Count > 0)
+        {
+            context.ProcessedMessage.AttachmentsJson = System.Text.Json.JsonSerializer.Serialize(attachmentsMeta);
+        }
 
         var executedContext = await _pipelineRunner.RunAsync(context, cancellationToken);
 

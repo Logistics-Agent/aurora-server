@@ -277,6 +277,24 @@ public class MailAdminController(
         }
     }
 
+    [HttpPut("quarantine/{id}/release")]
+    [HttpPost("quarantine/{id}/release")]
+    [HttpPut("quarantine/{id}")]
+    [RequirePermission(PermissionConstants.Mail.QuarantineRelease, "mail:release", PermissionConstants.Mail.QuarantineDelete, "mail:delete")]
+    public async Task<IActionResult> ReleaseQuarantine([FromRoute] string id)
+    {
+        try
+        {
+            var result = await mailClient.ReleaseQuarantineAsync(id, HttpContext.RequestAborted);
+            logger.LogInformation("Quarantine record {QuarantineId} released by admin {UserId}", id, currentUser.UserId);
+            return Ok(result);
+        }
+        catch (RpcException ex)
+        {
+            return ex.ToActionResult();
+        }
+    }
+
     // ─── Audit Trail ──────────────────────────────────────────────────────────
 
     [HttpGet("audit")]

@@ -63,3 +63,20 @@ public record SendSystemEmailCommand
     public string BodyText { get; init; } = string.Empty;
     public string BodyHtml { get; init; } = string.Empty;
 }
+
+[EntityName("inbound_email_webhook_received_event")]
+public record InboundEmailWebhookReceivedEvent
+{
+    public string StalwartEventId { get; init; } = string.Empty;
+    public string EventType { get; init; } = string.Empty;
+    public string? AccountName { get; init; }
+    public string? AccountId { get; init; }
+    public string? JmapEmailId { get; init; }
+    public string? RfcMessageId { get; init; }
+    public string MessageId { get; init; } = string.Empty;
+    public bool MessageIdIsRfcHeader { get; init; }
+    public string? To { get; init; }
+    public string? From { get; init; }
+    public DateTimeOffset IngestedAt { get; init; } = DateTimeOffset.UtcNow;
+    public string? RawPayloadJson { get; init; }
+}

@@ -53,7 +53,15 @@ public static class GrpcClientExtensions
 
         var regulatoryUrl = ResolveUrl(config, "RegulatoryCompliance", "http://localhost:5006")!;
         services.AddGrpcClient<RegulatoryCompliance.Grpc.RegulatoryComplianceService.RegulatoryComplianceServiceClient>(
-                o => o.Address = new Uri(regulatoryUrl))
+                o =>
+                {
+                    o.Address = new Uri(regulatoryUrl);
+                    o.ChannelOptionsActions.Add(opt =>
+                    {
+                        opt.MaxReceiveMessageSize = 32 * 1024 * 1024;
+                        opt.MaxSendMessageSize = 32 * 1024 * 1024;
+                    });
+                })
             .AddInterceptor<ClientMetadataInterceptor>(InterceptorScope.Client)
             .AddStandardResilienceHandler(ConfigureBusinessResilience);
 

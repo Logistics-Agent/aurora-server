@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using MailService.Application.Interfaces.Messaging;
 using MailService.Application.Interfaces.Storage;
@@ -37,6 +38,19 @@ public class InboundPipelineRunner
 
     public async Task<InboundPipelineContext> RunAsync(InboundPipelineContext context, CancellationToken cancellationToken = default)
     {
+        // Pipeline-level idempotency check: prevent duplicate messages / threads on retry
+        if (!string.IsNullOrEmpty(context.ProcessedMessage.SourceEventId))
+        {
+            var existing = await _dbContext.ProcessedMessages
+                .FirstOrDefaultAsync(m => m.SourceEventId == context.ProcessedMessage.SourceEventId, cancellationToken);
+            if (existing != null)
+            {
+                _logger.LogInformation("ProcessedMessage for SourceEventId {SourceEventId} already exists. Returning existing message.", context.ProcessedMessage.SourceEventId);
+                context.ProcessedMessage = existing;
+                return context;
+            }
+        }
+
         context.ProcessedMessage.PipelineExecutionId = context.ExecutionId.Value;
         context.ProcessedMessage.Direction = EmailDirection.Inbound;
         context.ProcessedMessage.ReceivedAt = DateTimeOffset.UtcNow;
@@ -107,6 +121,8 @@ public class InboundPipelineRunner
         context.ProcessedMessage.Subject = context.Subject;
         context.ProcessedMessage.TenantId = context.TenantId;
 
+        _dbContext.ProcessedMessages.Add(context.ProcessedMessage);
+
         if (context.IsQuarantined)
         {
             var quarantineRecord = new QuarantineRecord
@@ -149,8 +165,6 @@ public class InboundPipelineRunner
             }, cancellationToken);
         }
 
-        _dbContext.ProcessedMessages.Add(context.ProcessedMessage);
-
         // Atomic commit: ProcessedMessage + SecurityCheckResults + QuarantineRecord + OutboxMessage
         await _dbContext.SaveChangesAsync(cancellationToken);
 
@@ -179,6 +193,17 @@ public class OutboundPipelineRunner
 
     public async Task<OutboundPipelineContext> RunAsync(OutboundPipelineContext context, CancellationToken cancellationToken = default)
     {
+        string fromDomain = "e-verland.site";
+        if (!string.IsNullOrWhiteSpace(context.SenderAddress) && context.SenderAddress.Contains('@'))
+        {
+            var parts = context.SenderAddress.Split('@');
+            if (parts.Length > 1 && !string.IsNullOrWhiteSpace(parts[^1]))
+            {
+                fromDomain = parts[^1].Trim(' ', '>', '"', '\'');
+            }
+        }
+
+        context.ProcessedMessage.MessageId = $"<{Guid.NewGuid():N}@{fromDomain}>";
         context.ProcessedMessage.PipelineExecutionId = context.ExecutionId.Value;
         context.ProcessedMessage.Direction = EmailDirection.Outbound;
         context.ProcessedMessage.ReceivedAt = DateTimeOffset.UtcNow;
@@ -194,6 +219,18 @@ public class OutboundPipelineRunner
         context.ProcessedMessage.InReplyTo = context.ReplyToMessageId;
         context.ProcessedMessage.BodyText = context.BodyText;
         context.ProcessedMessage.BodyHtml = context.BodyHtml;
+
+        if (context.Attachments.Count > 0)
+        {
+            var outMeta = context.Attachments.Select(a => new MessageAttachmentMeta
+            {
+                Id = Guid.NewGuid().ToString("N"),
+                FileName = a.Filename ?? "attachment",
+                ContentType = a.ContentType ?? "application/octet-stream",
+                SizeBytes = a.Content?.Length ?? 0
+            }).ToList();
+            context.ProcessedMessage.AttachmentsJson = System.Text.Json.JsonSerializer.Serialize(outMeta);
+        }
 
         foreach (var stage in _stages)
         {
@@ -222,8 +259,8 @@ public class OutboundPipelineRunner
                     {
                         context.RejectionReason = $"Rejected at stage {stage.StageName}";
                     }
-                    _logger.LogWarning("Outbound pipeline rejected at stage {Stage} for message. Reason: {Reason}",
-                        stage.StageName, context.RejectionReason);
+                    _logger.LogWarning("Outbound pipeline rejected at stage {Stage} for message {MessageId}. Reason: {Reason}",
+                        stage.StageName, context.ProcessedMessage.MessageId, context.RejectionReason);
                     break;
                 }
             }
@@ -254,7 +291,6 @@ public class OutboundPipelineRunner
                 RejectedAt = DateTime.UtcNow
             }, cancellationToken);
         }
-
         else
         {
             // Write Outbox Event for Outbound Email Sent
@@ -270,10 +306,19 @@ public class OutboundPipelineRunner
             }, cancellationToken);
         }
 
-        _dbContext.ProcessedMessages.Add(context.ProcessedMessage);
+        try
+        {
+            _dbContext.ProcessedMessages.Add(context.ProcessedMessage);
 
-        // Atomic commit: ProcessedMessage + SecurityCheckResults + OutboxMessage
-        await _dbContext.SaveChangesAsync(cancellationToken);
+            // Atomic commit: ProcessedMessage + SecurityCheckResults + OutboxMessage
+            await _dbContext.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateException ex)
+        {
+            _logger.LogError(ex, "Failed to save outbound ProcessedMessage {MessageId} to database: {Message}. Inner: {Inner}",
+                context.ProcessedMessage.MessageId, ex.Message, ex.InnerException?.Message);
+            throw;
+        }
 
         return context;
     }

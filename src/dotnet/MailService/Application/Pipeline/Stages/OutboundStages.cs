@@ -13,16 +13,35 @@ using MailService.Application.Interfaces.Security;
 using MailService.Application.Interfaces.Stalwart;
 using MailService.Domain.Enums;
 using MailService.Infrastructure.AI;
+using MailService.Application.Options;
 
 namespace MailService.Application.Pipeline.Stages;
 
 public class OutboundAttachmentValidationStage : IOutboundPipelineStage
 {
-    private readonly IClamAvClient _clamAv;
+    public static readonly HashSet<string> ProhibitedExtensions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".ps1", ".psm1", ".psd1",
+        ".bat", ".cmd",
+        ".exe", ".com", ".scr", ".pif", ".msi", ".msp", ".cpl", ".hta", ".gadget",
+        ".vbs", ".vbe", ".js", ".jse", ".ws", ".wsf", ".wsc", ".wsh",
+        ".sh", ".bash", ".bin",
+        ".jar", ".apk",
+        ".reg", ".inf", ".scf", ".lnk"
+    };
 
-    public OutboundAttachmentValidationStage(IClamAvClient clamAv)
+    private readonly IClamAvClient _clamAv;
+    private readonly MailServiceOptions _options;
+    private readonly ILogger<OutboundAttachmentValidationStage> _logger;
+
+    public OutboundAttachmentValidationStage(
+        IClamAvClient clamAv,
+        Microsoft.Extensions.Options.IOptions<MailServiceOptions>? options = null,
+        ILogger<OutboundAttachmentValidationStage>? logger = null)
     {
         _clamAv = clamAv;
+        _options = options?.Value ?? new MailServiceOptions();
+        _logger = logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<OutboundAttachmentValidationStage>.Instance;
     }
 
     public SecurityCheckStage StageName => SecurityCheckStage.OutboundAttachmentValidation;
@@ -31,12 +50,48 @@ public class OutboundAttachmentValidationStage : IOutboundPipelineStage
     {
         var sw = Stopwatch.StartNew();
 
+        // 1. Prohibited extension policy check (Zero-trust: blocks .ps1, .bat, .exe, etc. like Gmail)
+        foreach (var attachment in context.Attachments)
+        {
+            string ext = Path.GetExtension(attachment.Filename);
+            if (!string.IsNullOrEmpty(ext) && ProhibitedExtensions.Contains(ext))
+            {
+                sw.Stop();
+                string reason = $"Attachment '{attachment.Filename}' is blocked for security reasons (Executable script/binary files '{ext}' are prohibited).";
+                _logger.LogWarning("Outbound attachment blocked by extension security policy: {Filename} (extension: {Extension})", attachment.Filename, ext);
+                context.IsRejected = true;
+                context.RejectionReason = reason;
+                return new StageResult
+                {
+                    Stage = StageName,
+                    Result = "Fail",
+                    DetailJson = $"{{\"blocked_extension\":\"{ext}\",\"filename\":\"{attachment.Filename}\",\"reason\":\"Security policy: prohibited executable or script file\"}}",
+                    DurationMs = (int)sw.ElapsedMilliseconds,
+                    ShouldShortCircuit = true
+                };
+            }
+        }
+
+        // 2. ClamAV Antivirus scan (if enabled)
+        if (!_options.ClamAvEnabled)
+        {
+            sw.Stop();
+            _logger.LogInformation("ClamAV scan disabled via configuration. Skipping outbound antivirus scan.");
+            return new StageResult { Stage = StageName, Result = "Skip", DetailJson = "{\"status\":\"disabled\"}", DurationMs = (int)sw.ElapsedMilliseconds };
+        }
+
         foreach (var attachment in context.Attachments)
         {
             using var ms = new MemoryStream(attachment.Content);
             var scanResult = await _clamAv.ScanStreamAsync(ms, cancellationToken);
             if (!scanResult.IsClean)
             {
+                if (scanResult.Status == ClamAvStatus.ServiceUnavailable && _options.ClamAvFailOpen)
+                {
+                    _logger.LogWarning("ClamAV unavailable during outbound scan for attachment '{Filename}', but ClamAvFailOpen is enabled. Allowing send.", attachment.Filename);
+                    continue;
+                }
+
                 sw.Stop();
                 string reason = scanResult.Status == ClamAvStatus.ServiceUnavailable
                     ? "Outbound attachment scan unavailable (ClamAV down) - deferring send"

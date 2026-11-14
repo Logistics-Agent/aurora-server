@@ -100,6 +100,28 @@ public sealed class RegulatoryDocument : AuditableEntity
         return version;
     }
 
+    public void UpdateMetadata(
+        string? authority,
+        string? title,
+        string? jurisdictionCode,
+        RegulationType? regulationType,
+        string? languageCode,
+        string? canonicalSourceUri = null)
+    {
+        if (!string.IsNullOrWhiteSpace(authority))
+            Authority = ComplianceValidation.RequiredText(authority, nameof(authority), 200);
+        if (!string.IsNullOrWhiteSpace(title))
+            Title = ComplianceValidation.RequiredText(title, nameof(title), 500);
+        if (!string.IsNullOrWhiteSpace(jurisdictionCode))
+            JurisdictionCode = ComplianceValidation.RequiredText(jurisdictionCode, nameof(jurisdictionCode), 30);
+        if (regulationType.HasValue)
+            RegulationType = regulationType.Value;
+        if (!string.IsNullOrWhiteSpace(languageCode))
+            LanguageCode = ComplianceValidation.RequiredText(languageCode, nameof(languageCode), 15);
+        if (!string.IsNullOrWhiteSpace(canonicalSourceUri))
+            CanonicalSourceUri = ComplianceValidation.RequiredText(canonicalSourceUri, nameof(canonicalSourceUri), 1000);
+    }
+
     private static RegulatoryDocument Create(
         Guid? tenantId,
         SourceVisibility visibility,

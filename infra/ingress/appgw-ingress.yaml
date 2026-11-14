@@ -6,12 +6,30 @@ metadata:
   annotations:
     appgw.ingress.kubernetes.io/ssl-redirect: "false"
     appgw.ingress.kubernetes.io/backend-protocol: "http"
+    appgw.ingress.kubernetes.io/health-probe-path: "/healthz"
+    appgw.ingress.kubernetes.io/health-probe-status-codes: "200-399"
 spec:
   ingressClassName: azure-application-gateway
   rules:
     - host: api.humanak.cyou
       http:
         paths:
+          - path: /api/v1/mail/inbound
+            pathType: Prefix
+            backend:
+              service:
+                name: mail-service
+                port:
+                  number: 9090
+          # Keep the legacy Cloudflare Worker route reachable while workers
+          # are migrated to /api/v1/mail/inbound/cloudflare.
+          - path: /api/v1/mail/cloudflare/inbound
+            pathType: Prefix
+            backend:
+              service:
+                name: mail-service
+                port:
+                  number: 9090
           - path: /
             pathType: Prefix
             backend:
@@ -41,4 +59,3 @@ spec:
                 name: argocd-server
                 port:
                   number: 443
-

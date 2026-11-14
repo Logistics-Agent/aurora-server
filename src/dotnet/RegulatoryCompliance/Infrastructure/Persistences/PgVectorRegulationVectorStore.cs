@@ -1,4 +1,4 @@
-using System.Numerics.Tensors;
+using System.Numerics;
 using Microsoft.EntityFrameworkCore;
 using Pgvector;
 using Pgvector.EntityFrameworkCore;
@@ -156,20 +156,36 @@ public sealed class PgVectorRegulationVectorStore(
 
     private static double ComputeCosineDistance(float[] a, float[] b)
     {
-        if (a.Length == b.Length && a.Length > 0)
+        int len = Math.Min(a.Length, b.Length);
+        if (len == 0) return 1.0;
+
+        float dot = 0f, normA = 0f, normB = 0f;
+        int i = 0;
+        if (System.Numerics.Vector.IsHardwareAccelerated && len >= System.Numerics.Vector<float>.Count)
         {
-            float sim = TensorPrimitives.CosineSimilarity(a, b);
-            if (!float.IsFinite(sim)) return 1.0;
-            return Math.Max(0.0, 1.0 - sim);
+            var vDot = System.Numerics.Vector<float>.Zero;
+            var vNormA = System.Numerics.Vector<float>.Zero;
+            var vNormB = System.Numerics.Vector<float>.Zero;
+            int step = System.Numerics.Vector<float>.Count;
+            for (; i <= len - step; i += step)
+            {
+                var va = new System.Numerics.Vector<float>(a, i);
+                var vb = new System.Numerics.Vector<float>(b, i);
+                vDot += va * vb;
+                vNormA += va * va;
+                vNormB += vb * vb;
+            }
+            dot = System.Numerics.Vector.Sum(vDot);
+            normA = System.Numerics.Vector.Sum(vNormA);
+            normB = System.Numerics.Vector.Sum(vNormB);
         }
-        double dot = 0.0, normA = 0.0, normB = 0.0;
-        for (int i = 0; i < Math.Min(a.Length, b.Length); i++)
+        for (; i < len; i++)
         {
             dot += a[i] * b[i];
             normA += a[i] * a[i];
             normB += b[i] * b[i];
         }
-        if (normA == 0.0 || normB == 0.0) return 1.0;
+        if (normA <= 0f || normB <= 0f || !float.IsFinite(dot)) return 1.0;
         double similarity = dot / (Math.Sqrt(normA) * Math.Sqrt(normB));
         return Math.Max(0.0, 1.0 - similarity);
     }

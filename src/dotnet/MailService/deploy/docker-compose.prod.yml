@@ -37,7 +37,10 @@ services:
       - Stalwart__BaseUrl=http://stalwart:8080
       - Stalwart__SmtpHost=stalwart
       - Stalwart__SmtpPort=25
+      - Stalwart__SmtpUser=${STALWART_SMTP_USER:-}
+      - Stalwart__SmtpPassword=${STALWART_SMTP_PASSWORD:-}
       - Stalwart__AdminToken=${STALWART_ADMIN_TOKEN}
+      - Stalwart__WebhookSecret=${STALWART_WEBHOOK_SECRET:-}
       - ClamAV__Host=clamav
       - ClamAV__Port=3310
       - SpamAssassin__Host=spamassassin

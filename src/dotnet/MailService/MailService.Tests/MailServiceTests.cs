@@ -17,6 +17,7 @@ using MailService.Application.Pipeline;
 using MailService.Application.Pipeline.Stages;
 using MailService.Domain.Entities;
 using MailService.Domain.Enums;
+using MailService.Application.Options;
 using MailService.Infrastructure.AI;
 using MailService.Infrastructure.Messaging;
 using MailService.Infrastructure.Persistence;
@@ -330,6 +331,80 @@ public class MailServiceTests
         Assert.True(outboundResult.ShouldShortCircuit);
         Assert.True(outboundContext.IsRejected);
         Assert.Contains("unavailable", outboundContext.RejectionReason, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Test8B_ClamAvDisabled_And_FailOpen_Allowed()
+    {
+        // Arrange
+        var mockClamAv = new Mock<IClamAvClient>();
+        mockClamAv.Setup(c => c.ScanStreamAsync(It.IsAny<Stream>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(ClamAvScanResult.Unavailable("ClamAV daemon down"));
+
+        // Case 1: ClamAvEnabled = false -> Skips scan
+        var disabledOpts = Microsoft.Extensions.Options.Options.Create(new MailServiceOptions { ClamAvEnabled = false });
+        var disabledOutbound = new OutboundAttachmentValidationStage(mockClamAv.Object, disabledOpts);
+        var ctx1 = new OutboundPipelineContext { TenantId = Guid.NewGuid(), SenderAddress = "user@test.com" };
+        ctx1.Attachments.Add(("test.pdf", "application/pdf", new byte[] { 1, 2, 3 }));
+
+        var res1 = await disabledOutbound.ExecuteAsync(ctx1);
+        Assert.Equal("Skip", res1.Result);
+        Assert.False(ctx1.IsRejected);
+
+        // Case 2: ClamAvFailOpen = true -> Allows send when unavailable
+        var failOpenOpts = Microsoft.Extensions.Options.Options.Create(new MailServiceOptions { ClamAvEnabled = true, ClamAvFailOpen = true });
+        var failOpenOutbound = new OutboundAttachmentValidationStage(mockClamAv.Object, failOpenOpts);
+        var ctx2 = new OutboundPipelineContext { TenantId = Guid.NewGuid(), SenderAddress = "user@test.com" };
+        ctx2.Attachments.Add(("test.pdf", "application/pdf", new byte[] { 1, 2, 3 }));
+
+        var res2 = await failOpenOutbound.ExecuteAsync(ctx2);
+        Assert.Equal("Pass", res2.Result);
+        Assert.False(ctx2.IsRejected);
+    }
+
+    [Fact]
+    public async Task Test8C_ProhibitedExtensions_Blocked_OnOutboundAndInbound()
+    {
+        // Arrange
+        var mockClamAv = new Mock<IClamAvClient>();
+        mockClamAv.Setup(c => c.ScanStreamAsync(It.IsAny<Stream>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(ClamAvScanResult.CleanResult(100, 1));
+
+        // Outbound Test with .ps1, .bat, .exe
+        var outboundStage = new OutboundAttachmentValidationStage(mockClamAv.Object);
+        var outboundContext = new OutboundPipelineContext
+        {
+            TenantId = Guid.NewGuid(),
+            SenderAddress = "user@company.com"
+        };
+        outboundContext.Attachments.Add(("test_inbound_flow.ps1", "text/plain", new byte[] { 1, 2, 3 }));
+
+        var outboundResult = await outboundStage.ExecuteAsync(outboundContext);
+
+        Assert.Equal("Fail", outboundResult.Result);
+        Assert.True(outboundResult.ShouldShortCircuit);
+        Assert.True(outboundContext.IsRejected);
+        Assert.Contains(".ps1", outboundContext.RejectionReason, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("blocked for security reasons", outboundContext.RejectionReason, StringComparison.OrdinalIgnoreCase);
+
+        // Inbound Test with .exe
+        var inboundStage = new AttachmentValidationStage(mockClamAv.Object);
+        var mimeMessage = new MimeKit.MimeMessage();
+        var builder = new MimeKit.BodyBuilder();
+        builder.Attachments.Add("payload.exe", new byte[] { 1, 2, 3, 4 });
+        mimeMessage.Body = builder.ToMessageBody();
+
+        var inboundContext = new InboundPipelineContext
+        {
+            TenantId = Guid.NewGuid(),
+            ParsedMimeMessage = mimeMessage
+        };
+
+        var inboundResult = await inboundStage.ExecuteAsync(inboundContext);
+
+        Assert.Equal("Fail", inboundResult.Result);
+        Assert.True(inboundResult.ShouldShortCircuit);
+        Assert.Contains(".exe", inboundResult.QuarantineReason, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -875,6 +950,8 @@ public class MailServiceTests
         mockCurrentUser.Setup(u => u.UserId).Returns(Guid.NewGuid());
 
         var mockStalwart = new Mock<MailService.Application.Interfaces.Stalwart.IStalwartManagementClient>();
+        mockStalwart.Setup(s => s.ProvisionAccountAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(ProvisionResult.Success("acc_support_123"));
         mockStalwart.Setup(s => s.ProvisionAccountAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(true);
 
@@ -1619,7 +1696,9 @@ public class MailServiceTests
         await dbContext.SaveChangesAsync();
 
         var mockStalwart = new Mock<IStalwartManagementClient>();
-        mockStalwart.Setup(s => s.ProvisionAccountAsync("support@active-domain.com", It.IsAny<CancellationToken>()))
+        mockStalwart.Setup(s => s.ProvisionAccountAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(ProvisionResult.Success("acc_support_123"));
+        mockStalwart.Setup(s => s.ProvisionAccountAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(true);
 
         var handler = new MailService.Application.Commands.Provisioning.CreateMailboxCommandHandler(dbContext, mockStalwart.Object, mockUser.Object);
@@ -1628,8 +1707,10 @@ public class MailServiceTests
         Assert.NotNull(mailbox);
         Assert.Equal("support@active-domain.com", mailbox.FullAddress);
         Assert.Equal(MailboxStatus.Active, mailbox.Status);
+        Assert.Equal(ProvisioningStatus.Provisioned, mailbox.ProvisioningStatus);
+        Assert.Equal("acc_support_123", mailbox.StalwartAccountId);
 
-        var outbox = await dbContext.OutboxMessages.FirstOrDefaultAsync(o => o.EventType == nameof(CentralAuditEvent) && o.Payload.Contains("SharedMailboxCreated"));
+        var outbox = await dbContext.OutboxMessages.FirstOrDefaultAsync(o => o.EventType == nameof(CentralAuditEvent) && (o.Payload.Contains("MailboxCreated") || o.Payload.Contains("SharedMailboxCreated")));
         Assert.NotNull(outbox);
     }
 }

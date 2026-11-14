@@ -26,6 +26,7 @@ using MailService.Application.Interfaces.RateLimiting;
 using MailService.Application.Interfaces.Security;
 using MailService.Application.Interfaces.Stalwart;
 using MailService.Application.Interfaces.Storage;
+using MailService.Application.Interfaces.Transport;
 using MailService.Application.Options;
 using MailService.Application.Pipeline;
 using MailService.Application.Pipeline.Stages;
@@ -47,6 +48,7 @@ using MailService.Infrastructure.Security.Malware;
 using MailService.Infrastructure.Security.Spam;
 using MailService.Infrastructure.Stalwart;
 using MailService.Infrastructure.Storage;
+using MailService.Infrastructure.Transport;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -61,12 +63,35 @@ Log.Logger = new LoggerConfiguration()
 
 builder.Host.UseSerilog();
 
+// Configure Database and Redis Connection Strings
+string connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
+    ?? "Host=localhost;Port=5432;Database=aurora_mail_service;Username=postgres;Password=postgres";
+
+string? explicitRedisConn = builder.Configuration.GetConnectionString("Redis")
+    ?? builder.Configuration["Redis:ConnectionString"];
+
+var redisHost = builder.Configuration["Redis:Host"] ?? builder.Configuration["Redis__Host"];
+var redisPassword = builder.Configuration["Redis:Password"] ?? builder.Configuration["Redis__Password"];
+var redisSsl = builder.Configuration.GetValue<bool>("Redis:Ssl", false);
+var redisAbort = builder.Configuration.GetValue<bool>("Redis:AbortConnect", false);
+
+if (string.IsNullOrWhiteSpace(explicitRedisConn) && !string.IsNullOrWhiteSpace(redisHost))
+{
+    explicitRedisConn = $"{redisHost},abortConnect={redisAbort.ToString().ToLower()},ssl={redisSsl.ToString().ToLower()}";
+    if (!string.IsNullOrEmpty(redisPassword))
+    {
+        explicitRedisConn += $",password={redisPassword}";
+    }
+}
+string redisConnection = explicitRedisConn ?? "localhost:6379,abortConnect=false";
+
 // Register and validate production MailServiceOptions
 builder.Services.Configure<MailServiceOptions>(options =>
 {
-    options.DatabaseConnectionString = builder.Configuration.GetConnectionString("DefaultConnection");
-    options.RedisConnectionString = builder.Configuration.GetConnectionString("Redis")
-        ?? builder.Configuration["Redis:ConnectionString"];
+    options.DatabaseConnectionString = connectionString;
+    options.RedisConnectionString = redisConnection;
+    options.RedisHost = redisHost;
+
     options.RabbitMqHost = builder.Configuration["RabbitMQ:Host"];
     options.RabbitMqPort = int.TryParse(builder.Configuration["RabbitMQ:Port"], out int p) ? p : 5672;
     options.RabbitMqUsername = builder.Configuration["RabbitMQ:Username"];
@@ -74,18 +99,42 @@ builder.Services.Configure<MailServiceOptions>(options =>
     options.RabbitMqVirtualHost = builder.Configuration["RabbitMQ:VirtualHost"] ?? "mail";
 
     options.StalwartBaseUrl = builder.Configuration["Stalwart:BaseUrl"];
+    options.StalwartAdminUrl = builder.Configuration["Stalwart:AdminUrl"];
+    options.StalwartAdminApiKey = builder.Configuration["Stalwart:AdminApiKey"] ?? builder.Configuration["Stalwart:AdminToken"];
+    options.StalwartWebhookSecret = builder.Configuration["Stalwart:WebhookSecret"];
     options.StalwartSmtpHost = builder.Configuration["Stalwart:SmtpHost"];
     options.StalwartSmtpPort = int.TryParse(builder.Configuration["Stalwart:SmtpPort"], out int sp) ? sp : 25;
+    options.StalwartSmtpUser = builder.Configuration["Stalwart:SmtpUser"];
+    options.StalwartSmtpPassword = builder.Configuration["Stalwart:SmtpPassword"];
+
+    options.MailTransportProvider = builder.Configuration["MailTransport:Provider"] ?? builder.Configuration["Mail:OutboundProvider"] ?? "Brevo";
+    options.BrevoSmtpHost = builder.Configuration["Brevo:SmtpHost"] ?? "smtp-relay.brevo.com";
+    options.BrevoSmtpPort = int.TryParse(builder.Configuration["Brevo:SmtpPort"], out int bp) ? bp : 587;
+    options.BrevoSmtpUsername = builder.Configuration["Brevo:SmtpUsername"] ?? builder.Configuration["Brevo:SmtpUser"];
+    options.BrevoSmtpPassword = builder.Configuration["Brevo:SmtpPassword"] ?? builder.Configuration["Brevo:SmtpKey"];
+    options.CloudflareWebhookSecret = builder.Configuration["CloudflareInbound:WebhookSecret"] ?? builder.Configuration["Cloudflare:WebhookSecret"];
 
     options.ClamAvHost = builder.Configuration["ClamAV:Host"];
     options.ClamAvPort = int.TryParse(builder.Configuration["ClamAV:Port"], out int cp) ? cp : 3310;
+    options.ClamAvEnabled = !string.Equals(builder.Configuration["ClamAV:Enabled"], "false", StringComparison.OrdinalIgnoreCase);
+    options.ClamAvFailOpen = string.Equals(builder.Configuration["ClamAV:FailOpen"], "true", StringComparison.OrdinalIgnoreCase);
 
     options.SpamAssassinHost = builder.Configuration["SpamAssassin:Host"];
     options.SpamAssassinPort = int.TryParse(builder.Configuration["SpamAssassin:Port"], out int sap) ? sap : 783;
 
     options.AiGovernanceEndpoint = builder.Configuration["AiGovernance:GrpcEndpoint"]
         ?? builder.Configuration["AiGovernance:ServiceUrl"];
+
+    options.R2AccountId = builder.Configuration["R2:AccountId"];
+    options.R2AccessKey = builder.Configuration["R2:AccessKey"];
+    options.R2SecretKey = builder.Configuration["R2:SecretKey"];
+    options.R2BucketName = builder.Configuration["R2:BucketName"] ?? "aurora-mail-platform";
 });
+
+builder.Services.Configure<BrevoOptions>(builder.Configuration.GetSection(BrevoOptions.SectionName));
+builder.Services.Configure<MailTransportOptions>(builder.Configuration.GetSection(MailTransportOptions.SectionName));
+builder.Services.Configure<CloudflareInboundOptions>(builder.Configuration.GetSection(CloudflareInboundOptions.SectionName));
+
 builder.Services.AddSingleton<IValidateOptions<MailServiceOptions>>(sp =>
     new MailServiceOptionsValidator(builder.Environment.IsProduction()));
 
@@ -103,15 +152,15 @@ builder.Services.AddGrpc(options =>
 builder.Services.AddSharedMassTransit(builder.Configuration, x =>
 {
     x.AddConsumer<SendSystemEmailConsumer>();
+    x.AddConsumer<InboundEmailWebhookConsumer>();
 });
 
 // Configure MediatR & FluentValidation
 builder.Services.AddMediatR(cfg => cfg.RegisterServicesFromAssembly(typeof(Program).Assembly));
+builder.Services.AddControllers();
+builder.Services.AddMemoryCache();
 
 // Configure EF Core PostgreSQL (Managed Neon connection)
-string connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
-    ?? "Host=localhost;Port=5432;Database=aurora_mail_service;Username=postgres;Password=postgres";
-
 builder.Services.AddDbContext<MailServiceDbContext>(options =>
     options.UseNpgsql(connectionString, npgsql =>
     {
@@ -127,7 +176,10 @@ builder.Services.AddScoped<ICurrentUserService>(sp => sp.GetRequiredService<Curr
 builder.Services.AddScoped<ICurrentUserContext>(sp => sp.GetRequiredService<CurrentUserService>());
 builder.Services.AddScoped<IEmailDraftRepository, EmailDraftRepository>();
 builder.Services.AddScoped<IOutboxWriter, OutboxWriter>();
+builder.Services.AddScoped<InboundWebhookEventRepository>();
+builder.Services.AddScoped<IMailboxResolver, MailboxResolver>();
 builder.Services.AddHostedService<OutboxProcessorBackgroundService>();
+builder.Services.AddHostedService<MailboxReconciliationWorker>();
 
 // Register Infrastructure HTTP Clients & S3 / R2
 var stalwartBaseUrl = builder.Configuration["Stalwart:BaseUrl"]
@@ -143,38 +195,43 @@ builder.Services.AddHttpClient<IStalwartManagementClient, StalwartManagementClie
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", adminApiKey);
 });
 
-builder.Services.AddSingleton<IAmazonS3>(sp => new AmazonS3Client(
-    builder.Configuration["R2:AccessKey"] ?? "dev",
-    builder.Configuration["R2:SecretKey"] ?? "dev",
-    new AmazonS3Config
-    {
-        ServiceURL = $"https://{builder.Configuration["R2:AccountId"] ?? "dev"}.r2.cloudflarestorage.com",
-        ForcePathStyle = true,
-        Timeout = TimeSpan.FromSeconds(3),
-        MaxErrorRetry = 0
-    }));
+builder.Services.AddHttpClient<IStalwartJmapClient, StalwartJmapClient>(client =>
+{
+    client.BaseAddress = new Uri(stalwartBaseUrl);
+    var adminApiKey = builder.Configuration["Stalwart:AdminApiKey"];
+    if (!string.IsNullOrWhiteSpace(adminApiKey))
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", adminApiKey);
+});
+
+builder.Services.AddSingleton<IAmazonS3>(sp =>
+{
+    var mailOpts = sp.GetRequiredService<IOptions<MailServiceOptions>>().Value;
+    var accessKey = !string.IsNullOrWhiteSpace(mailOpts.R2AccessKey) ? mailOpts.R2AccessKey : (builder.Configuration["R2:AccessKey"] ?? "dev");
+    var secretKey = !string.IsNullOrWhiteSpace(mailOpts.R2SecretKey) ? mailOpts.R2SecretKey : (builder.Configuration["R2:SecretKey"] ?? "dev");
+    var accountId = !string.IsNullOrWhiteSpace(mailOpts.R2AccountId) ? mailOpts.R2AccountId : (builder.Configuration["R2:AccountId"] ?? "dev");
+    var serviceUrl = $"https://{accountId}.r2.cloudflarestorage.com";
+
+    return new AmazonS3Client(
+        accessKey,
+        secretKey,
+        new AmazonS3Config
+        {
+            ServiceURL = serviceUrl,
+            ForcePathStyle = true,
+            Timeout = TimeSpan.FromSeconds(5),
+            MaxErrorRetry = 1
+        });
+});
 
 // Register Redis Connection Multiplexer
-string redisConnection = builder.Configuration.GetConnectionString("Redis")
-    ?? builder.Configuration["Redis:ConnectionString"];
-
-if (string.IsNullOrEmpty(redisConnection))
-{
-    var redisHost = builder.Configuration["Redis:Host"] ?? "localhost:6379";
-    var redisPassword = builder.Configuration["Redis:Password"];
-    var redisSsl = builder.Configuration.GetValue<bool>("Redis:Ssl", false);
-    var redisAbort = builder.Configuration.GetValue<bool>("Redis:AbortConnect", false);
-
-    redisConnection = $"{redisHost},abortConnect={redisAbort.ToString().ToLower()},ssl={redisSsl.ToString().ToLower()}";
-    if (!string.IsNullOrEmpty(redisPassword))
-    {
-        redisConnection += $",password={redisPassword}";
-    }
-}
-
 builder.Services.AddSingleton<IConnectionMultiplexer>(sp =>
 {
-    var config = ConfigurationOptions.Parse(redisConnection);
+    var mailOpts = sp.GetRequiredService<IOptions<MailServiceOptions>>().Value;
+    string connStr = !string.IsNullOrWhiteSpace(mailOpts.RedisConnectionString)
+        ? mailOpts.RedisConnectionString
+        : "localhost:6379,abortConnect=false";
+
+    var config = ConfigurationOptions.Parse(connStr);
     config.AbortOnConnectFail = false;
     config.ConnectRetry = 3;
     config.ConnectTimeout = 3000;
@@ -184,7 +241,14 @@ builder.Services.AddSingleton<IConnectionMultiplexer>(sp =>
 builder.Services.AddScoped<IR2StorageClient, R2StorageClient>();
 builder.Services.AddScoped<IRateLimitService, RedisCacheService>();
 
-builder.Services.AddScoped<IClamAvClient, ClamAvClient>();
+builder.Services.AddScoped<IClamAvClient>(sp =>
+{
+    var opts = sp.GetRequiredService<IOptions<MailServiceOptions>>().Value;
+    var host = !string.IsNullOrWhiteSpace(opts.ClamAvHost) ? opts.ClamAvHost : "clamav";
+    var port = opts.ClamAvPort > 0 ? opts.ClamAvPort : 3310;
+    var logger = sp.GetService<ILogger<ClamAvClient>>();
+    return new ClamAvClient(host, port, logger);
+});
 builder.Services.AddScoped<ISpamAssassinClient, SpamAssassinClient>();
 builder.Services.AddScoped<IDnsLookupService, DnsLookupService>();
 builder.Services.AddScoped<SpfEvaluator>();
@@ -215,6 +279,12 @@ builder.Services.AddScoped<IPhishingDetectionService, GovernedPhishingDetectionS
 builder.Services.AddScoped<IRiskScoringService, GovernedRiskScoringService>();
 
 builder.Services.AddScoped<IEmailClassifier, SimpleClassifier>();
+
+// Register Outbound Mail Transports (Brevo is primary, Stalwart is legacy/fallback)
+builder.Services.AddScoped<BrevoMailTransport>();
+builder.Services.AddScoped<StalwartMailTransport>();
+builder.Services.AddScoped<IMailTransport, BrevoMailTransport>();
+builder.Services.AddScoped<IMailTransport, StalwartMailTransport>();
 builder.Services.AddScoped<ISmtpDeliveryService, MailKitSmtpDeliveryService>();
 
 // Register Pipeline Stages & Runners
@@ -255,6 +325,9 @@ var app = builder.Build();
 // Map gRPC services (Port 5003 HTTP/2)
 app.MapGrpcService<MailManagementService>();
 app.MapGrpcService<MailSecurityService>();
+
+// Map REST Controllers (Port 9090 HTTP/1.1)
+app.MapControllers();
 
 // Map Health Endpoints (Port 9090 HTTP/1.1)
 // 1. General health overview (full diagnostics)

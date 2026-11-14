@@ -3,7 +3,7 @@ fullnameOverride: "mail-service"
 
 image:
   repository: acrauroracorekhoa.azurecr.io/aurora/mail-service
-  tag: "latest"
+  tag: "787a664f98c1077d1f6697ae9f414e658c6db98a"
   pullPolicy: IfNotPresent
 
 service:
@@ -50,12 +50,17 @@ env:
   Redis__Host: "redis-master.aurora.svc.cluster.local:6379"
   Redis__Ssl: "false"
   Redis__AbortConnect: "false"
+  MailTransport__Provider: "Brevo"
+  Brevo__SmtpHost: "smtp-relay.brevo.com"
+  Brevo__SmtpPort: "587"
+  Brevo__FromDomain: "e-verland.site"
   Stalwart__BaseUrl: "http://stalwart.aurora.svc.cluster.local:8080"
   Stalwart__AdminUrl: "http://stalwart.aurora.svc.cluster.local:8080"
   Stalwart__SmtpHost: "stalwart.aurora.svc.cluster.local"
-  Stalwart__SmtpPort: "25"
-  AiGovernance__GrpcEndpoint: "http://10.20.2.10:9090"
-  Grpc__AiGovernance__Url: "http://10.20.2.10:9090"
+  Stalwart__SmtpPort: "587"
+  Stalwart__SmtpUser: "ops@e-verland.site"
+  AiGovernance__GrpcEndpoint: "http://10.30.2.10:9090"
+  Grpc__AiGovernance__Url: "http://10.30.2.10:9090"
   ClamAV__Host: "clamav.aurora.svc.cluster.local"
   ClamAV__Port: "3310"
   SpamAssassin__Host: "spamassassin.aurora.svc.cluster.local"
@@ -63,7 +68,9 @@ env:
   IamTenant__GrpcUrl: "http://iam-tenant:5000"
   RabbitMQ__Host: "rabbitmq.aurora.svc.cluster.local"
   RabbitMQ__Port: "5672"
+  RabbitMQ__VirtualHost: "mail"
   RabbitMQ__Username: "aurora_admin"
+  R2__BucketName: "aurora-mail-platform"
 
 externalSecret:
   enabled: true
@@ -77,12 +84,36 @@ externalSecret:
     - secretKey: Redis__Password
       remoteRef:
         key: redis-password
+    - secretKey: Brevo__SmtpUsername
+      remoteRef:
+        key: aurora-mail-brevo-smtp-username
+    - secretKey: Brevo__SmtpPassword
+      remoteRef:
+        key: aurora-mail-brevo-smtp-password
+    - secretKey: CloudflareInbound__WebhookSecret
+      remoteRef:
+        key: aurora-mail-cloudflare-webhook-secret
     - secretKey: Stalwart__AdminApiKey
       remoteRef:
         key: stalwart-admin-api-key
+    - secretKey: Stalwart__WebhookSecret
+      remoteRef:
+        key: stalwart-webhook-secret
+    - secretKey: Stalwart__SmtpPassword
+      remoteRef:
+        key: stalwart-smtp-password
     - secretKey: RabbitMQ__Password
       remoteRef:
         key: rabbitmq-password
+    - secretKey: R2__AccountId
+      remoteRef:
+        key: aurora-mail-r2-account-id
+    - secretKey: R2__AccessKey
+      remoteRef:
+        key: aurora-mail-r2-access-key
+    - secretKey: R2__SecretKey
+      remoteRef:
+        key: aurora-mail-r2-secret-key
 
 resources:
   requests:

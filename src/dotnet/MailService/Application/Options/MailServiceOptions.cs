@@ -10,23 +10,48 @@ public class MailServiceOptions
 
     public string? DatabaseConnectionString { get; set; }
     public string? RedisConnectionString { get; set; }
+    public string? RedisHost { get; set; }
+    
+    // RabbitMQ Options
     public string? RabbitMqHost { get; set; }
     public int RabbitMqPort { get; set; } = 5672;
     public string? RabbitMqUsername { get; set; }
     public string? RabbitMqPassword { get; set; }
     public string? RabbitMqVirtualHost { get; set; } = "mail";
 
+    // Stalwart Options
     public string? StalwartBaseUrl { get; set; }
+    public string? StalwartAdminUrl { get; set; }
+    public string? StalwartAdminApiKey { get; set; }
+    public string? StalwartWebhookSecret { get; set; }
     public string? StalwartSmtpHost { get; set; }
     public int StalwartSmtpPort { get; set; } = 25;
+    public string? StalwartSmtpUser { get; set; }
+    public string? StalwartSmtpPassword { get; set; }
+
+    // Transport & Provider Options (Brevo & Cloudflare)
+    public string MailTransportProvider { get; set; } = "Brevo";
+    public string? BrevoSmtpHost { get; set; } = "smtp-relay.brevo.com";
+    public int BrevoSmtpPort { get; set; } = 587;
+    public string? BrevoSmtpUsername { get; set; }
+    public string? BrevoSmtpPassword { get; set; }
+    public string? CloudflareWebhookSecret { get; set; }
 
     public string? ClamAvHost { get; set; }
     public int ClamAvPort { get; set; } = 3310;
+    public bool ClamAvEnabled { get; set; } = true;
+    public bool ClamAvFailOpen { get; set; } = false;
 
     public string? SpamAssassinHost { get; set; }
     public int SpamAssassinPort { get; set; } = 783;
 
     public string? AiGovernanceEndpoint { get; set; }
+
+    // Cloudflare R2 Options
+    public string? R2AccountId { get; set; }
+    public string? R2AccessKey { get; set; }
+    public string? R2SecretKey { get; set; }
+    public string R2BucketName { get; set; } = "aurora-mail-platform";
 }
 
 public class MailServiceOptionsValidator : IValidateOptions<MailServiceOptions>
@@ -47,7 +72,7 @@ public class MailServiceOptionsValidator : IValidateOptions<MailServiceOptions>
             failures.Add("ConnectionStrings:DefaultConnection is required.");
         }
 
-        if (string.IsNullOrWhiteSpace(options.RedisConnectionString))
+        if (string.IsNullOrWhiteSpace(options.RedisConnectionString) && string.IsNullOrWhiteSpace(options.RedisHost))
         {
             failures.Add("Redis:ConnectionString is required.");
         }
@@ -57,10 +82,20 @@ public class MailServiceOptionsValidator : IValidateOptions<MailServiceOptions>
             failures.Add("RabbitMQ:Host is required.");
         }
 
+        if (options.RabbitMqPort <= 0 || options.RabbitMqPort > 65535)
+        {
+            failures.Add("RabbitMQ:Port must be between 1 and 65535.");
+        }
+
         if (!string.IsNullOrWhiteSpace(options.StalwartBaseUrl) &&
             !Uri.TryCreate(options.StalwartBaseUrl, UriKind.Absolute, out _))
         {
             failures.Add("Stalwart:BaseUrl must be a valid absolute URI.");
+        }
+
+        if (options.StalwartSmtpPort <= 0 || options.StalwartSmtpPort > 65535)
+        {
+            failures.Add("Stalwart:SmtpPort must be between 1 and 65535.");
         }
 
         if (!string.IsNullOrWhiteSpace(options.AiGovernanceEndpoint) &&
@@ -86,9 +121,10 @@ public class MailServiceOptionsValidator : IValidateOptions<MailServiceOptions>
                 failures.Add("RabbitMQ:Password is required in Production.");
             }
 
-            if (string.IsNullOrWhiteSpace(options.StalwartBaseUrl))
+            if (string.Equals(options.MailTransportProvider, "Stalwart", StringComparison.OrdinalIgnoreCase) &&
+                string.IsNullOrWhiteSpace(options.StalwartBaseUrl))
             {
-                failures.Add("Stalwart:BaseUrl is required in Production.");
+                failures.Add("Stalwart:BaseUrl is required in Production when using Stalwart provider.");
             }
 
             if (string.IsNullOrWhiteSpace(options.AiGovernanceEndpoint))
