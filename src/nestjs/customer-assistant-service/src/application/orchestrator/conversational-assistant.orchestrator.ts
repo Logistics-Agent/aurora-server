@@ -239,44 +239,91 @@ export class ConversationalAssistantOrchestrator {
 
       case NeedRagDecision.DOMAIN_QUERY: {
         capabilityCode = 'assistant.domain.read';
-        let toolSummary = '';
-        let toolSucceeded = false;
-        const toolStart = Date.now();
+        const runShipment =
+          classification.intent === AssistantIntent.SHIPMENT_QUERY ||
+          Boolean(classification.extractedParameters?.includeShipmentLookup);
+        const runBilling =
+          classification.intent === AssistantIntent.BILLING_QUERY ||
+          Boolean(classification.extractedParameters?.includeBillingSummary);
 
-        if (classification.intent === AssistantIntent.SHIPMENT_QUERY) {
-          try {
-            const toolRes = await this.toolRegistry.executeTool(
-              'ShipmentLookupTool',
-              { currentUser, conversationId },
-              classification.extractedParameters,
-            );
-            toolSummary = toolRes.summary;
-            toolSucceeded = toolRes.success;
-            toolCallsMetadata.push({ toolName: 'ShipmentLookupTool', outcome: toolRes.success ? 'SUCCESS' : 'FAILED', durationMs: Date.now() - toolStart });
-          } catch (e) {
-            toolCallsMetadata.push({ toolName: 'ShipmentLookupTool', outcome: e instanceof ForbiddenException ? 'DENIED' : 'FAILED', durationMs: Date.now() - toolStart });
-            toolSummary = e instanceof ForbiddenException ? 'Không có quyền truy cập dữ liệu lô hàng.'
-              : e instanceof BadRequestException ? 'Cần cung cấp mã lô hàng hoặc mã khách hàng để tra cứu.'
-              : 'Dữ liệu lô hàng tạm thời không truy cập được. Vui lòng thử lại sau.';
-          }
-        } else if (classification.intent === AssistantIntent.BILLING_QUERY) {
-          try {
-            const toolRes = await this.toolRegistry.executeTool('BillingSummaryTool', {
-              currentUser,
-              conversationId,
-            }, classification.extractedParameters);
-            toolSummary = toolRes.summary;
-            toolSucceeded = toolRes.success;
-            toolCallsMetadata.push({ toolName: 'BillingSummaryTool', outcome: toolRes.success ? 'SUCCESS' : 'FAILED', durationMs: Date.now() - toolStart });
-          } catch (e) {
-            toolCallsMetadata.push({ toolName: 'BillingSummaryTool', outcome: e instanceof ForbiddenException ? 'DENIED' : 'FAILED', durationMs: Date.now() - toolStart });
-            toolSummary = e instanceof ForbiddenException ? 'Không có quyền truy cập thông tin công nợ.'
-              : e instanceof BadRequestException ? 'Cần cung cấp mã khách hàng để tra cứu công nợ.'
-              : 'Dữ liệu công nợ tạm thời không truy cập được. Vui lòng thử lại sau.';
-          }
+        const summaries: string[] = [];
+        let anySucceeded = false;
+
+        const tasks: Array<Promise<void>> = [];
+
+        if (runShipment) {
+          tasks.push(
+            (async () => {
+              const toolStart = Date.now();
+              try {
+                const toolRes = await this.toolRegistry.executeTool(
+                  'ShipmentLookupTool',
+                  { currentUser, conversationId },
+                  classification.extractedParameters,
+                );
+                summaries.push(toolRes.summary);
+                if (toolRes.success) anySucceeded = true;
+                toolCallsMetadata.push({
+                  toolName: 'ShipmentLookupTool',
+                  outcome: toolRes.success ? 'SUCCESS' : 'FAILED',
+                  durationMs: Date.now() - toolStart,
+                });
+              } catch (e) {
+                toolCallsMetadata.push({
+                  toolName: 'ShipmentLookupTool',
+                  outcome: e instanceof ForbiddenException ? 'DENIED' : 'FAILED',
+                  durationMs: Date.now() - toolStart,
+                });
+                summaries.push(
+                  e instanceof ForbiddenException
+                    ? 'Không có quyền truy cập dữ liệu lô hàng.'
+                    : e instanceof BadRequestException
+                      ? 'Cần cung cấp mã lô hàng hoặc mã khách hàng để tra cứu.'
+                      : 'Dữ liệu lô hàng tạm thời không truy cập được. Vui lòng thử lại sau.',
+                );
+              }
+            })(),
+          );
         }
-        answerText = toolSummary;
-        isInsufficient = !toolSucceeded;
+
+        if (runBilling) {
+          tasks.push(
+            (async () => {
+              const toolStart = Date.now();
+              try {
+                const toolRes = await this.toolRegistry.executeTool(
+                  'BillingSummaryTool',
+                  { currentUser, conversationId },
+                  classification.extractedParameters,
+                );
+                summaries.push(toolRes.summary);
+                if (toolRes.success) anySucceeded = true;
+                toolCallsMetadata.push({
+                  toolName: 'BillingSummaryTool',
+                  outcome: toolRes.success ? 'SUCCESS' : 'FAILED',
+                  durationMs: Date.now() - toolStart,
+                });
+              } catch (e) {
+                toolCallsMetadata.push({
+                  toolName: 'BillingSummaryTool',
+                  outcome: e instanceof ForbiddenException ? 'DENIED' : 'FAILED',
+                  durationMs: Date.now() - toolStart,
+                });
+                summaries.push(
+                  e instanceof ForbiddenException
+                    ? 'Không có quyền truy cập thông tin công nợ.'
+                    : e instanceof BadRequestException
+                      ? 'Cần cung cấp mã khách hàng để tra cứu công nợ.'
+                      : 'Dữ liệu công nợ tạm thời không truy cập được. Vui lòng thử lại sau.',
+                );
+              }
+            })(),
+          );
+        }
+
+        await Promise.all(tasks);
+        answerText = summaries.join('\n\n');
+        isInsufficient = !anySucceeded;
         break;
       }
 

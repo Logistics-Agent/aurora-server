@@ -37,21 +37,40 @@ export class IntentRouterService {
       };
     }
 
-    // 2. Billing & Debt queries -> DOMAIN_QUERY (evaluated before generic "lô hàng" keyword)
-    if (
+    const targetCustomerId = query.match(
+      new RegExp(`(?:khách hàng|customer)\\s*(?:id|mã|số)?\\s*[:#-]?\\s*(${uuidPattern})`, 'i'),
+    )?.[1];
+    const firstUuid = query.match(new RegExp(uuidPattern, 'i'))?.[0];
+    const shipmentId = firstUuid === targetCustomerId ? undefined : firstUuid;
+    const shipmentNo = query.match(/shp-[a-zA-Z0-9_-]+/i)?.[0];
+
+    const mentionsBilling =
       qLower.includes('công nợ') ||
       qLower.includes('hóa đơn') ||
       qLower.includes('invoice') ||
       qLower.includes('tiền nợ') ||
       qLower.includes('thanh toán') ||
-      qLower.includes('số dư')
-    ) {
-      const customerId = query.match(new RegExp(`(?:khách hàng|customer)\\s*(?:id|mã|số)?\\s*[:#-]?\\s*(${uuidPattern})`, 'i'))?.[1];
+      qLower.includes('số dư');
+
+    const mentionsShipmentTracking =
+      Boolean(shipmentNo) ||
+      Boolean(shipmentId) ||
+      qLower.includes('ở đâu') ||
+      qLower.includes('vị trí') ||
+      qLower.includes('theo dõi');
+
+    // 2. Billing & Debt queries (supports parallel multi-tool execution if shipment tracking is also requested)
+    if (mentionsBilling) {
       return {
         intent: AssistantIntent.BILLING_QUERY,
         decision: NeedRagDecision.DOMAIN_QUERY,
         confidence: 0.95,
-        extractedParameters: { targetCustomerId: customerId },
+        extractedParameters: {
+          targetCustomerId,
+          shipmentId,
+          shipmentNo,
+          includeShipmentLookup: mentionsShipmentTracking,
+        },
       };
     }
 
@@ -99,7 +118,7 @@ export class IntentRouterService {
       };
     }
 
-    if (mentionsRegulatoryTopic && !/shp-[a-zA-Z0-9_-]+/i.test(query)) {
+    if (mentionsRegulatoryTopic && !shipmentNo) {
       return {
         intent: AssistantIntent.REGULATORY_QUERY,
         decision: NeedRagDecision.RAG_REGULATORY,
@@ -112,15 +131,8 @@ export class IntentRouterService {
       qLower.includes('vận đơn') ||
       qLower.includes('lô hàng') ||
       qLower.includes('shipment') ||
-      qLower.includes('vị trí') ||
-      qLower.includes('theo dõi') ||
-      qLower.includes('ở đâu') ||
-      /shp-[a-zA-Z0-9_-]+/i.test(query)
+      mentionsShipmentTracking
     ) {
-      const targetCustomerId = query.match(new RegExp(`(?:khách hàng|customer)\\s*(?:id|mã|số)?\\s*[:#-]?\\s*(${uuidPattern})`, 'i'))?.[1];
-      const shipmentId = query.match(new RegExp(uuidPattern, 'i'))?.[0] === targetCustomerId
-        ? undefined : query.match(new RegExp(uuidPattern, 'i'))?.[0];
-      const shipmentNo = query.match(/shp-[a-zA-Z0-9_-]+/i)?.[0];
       return {
         intent: AssistantIntent.SHIPMENT_QUERY,
         decision: NeedRagDecision.DOMAIN_QUERY,
@@ -174,9 +186,9 @@ User Query: "${query}"`;
         decision = NeedRagDecision.RAG_HYBRID;
       }
 
-      return { intent, decision, confidence: 0.8 };
-    } catch (err) {
-      this.logger.warn(`[IntentRouter] AI classifier failed, defaulting to HYBRID_RAG_QUERY: ${err}`);
+      return { intent, decision, confidence: 0.75 };
+    } catch (error) {
+      this.logger.warn(`AI Router fallback failed, defaulting to HYBRID_RAG: ${(error as Error).message}`);
       return {
         intent: AssistantIntent.HYBRID_RAG_QUERY,
         decision: NeedRagDecision.RAG_HYBRID,

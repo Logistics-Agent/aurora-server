@@ -220,4 +220,28 @@ describe('NegotiationService', () => {
     expect(result.fallbackUsed).toBe(false);
     expect(mockPrisma.negotiationMessage.create).toHaveBeenCalledTimes(2);
   });
+
+  it('anchors high against lowball offers in Round 1 and concedes monotonically when customer raises offer in Round 2', () => {
+    // Lowball $1,000 in Round 1 -> anchors at $4,880 (never exposes $4,200 bottomPrice)
+    const lowballR1 = strategy.determineDecision({
+      offerPrice: 1000,
+      bottomPrice: 4200,
+      listPrice: 5000,
+      currentRound: 1,
+      maxRounds: 5,
+    });
+    expect(lowballR1.counterOfferPrice).toBe(4880);
+
+    // Good-faith Round 1 ($4,000) -> $4,400; Round 2 ($4,100) -> concedes below $4,400 ($4,362.50)
+    const goodR2 = strategy.determineDecision({
+      offerPrice: 4100,
+      bottomPrice: 4200,
+      listPrice: 5000,
+      currentRound: 2,
+      maxRounds: 5,
+      previousApprovedAmount: 4400,
+    });
+    expect(goodR2.counterOfferPrice).toBeLessThan(4400);
+    expect(goodR2.counterOfferPrice).toBeGreaterThanOrEqual(4200);
+  });
 });
