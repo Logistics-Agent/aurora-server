@@ -8,10 +8,10 @@ import {
   ConnectedSocket,
 } from '@nestjs/websockets';
 import { Server } from 'socket.io';
-import { Logger, UseGuards } from '@nestjs/common';
+import { Logger } from '@nestjs/common';
 import { WsJwtGuard, AuthenticatedSocket } from '../common/guards/ws-jwt.guard';
 import { RealtimePayloadDto } from './dto/realtime-payload.dto';
-import { OfflineBufferService, BufferedMessage } from '../messaging/offline-buffer.service';
+import { OfflineBufferService } from '../messaging/offline-buffer.service';
 
 @WebSocketGateway({
   cors: {
@@ -23,7 +23,7 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
   server: Server;
 
   private readonly logger = new Logger(EventsGateway.name);
-  private readonly pendingAcks: Map<string, NodeJS.Timeout> = new Map();
+  private readonly pendingAcks: Map<string, { timeout: NodeJS.Timeout; tenantId: string; userId: string }> = new Map();
 
   constructor(
     private readonly wsJwtGuard: WsJwtGuard,
@@ -41,11 +41,12 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
       const tenantRoom = `tenant:${tenantId}`;
       const userRoom = `user:${tenantId}:${userId}`;
 
-      await client.join(tenantRoom);
+      if (this.isStaff(client)) await client.join(tenantRoom);
       await client.join(userRoom);
+      if (client.data.customerId) await client.join(`customer:${tenantId}:${client.data.customerId}`);
 
       this.logger.log(
-        `Socket Client connected: ID ${client.id} | Tenant: ${tenantId} | User: ${userId} | Joined Rooms: [${tenantRoom}, ${userRoom}]`,
+        `Socket Client connected: ID ${client.id} | Tenant: ${tenantId} | User: ${userId}`,
       );
 
       client.emit('connected', {
@@ -56,7 +57,11 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
       });
 
       // ── TASK-005: Flush Offline Buffered Messages on Connect ─────────────
-      const bufferedMsgs = await this.offlineBuffer.flush(tenantId, userId);
+      const bufferedUserMsgs = await this.offlineBuffer.flush(tenantId, userId);
+      const bufferedCustomerMsgs = client.data.customerId
+        ? await this.offlineBuffer.flush(tenantId, `customer:${client.data.customerId}`)
+        : [];
+      const bufferedMsgs = [...bufferedUserMsgs, ...bufferedCustomerMsgs];
       if (bufferedMsgs.length > 0) {
         this.logger.log(`Flushing ${bufferedMsgs.length} offline message(s) for User ${userId}`);
         for (const msg of bufferedMsgs) {
@@ -86,9 +91,12 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @ConnectedSocket() client: AuthenticatedSocket,
     @MessageBody() data: { shipmentId: string },
   ) {
-    const tenantId = client.data?.tenantId || 'a0000000-0000-0000-0000-000000000001';
+    const tenantId = client.data?.tenantId;
     if (!data || !data.shipmentId) {
       return { status: 'ERROR', message: 'shipmentId is required' };
+    }
+    if (!tenantId || (!this.isStaff(client) && !client.data.shipmentIds?.includes(data.shipmentId))) {
+      return { status: 'ERROR', message: 'Shipment access denied' };
     }
 
     const shipmentRoom = `shipment:${tenantId}:${data.shipmentId}`;
@@ -103,7 +111,7 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @ConnectedSocket() client: AuthenticatedSocket,
     @MessageBody() data: { shipmentId: string },
   ) {
-    const tenantId = client.data?.tenantId || 'a0000000-0000-0000-0000-000000000001';
+    const tenantId = client.data?.tenantId;
     if (!data || !data.shipmentId) {
       return { status: 'ERROR', message: 'shipmentId is required' };
     }
@@ -122,19 +130,43 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     return { event: 'pong', timestamp: Date.now() };
   }
 
-  // ── TASK-005: Client ACK Handler ─────────────────────────────────────────
+  // ── TASK-005: Client ACK Handler (Cluster-Aware via Redis) ───────────────
 
   @SubscribeMessage('ack')
-  handleAck(
+  async handleAck(
     @ConnectedSocket() client: AuthenticatedSocket,
     @MessageBody() data: { msgId: string },
   ) {
-    if (data && data.msgId && this.pendingAcks.has(data.msgId)) {
-      clearTimeout(this.pendingAcks.get(data.msgId)!);
+    if (!data?.msgId || !client.data?.tenantId) {
+      return { status: 'ACK_RECEIVED', msgId: data?.msgId };
+    }
+
+    const candidateKeys = [client.data.userId];
+    if (client.data.customerId) {
+      candidateKeys.push(`customer:${client.data.customerId}`);
+    }
+
+    const pending = this.pendingAcks.get(data.msgId);
+    const isLocalRecipient =
+      pending &&
+      pending.tenantId === client.data.tenantId &&
+      candidateKeys.includes(pending.userId);
+
+    if (isLocalRecipient) {
+      clearTimeout(pending.timeout);
       this.pendingAcks.delete(data.msgId);
+    }
+
+    const confirmedClusterWide = await this.offlineBuffer.confirmAck(
+      data.msgId,
+      client.data.tenantId,
+      candidateKeys,
+    );
+
+    if (isLocalRecipient || confirmedClusterWide) {
       this.logger.log(`[ACK Received] Client ${client.id} acknowledged msgId '${data.msgId}'`);
     }
-    return { status: 'ACK_RECEIVED', msgId: data?.msgId };
+    return { status: 'ACK_RECEIVED', msgId: data.msgId };
   }
 
   // ── Helper Broadcast Methods ─────────────────────────────────────────────
@@ -162,14 +194,17 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
       data,
     };
 
+    await this.offlineBuffer.markPendingAck(msgId, tenantId, userId);
+
     // Emit event with msgId
     this.server.to(room).emit(event, payload);
     this.logger.log(`[Broadcast -> Room ${room}] Event: ${event} | msgId: ${msgId}`);
 
-    // TASK-005: 5-second ACK timeout check
+    // TASK-005: 5-second ACK timeout check (cluster-safe via Redis pending_ack key)
     const timeout = setTimeout(async () => {
-      if (this.pendingAcks.has(msgId)) {
-        this.pendingAcks.delete(msgId);
+      this.pendingAcks.delete(msgId);
+      const stillPending = await this.offlineBuffer.isStillPendingAck(msgId);
+      if (stillPending) {
         this.logger.warn(`[ACK Timeout] No ACK received for msgId '${msgId}'. Buffering for User ${userId}...`);
         await this.offlineBuffer.bufferMessage({
           msgId,
@@ -182,7 +217,43 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
       }
     }, 5000);
 
-    this.pendingAcks.set(msgId, timeout);
+    this.pendingAcks.set(msgId, { timeout, tenantId, userId });
+  }
+
+  async sendToCustomer<T>(tenantId: string, customerId: string, event: string, data: T) {
+    const room = `customer:${tenantId}:${customerId}`;
+    const bufferRecipientKey = `customer:${customerId}`;
+    const msgId = `msg_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+
+    await this.offlineBuffer.markPendingAck(msgId, tenantId, bufferRecipientKey);
+
+    this.server.to(room).emit(event, {
+      event,
+      tenantId,
+      timestamp: Date.now(),
+      msgId,
+      data,
+    });
+    const timeout = setTimeout(async () => {
+      this.pendingAcks.delete(msgId);
+      const stillPending = await this.offlineBuffer.isStillPendingAck(msgId);
+      if (stillPending) {
+        this.logger.warn(`[ACK Timeout] No ACK received for msgId '${msgId}'. Buffering for Customer ${customerId}...`);
+        await this.offlineBuffer.bufferMessage({
+          msgId,
+          tenantId,
+          userId: bufferRecipientKey,
+          event,
+          payload: data,
+          timestamp: Date.now(),
+        });
+      }
+    }, 5000);
+    this.pendingAcks.set(msgId, { timeout, tenantId, userId: bufferRecipientKey });
+  }
+
+  private isStaff(client: AuthenticatedSocket): boolean {
+    return client.data?.roles?.some((role) => ['STAFF', 'ADMIN', 'SYSTEM'].includes(role.toUpperCase())) || false;
   }
 
   sendToShipment<T>(tenantId: string, shipmentId: string, event: string, data: T) {
@@ -197,4 +268,3 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     this.logger.log(`[Broadcast -> Room ${room}] Event: ${event}`);
   }
 }
-

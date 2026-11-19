@@ -1,7 +1,9 @@
-import { Controller, UseFilters, UseInterceptors } from '@nestjs/common';
+import { Body, Controller, Headers, Param, Post, UseFilters, UseInterceptors } from '@nestjs/common';
 import { GrpcMethod } from '@nestjs/microservices';
 import { BillingService } from '../../application/services/billing.service';
+import { CommercialAuthorityService } from '../../application/services/commercial-authority.service';
 import { TenantInterceptor } from '../../common/interceptors/tenant.interceptor';
+import { IdempotencyInterceptor } from '../../common/interceptors/idempotency.interceptor';
 import { GrpcExceptionFilter } from '../../common/filters/grpc-exception.filter';
 import {
   GenerateInvoiceRequest,
@@ -27,13 +29,43 @@ import {
   IssueDebitNoteRequest,
   IssueCreditNoteRequest,
   AdjustmentNoteResponse,
+  RecordShipmentAgreementRequest,
+  GetShipmentAgreementRequest,
+  ShipmentAgreementResponse,
+  SetCustomerCreditAccountRequest,
+  CustomerCreditAccountResponse,
+  CustomerBillingSummaryResponse,
+  GetCustomerBillingSummaryRequest,
 } from '../dto/billing.dto';
 
 @Controller()
-@UseInterceptors(TenantInterceptor)
+@UseInterceptors(TenantInterceptor, IdempotencyInterceptor)
 @UseFilters(GrpcExceptionFilter)
 export class BillingController {
-  constructor(private readonly billingService: BillingService) {}
+  constructor(
+    private readonly billingService: BillingService,
+    private readonly commercialAuthority: CommercialAuthorityService,
+  ) {}
+
+  @GrpcMethod('BillingService', 'RecordShipmentAgreement')
+  recordShipmentAgreement(data: RecordShipmentAgreementRequest): Promise<ShipmentAgreementResponse> {
+    return this.commercialAuthority.recordAgreement(data);
+  }
+
+  @GrpcMethod('BillingService', 'GetShipmentAgreement')
+  getShipmentAgreement(data: GetShipmentAgreementRequest): Promise<ShipmentAgreementResponse> {
+    return this.commercialAuthority.getAgreement(data);
+  }
+
+  @GrpcMethod('BillingService', 'SetCustomerCreditAccount')
+  setCustomerCreditAccount(data: SetCustomerCreditAccountRequest): Promise<CustomerCreditAccountResponse> {
+    return this.commercialAuthority.setCreditAccount(data);
+  }
+
+  @GrpcMethod('BillingService', 'GetCustomerBillingSummary')
+  getCustomerBillingSummary(data: GetCustomerBillingSummaryRequest): Promise<CustomerBillingSummaryResponse> {
+    return this.commercialAuthority.getCustomerBillingSummary(data);
+  }
 
   // ── Invoice gRPC Endpoints ────────────────────────────────────────────────
 
@@ -75,6 +107,25 @@ export class BillingController {
   @GrpcMethod('BillingService', 'RecordPayment')
   async recordPayment(data: RecordPaymentRequest): Promise<RecordPaymentResponse> {
     return this.billingService.recordPayment(data, data.tenantId);
+  }
+
+  @Post('api/v1/invoices/:id/payment-webhook')
+  async handlePaymentWebhook(
+    @Param('id') invoiceId: string,
+    @Body() body: Omit<RecordPaymentRequest, 'invoiceId'>,
+    @Headers('x-payment-signature') signature: string,
+    @Headers('x-tenant-id') tenantHeader?: string,
+  ): Promise<RecordPaymentResponse> {
+    const tenantId = tenantHeader || body.tenantId;
+    return this.billingService.recordPayment(
+      {
+        ...body,
+        invoiceId,
+        tenantId,
+        webhookSignature: signature || '',
+      },
+      tenantId,
+    );
   }
 
   @GrpcMethod('BillingService', 'CancelInvoice')

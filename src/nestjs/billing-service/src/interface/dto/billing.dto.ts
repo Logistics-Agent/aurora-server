@@ -3,6 +3,11 @@ export interface GenerateInvoiceRequest {
   shipmentId: string;
   customerId?: string;
   paymentTermsDays?: number;
+  originPort?: string;
+  destinationPort?: string;
+  weightKg?: number;
+  volumeCbm?: number;
+  podS3Key?: string;
 }
 
 export interface CreditCheckRequest {
@@ -19,6 +24,78 @@ export interface CreditCheckResponse {
   availableCredit: number;
   overdueInvoiceCount: number;
   message: string;
+}
+
+export interface RecordShipmentAgreementRequest {
+  tenantId?: string;
+  actorUserId?: string;
+  permissions?: string[];
+  shipmentId: string;
+  customerId: string;
+  subtotal: string;
+  taxAmount: string;
+  currency: string;
+  evidenceReference: string;
+}
+
+export interface GetShipmentAgreementRequest {
+  tenantId?: string;
+  shipmentId: string;
+}
+
+export interface ShipmentAgreementResponse {
+  id: string;
+  tenantId: string;
+  shipmentId: string;
+  customerId: string;
+  subtotal: string;
+  taxAmount: string;
+  totalAmount: string;
+  currency: string;
+  evidenceReference: string;
+  recordedBy: string;
+  recordedAt: string;
+}
+
+export interface SetCustomerCreditAccountRequest {
+  tenantId?: string;
+  actorUserId?: string;
+  permissions?: string[];
+  customerId: string;
+  creditLimit: string;
+  currency: string;
+  termsDays: number;
+  onHold: boolean;
+  reason: string;
+}
+
+export interface CustomerCreditAccountResponse {
+  customerId: string;
+  creditLimit: string;
+  currency: string;
+  termsDays: number;
+  onHold: boolean;
+  approvedBy: string;
+  approvedAt: string;
+}
+
+export interface GetCustomerBillingSummaryRequest {
+  tenantId?: string;
+  customerId: string;
+}
+
+export interface CustomerBillingSummaryResponse {
+  customerId: string;
+  totalDebt: number;
+  unpaidCount: number;
+  invoices: Array<{
+    invoiceId: string;
+    invoiceNumber: string;
+    totalAmount: number;
+    remainingBalance: number;
+    status: string;
+    dueDate: string;
+  }>;
 }
 
 export interface InvoiceLineItemInput {
@@ -38,6 +115,7 @@ export interface CreateInvoiceRequest {
 }
 
 export interface GetInvoiceRequest {
+  tenantId?: string;
   invoiceId: string;
 }
 
@@ -98,6 +176,7 @@ export interface ListInvoicesResponse {
 }
 
 export interface UpdateInvoiceStatusRequest {
+  tenantId?: string;
   invoiceId: string;
   status: string;
 }
@@ -109,6 +188,7 @@ export interface CreateEscrowWalletRequest {
 }
 
 export interface GetWalletBalanceRequest {
+  tenantId?: string;
   walletId: string;
 }
 
@@ -123,6 +203,7 @@ export interface WalletResponse {
 }
 
 export interface FreezeEscrowRequest {
+  tenantId?: string;
   walletId: string;
   shipmentId: string;
   amount: number;
@@ -130,6 +211,7 @@ export interface FreezeEscrowRequest {
 }
 
 export interface ReleaseEscrowRequest {
+  tenantId?: string;
   walletId: string;
   shipmentId: string;
   amount: number;
@@ -137,6 +219,7 @@ export interface ReleaseEscrowRequest {
 }
 
 export interface RefundEscrowRequest {
+  tenantId?: string;
   walletId: string;
   shipmentId: string;
   amount: number;
@@ -178,6 +261,7 @@ export interface RecordPaymentResponse {
 // ── New: CancelInvoice ────────────────────────────────────────────────────
 
 export interface CancelInvoiceRequest {
+  tenantId?: string;
   invoiceId: string;
   reason?: string;
 }

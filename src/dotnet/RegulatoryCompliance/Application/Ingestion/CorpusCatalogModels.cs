@@ -78,4 +78,30 @@ public interface ICorpusCatalogService
     Task<KnowledgeDocumentCatalogDetails?> GetKnowledgeDocumentAsync(
         Guid id,
         CancellationToken cancellationToken = default);
+
+    Task<bool> DeleteRegulatorySourceAsync(
+        Guid id,
+        CancellationToken cancellationToken = default);
+
+    Task<RegulatorySourceCatalogDetails?> UpdateRegulatorySourceAsync(
+        Guid id,
+        string? authority,
+        string? title,
+        string? jurisdictionCode,
+        RegulationType? regulationType,
+        string? languageCode,
+        string? canonicalSourceUri = null,
+        CancellationToken cancellationToken = default);
+
+    Task<bool> DeleteKnowledgeDocumentAsync(
+        Guid id,
+        CancellationToken cancellationToken = default);
+
+    Task<KnowledgeDocumentCatalogDetails?> UpdateKnowledgeDocumentAsync(
+        Guid id,
+        string? title,
+        KnowledgeCategory? category,
+        string? sourceReference,
+        string? languageCode,
+        CancellationToken cancellationToken = default);
 }

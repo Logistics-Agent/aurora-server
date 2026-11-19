@@ -1,161 +1,109 @@
-import { Injectable, Logger, ConflictException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { InvoiceDomainService } from '../../domain/services/invoice.domain-service';
-import { FinancialGrpcClient } from '../../infrastructure/grpc-clients/financial.grpc-client';
-import { StorageService } from '../../infrastructure/storage/storage.service';
+import { ShipmentWorkflowGrpcClient } from '../../infrastructure/grpc-clients/shipment-workflow.grpc-client';
 import { RabbitMQMessagingService } from '../../infrastructure/messaging/rabbitmq.service';
-import { ConfigService } from '@nestjs/config';
+import { allocateInvoiceNumber } from '../../domain/services/invoice-number';
 
 export interface GenerateInvoiceInput {
   tenantId: string;
   shipmentId: string;
-  customerId?: string;
-  originPort?: string;
-  destinationPort?: string;
-  weightKg?: number;
-  volumeCbm?: number;
-  paymentTermsDays?: number;
-  podS3Key?: string;
 }
 
 @Injectable()
 export class GenerateInvoiceUseCase {
-  private readonly logger = new Logger(GenerateInvoiceUseCase.name);
-
   constructor(
     private readonly prisma: PrismaService,
     private readonly domainService: InvoiceDomainService,
-    private readonly financialGrpcClient: FinancialGrpcClient,
-    private readonly storageService: StorageService,
+    private readonly shipments: ShipmentWorkflowGrpcClient,
     private readonly messagingService: RabbitMQMessagingService,
-    private readonly configService: ConfigService,
   ) {}
 
   async execute(input: GenerateInvoiceInput) {
-    this.logger.log(`Executing GenerateInvoiceUseCase for shipment ${input.shipmentId} (Tenant: ${input.tenantId})`);
+    if (!input.tenantId?.trim() || !input.shipmentId?.trim()) {
+      throw new BadRequestException('Tenant and shipment are required');
+    }
+    const tenantId = input.tenantId.trim().toLowerCase();
+    const shipmentId = input.shipmentId.trim().toLowerCase();
 
-    // ── 1. Idempotency Check ─────────────────────────────────────────────
-    const existing = await this.prisma.invoice.findFirst({
-      where: {
-        tenantId: input.tenantId,
-        shipmentId: input.shipmentId,
-      },
+    const shipment = await this.shipments.getShipment(tenantId, shipmentId);
+    if (shipment.id.toLowerCase() !== shipmentId || shipment.tenantId.toLowerCase() !== tenantId ||
+        shipment.status !== 'Completed' || !shipment.customerId) {
+      throw new BadRequestException('Shipment must be completed and have a verified customer');
+    }
+    const pod = shipment.documents.find((document) =>
+      document.documentType === 'ProofOfDelivery' && document.storageUrl?.trim());
+    if (!pod) throw new BadRequestException('Proof of Delivery is required before invoicing');
+
+    const agreement = await this.prisma.shipmentPriceAgreement.findUnique({
+      where: { tenantId_shipmentId: { tenantId, shipmentId } },
     });
-
-    if (existing) {
-      throw new ConflictException(`Invoice ${existing.invoiceNumber} already generated for shipment ${input.shipmentId}`);
+    if (!agreement || agreement.customerId.toLowerCase() !== shipment.customerId.toLowerCase()) {
+      throw new NotFoundException('Verified agreed price is required for this shipment and customer');
+    }
+    if (agreement.currency !== 'USD') throw new BadRequestException('Only USD invoices are supported');
+    const account = await this.prisma.customerCreditAccount.findUnique({
+      where: { tenantId_customerId: { tenantId, customerId: shipment.customerId.toLowerCase() } },
+    });
+    if (!account || account.currency !== agreement.currency) {
+      throw new NotFoundException('Approved customer payment terms are required');
     }
 
-    // ── 2. Inter-Service gRPC Call to FinancialService ───────────────────
-    const costEstimate = await this.financialGrpcClient.estimateCost({
-      tenantId: input.tenantId,
-      originCountry: 'CN',
-      originPort: input.originPort || 'SGSIN',
-      destinationCountry: 'VN',
-      destinationPort: input.destinationPort || 'VNSGN',
-      weightKg: input.weightKg || 1000,
-      volumeCbm: input.volumeCbm || 5,
-    });
+    const subtotal = Number(agreement.subtotal.toFixed(2));
+    const taxAmount = Number(agreement.taxAmount.toFixed(2));
+    const totalAmount = Number(agreement.totalAmount.toFixed(2));
+    if (!Number.isSafeInteger(Math.round(totalAmount * 100)) ||
+        Math.round((subtotal + taxAmount) * 100) !== Math.round(totalAmount * 100)) {
+      throw new BadRequestException('Agreed price is outside supported invoice range');
+    }
+    const dueDate = this.domainService.calculateDueDate(new Date(), account.termsDays);
 
-    // ── 3. Build Invoice Line Items ──────────────────────────────────────
-    const itemsInput = [
-      {
-        description: `Base Freight Charge (${input.originPort || 'SGSIN'} -> ${input.destinationPort || 'VNSGN'})`,
-        quantity: 1,
-        unitPrice: costEstimate.baseFreightCost,
-        amount: costEstimate.baseFreightCost,
-        category: 'FREIGHT',
-      },
-      {
-        description: 'Port & Terminal Handling Charge (THC / DOC)',
-        quantity: 1,
-        unitPrice: costEstimate.portHandlingFees,
-        amount: costEstimate.portHandlingFees,
-        category: 'PORT_FEE',
-      },
-      {
-        description: `Customs Duty & Import Tax (${costEstimate.description})`,
-        quantity: 1,
-        unitPrice: costEstimate.totalCustomsFee,
-        amount: costEstimate.totalCustomsFee,
-        category: 'CUSTOMS_DUTY',
-      },
-    ];
-
-    const totals = this.domainService.calculateInvoiceTotals(itemsInput, 5.0);
-
-    // ── 4. Generate Auto Invoice Number & Due Date (T+30) ─────────────────
-    const invoiceCount = await this.prisma.invoice.count({
-      where: { tenantId: input.tenantId },
-    });
-    const invoiceNumber = this.domainService.generateInvoiceNumber(invoiceCount + 1);
-
-    const paymentTermsDays =
-      input.paymentTermsDays ||
-      this.configService.get<number>('billing.defaultPaymentTermsDays', 30);
-    const dueDate = this.domainService.calculateDueDate(new Date(), paymentTermsDays);
-
-    // ── 5. Execute 1 ACID Database Transaction ───────────────────────────
     const createdInvoice = await this.prisma.$transaction(async (tx) => {
+      const invoiceNumber = await allocateInvoiceNumber(tx, this.domainService);
+      const duplicate = await tx.invoice.findFirst({
+        where: { tenantId, shipmentId, status: { not: 'CANCELLED' } },
+      });
+      if (duplicate) throw new ConflictException(`Invoice ${duplicate.invoiceNumber} already exists for shipment`);
       return tx.invoice.create({
         data: {
-          tenantId: input.tenantId,
-          shipmentId: input.shipmentId,
-          customerId: input.customerId || 'CUST-001',
-          invoiceNumber: invoiceNumber,
-          subtotal: totals.subtotal,
-          taxAmount: totals.taxAmount,
-          totalAmount: totals.totalAmount,
-          currency: costEstimate.currency || 'USD',
+          tenantId,
+          shipmentId,
+          customerId: shipment.customerId.toLowerCase(),
+          agreementId: agreement.id,
+          invoiceNumber,
+          subtotal,
+          taxAmount,
+          totalAmount,
+          currency: agreement.currency,
           status: 'UNPAID',
-          dueDate: dueDate,
-          podS3Key: input.podS3Key || null,
+          dueDate,
+          podS3Key: pod.storageUrl,
           items: {
-            create: itemsInput.map((item) => ({
-              description: item.description,
-              quantity: item.quantity,
-              unitPrice: item.unitPrice,
-              amount: item.amount,
-              category: item.category,
-            })),
+            create: [{
+              description: `Agreed logistics services (${agreement.evidenceReference})`,
+              quantity: 1,
+              unitPrice: subtotal,
+              amount: subtotal,
+              category: 'FREIGHT',
+            }],
           },
         },
-        include: {
-          items: true,
-        },
+        include: { items: true },
       });
     });
 
-    // ── 6. Render PDF & Generate Storage Key Presigned URL ────────────────
-    const pdfResult = await this.storageService.renderAndUploadInvoicePdf(
-      input.tenantId,
-      createdInvoice.id,
-      createdInvoice.invoiceNumber,
-    );
-
-    const updatedInvoice = await this.prisma.invoice.update({
-      where: { id: createdInvoice.id },
-      data: {
-        pdfS3Key: pdfResult.s3Key,
-        pdfUrl: pdfResult.presignedUrl,
-      },
-      include: { items: true },
-    });
-
-    // ── 7. Publish Event to RabbitMQ ─────────────────────────────────────
     await this.messagingService.publishInvoiceCreated({
-      tenantId: updatedInvoice.tenantId,
-      invoiceId: updatedInvoice.id,
-      invoiceNumber: updatedInvoice.invoiceNumber,
-      shipmentId: updatedInvoice.shipmentId,
-      customerId: updatedInvoice.customerId,
-      totalAmount: updatedInvoice.totalAmount,
-      currency: updatedInvoice.currency,
-      dueDate: updatedInvoice.dueDate.toISOString(),
-      pdfUrl: updatedInvoice.pdfUrl || '',
-      createdAt: updatedInvoice.createdAt.toISOString(),
+      tenantId: createdInvoice.tenantId,
+      invoiceId: createdInvoice.id,
+      invoiceNumber: createdInvoice.invoiceNumber,
+      shipmentId: createdInvoice.shipmentId,
+      customerId: createdInvoice.customerId,
+      totalAmount: createdInvoice.totalAmount,
+      currency: createdInvoice.currency,
+      dueDate: createdInvoice.dueDate.toISOString(),
+      pdfUrl: '',
+      createdAt: createdInvoice.createdAt.toISOString(),
     });
-
-    return updatedInvoice;
+    return createdInvoice;
   }
 }

@@ -5,6 +5,8 @@ using Asp.Versioning;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Shared.Security;
+using Shared.Constants;
+using BuildingBlocks.BFF.Attributes;
 
 namespace StaffBff.Controllers;
 
@@ -13,6 +15,7 @@ namespace StaffBff.Controllers;
 [Route("api/v{version:apiVersion}/chat")]
 [Route("api/chat")]
 [Authorize]
+[RequirePermission(PermissionConstants.Assistant.Query)]
 public sealed class ChatController(
     IHttpClientFactory httpClientFactory,
     IConfiguration configuration,
@@ -25,9 +28,15 @@ public sealed class ChatController(
 
     private HttpClient CreateConfiguredClient()
     {
+        var internalSecret = configuration["INTERNAL_SERVICE_SECRET"];
+        if (string.IsNullOrWhiteSpace(internalSecret))
+            throw new InvalidOperationException("INTERNAL_SERVICE_SECRET must be configured for CustomerAssistant calls.");
+
         var client = httpClientFactory.CreateClient("CustomerAssistant");
         client.BaseAddress = new Uri(GetAssistantServiceUrl());
         client.Timeout = TimeSpan.FromSeconds(60);
+        client.DefaultRequestHeaders.Add("x-service-id", "Staff.Bff");
+        client.DefaultRequestHeaders.Add("x-internal-secret", internalSecret);
 
         if (currentUser.TenantId.HasValue)
             client.DefaultRequestHeaders.Add("x-tenant-id", currentUser.TenantId.Value.ToString());
@@ -36,6 +45,13 @@ public sealed class ChatController(
             client.DefaultRequestHeaders.Add("x-user-id", currentUser.UserId.Value.ToString());
 
         client.DefaultRequestHeaders.Add("x-actor-type", "STAFF");
+        var assistantReadPermissions = new[]
+        {
+            PermissionConstants.Shipment.Read,
+            PermissionConstants.Billing.Read
+        }.Where(currentUser.HasPermission).ToArray();
+        if (assistantReadPermissions.Length > 0)
+            client.DefaultRequestHeaders.Add("x-permissions", string.Join(",", assistantReadPermissions));
 
         if (!string.IsNullOrEmpty(currentUser.TraceId))
             client.DefaultRequestHeaders.Add("x-trace-id", currentUser.TraceId);

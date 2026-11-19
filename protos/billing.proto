@@ -13,6 +13,14 @@ service BillingService {
   rpc GetInvoice(GetInvoiceRequest) returns (InvoiceResponse);
   rpc ListInvoices(ListInvoicesRequest) returns (ListInvoicesResponse);
   rpc UpdateInvoiceStatus(UpdateInvoiceStatusRequest) returns (InvoiceResponse);
+  rpc RecordPayment(RecordPaymentRequest) returns (RecordPaymentResponse);
+  rpc CancelInvoice(CancelInvoiceRequest) returns (InvoiceResponse);
+  rpc IssueDebitNote(IssueAdjustmentNoteRequest) returns (AdjustmentNoteResponse);
+  rpc IssueCreditNote(IssueAdjustmentNoteRequest) returns (AdjustmentNoteResponse);
+  rpc RecordShipmentAgreement(RecordShipmentAgreementRequest) returns (ShipmentAgreementResponse);
+  rpc GetShipmentAgreement(GetShipmentAgreementRequest) returns (ShipmentAgreementResponse);
+  rpc SetCustomerCreditAccount(SetCustomerCreditAccountRequest) returns (CustomerCreditAccountResponse);
+  rpc GetCustomerBillingSummary(GetCustomerBillingSummaryRequest) returns (CustomerBillingSummaryResponse);
           
   // Escrow Wallet operations
   rpc CreateEscrowWallet(CreateEscrowWalletRequest) returns (WalletResponse);
@@ -27,8 +35,82 @@ service BillingService {
 message GenerateInvoiceRequest {
   string tenantId = 1;
   string shipmentId = 2;
+  string customerId = 3; // Legacy input; Billing resolves the customer from ShipmentWorkflow.
+  int32 paymentTermsDays = 4; // Legacy input; Billing uses approved customer terms.
+  string originPort = 5; // Legacy input; ignored for official invoicing.
+  string destinationPort = 6; // Legacy input; ignored for official invoicing.
+  double weightKg = 7; // Legacy input; ignored for official invoicing.
+  double volumeCbm = 8; // Legacy input; ignored for official invoicing.
+  string podS3Key = 9; // Legacy input; Billing verifies POD in ShipmentWorkflow.
+}
+
+message RecordShipmentAgreementRequest {
+  string tenantId = 1;
+  string shipmentId = 2;
   string customerId = 3;
-  int32 paymentTermsDays = 4; // Default e.g. 30 (T+30)
+  string subtotal = 4; // Decimal amount, two fractional digits at most.
+  string taxAmount = 5;
+  string currency = 6;
+  string evidenceReference = 7; // Signed quote / customer acceptance reference.
+}
+
+message GetShipmentAgreementRequest {
+  string shipmentId = 1;
+}
+
+message ShipmentAgreementResponse {
+  string id = 1;
+  string tenantId = 2;
+  string shipmentId = 3;
+  string customerId = 4;
+  string subtotal = 5;
+  string taxAmount = 6;
+  string totalAmount = 7;
+  string currency = 8;
+  string evidenceReference = 9;
+  string recordedBy = 10;
+  string recordedAt = 11;
+}
+
+message SetCustomerCreditAccountRequest {
+  string tenantId = 1;
+  string customerId = 2;
+  string creditLimit = 3; // Decimal amount, two fractional digits at most.
+  string currency = 4;
+  int32 termsDays = 5;
+  bool onHold = 6;
+  string reason = 7;
+}
+
+message CustomerCreditAccountResponse {
+  string customerId = 1;
+  string creditLimit = 2;
+  string currency = 3;
+  int32 termsDays = 4;
+  bool onHold = 5;
+  string approvedBy = 6;
+  string approvedAt = 7;
+}
+
+message GetCustomerBillingSummaryRequest {
+  string tenantId = 1;
+  string customerId = 2;
+}
+
+message CustomerInvoiceSummary {
+  string invoiceId = 1;
+  string invoiceNumber = 2;
+  double totalAmount = 3;
+  double remainingBalance = 4;
+  string status = 5;
+  string dueDate = 6;
+}
+
+message CustomerBillingSummaryResponse {
+  string customerId = 1;
+  double totalDebt = 2;
+  int32 unpaidCount = 3;
+  repeated CustomerInvoiceSummary invoices = 4; // Ten newest invoices.
 }
 
 message CreditCheckRequest {
@@ -126,6 +208,48 @@ message ListInvoicesResponse {
 message UpdateInvoiceStatusRequest {
   string invoiceId = 1;
   string status = 2;
+}
+
+message RecordPaymentRequest {
+  string invoiceId = 1;
+  double amountPaid = 2;
+  string paymentMethod = 3;
+  string transactionRef = 4;
+}
+
+message RecordPaymentResponse {
+  string paymentRecordId = 1;
+  string invoiceId = 2;
+  double amountPaid = 3;
+  string paymentMethod = 4;
+  string transactionRef = 5;
+  string newInvoiceStatus = 6;
+  double remainingBalance = 7;
+  string createdAt = 8;
+}
+
+message CancelInvoiceRequest {
+  string invoiceId = 1;
+  string reason = 2;
+}
+
+message IssueAdjustmentNoteRequest {
+  string invoiceId = 1;
+  string reasonCode = 2;
+  double amount = 3;
+  string description = 4;
+}
+
+message AdjustmentNoteResponse {
+  string adjustmentNoteId = 1;
+  string invoiceId = 2;
+  string type = 3;
+  string reasonCode = 4;
+  double amount = 5;
+  string description = 6;
+  string status = 7;
+  double newInvoiceTotalAmount = 8;
+  string createdAt = 9;
 }
 
 // ── Escrow Messages ──────────────────────────────────────────────────────────

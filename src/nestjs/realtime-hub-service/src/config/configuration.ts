@@ -16,6 +16,7 @@ export default () => ({
         : 'amqp://guest:guest@localhost:5672'),
   },
   auth: {
-    jwtSecret: process.env.JWT_SECRET || 'aurora_super_secret_jwt_key_2026',
+    jwtSecret: process.env.JWT_SECRET || undefined,
+    jwtPublicKey: process.env.JWT_PUBLIC_KEY?.replace(/\\n/g, '\n') || undefined,
   },
 });

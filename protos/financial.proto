@@ -8,6 +8,8 @@ service FinancialService {
   rpc EstimateCost(EstimateCostRequest) returns (EstimateCostResponse);
   rpc GetCustomsDuty(GetCustomsDutyRequest) returns (GetCustomsDutyResponse);
   rpc GetMinAcceptableRate(GetMinAcceptableRateRequest) returns (GetMinAcceptableRateResponse);
+  rpc GetDynamicMargin(GetDynamicMarginRequest) returns (GetDynamicMarginResponse);
+  rpc GetExchangeRate(GetExchangeRateRequest) returns (GetExchangeRateResponse);
 }
                 
 message EstimateCostRequest {
@@ -25,6 +27,9 @@ message EstimateCostRequest {
   double cargoValue = 12;
   string currency = 13;
   repeated string hsCodes = 14;
+  double fscRatePercent = 15;
+  double ebsRatePercent = 16;
+  double insuranceRatePercent = 17;
 }
 
 message EstimateCostResponse {
@@ -39,6 +44,8 @@ message EstimateCostResponse {
   string currency = 9;
   string calculationMethod = 10;
   string description = 11;
+  double fuelSurchargeFee = 12;
+  double cargoInsuranceFee = 13;
 }
 
 message GetCustomsDutyRequest {
@@ -75,4 +82,37 @@ message GetMinAcceptableRateResponse {
   double targetRate = 3;
   string currency = 4;
   string breakdownNote = 5;
+}
+
+message GetDynamicMarginRequest {
+  string shipmentId = 1;
+  double costPrice = 2;
+  double baseMarginPercent = 3;
+  double remainingSeconds = 4;
+  double totalSeconds = 5;
+  double gamma = 6;
+}
+
+message GetDynamicMarginResponse {
+  double costPrice = 1;
+  double listPrice = 2;
+  double minAcceptablePrice = 3;
+  double currentMarginPercent = 4;
+  double decayFactor = 5;
+  string currency = 6;
+  string note = 7;
+}
+
+message GetExchangeRateRequest {
+  string fromCurrency = 1;
+  string toCurrency = 2;
+  string date = 3;
+}
+
+message GetExchangeRateResponse {
+  string fromCurrency = 1;
+  string toCurrency = 2;
+  double rate = 3;
+  string validDate = 4;
+  string source = 5;
 }

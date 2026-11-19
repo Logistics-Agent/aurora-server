@@ -31,6 +31,10 @@ export class EnvironmentVariables {
   @IsOptional()
   FINANCIAL_SERVICE_GRPC_URL: string = 'localhost:5003';
 
+  @IsString()
+  @IsOptional()
+  SHIPMENT_WORKFLOW_GRPC_URL: string = 'localhost:5001';
+
   @IsNumber()
   @IsOptional()
   DEFAULT_PAYMENT_TERMS_DAYS: number = 30;
@@ -42,6 +46,22 @@ export class EnvironmentVariables {
   @IsString()
   @IsOptional()
   DEFAULT_CURRENCY: string = 'USD';
+
+  @IsString()
+  @IsOptional()
+  RABBITMQ_URI?: string;
+
+  @IsString()
+  @IsOptional()
+  RABBITMQ_HOST?: string;
+
+  @IsString()
+  @IsOptional()
+  RABBITMQ_USERNAME?: string;
+
+  @IsString()
+  @IsOptional()
+  RABBITMQ_PASSWORD?: string;
 }
 
 export function validate(config: Record<string, unknown>) {

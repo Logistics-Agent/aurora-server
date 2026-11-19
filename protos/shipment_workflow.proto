@@ -64,6 +64,9 @@ service ShipmentWorkflowService {
 
     rpc ImportShipments(ImportShipmentsRequest)
     returns (ImportShipmentsResponse);
+
+    rpc AssignVehicle(AssignVehicleRequest)
+    returns (ShipmentResponse);
 }
 
 message CreateShipmentRequest {
@@ -174,6 +177,7 @@ message ListShipmentsRequest {
   string customerName = 5;
   google.protobuf.Timestamp createdFrom = 6;
   google.protobuf.Timestamp createdTo = 7;
+  string customerId = 8;
 }
 
 message ListShipmentsResponse {
@@ -339,3 +343,10 @@ message ImportShipmentRowResult {
   string shipmentNo = 4;
   string error = 5;
 }
+
+message AssignVehicleRequest {
+  string shipmentId = 1;
+  string vehicleId = 2;
+  repeated string documentIds = 3;
+}
+

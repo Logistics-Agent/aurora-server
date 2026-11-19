@@ -19,6 +19,7 @@ export class IntentRouterService {
 
   async classify(query: string, context: CurrentUser): Promise<IntentClassificationResult> {
     const qLower = query.toLowerCase().trim();
+    const uuidPattern = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
 
     // ==========================================
     // Layer 1: Deterministic Fast-Path Rules
@@ -36,44 +37,29 @@ export class IntentRouterService {
       };
     }
 
-    // 2. Shipment queries -> DOMAIN_QUERY
-    if (
-      qLower.includes('vận đơn') ||
-      qLower.includes('lô hàng') ||
-      qLower.includes('shipment') ||
-      qLower.includes('vị trí') ||
-      qLower.includes('theo dõi') ||
-      qLower.includes('ở đâu') ||
-      /shp-[a-zA-Z0-9_-]+/i.test(query)
-    ) {
-      const match = query.match(/shp-[a-zA-Z0-9_-]+/i);
-      return {
-        intent: AssistantIntent.SHIPMENT_QUERY,
-        decision: NeedRagDecision.DOMAIN_QUERY,
-        confidence: 0.95,
-        extractedParameters: {
-          shipmentId: match ? match[0] : undefined,
-        },
-      };
-    }
+    const targetCustomerId = query.match(
+      new RegExp(`(?:khách hàng|customer)\\s*(?:id|mã|số)?\\s*[:#-]?\\s*(${uuidPattern})`, 'i'),
+    )?.[1];
+    const firstUuid = query.match(new RegExp(uuidPattern, 'i'))?.[0];
+    const shipmentId = firstUuid === targetCustomerId ? undefined : firstUuid;
+    const shipmentNo = query.match(/shp-[a-zA-Z0-9_-]+/i)?.[0];
 
-    // 3. Billing & Debt queries -> DOMAIN_QUERY
-    if (
+    const mentionsBilling =
       qLower.includes('công nợ') ||
       qLower.includes('hóa đơn') ||
       qLower.includes('invoice') ||
       qLower.includes('tiền nợ') ||
       qLower.includes('thanh toán') ||
-      qLower.includes('số dư')
-    ) {
-      return {
-        intent: AssistantIntent.BILLING_QUERY,
-        decision: NeedRagDecision.DOMAIN_QUERY,
-        confidence: 0.95,
-      };
-    }
+      qLower.includes('số dư');
 
-    // 4. Hybrid (Laws + SOPs) -> RAG_HYBRID
+    const mentionsShipmentTracking =
+      Boolean(shipmentNo) ||
+      Boolean(shipmentId) ||
+      qLower.includes('ở đâu') ||
+      qLower.includes('vị trí') ||
+      qLower.includes('theo dõi');
+
+    // 2. Hybrid / SOP / Regulatory queries (supports cross-domain execution if shipment/billing is also mentioned)
     const mentionsLaw =
       qLower.includes('luật') ||
       qLower.includes('nghị định') ||
@@ -89,25 +75,7 @@ export class IntentRouterService {
       qLower.includes('hợp đồng') ||
       qLower.includes('công ty chúng tôi');
 
-    if (mentionsLaw && mentionsSop) {
-      return {
-        intent: AssistantIntent.HYBRID_RAG_QUERY,
-        decision: NeedRagDecision.RAG_HYBRID,
-        confidence: 0.9,
-      };
-    }
-
-    // 5. Knowledge query -> RAG_KNOWLEDGE
-    if (mentionsSop) {
-      return {
-        intent: AssistantIntent.KNOWLEDGE_QUERY,
-        decision: NeedRagDecision.RAG_KNOWLEDGE,
-        confidence: 0.85,
-      };
-    }
-
-    // 6. Regulatory query -> RAG_REGULATORY
-    if (
+    const mentionsRegulatoryTopic =
       mentionsLaw ||
       qLower.includes('thủ tục') ||
       qLower.includes('chứng từ') ||
@@ -117,12 +85,69 @@ export class IntentRouterService {
       qLower.includes('hàng nguy hiểm') ||
       qLower.includes('pin lithium') ||
       qLower.includes('xuất khẩu') ||
-      qLower.includes('nhập khẩu')
-    ) {
+      qLower.includes('nhập khẩu');
+
+    const crossDomainParams = {
+      targetCustomerId,
+      shipmentId,
+      shipmentNo,
+      includeShipmentLookup: mentionsShipmentTracking,
+      includeBillingSummary: mentionsBilling,
+    };
+
+    if (mentionsLaw && mentionsSop) {
+      return {
+        intent: AssistantIntent.HYBRID_RAG_QUERY,
+        decision: NeedRagDecision.RAG_HYBRID,
+        confidence: 0.9,
+        extractedParameters: crossDomainParams,
+      };
+    }
+
+    if (mentionsSop) {
+      return {
+        intent: AssistantIntent.KNOWLEDGE_QUERY,
+        decision: NeedRagDecision.RAG_KNOWLEDGE,
+        confidence: 0.85,
+        extractedParameters: crossDomainParams,
+      };
+    }
+
+    if (mentionsRegulatoryTopic) {
       return {
         intent: AssistantIntent.REGULATORY_QUERY,
         decision: NeedRagDecision.RAG_REGULATORY,
         confidence: 0.85,
+        extractedParameters: crossDomainParams,
+      };
+    }
+
+    // 3. Billing & Debt queries (supports parallel multi-tool execution if shipment tracking is also requested)
+    if (mentionsBilling) {
+      return {
+        intent: AssistantIntent.BILLING_QUERY,
+        decision: NeedRagDecision.DOMAIN_QUERY,
+        confidence: 0.95,
+        extractedParameters: crossDomainParams,
+      };
+    }
+
+    // 4. Shipment queries -> DOMAIN_QUERY
+    if (
+      qLower.includes('vận đơn') ||
+      qLower.includes('lô hàng') ||
+      qLower.includes('shipment') ||
+      mentionsShipmentTracking
+    ) {
+      return {
+        intent: AssistantIntent.SHIPMENT_QUERY,
+        decision: NeedRagDecision.DOMAIN_QUERY,
+        confidence: 0.95,
+        extractedParameters: {
+          shipmentId,
+          shipmentNo,
+          targetCustomerId,
+        },
       };
     }
 
@@ -167,9 +192,9 @@ User Query: "${query}"`;
         decision = NeedRagDecision.RAG_HYBRID;
       }
 
-      return { intent, decision, confidence: 0.8 };
-    } catch (err) {
-      this.logger.warn(`[IntentRouter] AI classifier failed, defaulting to HYBRID_RAG_QUERY: ${err}`);
+      return { intent, decision, confidence: 0.75 };
+    } catch (error) {
+      this.logger.warn(`AI Router fallback failed, defaulting to HYBRID_RAG: ${(error as Error).message}`);
       return {
         intent: AssistantIntent.HYBRID_RAG_QUERY,
         decision: NeedRagDecision.RAG_HYBRID,

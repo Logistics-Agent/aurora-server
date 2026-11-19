@@ -283,6 +283,36 @@ public sealed class RegulatoryComplianceGrpcServiceTests
             Guid id,
             CancellationToken cancellationToken = default) =>
             Task.FromResult<KnowledgeDocumentCatalogDetails?>(null);
+
+        public Task<bool> DeleteRegulatorySourceAsync(
+            Guid id,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(true);
+
+        public Task<RegulatorySourceCatalogDetails?> UpdateRegulatorySourceAsync(
+            Guid id,
+            string? authority,
+            string? title,
+            string? jurisdictionCode,
+            RegulationType? regulationType,
+            string? languageCode,
+            string? canonicalSourceUri = null,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult<RegulatorySourceCatalogDetails?>(null);
+
+        public Task<bool> DeleteKnowledgeDocumentAsync(
+            Guid id,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(true);
+
+        public Task<KnowledgeDocumentCatalogDetails?> UpdateKnowledgeDocumentAsync(
+            Guid id,
+            string? title,
+            Domain.Enums.KnowledgeCategory? category,
+            string? sourceReference,
+            string? languageCode,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult<KnowledgeDocumentCatalogDetails?>(null);
     }
 
     private sealed class FakeKnowledgeIngestionService : IKnowledgeIngestionService

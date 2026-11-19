@@ -14,10 +14,13 @@ using Grpc.Core;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using RegulatoryCompliance.Grpc;
 using Shared.Constants;
 using Shared.Security;
+using Amazon.S3;
+using Amazon.S3.Model;
 
 namespace AdminBff.Controllers;
 
@@ -29,6 +32,7 @@ namespace AdminBff.Controllers;
 public sealed class PlatformIngestionController(
     RegulatoryComplianceService.RegulatoryComplianceServiceClient regulatoryClient,
     ICurrentUserService currentUser,
+    IConfiguration configuration,
     ILogger<PlatformIngestionController> logger)
     : AdminControllerBase
 {
@@ -146,15 +150,20 @@ public sealed class PlatformIngestionController(
             // Extract UTF-8 text for knowledge chunking & vector embedding
             var (processedBytes, processedMimeType) = ExtractTextFromBytes(fileBytes, file.FileName);
 
+            var uploadId = Guid.NewGuid().ToString("N");
+            var safeFileName = Path.GetFileName(file.FileName);
+            var (storageRef, storageUrl) = await UploadOriginalFileToR2Async(
+                file, uploadId, safeFileName, $"knowledge/{storageScope}", cancellationToken);
+
             var ingestRequest = new IngestKnowledgeSourceRequest
             {
                 IdempotencyKey = Guid.NewGuid().ToString(),
                 Title = title,
                 Category = categoryEnum,
-                SourceReference = $"https://knowledge.aurora.local/{Uri.EscapeDataString(file.FileName)}",
+                SourceReference = storageUrl,
                 LanguageCode = language ?? "en",
                 VersionLabel = version ?? "v1.0",
-                ContentReference = $"knowledge/{storageScope}/{Guid.NewGuid():N}/{Path.GetFileName(file.FileName)}",
+                ContentReference = storageRef,
                 FileName = file.FileName,
                 MimeType = processedMimeType,
                 SizeBytes = processedBytes.Length,
@@ -185,6 +194,80 @@ public sealed class PlatformIngestionController(
             logger.LogWarning(ex, "gRPC error during file upload ingestion");
             return ex.ToActionResult();
         }
+    }
+
+    private async Task<(string StorageReference, string StorageUrl)> UploadOriginalFileToR2Async(
+        IFormFile file,
+        string uploadId,
+        string safeFileName,
+        string folder,
+        CancellationToken ct)
+    {
+        var objectKey = $"{folder}/{uploadId}_{safeFileName}";
+        var s3ServiceUrl = configuration["Storage:S3:ServiceUrl"]
+            ?? configuration["R2:ServiceUrl"]
+            ?? (!string.IsNullOrWhiteSpace(configuration["R2:AccountId"]) ? $"https://{configuration["R2:AccountId"]}.r2.cloudflarestorage.com" : null)
+            ?? "https://0e000fc3102c5511f71eaab39664a054.r2.cloudflarestorage.com";
+        var s3Bucket = configuration["Storage:S3:Bucket"]
+            ?? configuration["R2:BucketName"]
+            ?? "aurora-document-ocr";
+        var s3AccessKey = configuration["Storage:S3:AccessKey"] ?? configuration["R2:AccessKey"];
+        var s3SecretKey = configuration["Storage:S3:SecretKey"] ?? configuration["R2:SecretKey"];
+        var s3Region = configuration["Storage:S3:Region"] ?? "auto";
+        var publicDomain = configuration["R2:PublicUrl"] ?? configuration["Storage:S3:PublicUrl"] ?? configuration["Storage:S3:PublicDomain"];
+
+        if (!string.IsNullOrWhiteSpace(s3AccessKey) && !string.IsNullOrWhiteSpace(s3SecretKey))
+        {
+            try
+            {
+                var s3Config = new AmazonS3Config
+                {
+                    ServiceURL = s3ServiceUrl,
+                    ForcePathStyle = true,
+                    AuthenticationRegion = s3Region
+                };
+                using var s3Client = new AmazonS3Client(s3AccessKey, s3SecretKey, s3Config);
+                using var stream = file.OpenReadStream();
+                var putReq = new PutObjectRequest
+                {
+                    BucketName = s3Bucket,
+                    Key = objectKey,
+                    InputStream = stream,
+                    ContentType = !string.IsNullOrWhiteSpace(file.ContentType) ? file.ContentType : "application/octet-stream"
+                };
+                await s3Client.PutObjectAsync(putReq, ct);
+                logger.LogInformation("Successfully uploaded original file to R2 with key {Key}", objectKey);
+
+                string storageUrl;
+                if (!string.IsNullOrWhiteSpace(publicDomain))
+                {
+                    storageUrl = $"{publicDomain.TrimEnd('/')}/{objectKey}";
+                }
+                else
+                {
+                    var getReq = new GetPreSignedUrlRequest
+                    {
+                        BucketName = s3Bucket,
+                        Key = objectKey,
+                        Verb = HttpVerb.GET,
+                        Protocol = Protocol.HTTPS,
+                        Expires = DateTime.UtcNow.AddDays(7)
+                    };
+                    storageUrl = s3Client.GetPreSignedURL(getReq);
+                }
+
+                return (objectKey, storageUrl);
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "Failed to upload original file to R2 via S3 client, proceeding with object key {Key}", objectKey);
+            }
+        }
+
+        var fallbackUrl = !string.IsNullOrWhiteSpace(publicDomain)
+            ? $"{publicDomain.TrimEnd('/')}/{objectKey}"
+            : $"{s3ServiceUrl.TrimEnd('/')}/{s3Bucket}/{objectKey}";
+        return (objectKey, fallbackUrl);
     }
 
     private static (byte[] Bytes, string MimeType) ExtractTextFromBytes(byte[] rawBytes, string fileName)
@@ -237,39 +320,158 @@ public sealed class PlatformIngestionController(
 
     /// <summary>
     /// List & Query Ingested Knowledge Documents
+    /// <summary>
+    /// List & Query Ingested Knowledge Documents with flexible search and category filter.
     /// </summary>
     [HttpGet("knowledge-documents")]
     [HttpPost("knowledge/query")]
     [RequirePermission(PermissionConstants.Documents.Read, PermissionConstants.Compliance.Read, PermissionConstants.Compliance.PlatformIngest, PermissionConstants.Documents.Manage, PermissionConstants.Documents.Ingest)]
     public async Task<IActionResult> QueryKnowledgeDocuments(
         [FromQuery] string? query = null,
+        [FromQuery] string? category = null,
         CancellationToken cancellationToken = default)
     {
         try
         {
             var searchTerms = query?.Trim() ?? string.Empty;
-            var rpcRequest = new QueryKnowledgeRequest
+            var categoryFilter = category?.Trim();
+
+            // 1. Fetch catalog documents
+            var listRequest = new ListKnowledgeDocumentsRequest
             {
-                Query = searchTerms,
-                TopK = 50,
-                MinimumRelevanceScore = 0.0
+                Page = 1,
+                PageSize = 100
             };
 
-            var response = await regulatoryClient.QueryKnowledgeAsync(rpcRequest, cancellationToken: cancellationToken);
+            ListKnowledgeDocumentsResponse? listResponse = null;
+            try
+            {
+                listResponse = await regulatoryClient.ListKnowledgeDocumentsAsync(listRequest, cancellationToken: cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "ListKnowledgeDocumentsAsync encountered an error, trying query fallback");
+            }
 
-            var items = response.Evidence
+            // 2. If search terms provided, also query pgvector evidence
+            QueryKnowledgeResponse? queryResponse = null;
+            if (!string.IsNullOrWhiteSpace(searchTerms))
+            {
+                try
+                {
+                    queryResponse = await regulatoryClient.QueryKnowledgeAsync(new QueryKnowledgeRequest
+                    {
+                        Query = searchTerms,
+                        TopK = 50,
+                        MinimumRelevanceScore = 0.0
+                    }, cancellationToken: cancellationToken);
+                }
+                catch (Exception ex)
+                {
+                    logger.LogWarning(ex, "QueryKnowledgeAsync encountered an error");
+                }
+            }
+
+            var evidenceByDocId = queryResponse?.Evidence?
                 .GroupBy(e => e.KnowledgeDocumentId)
-                .Select(g =>
+                .ToDictionary(g => g.Key, g => g.ToList()) ?? new System.Collections.Generic.Dictionary<string, System.Collections.Generic.List<KnowledgeEvidence>>();
+
+            var resultItems = new System.Collections.Generic.List<object>();
+
+            if (listResponse?.Documents != null && listResponse.Documents.Count > 0)
+            {
+                foreach (var doc in listResponse.Documents)
+                {
+                    var catName = doc.Category switch
+                    {
+                        KnowledgeCategory.Sop => "SOP",
+                        KnowledgeCategory.Contract => "Carrier Contract",
+                        KnowledgeCategory.Guide => "Customs Guideline",
+                        KnowledgeCategory.InternalPolicy => "Internal Policy",
+                        _ => doc.Category.ToString()
+                    };
+
+                    // Category filter
+                    if (!string.IsNullOrWhiteSpace(categoryFilter) &&
+                        !string.Equals(categoryFilter, "All", StringComparison.OrdinalIgnoreCase) &&
+                        !string.Equals(catName, categoryFilter, StringComparison.OrdinalIgnoreCase))
+                    {
+                        continue;
+                    }
+
+                    evidenceByDocId.TryGetValue(doc.Id, out var evidences);
+                    var bestEvidence = evidences?.FirstOrDefault();
+
+                    // Search filter: if query provided, match Title, Category, FileName, or Excerpt
+                    if (!string.IsNullOrWhiteSpace(searchTerms))
+                    {
+                        bool matches = doc.Title.Contains(searchTerms, StringComparison.OrdinalIgnoreCase) ||
+                                       catName.Contains(searchTerms, StringComparison.OrdinalIgnoreCase) ||
+                                       (doc.LatestVersion?.FileName?.Contains(searchTerms, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                                       (bestEvidence?.Excerpt?.Contains(searchTerms, StringComparison.OrdinalIgnoreCase) ?? false);
+
+                        if (!matches && (evidences == null || evidences.Count == 0))
+                            continue;
+                    }
+
+                    var version = doc.LatestVersion;
+                    var status = version?.Status switch
+                    {
+                        RegulatoryIngestionStatus.Completed => "Completed",
+                        RegulatoryIngestionStatus.Processing => "Processing",
+                        RegulatoryIngestionStatus.Failed => "Failed",
+                        RegulatoryIngestionStatus.Pending => "Processing",
+                        _ => "Completed"
+                    };
+
+                    resultItems.Add(new
+                    {
+                        id = doc.Id,
+                        title = doc.Title,
+                        category = catName,
+                        language = string.IsNullOrWhiteSpace(doc.LanguageCode) ? "English" : doc.LanguageCode,
+                        version = version?.VersionLabel ?? "v1.0",
+                        chunks = version?.ChunkCount ?? evidences?.Count ?? 1,
+                        ingestDate = doc.CreatedAt != null ? doc.CreatedAt.ToDateTime().ToString("yyyy-MM-dd") : DateTime.UtcNow.ToString("yyyy-MM-dd"),
+                        status,
+                        relevanceScore = bestEvidence?.RelevanceScore ?? 1.0,
+                        excerpt = bestEvidence?.Excerpt ?? $"# Document: {doc.Title}\nCategory: {catName}\nLanguage: {doc.LanguageCode}",
+                        section = bestEvidence?.SectionLabel,
+                        fileName = version?.FileName ?? $"{doc.Title}.pdf",
+                        fileSize = version?.SizeBytes ?? 0,
+                        mimeType = version?.MimeType ?? "application/pdf",
+                        sourceReference = doc.SourceReference,
+                        contentSha256 = version?.ContentSha256
+                    });
+                }
+            }
+            else if (queryResponse?.Evidence != null && queryResponse.Evidence.Count > 0)
+            {
+                // Fallback to evidence grouping if catalog is empty
+                foreach (var g in queryResponse.Evidence.GroupBy(e => e.KnowledgeDocumentId))
                 {
                     var e = g.First();
-                    return new
+                    var catName = e.Category switch
+                    {
+                        KnowledgeCategory.Sop => "SOP",
+                        KnowledgeCategory.Contract => "Carrier Contract",
+                        KnowledgeCategory.Guide => "Customs Guideline",
+                        KnowledgeCategory.InternalPolicy => "Internal Policy",
+                        _ => e.Category.ToString()
+                    };
+
+                    if (!string.IsNullOrWhiteSpace(categoryFilter) &&
+                        !string.Equals(categoryFilter, "All", StringComparison.OrdinalIgnoreCase) &&
+                        !string.Equals(catName, categoryFilter, StringComparison.OrdinalIgnoreCase))
+                    {
+                        continue;
+                    }
+
+                    resultItems.Add(new
                     {
                         id = e.KnowledgeDocumentId,
                         title = e.Title,
-                        category = e.Category == KnowledgeCategory.Sop ? "SOP" :
-                                   e.Category == KnowledgeCategory.Contract ? "Carrier Contract" :
-                                   e.Category == KnowledgeCategory.Guide ? "Customs Guideline" :
-                                   e.Category == KnowledgeCategory.InternalPolicy ? "Internal Policy" : e.Category.ToString(),
+                        category = catName,
                         language = "English",
                         version = "v1.0",
                         chunks = g.Count(),
@@ -277,11 +479,17 @@ public sealed class PlatformIngestionController(
                         status = "Completed",
                         relevanceScore = e.RelevanceScore,
                         excerpt = e.Excerpt,
-                        section = e.SectionLabel
-                    };
-                }).ToList();
+                        section = e.SectionLabel,
+                        fileName = $"{e.Title}.pdf",
+                        fileSize = 0L,
+                        mimeType = "application/pdf",
+                        sourceReference = e.SourceReference,
+                        contentSha256 = ""
+                    });
+                }
+            }
 
-            return Ok(new { items, total = items.Count });
+            return Ok(new { items = resultItems, total = resultItems.Count });
         }
         catch (RpcException ex)
         {
@@ -292,6 +500,80 @@ public sealed class PlatformIngestionController(
         {
             logger.LogError(ex, "Unexpected error querying knowledge documents");
             return Problem(title: "KNOWLEDGE_QUERY_FAILED", detail: "Knowledge query failed.");
+        }
+    }
+
+    /// <summary>
+    /// Get single knowledge document details and chunks for viewing
+    /// </summary>
+    [HttpGet("knowledge-documents/{id}")]
+    [RequirePermission(PermissionConstants.Documents.Read, PermissionConstants.Compliance.Read, PermissionConstants.Documents.Manage)]
+    public async Task<IActionResult> GetKnowledgeDocumentDetails(string id, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var docDetails = await regulatoryClient.GetKnowledgeDocumentAsync(new GetKnowledgeDocumentRequest
+            {
+                KnowledgeDocumentId = id
+            }, cancellationToken: cancellationToken);
+
+            var summary = docDetails.Summary;
+            var catName = summary.Category switch
+            {
+                KnowledgeCategory.Sop => "SOP",
+                KnowledgeCategory.Contract => "Carrier Contract",
+                KnowledgeCategory.Guide => "Customs Guideline",
+                KnowledgeCategory.InternalPolicy => "Internal Policy",
+                _ => summary.Category.ToString()
+            };
+
+            // Query chunks for this document
+            var queryResponse = await regulatoryClient.QueryKnowledgeAsync(new QueryKnowledgeRequest
+            {
+                Query = summary.Title,
+                TopK = 50,
+                MinimumRelevanceScore = 0.0
+            }, cancellationToken: cancellationToken);
+
+            var chunks = queryResponse.Evidence
+                .Where(e => e.KnowledgeDocumentId == id)
+                .Select(e => new
+                {
+                    chunkId = e.ChunkId,
+                    section = e.SectionLabel,
+                    page = e.PageLabel,
+                    excerpt = e.Excerpt,
+                    score = e.RelevanceScore
+                }).ToList();
+
+            var version = summary.LatestVersion;
+            var fullExcerpt = chunks.Count > 0
+                ? string.Join("\n\n---\n\n", chunks.Select(c => $"[Section: {c.section ?? "General"} | Page: {c.page ?? "1"}]\n{c.excerpt}"))
+                : $"# {summary.Title}\n\nCategory: {catName}\nLanguage: {summary.LanguageCode}\nSource: {summary.SourceReference}\n\n[Document is indexed and ready in pgvector]";
+
+            return Ok(new
+            {
+                id = summary.Id,
+                title = summary.Title,
+                category = catName,
+                language = string.IsNullOrWhiteSpace(summary.LanguageCode) ? "English" : summary.LanguageCode,
+                version = version?.VersionLabel ?? "v1.0",
+                chunks = version?.ChunkCount ?? chunks.Count,
+                ingestDate = summary.CreatedAt != null ? summary.CreatedAt.ToDateTime().ToString("yyyy-MM-dd") : DateTime.UtcNow.ToString("yyyy-MM-dd"),
+                status = version?.Status == RegulatoryIngestionStatus.Completed ? "Completed" : "Processing",
+                fileName = version?.FileName ?? $"{summary.Title}.pdf",
+                fileSize = version?.SizeBytes ?? 0,
+                mimeType = version?.MimeType ?? "application/pdf",
+                sourceReference = summary.SourceReference,
+                contentSha256 = version?.ContentSha256,
+                excerpt = fullExcerpt,
+                chunksList = chunks
+            });
+        }
+        catch (RpcException ex)
+        {
+            logger.LogWarning(ex, "Failed to get knowledge document details for {Id}", id);
+            return ex.ToActionResult();
         }
     }
 
@@ -360,7 +642,202 @@ public sealed class PlatformIngestionController(
             return ex.ToActionResult();
         }
     }
+
+    /// <summary>
+    /// Delete Knowledge Document
+    /// </summary>
+    [HttpDelete("knowledge-documents/{id}")]
+    [RequirePermission(PermissionConstants.Documents.Manage, PermissionConstants.Compliance.PlatformIngest)]
+    public async Task<IActionResult> DeleteKnowledgeDocument(string id, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var response = await regulatoryClient.DeleteKnowledgeDocumentAsync(new DeleteKnowledgeSourceRequest
+            {
+                KnowledgeDocumentId = id
+            }, cancellationToken: cancellationToken);
+
+            return Ok(new
+            {
+                success = response.Success,
+                documentId = response.DocumentId,
+                message = response.Message
+            });
+        }
+        catch (RpcException ex) when (ex.StatusCode == Grpc.Core.StatusCode.NotFound)
+        {
+            return NotFound(new { error = "Knowledge document not found." });
+        }
+        catch (RpcException ex)
+        {
+            logger.LogError(ex, "Failed to delete knowledge document {Id}", id);
+            return ex.ToActionResult();
+        }
+    }
+
+    /// <summary>
+    /// Update Knowledge Document Metadata
+    /// </summary>
+    [HttpPut("knowledge-documents/{id}")]
+    [RequirePermission(PermissionConstants.Documents.Manage, PermissionConstants.Compliance.PlatformIngest)]
+    public async Task<IActionResult> UpdateKnowledgeDocument(
+        string id,
+        [FromBody] AdminUpdateKnowledgeRequest request,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var categoryEnum = KnowledgeCategory.Unspecified;
+            if (!string.IsNullOrWhiteSpace(request.Category))
+            {
+                categoryEnum = request.Category.Trim() switch
+                {
+                    "SOP" => KnowledgeCategory.Sop,
+                    "Carrier Contract" or "Contract" => KnowledgeCategory.Contract,
+                    "Customs Guideline" or "Guide" => KnowledgeCategory.Guide,
+                    "Internal Policy" => KnowledgeCategory.InternalPolicy,
+                    _ => int.TryParse(request.Category, out var cInt) ? (KnowledgeCategory)cInt : KnowledgeCategory.Unspecified
+                };
+            }
+
+            var response = await regulatoryClient.UpdateKnowledgeDocumentAsync(new UpdateKnowledgeSourceRequest
+            {
+                KnowledgeDocumentId = id,
+                Title = request.Title ?? string.Empty,
+                Category = categoryEnum,
+                SourceReference = request.SourceReference ?? string.Empty,
+                LanguageCode = request.LanguageCode ?? string.Empty
+            }, cancellationToken: cancellationToken);
+
+            var summary = response.Summary;
+            var catName = summary.Category switch
+            {
+                KnowledgeCategory.Sop => "SOP",
+                KnowledgeCategory.Contract => "Carrier Contract",
+                KnowledgeCategory.Guide => "Customs Guideline",
+                KnowledgeCategory.InternalPolicy => "Internal Policy",
+                _ => summary.Category.ToString()
+            };
+
+            return Ok(new
+            {
+                id = summary.Id,
+                title = summary.Title,
+                category = catName,
+                language = string.IsNullOrWhiteSpace(summary.LanguageCode) ? "English" : summary.LanguageCode,
+                sourceReference = summary.SourceReference,
+                status = "Completed",
+                message = "Knowledge document updated successfully."
+            });
+        }
+        catch (RpcException ex) when (ex.StatusCode == Grpc.Core.StatusCode.NotFound)
+        {
+            return NotFound(new { error = "Knowledge document not found." });
+        }
+        catch (RpcException ex)
+        {
+            logger.LogError(ex, "Failed to update knowledge document {Id}", id);
+            return ex.ToActionResult();
+        }
+    }
+
+    /// <summary>
+    /// Delete Regulatory Source
+    /// </summary>
+    [HttpDelete("regulatory-sources/{id}")]
+    [RequirePermission(PermissionConstants.Compliance.PlatformIngest)]
+    public async Task<IActionResult> DeleteRegulatorySource(string id, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var response = await regulatoryClient.DeleteRegulatorySourceAsync(new DeleteRegulatorySourceRequest
+            {
+                RegulatoryDocumentId = id
+            }, cancellationToken: cancellationToken);
+
+            return Ok(new
+            {
+                success = response.Success,
+                documentId = response.DocumentId,
+                message = response.Message
+            });
+        }
+        catch (RpcException ex) when (ex.StatusCode == Grpc.Core.StatusCode.NotFound)
+        {
+            return NotFound(new { error = "Regulatory source not found." });
+        }
+        catch (RpcException ex)
+        {
+            logger.LogError(ex, "Failed to delete regulatory source {Id}", id);
+            return ex.ToActionResult();
+        }
+    }
+
+    /// <summary>
+    /// Update Regulatory Source Metadata
+    /// </summary>
+    [HttpPut("regulatory-sources/{id}")]
+    [RequirePermission(PermissionConstants.Compliance.PlatformIngest)]
+    public async Task<IActionResult> UpdateRegulatorySource(
+        string id,
+        [FromBody] AdminUpdateRegulatoryRequest request,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var regType = request.RegulationType.HasValue
+                ? (RegulationType)request.RegulationType.Value
+                : RegulationType.Unspecified;
+
+            var response = await regulatoryClient.UpdateRegulatorySourceAsync(new UpdateRegulatorySourceRequest
+            {
+                RegulatoryDocumentId = id,
+                Title = request.Title ?? string.Empty,
+                Authority = request.Authority ?? string.Empty,
+                JurisdictionCode = request.JurisdictionCode ?? string.Empty,
+                RegulationType = regType,
+                LanguageCode = request.LanguageCode ?? string.Empty,
+                CanonicalSourceUri = request.CanonicalSourceUri ?? string.Empty
+            }, cancellationToken: cancellationToken);
+
+            var summary = response.Summary;
+            return Ok(new
+            {
+                id = summary.Id,
+                title = summary.Title,
+                authority = summary.Authority,
+                jurisdictionCode = summary.JurisdictionCode,
+                regulationType = summary.RegulationType.ToString(),
+                languageCode = summary.LanguageCode,
+                canonicalSourceUri = summary.CanonicalSourceUri,
+                message = "Regulatory source updated successfully."
+            });
+        }
+        catch (RpcException ex) when (ex.StatusCode == Grpc.Core.StatusCode.NotFound)
+        {
+            return NotFound(new { error = "Regulatory source not found." });
+        }
+        catch (RpcException ex)
+        {
+            logger.LogError(ex, "Failed to update regulatory source {Id}", id);
+            return ex.ToActionResult();
+        }
+    }
 }
+
+public sealed record AdminUpdateKnowledgeRequest(
+    string? Title,
+    string? Category,
+    string? SourceReference,
+    string? LanguageCode);
+
+public sealed record AdminUpdateRegulatoryRequest(
+    string? Title,
+    string? Authority,
+    string? JurisdictionCode,
+    int? RegulationType,
+    string? LanguageCode,
+    string? CanonicalSourceUri);
 
 public sealed record AdminPlatformRegulatoryRequest(
     string? IdempotencyKey,

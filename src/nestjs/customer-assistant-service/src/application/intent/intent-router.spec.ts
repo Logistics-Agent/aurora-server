@@ -34,7 +34,7 @@ describe('IntentRouterService', () => {
     const res = await router.classify('Vận đơn SHP-2026-001 đang ở đâu?', user);
     expect(res.intent).toBe(AssistantIntent.SHIPMENT_QUERY);
     expect(res.decision).toBe(NeedRagDecision.DOMAIN_QUERY);
-    expect(res.extractedParameters?.shipmentId).toBe('SHP-2026-001');
+    expect(res.extractedParameters?.shipmentNo).toBe('SHP-2026-001');
     expect(mockAiGovernance.generate).not.toHaveBeenCalled();
   });
 
@@ -43,6 +43,17 @@ describe('IntentRouterService', () => {
     expect(res.intent).toBe(AssistantIntent.BILLING_QUERY);
     expect(res.decision).toBe(NeedRagDecision.DOMAIN_QUERY);
     expect(mockAiGovernance.generate).not.toHaveBeenCalled();
+  });
+
+  it('extracts official UUIDs from shipment and customer billing questions', async () => {
+    const id = '4c9b3fd2-5a5c-42c8-9181-f608dbf94e21';
+    const shipment = await router.classify(`Lô hàng ${id} ở đâu?`, user);
+    expect(shipment.extractedParameters?.shipmentId).toBe(id);
+    const billing = await router.classify(`Công nợ khách hàng ${id}`, user);
+    expect(billing.extractedParameters?.targetCustomerId).toBe(id);
+    const shipmentList = await router.classify(`Lô hàng của khách hàng ${id}`, user);
+    expect(shipmentList.extractedParameters?.targetCustomerId).toBe(id);
+    expect(shipmentList.extractedParameters?.shipmentId).toBeUndefined();
   });
 
   it('should route customs laws to REGULATORY_QUERY with RAG_REGULATORY decision', async () => {
@@ -61,5 +72,15 @@ describe('IntentRouterService', () => {
     const res = await router.classify('Luật hải quan yêu cầu gì và SOP nội bộ xử lý ra sao?', user);
     expect(res.intent).toBe(AssistantIntent.HYBRID_RAG_QUERY);
     expect(res.decision).toBe(NeedRagDecision.RAG_HYBRID);
+  });
+
+  it('prioritizes REGULATORY_QUERY and BILLING_QUERY over generic "lô hàng" keyword when no SHP code is present', async () => {
+    const reg = await router.classify('Lô hàng xuất khẩu pin lithium cần chứng từ hải quan gì?', user);
+    expect(reg.intent).toBe(AssistantIntent.REGULATORY_QUERY);
+    expect(reg.decision).toBe(NeedRagDecision.RAG_REGULATORY);
+
+    const bill = await router.classify('Hóa đơn của lô hàng này thanh toán chưa?', user);
+    expect(bill.intent).toBe(AssistantIntent.BILLING_QUERY);
+    expect(bill.decision).toBe(NeedRagDecision.DOMAIN_QUERY);
   });
 });

@@ -38,7 +38,7 @@ public sealed class RegulatoryComplianceContractTests
             .ToArray();
 
         Assert.Equal(
-            ["CreateKnowledgeCorpusVersion", "CreateRegulatoryCorpusVersion", "EvaluateCompliance", "GenerateGroundedAnswer", "GetComplianceEvaluation", "GetKnowledgeDocument", "GetRegulatorySource", "IngestKnowledgeDocument", "IngestRegulatorySource", "ListComplianceEvaluations", "ListKnowledgeDocuments", "ListRegulatorySources", "QueryKnowledge", "QueryRegulations", "ValidateGroundedEvidence"],
+            ["CreateKnowledgeCorpusVersion", "CreateRegulatoryCorpusVersion", "DeleteKnowledgeDocument", "DeleteRegulatorySource", "EvaluateCompliance", "GenerateGroundedAnswer", "GetComplianceEvaluation", "GetKnowledgeDocument", "GetRegulatorySource", "IngestKnowledgeDocument", "IngestRegulatorySource", "ListComplianceEvaluations", "ListKnowledgeDocuments", "ListRegulatorySources", "QueryKnowledge", "QueryRegulations", "UpdateKnowledgeDocument", "UpdateRegulatorySource", "ValidateGroundedEvidence"],
             methods);
     }
 

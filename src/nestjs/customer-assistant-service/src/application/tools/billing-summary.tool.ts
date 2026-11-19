@@ -1,4 +1,4 @@
-import { Injectable, ForbiddenException } from '@nestjs/common';
+import { Injectable, ForbiddenException, BadRequestException } from '@nestjs/common';
 import { IAssistantTool, ToolExecutionContext, ToolResult } from './tool.interface';
 import { AssistantIntent } from '../../domain/enums/assistant-intent.enum';
 import { ActorType } from '../../domain/enums/actor-type.enum';
@@ -14,24 +14,32 @@ export class BillingSummaryTool implements IAssistantTool {
   constructor(private readonly readModel: ReadModelStore) {}
 
   async execute(context: ToolExecutionContext, params?: any): Promise<ToolResult> {
-    const { actorType, customerId } = context.currentUser;
+    const { actorType, customerId, tenantId } = context.currentUser;
+    const isEn = String(params?.language || '').toLowerCase() === 'en';
 
     if (!this.allowedActors.includes(actorType)) {
       throw new ForbiddenException(`Actor ${actorType} is not authorized to execute ${this.name}`);
     }
+    if (actorType !== ActorType.CUSTOMER &&
+        !context.currentUser.permissions.includes('billing_settlement:read')) {
+      throw new ForbiddenException('Billing read permission is required');
+    }
 
     const targetCustomerId =
       actorType === ActorType.CUSTOMER
-        ? customerId || 'CUST-001'
-        : params?.targetCustomerId || customerId || 'CUST-001';
+        ? customerId
+        : params?.targetCustomerId || customerId;
+    if (!targetCustomerId) throw new BadRequestException('customerId is required for billing lookup');
 
-    const summary = this.readModel.getCustomerBalanceSummary(targetCustomerId);
+    const summary = await this.readModel.getCustomerBalanceSummary(targetCustomerId, tenantId);
 
     return {
       toolName: this.name,
       success: true,
       data: summary,
-      summary: `Tổng công nợ hiện tại của khách hàng ${targetCustomerId} là $${summary.totalDebt} (${summary.unpaidCount} hóa đơn chưa thanh toán hoàn tất). Hóa đơn gần nhất ${summary.invoices[0]?.invoiceNumber || 'N/A'} có số dư còn lại: $${summary.invoices[0]?.remainingBalance || 0}.`,
+      summary: isEn
+        ? `Current total outstanding balance for customer ${targetCustomerId} is $${summary.totalDebt} (${summary.unpaidCount} unpaid invoice(s)). Latest invoice ${summary.invoices[0]?.invoiceNumber || 'N/A'} has a remaining balance of $${summary.invoices[0]?.remainingBalance || 0}.`
+        : `Tổng công nợ hiện tại của khách hàng ${targetCustomerId} là $${summary.totalDebt} (${summary.unpaidCount} hóa đơn chưa thanh toán hoàn tất). Hóa đơn gần nhất ${summary.invoices[0]?.invoiceNumber || 'N/A'} có số dư còn lại: $${summary.invoices[0]?.remainingBalance || 0}.`,
     };
   }
 }

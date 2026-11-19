@@ -191,7 +191,7 @@ describe('ConversationalAssistantOrchestrator', () => {
 
     expect(result.decision).toBe('DOMAIN_QUERY');
     expect(result.intent).toBe('SHIPMENT_QUERY');
-    expect(mockAiGovernance.generate).toHaveBeenCalled();
+    expect(mockAiGovernance.generate).not.toHaveBeenCalled();
   });
 
   it('should execute Stage 3 HYBRID synthesis with assistant.answer and validation RPC', async () => {

@@ -153,6 +153,12 @@ public sealed class ComplianceEvaluationService(
                 .ToArray();
             AddMissingDocumentFinding(evaluation, missingDocuments, retrievalResults, now);
 
+            var hasCrossDocViolations = AddCrossDocumentValidationFindings(
+                evaluation,
+                input,
+                retrievalResults,
+                now);
+
             var evidenceSufficiency = retrievalResults.Any(item =>
                 item.Result.EvidenceSufficiency == EvidenceSufficiency.Conflicting)
                 ? EvidenceSufficiency.Conflicting
@@ -164,7 +170,7 @@ public sealed class ComplianceEvaluationService(
             var confidence = CalculateConfidence(input, retrievalResults);
             var risk = evidenceSufficiency != EvidenceSufficiency.Sufficient
                 ? ComplianceRiskLevel.Unknown
-                : missingDocuments.Length > 0
+                : missingDocuments.Length > 0 || hasCrossDocViolations
                     ? ComplianceRiskLevel.High
                     : input.Cargo.Any(cargo => cargo.IsDangerousGoods)
                         ? ComplianceRiskLevel.Medium
@@ -303,6 +309,209 @@ public sealed class ComplianceEvaluationService(
             AddCitation(finding, item, now);
     }
 
+    /// <summary>
+    /// Item 10: 3-Way Document Cross-Validation across OCR documents (CommercialInvoice, PackingList, BillOfLading)
+    /// and declared shipment cargo (WeightKg, HsCode, Quantity).
+    /// </summary>
+    private static bool AddCrossDocumentValidationFindings(
+        ComplianceEvaluation evaluation,
+        ComplianceEvaluationInput input,
+        IReadOnlyCollection<(RegulationType Type, string Jurisdiction, RegulationQueryResult Result)> retrievalResults,
+        DateTimeOffset now)
+    {
+        if (input.Documents.Count == 0)
+            return false;
+
+        var citationPool = retrievalResults
+            .Where(item => item.Type is RegulationType.RequiredDocument or RegulationType.Customs)
+            .SelectMany(item => item.Result.Evidence)
+            .Concat(retrievalResults.SelectMany(item => item.Result.Evidence))
+            .DistinctBy(item => item.ChunkId)
+            .Take(3)
+            .ToArray();
+
+        var parsedDocs = new List<(string DocType, decimal? WeightKg, string? HsCode, int? Quantity)>();
+        foreach (var doc in input.Documents)
+        {
+            if (string.IsNullOrWhiteSpace(doc.NormalizedJson))
+                continue;
+            try
+            {
+                using var jsonDoc = JsonDocument.Parse(doc.NormalizedJson);
+                var root = jsonDoc.RootElement;
+                var target = root.ValueKind == JsonValueKind.Object &&
+                             root.TryGetProperty("fields", out var fieldsElem) &&
+                             fieldsElem.ValueKind == JsonValueKind.Object
+                    ? fieldsElem
+                    : root;
+
+                if (target.ValueKind != JsonValueKind.Object)
+                    continue;
+
+                var weight = TryReadDecimal(target, "weightKg", "grossWeightKg", "totalWeightKg", "netWeightKg");
+                var hsCode = TryReadDigits(target, "hsCode", "tariffCode");
+                var quantity = TryReadInt(target, "quantity", "totalPackages", "packageCount");
+                parsedDocs.Add((doc.DocumentType, weight, hsCode, quantity));
+            }
+            catch (JsonException)
+            {
+                // Validated earlier
+            }
+        }
+
+        bool hasViolation = false;
+        var totalCargoWeight = input.Cargo.Sum(c => c.WeightKg);
+        var totalCargoQty = input.Cargo.Sum(c => c.Quantity);
+        var cargoHsHeadings = input.Cargo
+            .Where(c => !string.IsNullOrWhiteSpace(c.HsCode) && c.HsCode!.Length >= 4)
+            .Select(c => c.HsCode![..4])
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        // 1. Cross-check Weight across OCR documents and Cargo (>5% tolerance)
+        var docWeights = parsedDocs.Where(d => d.WeightKg is > 0m).ToArray();
+        foreach (var doc in docWeights)
+        {
+            var diffRatio = Math.Abs(doc.WeightKg!.Value - totalCargoWeight) / Math.Max(doc.WeightKg.Value, totalCargoWeight);
+            if (diffRatio > 0.05m)
+            {
+                AddViolationFinding(
+                    evaluation,
+                    "CROSS-DOC-WEIGHT-MISMATCH",
+                    $"Weight discrepancy detected in {doc.DocType}",
+                    $"OCR {doc.DocType} declares {doc.WeightKg.Value:0.##} kg whereas shipment cargo declares {totalCargoWeight:0.##} kg (>5% tolerance).",
+                    citationPool,
+                    now);
+                hasViolation = true;
+                break;
+            }
+        }
+
+        if (!hasViolation && docWeights.Length >= 2)
+        {
+            var minW = docWeights.Min(d => d.WeightKg!.Value);
+            var maxW = docWeights.Max(d => d.WeightKg!.Value);
+            if ((maxW - minW) / maxW > 0.05m)
+            {
+                AddViolationFinding(
+                    evaluation,
+                    "CROSS-DOC-WEIGHT-MISMATCH",
+                    "Cross-document weight discrepancy across OCR snapshots",
+                    $"OCR documents report conflicting weights between {minW:0.##} kg and {maxW:0.##} kg.",
+                    citationPool,
+                    now);
+                hasViolation = true;
+            }
+        }
+
+        // 2. Cross-check HS Code heading (4-digit) across OCR documents and Cargo
+        var docHsCodes = parsedDocs.Where(d => !string.IsNullOrWhiteSpace(d.HsCode) && d.HsCode!.Length >= 4).ToArray();
+        foreach (var doc in docHsCodes)
+        {
+            var heading = doc.HsCode![..4];
+            if (cargoHsHeadings.Count > 0 && !cargoHsHeadings.Contains(heading))
+            {
+                AddViolationFinding(
+                    evaluation,
+                    "CROSS-DOC-HSCODE-MISMATCH",
+                    $"HS Code discrepancy detected in {doc.DocType}",
+                    $"OCR {doc.DocType} declares HS Code {doc.HsCode} (heading {heading}) which conflicts with shipment cargo HS heading(s): {string.Join(", ", cargoHsHeadings)}.",
+                    citationPool,
+                    now);
+                hasViolation = true;
+                break;
+            }
+        }
+
+        // 3. Cross-check Package Quantity across OCR documents and Cargo
+        var docQuantities = parsedDocs.Where(d => d.Quantity is > 0).ToArray();
+        foreach (var doc in docQuantities)
+        {
+            if (doc.Quantity!.Value != totalCargoQty)
+            {
+                AddViolationFinding(
+                    evaluation,
+                    "CROSS-DOC-QUANTITY-MISMATCH",
+                    $"Package quantity discrepancy detected in {doc.DocType}",
+                    $"OCR {doc.DocType} declares {doc.Quantity.Value} package(s) whereas shipment cargo declares {totalCargoQty} package(s).",
+                    citationPool,
+                    now);
+                hasViolation = true;
+                break;
+            }
+        }
+
+        return hasViolation;
+    }
+
+    private static void AddViolationFinding(
+        ComplianceEvaluation evaluation,
+        string code,
+        string title,
+        string description,
+        RegulationEvidenceResult[] citationPool,
+        DateTimeOffset now)
+    {
+        var finding = evaluation.AddFinding(
+            ComplianceFindingType.Violation,
+            code,
+            "DocumentCrossCheck",
+            title,
+            description,
+            ComplianceRiskLevel.High,
+            now);
+        foreach (var item in citationPool)
+            AddCitation(finding, item, now);
+    }
+
+    private static decimal? TryReadDecimal(JsonElement obj, params string[] propertyNames)
+    {
+        foreach (var prop in obj.EnumerateObject())
+        {
+            if (!propertyNames.Any(name => prop.Name.Equals(name, StringComparison.OrdinalIgnoreCase)))
+                continue;
+            if (prop.Value.ValueKind == JsonValueKind.Number && prop.Value.TryGetDecimal(out var dec))
+                return dec;
+            if (prop.Value.ValueKind == JsonValueKind.String &&
+                decimal.TryParse(prop.Value.GetString(), out var parsed))
+                return parsed;
+        }
+        return null;
+    }
+
+    private static int? TryReadInt(JsonElement obj, params string[] propertyNames)
+    {
+        foreach (var prop in obj.EnumerateObject())
+        {
+            if (!propertyNames.Any(name => prop.Name.Equals(name, StringComparison.OrdinalIgnoreCase)))
+                continue;
+            if (prop.Value.ValueKind == JsonValueKind.Number && prop.Value.TryGetInt32(out var num))
+                return num;
+            if (prop.Value.ValueKind == JsonValueKind.String &&
+                int.TryParse(prop.Value.GetString(), out var parsed))
+                return parsed;
+        }
+        return null;
+    }
+
+    private static string? TryReadDigits(JsonElement obj, params string[] propertyNames)
+    {
+        foreach (var prop in obj.EnumerateObject())
+        {
+            if (!propertyNames.Any(name => prop.Name.Equals(name, StringComparison.OrdinalIgnoreCase)))
+                continue;
+            var raw = prop.Value.ValueKind == JsonValueKind.String
+                ? prop.Value.GetString()
+                : prop.Value.ToString();
+            if (string.IsNullOrWhiteSpace(raw))
+                continue;
+            var digits = new string(raw.Where(char.IsDigit).ToArray());
+            if (digits.Length >= 4)
+                return digits;
+        }
+        return null;
+    }
+
     private static void AddCitation(
         ComplianceFinding finding,
         RegulationEvidenceResult evidence,
@@ -380,9 +589,19 @@ public sealed class ComplianceEvaluationService(
     private static string BuildQuery(
         ComplianceEvaluationInput input,
         RegulationType type,
-        string jurisdiction) =>
-        $"{type} requirements for {input.TransportMode} shipment from " +
-        $"{input.OriginCountryCode} to {input.DestinationCountryCode} in {jurisdiction}";
+        string jurisdiction)
+    {
+        var hsCodes = string.Join(" ", input.Cargo
+            .Where(c => !string.IsNullOrWhiteSpace(c.HsCode))
+            .Select(c => c.HsCode));
+        var dgCodes = string.Join(" ", input.Cargo
+            .Where(c => !string.IsNullOrWhiteSpace(c.DangerousGoodsCode))
+            .Select(c => c.DangerousGoodsCode));
+        var extraCodes = $"{hsCodes} {dgCodes}".Trim();
+        return string.IsNullOrWhiteSpace(extraCodes)
+            ? $"{type} requirements for {input.TransportMode} shipment from {input.OriginCountryCode} to {input.DestinationCountryCode} in {jurisdiction}"
+            : $"{type} requirements for {input.TransportMode} shipment ({extraCodes}) from {input.OriginCountryCode} to {input.DestinationCountryCode} in {jurisdiction}";
+    }
 
     private static IReadOnlyCollection<string> RequiredDocuments(ComplianceEvaluationInput input)
     {
@@ -454,9 +673,12 @@ public sealed class ComplianceEvaluationService(
                 throw new ArgumentException("Cargo name, quantity, unit, weight, and volume are invalid.");
             if (cargo.IsDangerousGoods && string.IsNullOrWhiteSpace(cargo.DangerousGoodsCode))
                 throw new ArgumentException("DangerousGoodsCode is required for dangerous cargo.");
-            if (!string.IsNullOrWhiteSpace(cargo.HsCode) &&
-                (cargo.HsCode.Length is < 4 or > 12 || cargo.HsCode.Any(character => !char.IsDigit(character))))
-                throw new ArgumentException("Cargo HS code must contain 4-12 digits.");
+            if (!string.IsNullOrWhiteSpace(cargo.HsCode))
+            {
+                var cleanHs = cargo.HsCode.Replace(".", "").Replace("-", "").Replace(" ", "").Trim();
+                if (cleanHs.Length is < 4 or > 12 || cleanHs.Any(character => !char.IsDigit(character)))
+                    throw new ArgumentException("Cargo HS code must contain 4-12 digits.");
+            }
         }
         if (string.IsNullOrWhiteSpace(input.OriginCountryCode) ||
             string.IsNullOrWhiteSpace(input.DestinationCountryCode) ||

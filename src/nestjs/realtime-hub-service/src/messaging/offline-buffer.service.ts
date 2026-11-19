@@ -16,6 +16,7 @@ export class OfflineBufferService {
   private readonly logger = new Logger(OfflineBufferService.name);
   private redisClient: Redis | null = null;
   private inMemoryBuffer: Map<string, BufferedMessage[]> = new Map(); // Fallback in-memory buffer
+  private inMemoryPendingAcks: Map<string, { tenantId: string; userId: string }> = new Map();
 
   constructor(private readonly configService: ConfigService) {
     const host = this.configService.get<string>('redis.host', 'localhost');
@@ -36,6 +37,72 @@ export class OfflineBufferService {
     } catch {
       this.redisClient = null;
     }
+  }
+
+  /**
+   * Register a distributed pending ACK key in Redis so any instance in a multi-pod cluster
+   * can confirm the client's ACK and prevent duplicate offline buffering.
+   */
+  async markPendingAck(msgId: string, tenantId: string, userId: string, ttlSeconds = 15): Promise<void> {
+    const key = `realtime:pending_ack:${msgId}`;
+    const val = JSON.stringify({ tenantId, userId });
+    if (this.redisClient) {
+      try {
+        await this.redisClient.set(key, val, 'EX', ttlSeconds);
+        return;
+      } catch {
+        // Fallback to in-memory
+      }
+    }
+    this.inMemoryPendingAcks.set(msgId, { tenantId, userId });
+  }
+
+  /**
+   * Confirm ACK across all instances by deleting the distributed Redis pending ACK key
+   */
+  async confirmAck(msgId: string, tenantId: string, userIds: string[]): Promise<boolean> {
+    const key = `realtime:pending_ack:${msgId}`;
+    if (this.redisClient) {
+      try {
+        const raw = await this.redisClient.get(key);
+        if (raw) {
+          const parsed = JSON.parse(raw) as { tenantId: string; userId: string };
+          if (parsed.tenantId === tenantId && userIds.includes(parsed.userId)) {
+            await this.redisClient.del(key);
+            this.inMemoryPendingAcks.delete(msgId);
+            return true;
+          }
+        }
+      } catch {
+        // Fallback to in-memory
+      }
+    }
+    const local = this.inMemoryPendingAcks.get(msgId);
+    if (local && local.tenantId === tenantId && userIds.includes(local.userId)) {
+      this.inMemoryPendingAcks.delete(msgId);
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * Check whether a msgId is still awaiting ACK across the cluster
+   */
+  async isStillPendingAck(msgId: string): Promise<boolean> {
+    const key = `realtime:pending_ack:${msgId}`;
+    if (this.redisClient) {
+      try {
+        const exists = await this.redisClient.exists(key);
+        await this.redisClient.del(key);
+        this.inMemoryPendingAcks.delete(msgId);
+        return exists === 1;
+      } catch {
+        // Fallback to in-memory
+      }
+    }
+    const hadLocal = this.inMemoryPendingAcks.has(msgId);
+    this.inMemoryPendingAcks.delete(msgId);
+    return hadLocal;
   }
 
   /**

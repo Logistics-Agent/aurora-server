@@ -8,7 +8,7 @@ metadata:
   name: sa-osrm-downloader
   namespace: aurora-ai
   annotations:
-    azure.workload.identity/client-id: "547620e7-95bd-4cb5-a325-d2f6415a4f4f" # Annotated via kubectl or CI/CD
+    azure.workload.identity/client-id: "268fb545-6a40-477a-b204-786b302a75e7"
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -30,8 +30,6 @@ spec:
         azure.workload.identity/use: "true"
     spec:
       serviceAccountName: sa-osrm-downloader
-      imagePullSecrets:
-        - name: acr-secret
       initContainers:
         - name: download-osrm-data
           image: mcr.microsoft.com/azure-cli:2.61.0
@@ -52,7 +50,7 @@ spec:
               mountPath: /data
       containers:
         - name: osrm
-          image: acrauroracorekhoa.azurecr.io/osrm-backend:v5.27.1
+          image: acrauroracoremhuy.azurecr.io/osrm-backend:latest
           imagePullPolicy: IfNotPresent
           command:
             - osrm-routed

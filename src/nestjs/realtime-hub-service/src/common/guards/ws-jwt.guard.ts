@@ -9,6 +9,9 @@ export interface AuthenticatedSocket extends Socket {
     tenantId: string;
     userId: string;
     email?: string;
+    customerId?: string;
+    roles?: string[];
+    shipmentIds?: string[];
   };
 }
 
@@ -29,38 +32,39 @@ export class WsJwtGuard implements CanActivate {
       client.handshake?.headers?.authorization?.split(' ')[1] ||
       client.handshake?.query?.token;
 
-    const jwtSecret = this.configService.get<string>('auth.jwtSecret', 'aurora_super_secret_jwt_key_2026');
+    const jwtSecret = this.configService.get<string>('auth.jwtSecret');
+    const jwtPublicKey = this.configService.get<string>('auth.jwtPublicKey');
 
     if (!token) {
-      this.logger.warn(`Socket connection ${client.id} missing token. Using default dev tenant identity.`);
-      // Default identity for development testing if token is unstated
-      client.data = {
-        tenantId: 'a0000000-0000-0000-0000-000000000001',
-        userId: 'u0000000-0000-0000-0000-000000000001',
-        email: 'dev@aurora.io',
-      };
-      return true;
+      throw new WsException('Unauthorized socket connection: Missing token');
+    }
+    if (!jwtSecret && !jwtPublicKey) {
+      throw new WsException('Socket authentication is not configured');
     }
 
     try {
-      const decoded: any = jwt.verify(String(token).replace('Bearer ', ''), jwtSecret);
+      const decoded = jwt.verify(String(token).replace('Bearer ', ''), (jwtPublicKey || jwtSecret)!, {
+        algorithms: jwtPublicKey ? ['RS256'] : ['HS256'],
+      }) as jwt.JwtPayload;
+      const tenantId = decoded.tenantId || decoded.tenant_id;
+      const userId = decoded.userId || decoded.sub;
+      if (typeof tenantId !== 'string' || typeof userId !== 'string' || !tenantId || !userId) {
+        throw new Error('Missing tenant or user identity');
+      }
       client.data = {
-        tenantId: decoded.tenantId || decoded.tenant_id || 'a0000000-0000-0000-0000-000000000001',
-        userId: decoded.userId || decoded.sub || 'u0000000-0000-0000-0000-000000000001',
+        tenantId,
+        userId,
         email: decoded.email || '',
+        customerId: typeof (decoded.customer_id || decoded['custom:customer_id']) === 'string'
+          ? decoded.customer_id || decoded['custom:customer_id'] : undefined,
+        roles: (Array.isArray(decoded.roles) ? decoded.roles
+          : Array.isArray(decoded['cognito:groups']) ? decoded['cognito:groups']
+          : [decoded.role]).filter((role): role is string => typeof role === 'string'),
+        shipmentIds: Array.isArray(decoded.shipment_ids)
+          ? decoded.shipment_ids.filter((id): id is string => typeof id === 'string') : [],
       };
       return true;
     } catch (err) {
-      // Fallback dev token check
-      if (String(token).includes('mock-token')) {
-        client.data = {
-          tenantId: 'a0000000-0000-0000-0000-000000000001',
-          userId: 'u0000000-0000-0000-0000-000000000001',
-          email: 'mock@aurora.io',
-        };
-        return true;
-      }
-
       this.logger.error(`Invalid JWT token on socket ${client.id}: ${err.message}`);
       throw new WsException('Unauthorized socket connection: Invalid JWT token');
     }

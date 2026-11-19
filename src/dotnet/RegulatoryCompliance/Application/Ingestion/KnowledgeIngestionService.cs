@@ -18,7 +18,7 @@ public sealed class KnowledgeIngestionService(
     ICurrentUserService currentUser,
     TimeProvider timeProvider) : IKnowledgeIngestionService
 {
-    public const int MaximumContentBytes = 1_048_576;
+    public const int MaximumContentBytes = 10_485_760;
     public const string TenantIngestionPermission = PermissionConstants.Documents.Ingest;
     public const string PlatformIngestionPermission = PermissionConstants.Compliance.PlatformIngest;
     private static readonly UTF8Encoding StrictUtf8 = new(false, true);

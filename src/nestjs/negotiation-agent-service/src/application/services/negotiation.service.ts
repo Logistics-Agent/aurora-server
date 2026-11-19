@@ -1,4 +1,5 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, BadRequestException, ConflictException, ServiceUnavailableException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { NegotiationStrategyDomainService, DEFAULT_NEGOTIATION_CURRENCY } from '../../domain/services/negotiation-strategy.domain-service';
 import { AiGovernanceNegotiationClient } from '../../infrastructure/grpc/ai-governance.grpc-client';
@@ -75,15 +76,19 @@ export class NegotiationService {
     private readonly prisma: PrismaService,
     private readonly strategy: NegotiationStrategyDomainService,
     private readonly aiGovernanceClient: AiGovernanceNegotiationClient,
+    private readonly config: ConfigService,
   ) {}
 
   async submitOffer(input: SubmitOfferInput): Promise<NegotiationResult> {
-    const tenantId = input.tenantId || 'a0000000-0000-0000-0000-000000000001';
-    const shipmentId = input.shipmentId || input.shipment_id || 'UNKNOWN-SHIPMENT';
-    const customerId = input.customerId || input.customer_id || 'UNKNOWN-CUSTOMER';
-    const offerPrice = input.offerPrice ?? input.offer_price ?? 0;
-    const listPrice = input.listPrice ?? input.list_price ?? 1500.0;
-    const bottomPrice = input.bottomPrice ?? input.bottom_price ?? 1200.0;
+    const tenantId = this.requireTenant(input.tenantId);
+    const shipmentId = input.shipmentId || input.shipment_id;
+    const customerId = input.customerId || input.customer_id;
+    const offerPrice = input.offerPrice ?? input.offer_price ?? NaN;
+    const listPrice = input.listPrice ?? input.list_price ?? NaN;
+    const bottomPrice = input.bottomPrice ?? input.bottom_price ?? NaN;
+    if (!shipmentId || !customerId || !Number.isFinite(offerPrice) || offerPrice <= 0) {
+      throw new BadRequestException('shipmentId, customerId and a positive offerPrice are required');
+    }
     const customerTier = input.customerTier || input.customer_tier;
     const requestedSessionId = input.sessionId || input.session_id;
     const sourceMessageId = input.sourceMessageId || input.source_message_id || null;
@@ -92,7 +97,7 @@ export class NegotiationService {
 
     // 1. Get or create active negotiation session
     let session = requestedSessionId
-      ? await this.prisma.negotiationSession.findUnique({ where: { id: requestedSessionId } })
+      ? await this.prisma.negotiationSession.findFirst({ where: { id: requestedSessionId, tenantId, shipmentId, customerId } })
       : await this.prisma.negotiationSession.findFirst({
           where: {
             tenantId,
@@ -102,7 +107,15 @@ export class NegotiationService {
           },
         });
 
+    if (requestedSessionId && !session) throw new NotFoundException('Negotiation session not found');
+    if (session && session.status !== 'OPEN') throw new ConflictException('Negotiation session is closed');
     if (!session) {
+      const resolvedPricing = await this.resolveAuthoritativePricing(
+        tenantId,
+        shipmentId,
+        listPrice,
+        bottomPrice,
+      );
       session = await this.prisma.negotiationSession.create({
         data: {
           tenantId,
@@ -111,8 +124,8 @@ export class NegotiationService {
           status: 'OPEN',
           currentRound: 1,
           maxRounds: 5,
-          listPrice,
-          bottomPrice,
+          listPrice: resolvedPricing.listPrice,
+          bottomPrice: resolvedPricing.bottomPrice,
           currency,
           sourceMessageId,
           sourceThreadId,
@@ -129,6 +142,7 @@ export class NegotiationService {
       maxRounds: session.maxRounds,
       customerTier,
       currency,
+      previousApprovedAmount: session.currentRound > 1 ? (session.lastApprovedAmount ?? undefined) : undefined,
     });
 
     // 3. Generate Wording via AiGovernance under capability 'negotiation.draft'
@@ -156,6 +170,7 @@ export class NegotiationService {
       strategyResult.decision,
       strategyResult.approvedAmount,
       strategyResult.currency,
+      offerPrice,
     );
 
     if (!isWordingValid && !aiResult.isFallback) {
@@ -187,8 +202,19 @@ export class NegotiationService {
       newStatus = 'REJECTED';
     }
 
-    // 6. ACID Transaction: Save message + update session round/status/suggestedReply
-    const [savedMsg, updatedSession] = await this.prisma.$transaction([
+    // 6. ACID Transaction: Save customer & AI messages + update session round/status/suggestedReply
+    const [, savedMsg, updatedSession] = await this.prisma.$transaction([
+      this.prisma.negotiationMessage.create({
+        data: {
+          sessionId: session.id,
+          round: session.currentRound,
+          sender: 'CUSTOMER',
+          message: `Customer submitted offer of ${offerPrice} ${strategyResult.currency}`,
+          offerPrice,
+          decision: 'OFFER_SUBMITTED',
+          currency: strategyResult.currency,
+        },
+      }),
       this.prisma.negotiationMessage.create({
         data: {
           sessionId: session.id,
@@ -245,9 +271,9 @@ export class NegotiationService {
     };
   }
 
-  async getSessionHistory(sessionId: string) {
-    const session = await this.prisma.negotiationSession.findUnique({
-      where: { id: sessionId },
+  async getSessionHistory(sessionId: string, tenantId?: string) {
+    const session = await this.prisma.negotiationSession.findFirst({
+      where: { id: sessionId, tenantId: this.requireTenant(tenantId) },
       include: { messages: { orderBy: { createdAt: 'asc' } } },
     });
 
@@ -258,9 +284,9 @@ export class NegotiationService {
     return session;
   }
 
-  async getDraftSuggestion(sessionId: string): Promise<DraftSuggestionResult> {
-    const session = await this.prisma.negotiationSession.findUnique({
-      where: { id: sessionId },
+  async getDraftSuggestion(sessionId: string, tenantId?: string): Promise<DraftSuggestionResult> {
+    const session = await this.prisma.negotiationSession.findFirst({
+      where: { id: sessionId, tenantId: this.requireTenant(tenantId) },
     });
 
     if (!session) {
@@ -285,36 +311,129 @@ export class NegotiationService {
   }
 
   /**
+   * Resolves authoritative listPrice & bottomPrice from financial-service when configured,
+   * or validates caller-supplied pricing in non-production environments.
+   */
+  private async resolveAuthoritativePricing(
+    tenantId: string,
+    shipmentId: string,
+    inputListPrice: number,
+    inputBottomPrice: number,
+  ): Promise<{ listPrice: number; bottomPrice: number }> {
+    const financialServiceUrl = this.config.get<string>('FINANCIAL_SERVICE_URL');
+    if (financialServiceUrl?.trim()) {
+      try {
+        const baseUrl = financialServiceUrl.trim().replace(/\/+$/, '');
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 2500);
+        const res = await fetch(
+          `${baseUrl}/api/v1/financial/quotes/${encodeURIComponent(shipmentId)}`,
+          {
+            headers: { 'x-tenant-id': tenantId, Accept: 'application/json' },
+            signal: controller.signal,
+          },
+        );
+        clearTimeout(timer);
+        if (res.ok) {
+          const payload = (await res.json()) as Record<string, any>;
+          const quoteData = payload?.data ?? payload;
+          const remoteList = Number(quoteData?.listPrice ?? quoteData?.finalPrice);
+          const remoteBottom = Number(quoteData?.bottomPrice ?? quoteData?.floorPrice);
+          if (
+            Number.isFinite(remoteList) &&
+            Number.isFinite(remoteBottom) &&
+            remoteList > 0 &&
+            remoteBottom > 0 &&
+            remoteBottom <= remoteList
+          ) {
+            return { listPrice: remoteList, bottomPrice: remoteBottom };
+          }
+        }
+      } catch (err) {
+        this.logger.warn(
+          `[Negotiation] Failed to fetch authoritative pricing from FINANCIAL_SERVICE_URL for shipment ${shipmentId}: ${(err as Error).message}`,
+        );
+      }
+    }
+
+    if (this.config.get<string>('NODE_ENV') === 'production') {
+      throw new ServiceUnavailableException(
+        'Authoritative shipment pricing is not connected; a negotiation session cannot be opened',
+      );
+    }
+
+    if (
+      !Number.isFinite(inputListPrice) ||
+      !Number.isFinite(inputBottomPrice) ||
+      inputListPrice <= 0 ||
+      inputBottomPrice <= 0 ||
+      inputBottomPrice > inputListPrice
+    ) {
+      throw new BadRequestException('Valid listPrice and bottomPrice are required to open a session');
+    }
+
+    return { listPrice: inputListPrice, bottomPrice: inputBottomPrice };
+  }
+
+  /**
    * Validates that LLM generated text respects approved pricing and decision semantics.
-   * Handles thousand separators (e.g. $4,520.00 or 4,520 USD) without false rejections.
+   * Handles thousand separators and prefix/suffix currency formats ($4,520.00, USD 4,520, or 4,520 USD),
+   * allows referencing the customer's offer alongside the approved counter-offer, and blocks
+   * contradictory acceptance statements during a COUNTER_OFFER.
    */
   private validateAiWording(
     content: string,
     expectedDecision: string,
     approvedAmount: number,
     expectedCurrency: string,
+    customerOffer?: number,
   ): boolean {
     if (!content || content.trim().length === 0) return false;
 
-    // In COUNTER_OFFER or ACCEPT, validate any mentioned prices against approved amount
+    if (
+      expectedDecision === 'COUNTER_OFFER' &&
+      /\b(your offer (has been|is) accepted|we accept your offer|pleased to accept your offer|deal is accepted)\b/i.test(content)
+    ) {
+      return false;
+    }
+
+    // In COUNTER_OFFER or ACCEPT, validate any mentioned prices against approvedAmount (and optional customerOffer echo)
     if (expectedDecision === 'COUNTER_OFFER' || expectedDecision === 'ACCEPT') {
-      const priceRegex = /\$\s*([\d,]+(?:\.\d+)?)|([\d,]+(?:\.\d+)?)\s*USD/gi;
+      const priceRegex =
+        /\$\s*([\d,]+(?:\.\d+)?)|USD\s*([\d,]+(?:\.\d+)?)|([\d,]+(?:\.\d+)?)\s*USD/gi;
+      const mentionedPrices: number[] = [];
       let match: RegExpExecArray | null;
       while ((match = priceRegex.exec(content)) !== null) {
-        const rawNum = match[1] || match[2];
+        const rawNum = match[1] || match[2] || match[3];
         if (rawNum) {
           const sanitized = rawNum.replace(/,/g, '');
           const foundVal = parseFloat(sanitized);
           if (!isNaN(foundVal)) {
-            // If price deviates by more than $1.00 from approved counter offer, reject AI output
-            if (Math.abs(foundVal - approvedAmount) > 1.0) {
-              return false;
-            }
+            mentionedPrices.push(foundVal);
           }
+        }
+      }
+
+      if (mentionedPrices.length > 0) {
+        const hasApprovedAmount = mentionedPrices.some(
+          (val) => Math.abs(val - approvedAmount) <= 1.0,
+        );
+        const allAllowed = mentionedPrices.every(
+          (val) =>
+            Math.abs(val - approvedAmount) <= 1.0 ||
+            (customerOffer !== undefined && Math.abs(val - customerOffer) <= 1.0),
+        );
+        if (!hasApprovedAmount || !allAllowed) {
+          return false;
         }
       }
     }
 
     return true;
+  }
+
+  private requireTenant(tenantId?: string): string {
+    if (!tenantId?.trim()) throw new BadRequestException('tenantId is required');
+    return tenantId.trim();
   }
 }

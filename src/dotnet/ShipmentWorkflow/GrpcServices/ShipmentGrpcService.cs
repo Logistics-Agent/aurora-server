@@ -39,13 +39,13 @@ public sealed class ShipmentGrpcService(ISender sender)
         GetShipmentRequest request,
         ServerCallContext context)
     {
-        if (!Guid.TryParse(request.Id, out var shipmentId))
+        if (string.IsNullOrWhiteSpace(request.Id))
         {
-            throw new RpcException(new Status(StatusCode.InvalidArgument, "Invalid shipment id."));
+            throw new RpcException(new Status(StatusCode.InvalidArgument, "Shipment id or number is required."));
         }
 
         var shipment = await sender.Send(
-            new GetShipmentQuery(shipmentId),
+            new GetShipmentQuery(request.Id.Trim()),
             context.CancellationToken);
 
         return MapToResponse(shipment);
@@ -63,7 +63,8 @@ public sealed class ShipmentGrpcService(ISender sender)
                 request.ShipmentNo,
                 request.CustomerName,
                 request.CreatedFrom?.ToDateTimeOffset(),
-                request.CreatedTo?.ToDateTimeOffset()),
+                request.CreatedTo?.ToDateTimeOffset(),
+                request.CustomerId),
             context.CancellationToken);
 
         var response = new ListShipmentsResponse
@@ -83,13 +84,13 @@ public sealed class ShipmentGrpcService(ISender sender)
         GetShipmentTimelineRequest request,
         ServerCallContext context)
     {
-        if (!Guid.TryParse(request.ShipmentId, out var shipmentId))
+        if (string.IsNullOrWhiteSpace(request.ShipmentId))
         {
-            throw new RpcException(new Status(StatusCode.InvalidArgument, "Invalid shipment id."));
+            throw new RpcException(new Status(StatusCode.InvalidArgument, "Shipment id or number is required."));
         }
 
         var timeline = await sender.Send(
-            new GetShipmentTimelineQuery(shipmentId),
+            new GetShipmentTimelineQuery(request.ShipmentId.Trim()),
             context.CancellationToken);
 
         var response = new ShipmentTimelineResponse
@@ -385,6 +386,46 @@ public sealed class ShipmentGrpcService(ISender sender)
         return response;
     }
 
+    public override async Task<ShipmentResponse> AssignVehicle(
+        AssignVehicleRequest request,
+        ServerCallContext context)
+    {
+        var shipmentId = ParseGuid(request.ShipmentId, "ShipmentId is required and must be a valid UUID.");
+        if (string.IsNullOrWhiteSpace(request.VehicleId))
+        {
+            throw new RpcException(new Status(StatusCode.InvalidArgument, "VehicleId is required."));
+        }
+
+        var docGuids = new List<Guid>();
+        if (request.DocumentIds != null)
+        {
+            foreach (var docIdStr in request.DocumentIds)
+            {
+                if (Guid.TryParse(docIdStr, out var docGuid))
+                {
+                    docGuids.Add(docGuid);
+                }
+            }
+        }
+
+        try
+        {
+            var result = await sender.Send(
+                new AssignVehicleCommand(shipmentId, request.VehicleId, docGuids),
+                context.CancellationToken);
+
+            return MapToResponse(result);
+        }
+        catch (Shared.Exceptions.NotFoundException ex)
+        {
+            throw new RpcException(new Status(StatusCode.NotFound, ex.Message));
+        }
+        catch (Shared.Exceptions.DomainException ex)
+        {
+            throw new RpcException(new Status(StatusCode.InvalidArgument, ex.Message));
+        }
+    }
+
     private static double? ToOptionalCoordinate(double value)
     {
         return value == 0 ? null : value;
@@ -405,7 +446,9 @@ public sealed class ShipmentGrpcService(ISender sender)
             return fallback;
         }
 
-        return System.Enum.TryParse<TEnum>(value, ignoreCase: true, out var parsed)
+        var normalized = value.Trim().Replace("_", string.Empty, StringComparison.Ordinal)
+            .Replace("-", string.Empty, StringComparison.Ordinal);
+        return System.Enum.TryParse<TEnum>(normalized, ignoreCase: true, out var parsed)
             ? parsed
             : throw new RpcException(new Status(StatusCode.InvalidArgument, $"Invalid {typeof(TEnum).Name}."));
     }
