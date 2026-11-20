@@ -1,4 +1,5 @@
 using AiGovernance.Grpc;
+using Grpc.Core;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using RegulatoryCompliance.Application.Assistant;
@@ -344,6 +345,167 @@ public sealed class GroundedAssistantTests
     }
 
     [Fact]
+    public async Task GroundedAnswerService_WhenShipmentSummaryPresentWithoutRagEvidence_ReturnsVerifiedShipmentInfo()
+    {
+        var shipmentId = Guid.NewGuid();
+        var summary = "ShipmentNo: SHP-20261120-01A1F75409\nCreatedAt: 2026-11-20 06:00:00 UTC (2026-11-20 13:00:00 +07:00)";
+        var promptBuilder = new GroundedAnswerPromptBuilder();
+        var renderedPrompt = promptBuilder.BuildPrompt(
+            "Đơn hàng này được tạo ngày mấy",
+            new EvidenceContext([], []),
+            new VerifiedAssistantContext(shipmentId, null, "CURRENT", null, null, null, [], summary));
+
+        Assert.Contains("<shipment-context shipment-id=\"", renderedPrompt);
+        Assert.Contains("SHP-20261120-01A1F75409", renderedPrompt);
+
+        var service = new GroundedAnswerService(
+            new FakeRegulationRetrievalService(),
+            new FakeKnowledgeIngestionService(),
+            null!,
+            promptBuilder,
+            new DeterministicCitationValidator(),
+            new FakeCurrentUserService(TenantId, UserId),
+            NullLogger<GroundedAnswerService>.Instance);
+
+        var result = await service.GenerateAnswerAsync(new GroundedAnswerInput(
+            "Đơn hàng này được tạo ngày mấy",
+            AssistantSearchMode.All,
+            "VN",
+            DateTimeOffset.UtcNow,
+            null,
+            null,
+            Context: new VerifiedAssistantContextInput(shipmentId, null, summary)));
+
+        Assert.False(result.InsufficientEvidence);
+        Assert.Contains("SHP-20261120-01A1F75409", result.Answer);
+        Assert.Contains("2026-11-20 13:00:00 +07:00", result.Answer);
+        Assert.NotNull(result.Context);
+        Assert.Equal(shipmentId, result.Context!.ShipmentId);
+    }
+
+    [Fact]
+    public async Task GroundedAnswerService_CallsAiExecutionWhenShipmentSummaryPresentWithoutRagEvidence_AndValidatesCitations()
+    {
+        var shipmentId = Guid.NewGuid();
+        var summary = "ShipmentNo: SHP-20261120-01A1F75409\nCreatedAt: 2026-11-20 06:00:00 UTC";
+        var validAiClient = new StubAiExecutionServiceClient(new AiGenerateResponse
+        {
+            DecisionId = "dec-shipment-1",
+            AutomationLevel = "ASSISTED",
+            RequiresApproval = false,
+            InputTokens = 50,
+            OutputTokens = 25,
+            Content = "{\"answer\":\"Đơn hàng SHP-20261120-01A1F75409 được tạo lúc 2026-11-20 06:00:00 UTC.\",\"citations\":[],\"knowledgeReferences\":[],\"conflicts\":[],\"insufficientEvidence\":false,\"missingInformation\":[]}"
+        });
+
+        var service = new GroundedAnswerService(
+            new FakeRegulationRetrievalService(),
+            new FakeKnowledgeIngestionService(),
+            validAiClient,
+            new GroundedAnswerPromptBuilder(),
+            new DeterministicCitationValidator(),
+            new FakeCurrentUserService(TenantId, UserId),
+            NullLogger<GroundedAnswerService>.Instance);
+
+        var result = await service.GenerateAnswerAsync(new GroundedAnswerInput(
+            "Đơn hàng này được tạo ngày mấy",
+            AssistantSearchMode.All,
+            "VN",
+            DateTimeOffset.UtcNow,
+            null,
+            null,
+            Context: new VerifiedAssistantContextInput(shipmentId, null, summary)));
+
+        Assert.True(validAiClient.WasCalled);
+        Assert.Contains("<shipment-context", validAiClient.LastRequest!.Prompt);
+        Assert.False(result.InsufficientEvidence);
+        Assert.Equal("Đơn hàng SHP-20261120-01A1F75409 được tạo lúc 2026-11-20 06:00:00 UTC.", result.Answer);
+        Assert.Equal(75, result.Governance.TotalTokens);
+
+        var hallucinatingAiClient = new StubAiExecutionServiceClient(new AiGenerateResponse
+        {
+            DecisionId = "dec-hallucinated",
+            AutomationLevel = "ASSISTED",
+            RequiresApproval = false,
+            Content = "{\"answer\":\"Theo quy định [R99], đơn được tạo hôm nay.\",\"citations\":[],\"knowledgeReferences\":[],\"conflicts\":[],\"insufficientEvidence\":false,\"missingInformation\":[]}"
+        });
+
+        var strictService = new GroundedAnswerService(
+            new FakeRegulationRetrievalService(),
+            new FakeKnowledgeIngestionService(),
+            hallucinatingAiClient,
+            new GroundedAnswerPromptBuilder(),
+            new DeterministicCitationValidator(),
+            new FakeCurrentUserService(TenantId, UserId),
+            NullLogger<GroundedAnswerService>.Instance);
+
+        var withheld = await strictService.GenerateAnswerAsync(new GroundedAnswerInput(
+            "Đơn hàng này được tạo ngày mấy",
+            AssistantSearchMode.All,
+            "VN",
+            DateTimeOffset.UtcNow,
+            null,
+            null,
+            Context: new VerifiedAssistantContextInput(shipmentId, null, summary)));
+
+        Assert.True(withheld.InsufficientEvidence);
+        Assert.Contains("unverified citation", withheld.Answer, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task GroundedAnswerService_HandlesCombinedShipmentAndEvaluationContext_EscapesXml_AndRejectsMismatchedEvaluation()
+    {
+        var shipmentId = Guid.NewGuid();
+        var evaluation = CreateCompletedEvaluation(shipmentId);
+        var specialSummary = "ShipmentNo: SHP-1 & \"<script>\"";
+        var promptBuilder = new GroundedAnswerPromptBuilder();
+
+        var prompt = promptBuilder.BuildPrompt(
+            "Đánh giá rủi ro và ngày tạo",
+            new EvidenceContext([], []),
+            new VerifiedAssistantContext(shipmentId, evaluation.Id, "CURRENT", "hash", evaluation.RiskLevel, evaluation.EvidenceSufficiency, [], specialSummary));
+
+        Assert.Contains("<shipment-context", prompt);
+        Assert.Contains("<compliance-context", prompt);
+        Assert.Contains("&lt;script&gt;", prompt);
+        Assert.Contains("&amp;", prompt);
+        Assert.DoesNotContain("\"<script>\"", prompt);
+
+        var service = new GroundedAnswerService(
+            new FakeRegulationRetrievalService(),
+            new FakeKnowledgeIngestionService(),
+            null!,
+            promptBuilder,
+            new DeterministicCitationValidator(),
+            new FakeCurrentUserService(TenantId, UserId),
+            NullLogger<GroundedAnswerService>.Instance,
+            new FakeComplianceEvaluationService(evaluation));
+
+        var result = await service.GenerateAnswerAsync(new GroundedAnswerInput(
+            "Đánh giá rủi ro và ngày tạo",
+            AssistantSearchMode.All,
+            "VN",
+            DateTimeOffset.UtcNow,
+            null,
+            null,
+            Context: new VerifiedAssistantContextInput(shipmentId, evaluation.Id, specialSummary)));
+
+        Assert.False(result.InsufficientEvidence);
+        Assert.Contains("### Thông tin vận đơn đã xác minh:", result.Answer);
+        Assert.Contains($"Đánh giá tuân thủ đã xác minh: {evaluation.Id}", result.Answer);
+
+        var otherShipmentId = Guid.NewGuid();
+        await Assert.ThrowsAsync<AssistantContextMismatchException>(() => service.GenerateAnswerAsync(new GroundedAnswerInput(
+            "Check mismatch",
+            AssistantSearchMode.All,
+            "VN",
+            DateTimeOffset.UtcNow,
+            null,
+            null,
+            Context: new VerifiedAssistantContextInput(otherShipmentId, evaluation.Id, specialSummary))));
+    }
+
+    [Fact]
     public async Task GroundedAnswerServiceMarksEvaluationStaleWhenCitedDocumentHasNewerVersion()
     {
         var shipmentId = Guid.NewGuid();
@@ -519,5 +681,28 @@ public sealed class GroundedAssistantTests
             ComplianceEvaluationStatus? status = null,
             CancellationToken cancellationToken = default) =>
             throw new NotImplementedException();
+    }
+
+    private sealed class StubAiExecutionServiceClient(AiGenerateResponse response)
+        : AiExecutionService.AiExecutionServiceClient
+    {
+        public bool WasCalled { get; private set; }
+        public AiGenerateRequest? LastRequest { get; private set; }
+
+        public override AsyncUnaryCall<AiGenerateResponse> GenerateAsync(
+            AiGenerateRequest request,
+            Metadata? headers = null,
+            DateTime? deadline = null,
+            CancellationToken cancellationToken = default)
+        {
+            WasCalled = true;
+            LastRequest = request;
+            return new AsyncUnaryCall<AiGenerateResponse>(
+                Task.FromResult(response),
+                Task.FromResult(new Metadata()),
+                () => new Status(StatusCode.OK, string.Empty),
+                () => new Metadata(),
+                () => { });
+        }
     }
 }

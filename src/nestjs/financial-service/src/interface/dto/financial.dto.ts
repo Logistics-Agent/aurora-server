@@ -114,3 +114,60 @@ export interface GetExchangeRateResponse {
   source: string;        // VIETCOMBANK | SBV | MOCK
 }
 
+
+export interface CommercialQuoteDto {
+  id: string;
+  tenantId: string;
+  sourceThreadId: string;
+  shipmentId: string;
+  customerId: string;
+  originCountry: string;
+  originPort: string;
+  destinationCountry: string;
+  destinationPort: string;
+  weightKg: number;
+  volumeCbm: number;
+  transportMode: string;
+  cargoType: string;
+  cargoValue: number;
+  hsCodes: string[];
+  baseFreightCost: number;
+  portHandlingFees: number;
+  fuelSurchargeFee: number;
+  cargoInsuranceFee: number;
+  totalCustomsFee: number;
+  costPrice: number;
+  minAcceptableRate: number;
+  targetRate: number;
+  currency: string;
+  calculationMethod: string;
+  description: string;
+  status: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateQuoteRequest extends EstimateCostRequest {
+  sourceThreadId?: string;
+  shipmentId?: string;
+  customerId?: string;
+  minMarginPercent?: number;
+  targetMarginPercent?: number;
+}
+
+export interface ListQuotesRequest {
+  tenantId?: string;
+  sourceThreadId?: string;
+  shipmentId?: string;
+  quoteId?: string;
+}
+
+export interface ListQuotesResponse {
+  quotes: CommercialQuoteDto[];
+}
+
+export interface LinkQuoteToShipmentRequest {
+  tenantId?: string;
+  quoteId: string;
+  shipmentId: string;
+}

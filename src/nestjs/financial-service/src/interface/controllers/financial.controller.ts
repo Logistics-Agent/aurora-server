@@ -1,4 +1,4 @@
-import { Controller, Get, Param, Query, Req, UseFilters, UseInterceptors } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Query, Req, UseFilters, UseInterceptors } from '@nestjs/common';
 import { GrpcMethod } from '@nestjs/microservices';
 import { FinancialService } from '../../application/services/financial.service';
 import { TenantInterceptor } from '../../common/interceptors/tenant.interceptor';
@@ -14,6 +14,11 @@ import {
   GetDynamicMarginResponse,
   GetExchangeRateRequest,
   GetExchangeRateResponse,
+  CommercialQuoteDto,
+  CreateQuoteRequest,
+  ListQuotesRequest,
+  ListQuotesResponse,
+  LinkQuoteToShipmentRequest,
 } from '../dto/financial.dto';
 
 @Controller()
@@ -49,6 +54,53 @@ export class FinancialController {
   @GrpcMethod('FinancialService', 'GetExchangeRate')
   async getExchangeRate(data: GetExchangeRateRequest): Promise<GetExchangeRateResponse> {
     return this.financialService.getExchangeRate(data, data.tenantId);
+  }
+
+  @GrpcMethod('FinancialService', 'CreateQuote')
+  async createQuoteGrpc(data: CreateQuoteRequest): Promise<CommercialQuoteDto> {
+    return this.financialService.createQuote(data, data.tenantId);
+  }
+
+  @GrpcMethod('FinancialService', 'ListQuotes')
+  async listQuotesGrpc(data: ListQuotesRequest): Promise<ListQuotesResponse> {
+    return this.financialService.listQuotes(data, data.tenantId);
+  }
+
+  @GrpcMethod('FinancialService', 'LinkQuoteToShipment')
+  async linkQuoteToShipmentGrpc(data: LinkQuoteToShipmentRequest): Promise<CommercialQuoteDto> {
+    return this.financialService.linkQuoteToShipment(data, data.tenantId);
+  }
+
+  @Post('api/v1/financial/quotes')
+  async createQuoteHttp(@Body() body: CreateQuoteRequest, @Req() req: any): Promise<CommercialQuoteDto> {
+    return this.financialService.createQuote(
+      body,
+      req?.tenantId || req?.headers?.['x-tenant-id'] || body?.tenantId,
+    );
+  }
+
+  @Get('api/v1/financial/quotes')
+  async listQuotesHttp(@Req() req: any, @Query() query: Record<string, any>): Promise<ListQuotesResponse> {
+    return this.financialService.listQuotes(
+      {
+        sourceThreadId: query?.threadId || query?.sourceThreadId,
+        shipmentId: query?.shipmentId,
+        quoteId: query?.quoteId,
+      },
+      req?.tenantId || req?.headers?.['x-tenant-id'],
+    );
+  }
+
+  @Patch('api/v1/financial/quotes/:quoteId/link-shipment')
+  async linkQuoteToShipmentHttp(
+    @Param('quoteId') quoteId: string,
+    @Body() body: { shipmentId: string },
+    @Req() req: any,
+  ): Promise<CommercialQuoteDto> {
+    return this.financialService.linkQuoteToShipment(
+      { quoteId, shipmentId: body?.shipmentId },
+      req?.tenantId || req?.headers?.['x-tenant-id'],
+    );
   }
 
   @Get('api/v1/financial/quotes/:shipmentId')

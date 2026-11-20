@@ -1,4 +1,10 @@
-import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  NotFoundException,
+  BadRequestException,
+  ConflictException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { CostCalculatorDomainService } from '../../domain/services/cost-calculator.domain-service';
@@ -13,6 +19,11 @@ import {
   GetDynamicMarginResponse,
   GetExchangeRateRequest,
   GetExchangeRateResponse,
+  CommercialQuoteDto,
+  CreateQuoteRequest,
+  ListQuotesRequest,
+  ListQuotesResponse,
+  LinkQuoteToShipmentRequest,
 } from '../../interface/dto/financial.dto';
       
 import { RateCacheService } from '../../infrastructure/cache/rate-cache.service';
@@ -408,6 +419,151 @@ export class FinancialService {
     throw new NotFoundException(`No verified exchange rate for ${request.fromCurrency}/${request.toCurrency} within seven days`);
   }
 
+  private mapQuoteToDto(record: any): CommercialQuoteDto {
+    return {
+      id: record.id,
+      tenantId: record.tenantId,
+      sourceThreadId: record.sourceThreadId ?? '',
+      shipmentId: record.shipmentId ?? '',
+      customerId: record.customerId ?? '',
+      originCountry: record.originCountry ?? '',
+      originPort: record.originPort,
+      destinationCountry: record.destinationCountry ?? '',
+      destinationPort: record.destinationPort,
+      weightKg: record.weightKg,
+      volumeCbm: record.volumeCbm ?? 0,
+      transportMode: record.transportMode ?? 'SEA',
+      cargoType: record.cargoType ?? 'GENERAL',
+      cargoValue: record.cargoValue ?? 0,
+      hsCodes: Array.isArray(record.hsCodes) ? record.hsCodes : [],
+      baseFreightCost: record.baseFreightCost,
+      portHandlingFees: record.portHandlingFees,
+      fuelSurchargeFee: record.fuelSurchargeFee ?? 0,
+      cargoInsuranceFee: record.cargoInsuranceFee ?? 0,
+      totalCustomsFee: record.totalCustomsFee ?? 0,
+      costPrice: record.costPrice,
+      minAcceptableRate: record.minAcceptableRate,
+      targetRate: record.targetRate,
+      currency: record.currency ?? 'USD',
+      calculationMethod: record.calculationMethod ?? '',
+      description: record.description ?? '',
+      status: record.status ?? 'QUOTED',
+      createdAt: record.createdAt instanceof Date ? record.createdAt.toISOString() : String(record.createdAt ?? ''),
+      updatedAt: record.updatedAt instanceof Date ? record.updatedAt.toISOString() : String(record.updatedAt ?? ''),
+    };
+  }
+
+  async createQuote(
+    request: CreateQuoteRequest,
+    tenantId?: string,
+  ): Promise<CommercialQuoteDto> {
+    const effectiveTenantId = this.requireTenant(tenantId || request.tenantId);
+    const estimate = await this.estimateCost(request, effectiveTenantId);
+    const rates = this.calculator.calculateMinAcceptableRate(
+      estimate.totalEstimatedCost,
+      request.minMarginPercent ?? 10.0,
+      request.targetMarginPercent ?? 25.0,
+    );
+
+    const normalizedThreadId = request.sourceThreadId?.trim() || null;
+    const normalizedShipmentId = request.shipmentId?.trim() || null;
+    const normalizedCustomerId = request.customerId?.trim() || null;
+
+    const created = await this.prisma.commercialQuote.create({
+      data: {
+        tenantId: effectiveTenantId,
+        sourceThreadId: normalizedThreadId,
+        shipmentId: normalizedShipmentId,
+        customerId: normalizedCustomerId,
+        originCountry: request.originCountry || '',
+        originPort: request.originPort,
+        destinationCountry: request.destinationCountry || '',
+        destinationPort: request.destinationPort,
+        weightKg: request.weightKg,
+        volumeCbm: request.volumeCbm || 0,
+        transportMode: (request.transportMode || 'SEA').toUpperCase(),
+        cargoType: (request.cargoType || 'GENERAL').toUpperCase(),
+        cargoValue: request.cargoValue || 0,
+        hsCodes: request.hsCodes || [],
+        baseFreightCost: estimate.baseFreightCost,
+        portHandlingFees: estimate.portHandlingFees,
+        fuelSurchargeFee: estimate.fuelSurchargeFee,
+        cargoInsuranceFee: estimate.cargoInsuranceFee,
+        totalCustomsFee: estimate.totalCustomsFee,
+        costPrice: estimate.totalEstimatedCost,
+        minAcceptableRate: rates.minAcceptableRate,
+        targetRate: rates.targetRate,
+        currency: estimate.currency,
+        calculationMethod: estimate.calculationMethod,
+        description: estimate.description,
+        status: normalizedShipmentId ? 'LINKED' : 'QUOTED',
+      },
+    });
+
+    return this.mapQuoteToDto(created);
+  }
+
+  async listQuotes(
+    request: ListQuotesRequest,
+    tenantId?: string,
+  ): Promise<ListQuotesResponse> {
+    const effectiveTenantId = this.requireTenant(tenantId || request.tenantId);
+    const where: Record<string, any> = { tenantId: effectiveTenantId };
+    if (request.quoteId?.trim()) {
+      where.id = request.quoteId.trim();
+    }
+    if (request.sourceThreadId?.trim()) {
+      where.sourceThreadId = request.sourceThreadId.trim();
+    }
+    if (request.shipmentId?.trim()) {
+      where.shipmentId = request.shipmentId.trim();
+    }
+
+    const rows = await this.prisma.commercialQuote.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      take: 50,
+    });
+
+    return { quotes: rows.map((row) => this.mapQuoteToDto(row)) };
+  }
+
+  async linkQuoteToShipment(
+    request: LinkQuoteToShipmentRequest,
+    tenantId?: string,
+  ): Promise<CommercialQuoteDto> {
+    const effectiveTenantId = this.requireTenant(tenantId || request.tenantId);
+    const quoteId = request.quoteId?.trim();
+    const shipmentId = request.shipmentId?.trim();
+    if (!quoteId || !shipmentId) {
+      throw new BadRequestException('quoteId and shipmentId are required');
+    }
+
+    const existing = await this.prisma.commercialQuote.findFirst({
+      where: { id: quoteId, tenantId: effectiveTenantId },
+    });
+    if (!existing) {
+      throw new NotFoundException(`Commercial quote ${quoteId} not found`);
+    }
+    if (existing.shipmentId && existing.shipmentId !== shipmentId) {
+      throw new ConflictException(
+        `Quote ${quoteId} is already linked to shipment ${existing.shipmentId}`,
+      );
+    }
+    if (existing.shipmentId === shipmentId) {
+      return this.mapQuoteToDto(existing);
+    }
+
+    const updated = await this.prisma.commercialQuote.update({
+      where: { id: quoteId },
+      data: {
+        shipmentId,
+        status: existing.status === 'QUOTED' ? 'LINKED' : existing.status,
+      },
+    });
+    return this.mapQuoteToDto(updated);
+  }
+
   async getShipmentQuote(
     shipmentId: string,
     tenantId?: string,
@@ -430,6 +586,20 @@ export class FinancialService {
     const normalizedShipmentId = shipmentId?.trim();
     if (!normalizedShipmentId) {
       throw new BadRequestException('shipmentId is required');
+    }
+
+    const persistedQuote = await this.prisma.commercialQuote?.findFirst?.({
+      where: { tenantId: effectiveTenantId, shipmentId: normalizedShipmentId },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (persistedQuote) {
+      return {
+        shipmentId: normalizedShipmentId,
+        costPrice: persistedQuote.costPrice,
+        listPrice: persistedQuote.targetRate,
+        bottomPrice: persistedQuote.minAcceptableRate,
+        currency: persistedQuote.currency || 'USD',
+      };
     }
 
     if (query?.originPort && query?.destinationPort) {

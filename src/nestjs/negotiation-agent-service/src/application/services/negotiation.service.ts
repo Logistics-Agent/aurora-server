@@ -17,6 +17,7 @@ export interface SubmitOfferInput {
   sessionId?: string;
   sourceMessageId?: string;
   sourceThreadId?: string;
+  quoteId?: string;
   // snake_case support for raw Protobuf gRPC payloads
   shipment_id?: string;
   customer_id?: string;
@@ -27,6 +28,7 @@ export interface SubmitOfferInput {
   session_id?: string;
   source_message_id?: string;
   source_thread_id?: string;
+  quote_id?: string;
 }
 
 export interface SuggestedReplyDto {
@@ -43,6 +45,8 @@ export interface ProtobufTimestamp {
 export interface NegotiationResult {
   sessionId: string;
   shipmentId: string;
+  quoteId?: string;
+  sourceThreadId?: string;
   round: number;
   decision: string;
   counterOfferPrice?: number;
@@ -86,29 +90,45 @@ export class NegotiationService {
 
   async submitOffer(input: SubmitOfferInput): Promise<NegotiationResult> {
     const tenantId = this.requireTenant(input.tenantId);
-    const shipmentId = input.shipmentId || input.shipment_id;
-    const customerId = input.customerId || input.customer_id;
+    const shipmentId = (input.shipmentId || input.shipment_id)?.trim() || undefined;
+    const quoteId = (input.quoteId || input.quote_id)?.trim() || undefined;
+    const customerId = (input.customerId || input.customer_id)?.trim();
     const offerPrice = input.offerPrice ?? input.offer_price ?? NaN;
     const listPrice = input.listPrice ?? input.list_price ?? NaN;
     const bottomPrice = input.bottomPrice ?? input.bottom_price ?? NaN;
-    if (!shipmentId || !customerId || !Number.isFinite(offerPrice) || offerPrice <= 0) {
-      throw new BadRequestException('shipmentId, customerId and a positive offerPrice are required');
-    }
     const customerTier = input.customerTier || input.customer_tier;
-    const requestedSessionId = input.sessionId || input.session_id;
-    const sourceMessageId = input.sourceMessageId || input.source_message_id || null;
-    const sourceThreadId = input.sourceThreadId || input.source_thread_id || null;
+    const requestedSessionId = (input.sessionId || input.session_id)?.trim() || undefined;
+    const sourceMessageId = (input.sourceMessageId || input.source_message_id)?.trim() || null;
+    const sourceThreadId = (input.sourceThreadId || input.source_thread_id)?.trim() || null;
+
+    if (!customerId || !Number.isFinite(offerPrice) || offerPrice <= 0) {
+      throw new BadRequestException('customerId and a positive offerPrice are required');
+    }
+    if (!requestedSessionId && !shipmentId && !quoteId && !sourceThreadId) {
+      throw new BadRequestException('At least one of sessionId, shipmentId, quoteId, or sourceThreadId is required');
+    }
     const currency = DEFAULT_NEGOTIATION_CURRENCY;
 
     // 1. Get or create active negotiation session
     let session = requestedSessionId
-      ? await this.prisma.negotiationSession.findFirst({ where: { id: requestedSessionId, tenantId, shipmentId, customerId } })
+      ? await this.prisma.negotiationSession.findFirst({
+          where: {
+            id: requestedSessionId,
+            tenantId,
+            ...(shipmentId ? { shipmentId } : {}),
+            ...(customerId ? { customerId } : {}),
+          },
+        })
       : await this.prisma.negotiationSession.findFirst({
           where: {
             tenantId,
-            shipmentId,
             customerId,
             status: 'OPEN',
+            ...(quoteId && !shipmentId
+              ? { quoteId }
+              : shipmentId
+                ? { shipmentId }
+                : { sourceThreadId }),
           },
         });
 
@@ -118,13 +138,15 @@ export class NegotiationService {
       const resolvedPricing = await this.resolveAuthoritativePricing(
         tenantId,
         shipmentId,
+        quoteId,
         listPrice,
         bottomPrice,
       );
       session = await this.prisma.negotiationSession.create({
         data: {
           tenantId,
-          shipmentId,
+          shipmentId: shipmentId ?? null,
+          quoteId: quoteId ?? null,
           customerId,
           status: 'OPEN',
           currentRound: 1,
@@ -137,6 +159,10 @@ export class NegotiationService {
         },
       });
     }
+
+    const effectiveShipmentId = shipmentId || session.shipmentId || undefined;
+    const effectiveQuoteId = quoteId || session.quoteId || undefined;
+    const refForPrompt = effectiveShipmentId || effectiveQuoteId || sourceThreadId || session.id;
 
     // 2. Evaluate Strategy Decision via Deterministic Engine
     const strategyResult = this.strategy.determineDecision({
@@ -156,7 +182,7 @@ export class NegotiationService {
       approvedAmount: strategyResult.approvedAmount,
       currency: strategyResult.currency,
       customerOffer: offerPrice,
-      shipmentId,
+      shipmentId: refForPrompt,
       round: session.currentRound,
       customerTier,
       tenantId,
@@ -187,14 +213,16 @@ export class NegotiationService {
         approvedAmount: strategyResult.approvedAmount,
         currency: strategyResult.currency,
         customerOffer: offerPrice,
-        shipmentId,
+        shipmentId: refForPrompt,
         round: session.currentRound,
       });
       aiDraftUsed = false;
       fallbackUsed = true;
     }
 
-    const suggestedSubject = `Re: Quotation Proposal for Shipment ${shipmentId}`;
+    const suggestedSubject = effectiveShipmentId
+      ? `Re: Quotation Proposal for Shipment ${effectiveShipmentId}`
+      : `Re: Commercial Quotation Proposal${effectiveQuoteId ? ` (${effectiveQuoteId.slice(0, 8)})` : ''}`;
     const suggestedLanguage = 'en';
 
     // 5. Determine new session status
@@ -271,7 +299,9 @@ export class NegotiationService {
 
     return {
       sessionId: session.id,
-      shipmentId,
+      shipmentId: effectiveShipmentId ?? '',
+      quoteId: effectiveQuoteId ?? '',
+      sourceThreadId: sourceThreadId || session.sourceThreadId || '',
       round: session.currentRound,
       decision: strategyResult.decision,
       counterOfferPrice: strategyResult.counterOfferPrice,
@@ -304,7 +334,9 @@ export class NegotiationService {
     return {
       sessionId: session.id,
       tenantId: session.tenantId,
-      shipmentId: session.shipmentId,
+      shipmentId: session.shipmentId ?? '',
+      quoteId: session.quoteId ?? '',
+      sourceThreadId: session.sourceThreadId ?? '',
       customerId: session.customerId,
       status: session.status,
       currentRound: session.currentRound,
@@ -333,13 +365,25 @@ export class NegotiationService {
     status?: string;
     page?: number;
     pageSize?: number;
+    sourceThreadId?: string;
+    shipmentId?: string;
+    quoteId?: string;
   }) {
     const tenantId = this.requireTenant(input.tenantId);
     const page = Math.max(1, Number(input.page || 1));
     const pageSize = Math.min(100, Math.max(1, Number(input.pageSize || 20)));
-    const where: { tenantId: string; status?: string } = { tenantId };
+    const where: Record<string, any> = { tenantId };
     if (input.status?.trim()) {
       where.status = input.status.trim().toUpperCase();
+    }
+    if (input.sourceThreadId?.trim()) {
+      where.sourceThreadId = input.sourceThreadId.trim();
+    }
+    if (input.shipmentId?.trim()) {
+      where.shipmentId = input.shipmentId.trim();
+    }
+    if (input.quoteId?.trim()) {
+      where.quoteId = input.quoteId.trim();
     }
 
     const [sessions, total] = await Promise.all([
@@ -353,22 +397,64 @@ export class NegotiationService {
     ]);
 
     return {
-      sessions: sessions.map((s) => ({
-        sessionId: s.id,
-        shipmentId: s.shipmentId,
-        customerId: s.customerId,
-        status: s.status,
-        currentRound: s.currentRound,
-        maxRounds: s.maxRounds,
-        listPrice: s.listPrice,
-        bottomPrice: s.bottomPrice,
-        currency: s.currency,
-        lastDecision: s.lastDecision || '',
-        lastApprovedAmount: s.lastApprovedAmount ?? 0,
-        createdAt: this.toProtobufTimestamp(s.createdAt),
-        updatedAt: this.toProtobufTimestamp(s.updatedAt),
-      })),
+      sessions: sessions.map((s) => this.mapSessionSummary(s)),
       total,
+    };
+  }
+
+  async linkSessionToShipment(input: {
+    tenantId?: string;
+    sessionId: string;
+    shipmentId: string;
+  }) {
+    const tenantId = this.requireTenant(input.tenantId);
+    const sessionId = input.sessionId?.trim();
+    const shipmentId = input.shipmentId?.trim();
+    if (!sessionId || !shipmentId) {
+      throw new BadRequestException('sessionId and shipmentId are required');
+    }
+
+    const existing = await this.prisma.negotiationSession.findFirst({
+      where: { id: sessionId, tenantId },
+    });
+    if (!existing) {
+      throw new NotFoundException(`Negotiation Session ${sessionId} not found`);
+    }
+    if (existing.shipmentId && existing.shipmentId !== shipmentId) {
+      throw new ConflictException(
+        `Negotiation session ${sessionId} is already linked to shipment ${existing.shipmentId}`,
+      );
+    }
+    if (existing.shipmentId === shipmentId) {
+      return this.mapSessionSummary(existing);
+    }
+
+    const updated = await this.prisma.negotiationSession.update({
+      where: { id: sessionId },
+      data: { shipmentId },
+    });
+    return this.mapSessionSummary(updated);
+  }
+
+  private mapSessionSummary(s: any) {
+    return {
+      sessionId: s.id,
+      shipmentId: s.shipmentId ?? '',
+      quoteId: s.quoteId ?? '',
+      sourceThreadId: s.sourceThreadId ?? '',
+      customerId: s.customerId,
+      status: s.status,
+      currentRound: s.currentRound,
+      maxRounds: s.maxRounds,
+      listPrice: s.listPrice,
+      bottomPrice: s.bottomPrice,
+      currency: s.currency,
+      lastDecision: s.lastDecision || '',
+      lastApprovedAmount: s.lastApprovedAmount ?? 0,
+      suggestedBody: s.suggestedBody || '',
+      suggestedSubject: s.suggestedSubject || '',
+      createdAt: this.toProtobufTimestamp(s.createdAt),
+      updatedAt: this.toProtobufTimestamp(s.updatedAt),
     };
   }
 
@@ -383,11 +469,15 @@ export class NegotiationService {
 
     return {
       negotiationSessionId: session.id,
-      shipmentId: session.shipmentId,
+      shipmentId: session.shipmentId ?? '',
       suggestedReplyAvailable: session.suggestedReplyAvailable,
       aiDraftUsed: session.aiDraftUsed,
       fallbackUsed: session.fallbackUsed,
-      subject: session.suggestedSubject || `Re: Quotation Proposal for Shipment ${session.shipmentId}`,
+      subject:
+        session.suggestedSubject ||
+        (session.shipmentId
+          ? `Re: Quotation Proposal for Shipment ${session.shipmentId}`
+          : 'Re: Commercial Quotation Proposal'),
       body: session.suggestedBody || '',
       language: session.suggestedLanguage || 'en',
       decision: session.lastDecision || session.status,
@@ -404,43 +494,80 @@ export class NegotiationService {
    */
   private async resolveAuthoritativePricing(
     tenantId: string,
-    shipmentId: string,
+    shipmentId: string | undefined,
+    quoteId: string | undefined,
     inputListPrice: number,
     inputBottomPrice: number,
   ): Promise<{ listPrice: number; bottomPrice: number }> {
     const financialServiceUrl = this.config.get<string>('FINANCIAL_SERVICE_URL');
     if (financialServiceUrl?.trim()) {
-      try {
-        const baseUrl = financialServiceUrl.trim().replace(/\/+$/, '');
-        const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), 2500);
-        const res = await fetch(
-          `${baseUrl}/api/v1/financial/quotes/${encodeURIComponent(shipmentId)}`,
-          {
-            headers: { 'x-tenant-id': tenantId, Accept: 'application/json' },
-            signal: controller.signal,
-          },
-        );
-        clearTimeout(timer);
-        if (res.ok) {
-          const payload = (await res.json()) as Record<string, any>;
-          const quoteData = payload?.data ?? payload;
-          const remoteList = Number(quoteData?.listPrice ?? quoteData?.finalPrice);
-          const remoteBottom = Number(quoteData?.bottomPrice ?? quoteData?.floorPrice);
-          if (
-            Number.isFinite(remoteList) &&
-            Number.isFinite(remoteBottom) &&
-            remoteList > 0 &&
-            remoteBottom > 0 &&
-            remoteBottom <= remoteList
-          ) {
-            return { listPrice: remoteList, bottomPrice: remoteBottom };
+      const baseUrl = financialServiceUrl.trim().replace(/\/+$/, '');
+      if (quoteId) {
+        try {
+          const controller = new AbortController();
+          const timer = setTimeout(() => controller.abort(), 2500);
+          const res = await fetch(
+            `${baseUrl}/api/v1/financial/quotes?quoteId=${encodeURIComponent(quoteId)}`,
+            {
+              headers: { 'x-tenant-id': tenantId, Accept: 'application/json' },
+              signal: controller.signal,
+            },
+          );
+          clearTimeout(timer);
+          if (res.ok) {
+            const payload = (await res.json()) as Record<string, any>;
+            const quotes = payload?.quotes ?? payload?.data?.quotes ?? [];
+            const quoteData = Array.isArray(quotes) ? quotes[0] : quotes;
+            const remoteList = Number(quoteData?.targetRate ?? quoteData?.listPrice);
+            const remoteBottom = Number(quoteData?.minAcceptableRate ?? quoteData?.bottomPrice);
+            if (
+              Number.isFinite(remoteList) &&
+              Number.isFinite(remoteBottom) &&
+              remoteList > 0 &&
+              remoteBottom > 0 &&
+              remoteBottom <= remoteList
+            ) {
+              return { listPrice: remoteList, bottomPrice: remoteBottom };
+            }
           }
+        } catch (err) {
+          this.logger.warn(
+            `[Negotiation] Failed to fetch quote ${quoteId} from FINANCIAL_SERVICE_URL: ${(err as Error).message}`,
+          );
         }
-      } catch (err) {
-        this.logger.warn(
-          `[Negotiation] Failed to fetch authoritative pricing from FINANCIAL_SERVICE_URL for shipment ${shipmentId}: ${(err as Error).message}`,
-        );
+      }
+      if (shipmentId) {
+        try {
+          const controller = new AbortController();
+          const timer = setTimeout(() => controller.abort(), 2500);
+          const res = await fetch(
+            `${baseUrl}/api/v1/financial/quotes/${encodeURIComponent(shipmentId)}`,
+            {
+              headers: { 'x-tenant-id': tenantId, Accept: 'application/json' },
+              signal: controller.signal,
+            },
+          );
+          clearTimeout(timer);
+          if (res.ok) {
+            const payload = (await res.json()) as Record<string, any>;
+            const quoteData = payload?.data ?? payload;
+            const remoteList = Number(quoteData?.listPrice ?? quoteData?.finalPrice ?? quoteData?.targetRate);
+            const remoteBottom = Number(quoteData?.bottomPrice ?? quoteData?.floorPrice ?? quoteData?.minAcceptableRate);
+            if (
+              Number.isFinite(remoteList) &&
+              Number.isFinite(remoteBottom) &&
+              remoteList > 0 &&
+              remoteBottom > 0 &&
+              remoteBottom <= remoteList
+            ) {
+              return { listPrice: remoteList, bottomPrice: remoteBottom };
+            }
+          }
+        } catch (err) {
+          this.logger.warn(
+            `[Negotiation] Failed to fetch authoritative pricing from FINANCIAL_SERVICE_URL for shipment ${shipmentId}: ${(err as Error).message}`,
+          );
+        }
       }
     }
 

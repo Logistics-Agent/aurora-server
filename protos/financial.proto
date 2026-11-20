@@ -10,6 +10,9 @@ service FinancialService {
   rpc GetMinAcceptableRate(GetMinAcceptableRateRequest) returns (GetMinAcceptableRateResponse);
   rpc GetDynamicMargin(GetDynamicMarginRequest) returns (GetDynamicMarginResponse);
   rpc GetExchangeRate(GetExchangeRateRequest) returns (GetExchangeRateResponse);
+  rpc CreateQuote(CreateQuoteRequest) returns (CommercialQuoteDto);
+  rpc ListQuotes(ListQuotesRequest) returns (ListQuotesResponse);
+  rpc LinkQuoteToShipment(LinkQuoteToShipmentRequest) returns (CommercialQuoteDto);
 }
                 
 message EstimateCostRequest {
@@ -115,4 +118,77 @@ message GetExchangeRateResponse {
   double rate = 3;
   string validDate = 4;
   string source = 5;
+}
+
+
+message CommercialQuoteDto {
+  string id = 1;
+  string tenant_id = 2;
+  string source_thread_id = 3;
+  string shipment_id = 4;
+  string customer_id = 5;
+  string origin_country = 6;
+  string origin_port = 7;
+  string destination_country = 8;
+  string destination_port = 9;
+  double weight_kg = 10;
+  double volume_cbm = 11;
+  string transport_mode = 12;
+  string cargo_type = 13;
+  double cargo_value = 14;
+  repeated string hs_codes = 15;
+  double base_freight_cost = 16;
+  double port_handling_fees = 17;
+  double fuel_surcharge_fee = 18;
+  double cargo_insurance_fee = 19;
+  double total_customs_fee = 20;
+  double cost_price = 21;
+  double min_acceptable_rate = 22;
+  double target_rate = 23;
+  string currency = 24;
+  string calculation_method = 25;
+  string description = 26;
+  string status = 27;
+  string created_at = 28;
+  string updated_at = 29;
+}
+
+message CreateQuoteRequest {
+  string tenant_id = 1;
+  string source_thread_id = 2;
+  string shipment_id = 3;
+  string customer_id = 4;
+  string origin_country = 5;
+  string origin_port = 6;
+  string destination_country = 7;
+  string destination_port = 8;
+  double weight_kg = 9;
+  double volume_cbm = 10;
+  string transport_mode = 11;
+  string cargo_type = 12;
+  double cargo_value = 13;
+  string currency = 14;
+  repeated string hs_codes = 15;
+  double fsc_rate_percent = 16;
+  double ebs_rate_percent = 17;
+  double insurance_rate_percent = 18;
+  double min_margin_percent = 19;
+  double target_margin_percent = 20;
+}
+
+message ListQuotesRequest {
+  string tenant_id = 1;
+  string source_thread_id = 2;
+  string shipment_id = 3;
+  string quote_id = 4;
+}
+
+message ListQuotesResponse {
+  repeated CommercialQuoteDto quotes = 1;
+}
+
+message LinkQuoteToShipmentRequest {
+  string tenant_id = 1;
+  string quote_id = 2;
+  string shipment_id = 3;
 }

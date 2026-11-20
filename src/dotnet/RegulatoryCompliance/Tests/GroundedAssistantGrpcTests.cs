@@ -68,14 +68,68 @@ public sealed class GroundedAssistantGrpcTests
             Context = new AssistantContext
             {
                 ShipmentId = shipmentId.ToString(),
-                EvaluationId = evaluationId.ToString()
+                EvaluationId = evaluationId.ToString(),
+                ShipmentSummary = "ShipmentNo: SHP-20261120-01A1F75409\nCreatedAt: 2026-11-20 06:00:00 UTC"
             }
         }, null!);
 
         Assert.Equal(shipmentId, grounded.Input!.Context!.ShipmentId);
         Assert.Equal(evaluationId, grounded.Input.Context.EvaluationId);
+        Assert.Equal("ShipmentNo: SHP-20261120-01A1F75409\nCreatedAt: 2026-11-20 06:00:00 UTC", grounded.Input.Context.ShipmentSummary);
         Assert.Equal(shipmentId.ToString(), response.Context.ShipmentId);
         Assert.Equal(evaluationId.ToString(), response.Context.EvaluationId);
+    }
+
+    [Fact]
+    public async Task GenerateGroundedAnswer_CapsShipmentSummaryAt4000Chars_AndTreatsWhitespaceContextAsNull()
+    {
+        var grounded = new CapturingGroundedAnswerService();
+        var service = new RegulatoryComplianceGrpcService(
+            null!,
+            null!,
+            null!,
+            null!,
+            grounded);
+
+        var oversizedSummary = new string('X', 4_500);
+        await service.GenerateGroundedAnswer(new GenerateGroundedAnswerRequest
+        {
+            Query = "Check shipment",
+            Mode = RegulatoryCompliance.Grpc.AssistantSearchMode.All,
+            TopK = 5,
+            MinimumRelevanceScore = 0.6,
+            Context = new AssistantContext
+            {
+                ShipmentSummary = $"  {oversizedSummary}  "
+            }
+        }, null!);
+
+        Assert.NotNull(grounded.Input?.Context);
+        Assert.Equal(4_000, grounded.Input!.Context!.ShipmentSummary!.Length);
+
+        var groundedNullContext = new CapturingGroundedAnswerService();
+        var serviceNullContext = new RegulatoryComplianceGrpcService(
+            null!,
+            null!,
+            null!,
+            null!,
+            groundedNullContext);
+
+        await serviceNullContext.GenerateGroundedAnswer(new GenerateGroundedAnswerRequest
+        {
+            Query = "Hello",
+            Mode = RegulatoryCompliance.Grpc.AssistantSearchMode.All,
+            TopK = 5,
+            MinimumRelevanceScore = 0.6,
+            Context = new AssistantContext
+            {
+                ShipmentId = "   ",
+                EvaluationId = "   ",
+                ShipmentSummary = "   "
+            }
+        }, null!);
+
+        Assert.Null(groundedNullContext.Input?.Context);
     }
 
     private static RegulatoryComplianceGrpcService CreateService() =>
@@ -114,8 +168,8 @@ public sealed class GroundedAssistantGrpcTests
                 new AssistantGovernanceResult("decision", "DETERMINISTIC_FALLBACK", false, "compliance.answer", 0),
                 Guid.NewGuid(),
                 new VerifiedAssistantContextSummary(
-                    input.Context!.ShipmentId!.Value,
-                    input.Context.EvaluationId!.Value,
+                    input.Context?.ShipmentId,
+                    input.Context?.EvaluationId,
                     "CURRENT",
                     "snapshot-hash")));
         }

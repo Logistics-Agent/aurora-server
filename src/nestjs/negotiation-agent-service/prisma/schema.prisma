@@ -11,7 +11,8 @@ datasource db {
 model NegotiationSession {
   id                      String               @id @default(uuid())
   tenantId                String               @map("tenant_id")
-  shipmentId              String               @map("shipment_id")
+  shipmentId              String?              @map("shipment_id")
+  quoteId                 String?              @map("quote_id")
   customerId              String               @map("customer_id")
   status                  String               @default("OPEN") @map("status") // OPEN, ACCEPTED, REJECTED, HANDOFF, EXPIRED
   currentRound            Int                  @default(1) @map("current_round")
@@ -39,6 +40,8 @@ model NegotiationSession {
   @@index([tenantId])
   @@index([shipmentId])
   @@index([customerId])
+  @@index([tenantId, sourceThreadId])
+  @@index([tenantId, quoteId])
   @@map("negotiation_sessions")
 }
 

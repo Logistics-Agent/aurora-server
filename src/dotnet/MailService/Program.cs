@@ -276,7 +276,9 @@ builder.Services.AddGrpcClient<AiExecutionService.AiExecutionServiceClient>(o =>
 var auditServiceUrl = builder.Configuration["Grpc:AuditService:Url"] ?? "http://audit-service:9086";
 builder.Services.AddGrpcClient<AuditLogService.AuditLogServiceClient>(o => o.Address = new Uri(auditServiceUrl));
 
-var negotiationServiceUrl = builder.Configuration["Grpc:NegotiationService:Url"] ?? "http://localhost:5006";
+var negotiationServiceUrl = builder.Configuration["Grpc:NegotiationService:Url"]
+    ?? builder.Configuration["Grpc:NegotiationAgent:Url"]
+    ?? "http://localhost:5006";
 builder.Services.AddGrpcClient<Negotiation.Grpc.NegotiationService.NegotiationServiceClient>(o =>
     o.Address = new Uri(negotiationServiceUrl));
 builder.Services.AddScoped<IInboundNegotiationTrigger, GrpcInboundNegotiationTrigger>();

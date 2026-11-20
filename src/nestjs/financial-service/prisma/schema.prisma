@@ -72,3 +72,41 @@ model ExchangeRate {
   @@map("exchange_rates")
 }
 
+
+
+model CommercialQuote {
+  id                 String   @id @default(uuid())
+  tenantId           String   @map("tenant_id")
+  sourceThreadId     String?  @map("source_thread_id")
+  shipmentId         String?  @map("shipment_id")
+  customerId         String?  @map("customer_id")
+  originCountry      String   @default("") @map("origin_country")
+  originPort         String   @map("origin_port")
+  destinationCountry String   @default("") @map("destination_country")
+  destinationPort    String   @map("destination_port")
+  weightKg           Float    @map("weight_kg")
+  volumeCbm          Float    @default(0) @map("volume_cbm")
+  transportMode      String   @default("SEA") @map("transport_mode")
+  cargoType          String   @default("GENERAL") @map("cargo_type")
+  cargoValue         Float    @default(0) @map("cargo_value")
+  hsCodes            String[] @default([]) @map("hs_codes")
+  baseFreightCost    Float    @map("base_freight_cost")
+  portHandlingFees   Float    @map("port_handling_fees")
+  fuelSurchargeFee   Float    @default(0) @map("fuel_surcharge_fee")
+  cargoInsuranceFee  Float    @default(0) @map("cargo_insurance_fee")
+  totalCustomsFee    Float    @default(0) @map("total_customs_fee")
+  costPrice          Float    @map("cost_price")
+  minAcceptableRate  Float    @map("min_acceptable_rate")
+  targetRate         Float    @map("target_rate")
+  currency           String   @default("USD")
+  calculationMethod  String   @map("calculation_method")
+  description        String?
+  status             String   @default("QUOTED")
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  @@index([tenantId])
+  @@index([tenantId, sourceThreadId])
+  @@index([tenantId, shipmentId])
+  @@map("commercial_quotes")
+}

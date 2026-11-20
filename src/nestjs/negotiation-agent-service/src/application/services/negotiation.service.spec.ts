@@ -41,6 +41,8 @@ describe('NegotiationService', () => {
       update: jest.fn().mockResolvedValue({ ...mockSession, currentRound: 2 }),
       updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       findUnique: jest.fn().mockResolvedValue(mockSession),
+      findMany: jest.fn().mockResolvedValue([mockSession]),
+      count: jest.fn().mockResolvedValue(1),
     },
     negotiationMessage: {
       create: jest.fn().mockResolvedValue({
@@ -259,5 +261,77 @@ describe('NegotiationService', () => {
       }),
     ).rejects.toThrow('modified concurrently or is no longer open');
     expect(mockPrisma.negotiationMessage.create).not.toHaveBeenCalled();
+  });
+
+  it('supports pre-shipment negotiation anchored by quoteId & sourceThreadId and links to shipmentId with 409 conflict protection', async () => {
+    const preShipmentSession = {
+      ...mockSession,
+      id: 'sess-quote-1',
+      shipmentId: null,
+      quoteId: 'quote-1',
+      sourceThreadId: 'thread-abc',
+      createdAt: new Date('2026-11-20T00:00:00Z'),
+      updatedAt: new Date('2026-11-20T00:00:00Z'),
+    };
+    mockPrisma.negotiationSession.findFirst.mockResolvedValueOnce(null);
+    mockPrisma.negotiationSession.create.mockResolvedValueOnce(preShipmentSession);
+
+    const offered = await service.submitOffer({
+      tenantId: 'tenant-001',
+      quoteId: 'quote-1',
+      sourceThreadId: 'thread-abc',
+      customerId: 'cust-001',
+      offerPrice: 4000,
+      listPrice: 5000,
+      bottomPrice: 4200,
+    });
+
+    expect(offered.sessionId).toBe('sess-quote-1');
+    expect(offered.shipmentId).toBe('');
+    expect(offered.quoteId).toBe('quote-1');
+    expect(offered.sourceThreadId).toBe('thread-abc');
+    expect(mockPrisma.negotiationSession.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          shipmentId: null,
+          quoteId: 'quote-1',
+          sourceThreadId: 'thread-abc',
+        }),
+      }),
+    );
+
+    mockPrisma.negotiationSession.findMany.mockResolvedValueOnce([preShipmentSession]);
+    mockPrisma.negotiationSession.count.mockResolvedValueOnce(1);
+    const listed = await service.listSessions({
+      tenantId: 'tenant-001',
+      sourceThreadId: 'thread-abc',
+      quoteId: 'quote-1',
+    });
+    expect(listed.total).toBe(1);
+    expect(listed.sessions[0].quoteId).toBe('quote-1');
+
+    mockPrisma.negotiationSession.findFirst.mockResolvedValueOnce(preShipmentSession);
+    mockPrisma.negotiationSession.update.mockResolvedValueOnce({
+      ...preShipmentSession,
+      shipmentId: 'SHP-NEW-1',
+    });
+    const linked = await service.linkSessionToShipment({
+      tenantId: 'tenant-001',
+      sessionId: 'sess-quote-1',
+      shipmentId: 'SHP-NEW-1',
+    });
+    expect(linked.shipmentId).toBe('SHP-NEW-1');
+
+    mockPrisma.negotiationSession.findFirst.mockResolvedValueOnce({
+      ...preShipmentSession,
+      shipmentId: 'SHP-NEW-1',
+    });
+    await expect(
+      service.linkSessionToShipment({
+        tenantId: 'tenant-001',
+        sessionId: 'sess-quote-1',
+        shipmentId: 'SHP-OTHER',
+      }),
+    ).rejects.toThrow('already linked');
   });
 });

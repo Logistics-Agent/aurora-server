@@ -123,7 +123,8 @@ public static class GrpcClientExtensions
             .AddInterceptor<ClientMetadataInterceptor>(InterceptorScope.Client)
             .AddStandardResilienceHandler(ConfigureBusinessResilience);
 
-        var negotiationUrl = ResolveUrl(config, "NegotiationService", "http://localhost:5006")!;
+        var negotiationUrl = ResolveUrl(config, "NegotiationAgent")
+            ?? ResolveUrl(config, "NegotiationService", "http://localhost:5006")!;
         services.AddGrpcClient<Negotiation.Grpc.NegotiationService.NegotiationServiceClient>(
                 o => o.Address = new Uri(negotiationUrl))
             .AddInterceptor<ClientMetadataInterceptor>(InterceptorScope.Client)
