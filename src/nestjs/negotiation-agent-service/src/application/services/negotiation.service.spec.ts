@@ -3,6 +3,7 @@ import { NegotiationService } from './negotiation.service';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { NegotiationStrategyDomainService } from '../../domain/services/negotiation-strategy.domain-service';
 import { AiGovernanceNegotiationClient } from '../../infrastructure/grpc/ai-governance.grpc-client';
+import { FinancialGrpcClient } from '../../infrastructure/grpc/financial.grpc-client';
 import { ConfigService } from '@nestjs/config';
 
 describe('NegotiationService', () => {
@@ -68,10 +69,16 @@ describe('NegotiationService', () => {
     getDeterministicFallback: jest.fn().mockReturnValue('Deterministic fallback wording.'),
   };
   const mockConfig = { get: jest.fn().mockReturnValue('test') };
+  const mockFinancialGrpcClient = {
+    isConfigured: jest.fn().mockReturnValue(false),
+    resolveQuotePricing: jest.fn().mockResolvedValue(null),
+  };
 
   beforeEach(async () => {
     jest.clearAllMocks();
     mockConfig.get.mockReturnValue('test');
+    mockFinancialGrpcClient.isConfigured.mockReturnValue(false);
+    mockFinancialGrpcClient.resolveQuotePricing.mockResolvedValue(null);
     mockAiClient.generateNegotiationDraft.mockResolvedValue({
       content: 'Dear Customer, our best counter-offer is $4,400.00 USD.',
       decisionId: 'dec-123',
@@ -93,6 +100,10 @@ describe('NegotiationService', () => {
         {
           provide: AiGovernanceNegotiationClient,
           useValue: mockAiClient,
+        },
+        {
+          provide: FinancialGrpcClient,
+          useValue: mockFinancialGrpcClient,
         },
         { provide: ConfigService, useValue: mockConfig },
       ],
@@ -201,6 +212,44 @@ describe('NegotiationService', () => {
       offerPrice: 4000, listPrice: 5000, bottomPrice: 4200,
     })).rejects.toThrow('Authoritative shipment pricing is not connected');
     expect(mockPrisma.negotiationSession.create).not.toHaveBeenCalled();
+  });
+
+  it('opens a production session using authoritative pricing from FinancialService gRPC', async () => {
+    mockConfig.get.mockReturnValue('production');
+    mockFinancialGrpcClient.isConfigured.mockReturnValue(true);
+    mockFinancialGrpcClient.resolveQuotePricing.mockResolvedValueOnce({
+      listPrice: 4702.25,
+      bottomPrice: 4137.98,
+    });
+    mockPrisma.negotiationSession.findFirst.mockResolvedValueOnce(null);
+    mockPrisma.negotiationSession.create.mockResolvedValueOnce({
+      ...mockSession,
+      listPrice: 4702.25,
+      bottomPrice: 4137.98,
+    });
+
+    const result = await service.submitOffer({
+      tenantId: 'tenant-001',
+      shipmentId: 'SHP-001',
+      quoteId: 'quote-1',
+      customerId: 'cust-001',
+      offerPrice: 4000,
+    });
+
+    expect(mockFinancialGrpcClient.resolveQuotePricing).toHaveBeenCalledWith(
+      'tenant-001',
+      'SHP-001',
+      'quote-1',
+    );
+    expect(mockPrisma.negotiationSession.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          listPrice: 4702.25,
+          bottomPrice: 4137.98,
+        }),
+      }),
+    );
+    expect(result.sessionId).toBe('sess-001');
   });
 
   it('accepts AI draft that echoes customer offer ($4,000) alongside approved counter-offer ($4,400)', async () => {

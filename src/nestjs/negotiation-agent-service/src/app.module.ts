@@ -4,6 +4,7 @@ import { TerminusModule } from '@nestjs/terminus';
 import { PrismaModule } from './infrastructure/prisma/prisma.module';
 import { NegotiationStrategyDomainService } from './domain/services/negotiation-strategy.domain-service';
 import { AiGovernanceNegotiationClient } from './infrastructure/grpc/ai-governance.grpc-client';
+import { FinancialGrpcClient } from './infrastructure/grpc/financial.grpc-client';
 import { NegotiationService } from './application/services/negotiation.service';
 import { NegotiationController } from './interface/controllers/negotiation.controller';
 import { HealthController } from './health/health.controller';
@@ -21,9 +22,15 @@ import { TenantInterceptor } from './infrastructure/security/tenant.interceptor'
   providers: [
     NegotiationStrategyDomainService,
     AiGovernanceNegotiationClient,
+    FinancialGrpcClient,
     NegotiationService,
     TenantInterceptor,
   ],
-  exports: [NegotiationService, NegotiationStrategyDomainService, AiGovernanceNegotiationClient],
+  exports: [
+    NegotiationService,
+    NegotiationStrategyDomainService,
+    AiGovernanceNegotiationClient,
+    FinancialGrpcClient,
+  ],
 })
 export class AppModule {}

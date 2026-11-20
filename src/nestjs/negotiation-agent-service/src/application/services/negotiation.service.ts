@@ -1,8 +1,9 @@
-import { Injectable, Logger, NotFoundException, BadRequestException, ConflictException, ServiceUnavailableException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, BadRequestException, ConflictException, ServiceUnavailableException, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { NegotiationStrategyDomainService, DEFAULT_NEGOTIATION_CURRENCY } from '../../domain/services/negotiation-strategy.domain-service';
 import { AiGovernanceNegotiationClient } from '../../infrastructure/grpc/ai-governance.grpc-client';
+import { FinancialGrpcClient } from '../../infrastructure/grpc/financial.grpc-client';
 
 export interface SubmitOfferInput {
   tenantId?: string;
@@ -86,6 +87,7 @@ export class NegotiationService {
     private readonly strategy: NegotiationStrategyDomainService,
     private readonly aiGovernanceClient: AiGovernanceNegotiationClient,
     private readonly config: ConfigService,
+    @Optional() private readonly financialGrpcClient?: FinancialGrpcClient,
   ) {}
 
   async submitOffer(input: SubmitOfferInput): Promise<NegotiationResult> {
@@ -459,6 +461,17 @@ export class NegotiationService {
     inputListPrice: number,
     inputBottomPrice: number,
   ): Promise<{ listPrice: number; bottomPrice: number }> {
+    if (this.financialGrpcClient?.isConfigured()) {
+      const grpcPricing = await this.financialGrpcClient.resolveQuotePricing(
+        tenantId,
+        shipmentId,
+        quoteId,
+      );
+      if (grpcPricing) {
+        return grpcPricing;
+      }
+    }
+
     const financialServiceUrl = this.config.get<string>('FINANCIAL_SERVICE_URL');
     if (financialServiceUrl?.trim()) {
       const baseUrl = financialServiceUrl.trim().replace(/\/+$/, '');

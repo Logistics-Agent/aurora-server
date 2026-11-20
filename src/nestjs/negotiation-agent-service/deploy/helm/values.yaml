@@ -31,6 +31,7 @@ env:
   REDIS_PORT: "6379"
   REDIS_TLS: "false"
   AI_GOVERNANCE_GRPC_URL: "ai-governance:9090"
+  FINANCIAL_SERVICE_GRPC_URL: "10.10.15.10:5003"
 
 externalSecret:
   enabled: true
