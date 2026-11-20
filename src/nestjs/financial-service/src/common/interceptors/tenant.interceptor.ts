@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Injectable,
   NestInterceptor,
   ExecutionContext,
@@ -25,6 +26,14 @@ export class TenantInterceptor implements NestInterceptor {
         throw new RpcException({ code: status.UNAUTHENTICATED, message: 'x-tenant-id metadata is required' });
       }
       data.tenantId = String(tenantHeader[0]).trim();
+    } else if (type === 'http') {
+      const req = context.switchToHttp().getRequest();
+      const rawHeader = req?.headers?.['x-tenant-id'];
+      const tenantHeader = Array.isArray(rawHeader) ? rawHeader[0] : rawHeader;
+      if (!tenantHeader || !String(tenantHeader).trim()) {
+        throw new BadRequestException('x-tenant-id header is required');
+      }
+      req.tenantId = String(tenantHeader).trim();
     }
 
     return next.handle();

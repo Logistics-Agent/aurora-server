@@ -182,6 +182,7 @@ public sealed class RegulationRetrievalService(
         if (embeddings.Count == 0)
             return await QueryByKeywordAsync(dbContext, input, tenantId, jurisdiction, language, types, cancellationToken);
 
+        int vectorTopK = Math.Min(MaximumTopK, Math.Max(1, input.TopK * 3));
         IReadOnlyList<VectorSearchResult> ranked;
         try
         {
@@ -192,7 +193,7 @@ public sealed class RegulationRetrievalService(
                     embeddingProvider.Model.Version,
                     embeddingProvider.Model.Dimension,
                     candidateIds,
-                    input.TopK * 2,
+                    vectorTopK,
                     input.MinimumRelevanceScore),
                 cancellationToken);
         }
@@ -200,12 +201,61 @@ public sealed class RegulationRetrievalService(
         {
             return await QueryByKeywordAsync(dbContext, input, tenantId, jurisdiction, language, types, cancellationToken);
         }
-        var selected = ranked
+
+        var vectorScoreMap = ranked
             .OrderByDescending(item => item.Score)
             .ThenBy(item => item.ChunkId)
-            .Take(input.TopK * 2)
+            .Take(vectorTopK)
+            .ToDictionary(item => item.ChunkId, item => item.Score);
+
+        var lexicalCandidates = await (
+                from chunk in dbContext.RegulatoryChunks.AsNoTracking()
+                join version in dbContext.RegulatoryDocumentVersions.AsNoTracking()
+                    on chunk.RegulatoryDocumentVersionId equals version.Id
+                join document in dbContext.RegulatoryDocuments.AsNoTracking()
+                    on version.RegulatoryDocumentId equals document.Id
+                where candidateIds.Contains(chunk.Id)
+                select new
+                {
+                    chunk.Id,
+                    chunk.NormalizedText,
+                    chunk.SectionLabel,
+                    document.Title
+                })
+            .ToListAsync(cancellationToken);
+
+        int lexicalLimit = Math.Min(MaximumTopK, Math.Max(1, input.TopK * 2));
+        var lexicalTopIds = lexicalCandidates
+            .Select(item => new
+            {
+                item.Id,
+                LexScore = ComputeLexicalRelevanceScore(input.Query, item.NormalizedText, item.Title, item.SectionLabel)
+            })
+            .Where(item => item.LexScore > 0m)
+            .OrderByDescending(item => item.LexScore)
+            .ThenBy(item => item.Id)
+            .Take(lexicalLimit)
+            .Select(item => item.Id)
             .ToArray();
-        var selectedIds = selected.Select(item => item.ChunkId).ToArray();
+
+        var unionIds = vectorScoreMap.Keys
+            .Union(lexicalTopIds)
+            .Distinct()
+            .ToArray();
+
+        if (unionIds.Length == 0)
+        {
+            return await BuildResultAsync(
+                dbContext,
+                input,
+                tenantId,
+                jurisdiction,
+                language,
+                types,
+                [],
+                "Insufficient regulatory evidence was found for the supplied filters.",
+                cancellationToken);
+        }
 
         var metadata = await (
                 from chunk in dbContext.RegulatoryChunks.AsNoTracking()
@@ -213,20 +263,27 @@ public sealed class RegulationRetrievalService(
                     on chunk.RegulatoryDocumentVersionId equals version.Id
                 join document in dbContext.RegulatoryDocuments.AsNoTracking()
                     on version.RegulatoryDocumentId equals document.Id
-                where selectedIds.Contains(chunk.Id)
+                where unionIds.Contains(chunk.Id)
                 select new { Chunk = chunk, Version = version, Document = document })
             .ToDictionaryAsync(item => item.Chunk.Id, cancellationToken);
 
-        // Hybrid Search (Item 8): Combine Vector Similarity with Exact Code / Lexical Boost (HS Codes, UN Codes, Decree Numbers)
-        var boostedResults = selected
-            .Select(item =>
+        // True Hybrid Fusion: Combine Dense Vector Similarity + Lexical/Code Relevance + Exact Match Boost
+        var boostedResults = unionIds
+            .Where(metadata.ContainsKey)
+            .Select(chunkId =>
             {
-                var source = metadata[item.ChunkId];
+                var source = metadata[chunkId];
+                var vecScore = vectorScoreMap.GetValueOrDefault(chunkId, 0m);
+                var lexScore = ComputeLexicalRelevanceScore(
+                    input.Query,
+                    source.Chunk.NormalizedText,
+                    source.Document.Title,
+                    source.Chunk.SectionLabel);
                 var hybridBoost = ComputeHybridLexicalBoost(
                     input.Query,
                     source.Chunk.NormalizedText,
                     source.Document.Title);
-                var finalScore = Math.Clamp(decimal.Round(item.Score + hybridBoost, 4), 0m, 1m);
+                var finalScore = ComputeHybridFusionScore(vecScore, lexScore, hybridBoost);
                 return new RegulationEvidenceResult(
                     source.Document.Id,
                     source.Version.Id,
@@ -246,10 +303,12 @@ public sealed class RegulationRetrievalService(
                         source.Chunk.NormalizedText.Length, MaximumExcerptCharacters)],
                     finalScore);
             })
+            .Where(item => item.RelevanceScore >= input.MinimumRelevanceScore)
             .OrderByDescending(item => item.RelevanceScore)
             .ThenBy(item => item.ChunkId);
 
         var evidence = Deduplicate(boostedResults).Take(input.TopK).ToArray();
+        evidence = await ExpandNeighborContextAsync(dbContext, evidence, cancellationToken);
         var explanation = evidence.Length == 0
             ? "Insufficient regulatory evidence was found for the supplied filters."
             : $"Retrieved {evidence.Length} evidence passage(s). Conclusions must be limited to the cited source text.";
@@ -264,6 +323,15 @@ public sealed class RegulationRetrievalService(
             explanation,
             cancellationToken);
     }
+
+    private static readonly HashSet<string> Stopwords = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "the", "and", "for", "of", "in", "on", "to", "is", "are", "with", "by", "from", "what", "how",
+        "của", "và", "là", "cho", "trong", "có", "các", "với", "về", "tại", "theo", "khi", "này", "thế", "còn"
+    };
+
+    private static readonly char[] TokenSeparators =
+        [' ', '\t', '\r', '\n', ',', ';', ':', '?', '!', '(', ')', '[', ']', '"', '\''];
 
     private static async Task<Guid[]> QueryCandidateChunkIdsAsync(
         RegulatoryComplianceDbContext dbContext,
@@ -286,32 +354,77 @@ public sealed class RegulationRetrievalService(
                       && (string.IsNullOrWhiteSpace(jurisdiction) || document.JurisdictionCode == jurisdiction || document.JurisdictionCode == "GLOBAL")
                       && (string.IsNullOrWhiteSpace(language) || document.LanguageCode == language)
                       && types.Contains(document.RegulationType)
-                orderby chunk.Id
+                orderby version.EffectiveFrom descending, chunk.Sequence ascending, chunk.Id ascending
                 select chunk.Id)
             .Take(MaximumCandidateChunks)
             .ToArrayAsync(cancellationToken);
     }
 
-    private static decimal ComputeHybridLexicalBoost(string query, string chunkText, string documentTitle)
+    internal static decimal ComputeLexicalRelevanceScore(
+        string query,
+        string chunkText,
+        string documentTitle,
+        string? sectionLabel)
     {
         if (string.IsNullOrWhiteSpace(query) || string.IsNullOrWhiteSpace(chunkText))
             return 0m;
 
-        decimal boost = 0m;
-        var combinedTarget = $"{documentTitle} {chunkText}";
+        var rawTokens = query.Split(TokenSeparators, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Where(token => token.Length >= 2)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
 
-        // Exact HS Code / UN Code / Regulation Number match boost (+0.12m)
-        var codeMatches = Regex.Matches(query, @"\b(?:UN\s?\d{2,4}(?:\.\d+)?|\d{4,12})\b", RegexOptions.IgnoreCase);
+        var terms = rawTokens.Where(token => !Stopwords.Contains(token)).ToArray();
+        if (terms.Length == 0)
+            terms = rawTokens;
+
+        var headerTarget = $"{documentTitle} {sectionLabel}";
+        var combinedTarget = $"{headerTarget} {chunkText}";
+
+        decimal score = 0m;
+        if (terms.Length > 0)
+        {
+            var bodyMatches = terms.Count(term => chunkText.Contains(term, StringComparison.OrdinalIgnoreCase));
+            var headerMatches = terms.Count(term => headerTarget.Contains(term, StringComparison.OrdinalIgnoreCase));
+            score += ((decimal)bodyMatches / terms.Length) * 0.65m;
+            score += ((decimal)headerMatches / terms.Length) * 0.25m;
+        }
+
+        if (HasExactCodeOrAcronymMatch(query, combinedTarget))
+            score += 0.25m;
+
+        return Math.Clamp(decimal.Round(score, 4), 0m, 1m);
+    }
+
+    internal static decimal ComputeHybridLexicalBoost(string query, string chunkText, string documentTitle)
+    {
+        if (string.IsNullOrWhiteSpace(query) || string.IsNullOrWhiteSpace(chunkText))
+            return 0m;
+
+        var combinedTarget = $"{documentTitle} {chunkText}";
+        return HasExactCodeOrAcronymMatch(query, combinedTarget) ? 0.12m : 0m;
+    }
+
+    internal static decimal ComputeHybridFusionScore(decimal vectorScore, decimal lexicalScore, decimal hybridBoost)
+    {
+        var raw = vectorScore > 0m
+            ? Math.Max(vectorScore + hybridBoost, (vectorScore * 0.65m) + (lexicalScore * 0.35m) + hybridBoost)
+            : (lexicalScore * 0.75m) + hybridBoost;
+        return Math.Clamp(decimal.Round(raw, 4), 0m, 1m);
+    }
+
+    private static bool HasExactCodeOrAcronymMatch(string query, string combinedTarget)
+    {
+        var codeMatches = Regex.Matches(
+            query,
+            @"\b(?:UN\s?\d{2,4}(?:\.\d+)?|HS\s?\d{4,10}(?:\.\d{1,4})?|\d{4,12}|C/O|MSDS|FOB|CIF|EXW|DDP|DDU|INCOTERMS|IATA|IMDG|EUR\.?1)\b",
+            RegexOptions.IgnoreCase);
         foreach (Match match in codeMatches)
         {
             if (combinedTarget.Contains(match.Value, StringComparison.OrdinalIgnoreCase))
-            {
-                boost += 0.12m;
-                break;
-            }
+                return true;
         }
-
-        return Math.Min(0.15m, boost);
+        return false;
     }
 
     private async Task<RegulationQueryResult> QueryByKeywordAsync(
@@ -438,14 +551,18 @@ public sealed class RegulationRetrievalService(
         var sufficiency = evidence.Count == 0
             ? EvidenceSufficiency.Insufficient
             : EvidenceSufficiency.Sufficient;
+        if (tenantId == Guid.Empty)
+            return new RegulationQueryResult(Guid.Empty, sufficiency, evidence, explanation);
+
+        var traceLanguage = string.IsNullOrWhiteSpace(language) ? "any" : language;
         var now = timeProvider.GetUtcNow();
         var trace = RetrievalTrace.Create(
             tenantId,
             null,
-            Sha256(input.Query.Trim()),
+            Sha256((input.Query ?? string.Empty).Trim()),
             jurisdiction,
             input.EffectiveAt,
-            language,
+            traceLanguage,
             JsonSerializer.Serialize(types.Select(type => type.ToString())),
             modelOverride ?? $"{embeddingProvider.Model.Name}:{embeddingProvider.Model.Version}",
             input.TopK,
@@ -496,7 +613,164 @@ public sealed class RegulationRetrievalService(
         return accepted;
     }
 
-    private static bool HasHighOverlap(string left, string right)
+    internal const int NeighborExpansionLengthThreshold = 300;
+
+    internal sealed record NeighborChunkSlice(
+        Guid Id,
+        Guid VersionId,
+        int Sequence,
+        string? SectionLabel,
+        string NormalizedText);
+
+    private static async Task<RegulationEvidenceResult[]> ExpandNeighborContextAsync(
+        RegulatoryComplianceDbContext dbContext,
+        RegulationEvidenceResult[] evidence,
+        CancellationToken cancellationToken)
+    {
+        if (evidence.Length == 0)
+            return evidence;
+
+        var shortIds = evidence
+            .Where(item => item.Excerpt.Length < NeighborExpansionLengthThreshold)
+            .Select(item => item.ChunkId)
+            .Distinct()
+            .ToArray();
+
+        if (shortIds.Length == 0)
+            return evidence;
+
+        var centerChunks = await dbContext.RegulatoryChunks
+            .AsNoTracking()
+            .Where(chunk => shortIds.Contains(chunk.Id))
+            .Select(chunk => new NeighborChunkSlice(
+                chunk.Id,
+                chunk.RegulatoryDocumentVersionId,
+                chunk.Sequence,
+                chunk.SectionLabel,
+                chunk.NormalizedText))
+            .ToListAsync(cancellationToken);
+
+        if (centerChunks.Count == 0)
+            return evidence;
+
+        var versionIds = centerChunks
+            .Select(chunk => chunk.VersionId)
+            .Distinct()
+            .ToArray();
+
+        var desiredSequences = centerChunks
+            .SelectMany(chunk => new[] { chunk.Sequence - 1, chunk.Sequence + 1 })
+            .Where(seq => seq >= 0)
+            .Distinct()
+            .ToArray();
+
+        if (desiredSequences.Length == 0)
+            return evidence;
+
+        var neighborCandidates = await dbContext.RegulatoryChunks
+            .AsNoTracking()
+            .Where(chunk =>
+                versionIds.Contains(chunk.RegulatoryDocumentVersionId) &&
+                desiredSequences.Contains(chunk.Sequence))
+            .Select(chunk => new NeighborChunkSlice(
+                chunk.Id,
+                chunk.RegulatoryDocumentVersionId,
+                chunk.Sequence,
+                chunk.SectionLabel,
+                chunk.NormalizedText))
+            .ToListAsync(cancellationToken);
+
+        if (neighborCandidates.Count == 0)
+            return evidence;
+
+        var selectedChunkIds = evidence.Select(item => item.ChunkId).ToHashSet();
+        var centersById = centerChunks.ToDictionary(chunk => chunk.Id);
+
+        return evidence
+            .Select(item =>
+            {
+                if (item.Excerpt.Length >= NeighborExpansionLengthThreshold)
+                    return item;
+
+                var merged = MergeNeighborContextForChunk(
+                    item.ChunkId,
+                    item.Excerpt,
+                    selectedChunkIds,
+                    centersById,
+                    neighborCandidates);
+
+                return ReferenceEquals(merged, item.Excerpt)
+                    ? item
+                    : item with { Excerpt = merged };
+            })
+            .ToArray();
+    }
+
+    internal static string MergeNeighborContextForChunk(
+        Guid chunkId,
+        string currentExcerpt,
+        IReadOnlySet<Guid> selectedChunkIds,
+        IReadOnlyDictionary<Guid, NeighborChunkSlice> centersById,
+        IReadOnlyList<NeighborChunkSlice> neighborCandidates)
+    {
+        if (!centersById.TryGetValue(chunkId, out var center))
+            return currentExcerpt;
+
+        var previous = neighborCandidates.FirstOrDefault(candidate =>
+            candidate.VersionId == center.VersionId &&
+            candidate.Sequence == center.Sequence - 1 &&
+            !selectedChunkIds.Contains(candidate.Id) &&
+            string.Equals(candidate.SectionLabel, center.SectionLabel, StringComparison.OrdinalIgnoreCase));
+
+        var next = neighborCandidates.FirstOrDefault(candidate =>
+            candidate.VersionId == center.VersionId &&
+            candidate.Sequence == center.Sequence + 1 &&
+            !selectedChunkIds.Contains(candidate.Id) &&
+            string.Equals(candidate.SectionLabel, center.SectionLabel, StringComparison.OrdinalIgnoreCase));
+
+        if (previous is null && next is null)
+            return currentExcerpt;
+
+        return MergeNeighborContext(currentExcerpt, previous?.NormalizedText, next?.NormalizedText);
+    }
+
+    internal static string MergeNeighborContext(
+        string currentExcerpt,
+        string? previousText,
+        string? nextText)
+    {
+        var center = currentExcerpt.Trim();
+        if (center.Length >= MaximumExcerptCharacters)
+            return center[..MaximumExcerptCharacters];
+
+        var merged = center;
+        if (!string.IsNullOrWhiteSpace(previousText))
+        {
+            var prev = previousText.Trim();
+            if (!HasHighOverlap(merged, prev) && prev.Length + 1 + merged.Length <= MaximumExcerptCharacters)
+                merged = $"{prev}\n{merged}";
+        }
+
+        if (!string.IsNullOrWhiteSpace(nextText))
+        {
+            var next = nextText.Trim();
+            if (!HasHighOverlap(merged, next) && merged.Length + 1 < MaximumExcerptCharacters)
+            {
+                var remaining = MaximumExcerptCharacters - merged.Length - 1;
+                var appended = next.Length <= remaining
+                    ? next
+                    : next[..remaining].TrimEnd();
+                if (appended.Length > 0)
+                    merged = $"{merged}\n{appended}";
+            }
+        }
+
+        return merged.Length <= MaximumExcerptCharacters
+            ? merged
+            : merged[..MaximumExcerptCharacters];
+    }
+
+    internal static bool HasHighOverlap(string left, string right)
     {
         if (left.Contains(right, StringComparison.OrdinalIgnoreCase) ||
             right.Contains(left, StringComparison.OrdinalIgnoreCase))

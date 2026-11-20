@@ -2,6 +2,7 @@ import { Injectable, OnModuleInit, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as grpc from '@grpc/grpc-js';
 import * as protoLoader from '@grpc/proto-loader';
+import * as fs from 'fs';
 import * as path from 'path';
 import { CurrentUser } from '../security/current-user.interface';
 
@@ -22,7 +23,13 @@ export class AiGovernanceGrpcClient implements OnModuleInit {
   constructor(private readonly configService: ConfigService) {}
 
   onModuleInit() {
-    const protoPath = path.resolve(__dirname, '../../../../../protos/ai_governance.proto');
+    const protoCandidates = [
+      path.resolve(__dirname, '../../../../../../protos/ai_governance.proto'),
+      path.resolve(__dirname, '../../../../../protos/ai_governance.proto'),
+      path.resolve(process.cwd(), '../../../protos/ai_governance.proto'),
+      path.resolve(process.cwd(), '../../protos/ai_governance.proto'),
+    ];
+    const protoPath = protoCandidates.find((p) => fs.existsSync(p)) || protoCandidates[0];
     const grpcUrl = this.configService.get<string>('AI_GOVERNANCE_GRPC_URL') || 'localhost:9090';
 
     try {

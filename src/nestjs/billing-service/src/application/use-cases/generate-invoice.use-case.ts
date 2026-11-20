@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { InvoiceDomainService } from '../../domain/services/invoice.domain-service';
 import { ShipmentWorkflowGrpcClient } from '../../infrastructure/grpc-clients/shipment-workflow.grpc-client';
@@ -12,6 +12,8 @@ export interface GenerateInvoiceInput {
 
 @Injectable()
 export class GenerateInvoiceUseCase {
+  private readonly logger = new Logger(GenerateInvoiceUseCase.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly domainService: InvoiceDomainService,
@@ -92,18 +94,24 @@ export class GenerateInvoiceUseCase {
       });
     });
 
-    await this.messagingService.publishInvoiceCreated({
-      tenantId: createdInvoice.tenantId,
-      invoiceId: createdInvoice.id,
-      invoiceNumber: createdInvoice.invoiceNumber,
-      shipmentId: createdInvoice.shipmentId,
-      customerId: createdInvoice.customerId,
-      totalAmount: createdInvoice.totalAmount,
-      currency: createdInvoice.currency,
-      dueDate: createdInvoice.dueDate.toISOString(),
-      pdfUrl: '',
-      createdAt: createdInvoice.createdAt.toISOString(),
-    });
+    try {
+      await this.messagingService.publishInvoiceCreated({
+        tenantId: createdInvoice.tenantId,
+        invoiceId: createdInvoice.id,
+        invoiceNumber: createdInvoice.invoiceNumber,
+        shipmentId: createdInvoice.shipmentId,
+        customerId: createdInvoice.customerId,
+        totalAmount: createdInvoice.totalAmount,
+        currency: createdInvoice.currency,
+        dueDate: createdInvoice.dueDate.toISOString(),
+        pdfUrl: '',
+        createdAt: createdInvoice.createdAt.toISOString(),
+      });
+    } catch (err) {
+      this.logger.warn(
+        `Post-commit publishInvoiceCreated failed for invoice ${createdInvoice.id}: ${(err as Error).message}`,
+      );
+    }
     return createdInvoice;
   }
 }

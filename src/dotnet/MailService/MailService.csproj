@@ -11,6 +11,7 @@
     <Protobuf Include="../../../protos/mail_platform.proto" GrpcServices="Server" />
     <Protobuf Include="../../../protos/ai_governance.proto" GrpcServices="Client" />
     <Protobuf Include="../../../protos/audit.proto" GrpcServices="Client" />
+    <Protobuf Include="../../../protos/negotiation.proto" GrpcServices="Client" />
   </ItemGroup>
 
 

@@ -66,6 +66,10 @@ export class IntentRouterService {
       qLower.includes('thông tư') ||
       qLower.includes('hải quan') ||
       qLower.includes('quy định pháp lý') ||
+      qLower.includes('mức phạt') ||
+      qLower.includes('xử phạt') ||
+      qLower.includes('chế tài') ||
+      qLower.includes('vi phạm hành chính') ||
       qLower.includes('customs regulation');
 
     const mentionsSop =
@@ -87,10 +91,13 @@ export class IntentRouterService {
       qLower.includes('xuất khẩu') ||
       qLower.includes('nhập khẩu');
 
+    const jurisdictionCode = this.extractJurisdictionCode(query);
+
     const crossDomainParams = {
       targetCustomerId,
       shipmentId,
       shipmentNo,
+      jurisdictionCode,
       includeShipmentLookup: mentionsShipmentTracking,
       includeBillingSummary: mentionsBilling,
     };
@@ -178,9 +185,11 @@ User Query: "${query}"`;
       if (intentStr === 'SHIPMENT_QUERY') {
         intent = AssistantIntent.SHIPMENT_QUERY;
         decision = NeedRagDecision.DOMAIN_QUERY;
+        crossDomainParams.includeShipmentLookup = true;
       } else if (intentStr === 'BILLING_QUERY') {
         intent = AssistantIntent.BILLING_QUERY;
         decision = NeedRagDecision.DOMAIN_QUERY;
+        crossDomainParams.includeBillingSummary = true;
       } else if (intentStr === 'REGULATORY_QUERY') {
         intent = AssistantIntent.REGULATORY_QUERY;
         decision = NeedRagDecision.RAG_REGULATORY;
@@ -192,14 +201,35 @@ User Query: "${query}"`;
         decision = NeedRagDecision.RAG_HYBRID;
       }
 
-      return { intent, decision, confidence: 0.75 };
+      return {
+        intent,
+        decision,
+        confidence: 0.75,
+        extractedParameters: intent === AssistantIntent.GENERAL ? undefined : crossDomainParams,
+      };
     } catch (error) {
       this.logger.warn(`AI Router fallback failed, defaulting to HYBRID_RAG: ${(error as Error).message}`);
       return {
         intent: AssistantIntent.HYBRID_RAG_QUERY,
         decision: NeedRagDecision.RAG_HYBRID,
         confidence: 0.5,
+        extractedParameters: crossDomainParams,
       };
     }
+  }
+
+  public extractJurisdictionCode(query: string): string | undefined {
+    const hasToken = (pattern: string, flags = 'iu'): boolean =>
+      new RegExp(`(?<=^|[^\\p{L}\\p{N}])(?:${pattern})(?=$|[^\\p{L}\\p{N}])`, flags).test(query);
+
+    if (hasToken('eu|châu âu|europe|european union')) return 'EU';
+    if (hasToken('US|U\\.S\\.A?', 'u') || hasToken('usa|mỹ|hoa kỳ|united states')) return 'US';
+    if (hasToken('cn|trung quốc|china')) return 'CN';
+    if (hasToken('sg|singapore')) return 'SG';
+    if (hasToken('jp|nhật|nhật bản|japan')) return 'JP';
+    if (hasToken('kr|hàn quốc|korea')) return 'KR';
+    if (hasToken('MY', 'u') || hasToken('malaysia|mã lai')) return 'MY';
+    if (hasToken('vn|việt nam|vietnam')) return 'VN';
+    return undefined;
   }
 }

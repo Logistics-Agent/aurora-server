@@ -1,6 +1,7 @@
-import { Injectable, Logger, OnModuleDestroy, ServiceUnavailableException } from '@nestjs/common';
+import { Injectable, Logger, OnModuleDestroy, Optional, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as amqp from 'amqplib';
+import { DLQService } from './dlq.service';
 import { CloudEventFactory, CloudEvent } from '../../common/events/cloud-event.factory';
 
 export interface InvoiceCreatedEvent {
@@ -35,7 +36,10 @@ export class RabbitMQMessagingService implements OnModuleDestroy {
   private channel: amqp.ConfirmChannel | null = null;
   private connecting: Promise<amqp.ConfirmChannel> | null = null;
 
-  constructor(private readonly configService: ConfigService) {}
+  constructor(
+    private readonly configService: ConfigService,
+    @Optional() private readonly dlqService?: DLQService,
+  ) {}
 
   async onModuleDestroy(): Promise<void> {
     try { await this.channel?.close(); } catch { /* already closed */ }
@@ -51,9 +55,18 @@ export class RabbitMQMessagingService implements OnModuleDestroy {
       const connection = await amqp.connect(uri);
       this.connection = connection;
       connection.on('close', () => { this.channel = null; this.connection = null; });
+      connection.on('error', (err) => {
+        this.logger.error(`RabbitMQ connection error: ${err.message}`);
+        this.channel = null;
+        this.connection = null;
+      });
       try {
         const channel = await connection.createConfirmChannel();
         channel.on('close', () => { if (this.channel === channel) this.channel = null; });
+        channel.on('error', (err) => {
+          this.logger.error(`RabbitMQ channel error: ${err.message}`);
+          if (this.channel === channel) this.channel = null;
+        });
         await channel.assertExchange('logistics_events', 'topic', { durable: true });
         this.channel = channel;
         return channel;
@@ -71,15 +84,30 @@ export class RabbitMQMessagingService implements OnModuleDestroy {
   }
 
   private async publish<T>(routingKey: string, event: CloudEvent<T>): Promise<void> {
-    const channel = await this.getChannel();
-    await new Promise<void>((resolve, reject) => {
-      channel.publish('logistics_events', routingKey, Buffer.from(JSON.stringify(event)), {
-        persistent: true,
-        contentType: 'application/json',
-        messageId: event.id,
-      }, (error) => error ? reject(error) : resolve());
-    });
-    this.logger.log(`Published ${routingKey} event ${event.id}`);
+    try {
+      const channel = await this.getChannel();
+      await new Promise<void>((resolve, reject) => {
+        channel.publish('logistics_events', routingKey, Buffer.from(JSON.stringify(event)), {
+          persistent: true,
+          contentType: 'application/json',
+          messageId: event.id,
+        }, (error) => (error ? reject(error) : resolve()));
+      });
+      this.logger.log(`Published ${routingKey} event ${event.id}`);
+    } catch (error) {
+      const errorReason = error instanceof Error ? error.message : String(error);
+      this.logger.warn(
+        `Failed to publish ${routingKey} event ${event.id} (${errorReason}); forwarding to DLQ`,
+      );
+      await this.dlqService?.sendToDeadLetterQueue({
+        originalTopic: routingKey,
+        originalPayload: event,
+        errorReason,
+        retryCount: 1,
+        failedAt: new Date().toISOString(),
+        tenantId: event.tenant_id,
+      });
+    }
   }
 
   async publishInvoiceCreated(

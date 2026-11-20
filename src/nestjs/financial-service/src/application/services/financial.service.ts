@@ -150,6 +150,12 @@ export class FinancialService {
 
     let portHandlingFees = 0;
     if (portFees.length > 0) {
+      const nonUsdFee = portFees.find(
+        (fee) => fee.currency && fee.currency.toUpperCase() !== 'USD',
+      );
+      if (nonUsdFee) {
+        throw new BadRequestException('Port handling fee currency conversion is required');
+      }
       portHandlingFees = portFees.reduce((sum, fee) => sum + fee.amount, 0);
     } else {
       throw new NotFoundException(`No port handling fee configured for ${request.originPort}`);
@@ -165,16 +171,28 @@ export class FinancialService {
       if (!Number.isFinite(cargoValue) || cargoValue <= 0) {
         throw new BadRequestException('cargoValue is required when HS codes are supplied');
       }
-      for (const hsCode of request.hsCodes) {
-        const dutyRate = await this.prisma.customsDutyRate.findUnique({
-          where: {
-            tenantId_hsCode: {
-              tenantId: effectiveTenantId,
-              hsCode: hsCode,
-            },
-          },
-        });
+      const uniqueHsCodes = Array.from(new Set(request.hsCodes));
+      const dutyRates =
+        typeof this.prisma.customsDutyRate.findMany === 'function'
+          ? await this.prisma.customsDutyRate.findMany({
+              where: {
+                tenantId: effectiveTenantId,
+                hsCode: { in: uniqueHsCodes },
+              },
+            })
+          : (
+              await Promise.all(
+                uniqueHsCodes.map((hsCode) =>
+                  this.prisma.customsDutyRate.findUnique({
+                    where: { tenantId_hsCode: { tenantId: effectiveTenantId, hsCode } },
+                  }),
+                ),
+              )
+            ).filter((rate): rate is NonNullable<typeof rate> => Boolean(rate));
+      const dutyRateByCode = new Map(dutyRates.map((rate) => [rate.hsCode, rate]));
 
+      for (const hsCode of request.hsCodes) {
+        const dutyRate = dutyRateByCode.get(hsCode);
         if (!dutyRate) throw new NotFoundException(`No customs duty rate configured for HS ${hsCode}`);
         const importTaxRate = dutyRate.importTaxRate;
         const vatRate = dutyRate.vatRate;
@@ -388,5 +406,111 @@ export class FinancialService {
     }
 
     throw new NotFoundException(`No verified exchange rate for ${request.fromCurrency}/${request.toCurrency} within seven days`);
+  }
+
+  async getShipmentQuote(
+    shipmentId: string,
+    tenantId?: string,
+    query?: {
+      originPort?: string;
+      destinationPort?: string;
+      weightKg?: number | string;
+      volumeCbm?: number | string;
+      transportMode?: string;
+      cargoType?: string;
+    },
+  ): Promise<{
+    shipmentId: string;
+    costPrice: number;
+    listPrice: number;
+    bottomPrice: number;
+    currency: string;
+  }> {
+    const effectiveTenantId = this.requireTenant(tenantId);
+    const normalizedShipmentId = shipmentId?.trim();
+    if (!normalizedShipmentId) {
+      throw new BadRequestException('shipmentId is required');
+    }
+
+    if (query?.originPort && query?.destinationPort) {
+      const parsedWeight = Number(query.weightKg);
+      const parsedVolume =
+        query.volumeCbm !== undefined && query.volumeCbm !== ''
+          ? Number(query.volumeCbm)
+          : NaN;
+      const res = await this.getMinAcceptableRate(
+        {
+          originPort: query.originPort,
+          destinationPort: query.destinationPort,
+          weightKg: Number.isFinite(parsedWeight) && parsedWeight > 0 ? parsedWeight : 1000,
+          volumeCbm: Number.isFinite(parsedVolume) && parsedVolume >= 0 ? parsedVolume : 1,
+          transportMode: query.transportMode || 'SEA',
+          cargoType: query.cargoType || 'GENERAL',
+          minMarginPercent: 10,
+          targetMarginPercent: 25,
+        },
+        effectiveTenantId,
+      );
+      return {
+        shipmentId: normalizedShipmentId,
+        costPrice: res.costPrice,
+        listPrice: res.targetRate,
+        bottomPrice: res.minAcceptableRate,
+        currency: res.currency,
+      };
+    }
+
+    const freightRate = await this.prisma.baseFreightRate.findFirst({
+      where: { tenantId: effectiveTenantId },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (!freightRate) {
+      throw new NotFoundException(`No authoritative quote rate found for shipment ${normalizedShipmentId}`);
+    }
+    if (freightRate.currency && freightRate.currency.toUpperCase() !== 'USD') {
+      throw new BadRequestException('Freight rate currency conversion is required');
+    }
+
+    try {
+      const res = await this.getMinAcceptableRate(
+        {
+          originPort: freightRate.originCode || 'VNSGN',
+          destinationPort: freightRate.destinationCode || 'SGSIN',
+          weightKg: 1000,
+          volumeCbm: 1,
+          transportMode: freightRate.transportMode || 'SEA',
+          cargoType: freightRate.cargoType || 'GENERAL',
+          minMarginPercent: 10,
+          targetMarginPercent: 25,
+        },
+        effectiveTenantId,
+      );
+      return {
+        shipmentId: normalizedShipmentId,
+        costPrice: res.costPrice,
+        listPrice: res.targetRate,
+        bottomPrice: res.minAcceptableRate,
+        currency: res.currency,
+      };
+    } catch (error) {
+      if (!(error instanceof NotFoundException)) {
+        throw error;
+      }
+      const costPrice = this.calculator.calculateFreightFee(
+        1000,
+        1,
+        freightRate.ratePerKg,
+        freightRate.ratePerCbm,
+        freightRate.flatFee,
+      );
+      const rates = this.calculator.calculateMinAcceptableRate(costPrice, 10, 25);
+      return {
+        shipmentId: normalizedShipmentId,
+        costPrice,
+        listPrice: rates.targetRate,
+        bottomPrice: rates.minAcceptableRate,
+        currency: 'USD',
+      };
+    }
   }
 }

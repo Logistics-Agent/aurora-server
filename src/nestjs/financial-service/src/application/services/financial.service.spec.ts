@@ -1,11 +1,23 @@
 import { describe, it } from 'node:test';
 import * as assert from 'node:assert/strict';
+import { BadRequestException } from '@nestjs/common';
 import { FinancialService } from './financial.service';
 import { CostCalculatorDomainService } from '../../domain/services/cost-calculator.domain-service';
 
 describe('FinancialService', () => {
-  const createService = (overrides?: { cachedRate?: any; env?: string }) => {
+  const createService = (overrides?: {
+    cachedRate?: any;
+    env?: string;
+    portFees?: Array<{ amount: number; currency?: string }>;
+    onFindManyDutyRates?: () => void;
+  }) => {
     const calculator = new CostCalculatorDomainService();
+    const dutyRateRecord = {
+      hsCode: '8517',
+      importTaxRate: 5,
+      vatRate: 10,
+      description: 'Telecom equipment',
+    };
     const prismaMock: any = {
       baseFreightRate: {
         findFirst: async () => ({
@@ -17,15 +29,18 @@ describe('FinancialService', () => {
         }),
       },
       portHandlingFee: {
-        findMany: async () => [{ amount: 120 }, { amount: 80 }],
+        findMany: async () =>
+          overrides?.portFees ?? [
+            { amount: 120, currency: 'USD' },
+            { amount: 80, currency: 'USD' },
+          ],
       },
       customsDutyRate: {
-        findUnique: async () => ({
-          hsCode: '8517',
-          importTaxRate: 5,
-          vatRate: 10,
-          description: 'Telecom equipment',
-        }),
+        findUnique: async () => dutyRateRecord,
+        findMany: async () => {
+          overrides?.onFindManyDutyRates?.();
+          return [dutyRateRecord];
+        },
       },
       exchangeRate: {
         findFirst: async () => ({
@@ -89,5 +104,68 @@ describe('FinancialService', () => {
       toCurrency: 'VND',
     });
     assert.equal(fx.rate, 25450);
+  });
+
+  it('returns authoritative shipment quote via getShipmentQuote for HTTP contract', async () => {
+    const service = createService();
+    const quote = await service.getShipmentQuote('SHP-001', 'tenant-1', {
+      originPort: 'VNSGN',
+      destinationPort: 'SGSIN',
+      weightKg: 1000,
+      volumeCbm: 2,
+    });
+    assert.equal(quote.shipmentId, 'SHP-001');
+    assert.equal(quote.currency, 'USD');
+    assert.ok(quote.costPrice > 0);
+    assert.ok(quote.bottomPrice > quote.costPrice);
+    assert.ok(quote.listPrice > quote.bottomPrice);
+  });
+
+  it('rejects non-USD port handling fees and queries customs duty rates in batch', async () => {
+    let findManyCalls = 0;
+    const batchService = createService({
+      onFindManyDutyRates: () => {
+        findManyCalls++;
+      },
+    });
+    await batchService.estimateCost(
+      {
+        tenantId: 'tenant-1',
+        originCountry: 'VN',
+        originPort: 'VNSGN',
+        destinationCountry: 'SG',
+        destinationPort: 'SGSIN',
+        weightKg: 1000,
+        volumeCbm: 2,
+        transportMode: 'SEA',
+        cargoType: 'GENERAL',
+        cargoValue: 10000,
+        hsCodes: ['8517'],
+      },
+      'tenant-1',
+    );
+    assert.equal(findManyCalls, 1);
+
+    const nonUsdFeeService = createService({
+      portFees: [{ amount: 500000, currency: 'VND' }],
+    });
+    await assert.rejects(
+      () =>
+        nonUsdFeeService.estimateCost(
+          {
+            tenantId: 'tenant-1',
+            originCountry: 'VN',
+            originPort: 'VNSGN',
+            destinationCountry: 'SG',
+            destinationPort: 'SGSIN',
+            weightKg: 1000,
+            volumeCbm: 2,
+            transportMode: 'SEA',
+            cargoType: 'GENERAL',
+          },
+          'tenant-1',
+        ),
+      BadRequestException,
+    );
   });
 });

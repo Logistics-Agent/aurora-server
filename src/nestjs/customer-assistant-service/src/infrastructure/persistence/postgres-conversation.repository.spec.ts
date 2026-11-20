@@ -1,4 +1,5 @@
 import { InMemoryConversationStore } from './in-memory-conversation.store';
+import { PostgresConversationRepository } from './postgres-conversation.repository';
 import { ActorType } from '../../domain/enums/actor-type.enum';
 import { ConversationConcurrencyConflictException } from '../../domain/errors/assistant.errors';
 
@@ -113,5 +114,59 @@ describe('Conversation Repository Persistence & Concurrency', () => {
     const unsummarized = await repo.getUnsummarizedMessages('tenant-1', 'user-1', conv.id, 4);
     expect(unsummarized.length).toBe(2);
     expect(unsummarized.map((m) => m.sequenceNumber)).toEqual([5, 6]);
+  });
+
+  it('EnforcesMultiTenantAndUserIsolation_WhenReadingMessages', async () => {
+    await repo.createConversation({
+      id: 'conv-iso-1',
+      tenantId: 'tenant-1',
+      userId: 'user-1',
+      actorType: ActorType.CUSTOMER,
+      preferredLanguage: 'vi',
+      status: 'ACTIVE',
+      summaryUpToSequence: 0,
+      version: 1,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      lastActivityAt: new Date(),
+    });
+    await repo.appendMessage('tenant-1', 'user-1', {
+      id: 'msg-iso-1',
+      conversationId: 'conv-iso-1',
+      role: 'USER',
+      content: 'Confidential tenant 1 message',
+      createdAt: new Date(),
+    });
+
+    expect(await repo.getRecentMessages('tenant-2', 'user-1', 'conv-iso-1', 10)).toEqual([]);
+    expect(await repo.getRecentMessages('tenant-1', 'user-2', 'conv-iso-1', 10)).toEqual([]);
+    expect(await repo.getUnsummarizedMessages('tenant-2', 'user-1', 'conv-iso-1', 0)).toEqual([]);
+    expect(await repo.getUnsummarizedMessages('tenant-1', 'user-2', 'conv-iso-1', 0)).toEqual([]);
+
+    const queryCalls: Array<{ sql: string; params: any[] }> = [];
+    const pgRepo = new PostgresConversationRepository(
+      { get: jest.fn().mockReturnValue('test') } as any,
+      { getRecentMessages: jest.fn().mockResolvedValue(null), setRecentMessages: jest.fn() } as any,
+    );
+    (pgRepo as any).isConnected = true;
+    (pgRepo as any).pool = {
+      query: jest.fn(async (sql: string, params: any[]) => {
+        queryCalls.push({ sql, params });
+        return { rows: [] };
+      }),
+    };
+
+    await pgRepo.getRecentMessages('tenant-2', 'user-1', 'conv-iso-1', 10);
+    await pgRepo.getUnsummarizedMessages('tenant-2', 'user-1', 'conv-iso-1', 0, 5, 20);
+
+    expect(queryCalls[0].sql).toContain('INNER JOIN conversations c');
+    expect(queryCalls[0].sql).toContain('c.tenant_id = $2');
+    expect(queryCalls[0].sql).toContain('c.user_id = $3');
+    expect(queryCalls[0].params).toEqual(['conv-iso-1', 'tenant-2', 'user-1', null, 10]);
+
+    expect(queryCalls[1].sql).toContain('INNER JOIN conversations c');
+    expect(queryCalls[1].sql).toContain('c.tenant_id = $2');
+    expect(queryCalls[1].sql).toContain('c.user_id = $3');
+    expect(queryCalls[1].params).toEqual(['conv-iso-1', 'tenant-2', 'user-1', 0, 5, 20]);
   });
 });

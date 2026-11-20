@@ -1,4 +1,4 @@
-import { Controller, UseFilters, UseInterceptors } from '@nestjs/common';
+import { Controller, Get, Param, Query, Req, UseFilters, UseInterceptors } from '@nestjs/common';
 import { GrpcMethod } from '@nestjs/microservices';
 import { FinancialService } from '../../application/services/financial.service';
 import { TenantInterceptor } from '../../common/interceptors/tenant.interceptor';
@@ -49,5 +49,18 @@ export class FinancialController {
   @GrpcMethod('FinancialService', 'GetExchangeRate')
   async getExchangeRate(data: GetExchangeRateRequest): Promise<GetExchangeRateResponse> {
     return this.financialService.getExchangeRate(data, data.tenantId);
+  }
+
+  @Get('api/v1/financial/quotes/:shipmentId')
+  async getShipmentQuote(
+    @Param('shipmentId') shipmentId: string,
+    @Req() req: any,
+    @Query() query: Record<string, any>,
+  ) {
+    return this.financialService.getShipmentQuote(
+      shipmentId,
+      req?.tenantId || req?.headers?.['x-tenant-id'],
+      query,
+    );
   }
 }

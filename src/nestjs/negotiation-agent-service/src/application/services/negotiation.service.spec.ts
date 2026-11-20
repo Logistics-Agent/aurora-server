@@ -39,6 +39,7 @@ describe('NegotiationService', () => {
       findFirst: jest.fn().mockResolvedValue(mockSession),
       create: jest.fn().mockResolvedValue(mockSession),
       update: jest.fn().mockResolvedValue({ ...mockSession, currentRound: 2 }),
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       findUnique: jest.fn().mockResolvedValue(mockSession),
     },
     negotiationMessage: {
@@ -47,7 +48,9 @@ describe('NegotiationService', () => {
         createdAt: new Date('2026-08-25T12:00:00Z'),
       }),
     },
-    $transaction: jest.fn().mockImplementation((promises) => Promise.all(promises)),
+    $transaction: jest.fn().mockImplementation((arg) =>
+      typeof arg === 'function' ? arg(mockPrisma) : Promise.all(arg),
+    ),
   };
 
   const mockAiClient = {
@@ -243,5 +246,18 @@ describe('NegotiationService', () => {
     });
     expect(goodR2.counterOfferPrice).toBeLessThan(4400);
     expect(goodR2.counterOfferPrice).toBeGreaterThanOrEqual(4200);
+  });
+
+  it('rejects concurrent offer submission with ConflictException via OCC guard', async () => {
+    mockPrisma.negotiationSession.updateMany.mockResolvedValueOnce({ count: 0 });
+    await expect(
+      service.submitOffer({
+        tenantId: 'tenant-001',
+        shipmentId: 'SHP-001',
+        customerId: 'cust-001',
+        offerPrice: 4000,
+      }),
+    ).rejects.toThrow('modified concurrently or is no longer open');
+    expect(mockPrisma.negotiationMessage.create).not.toHaveBeenCalled();
   });
 });

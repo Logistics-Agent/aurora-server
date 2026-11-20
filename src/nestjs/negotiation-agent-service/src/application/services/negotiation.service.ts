@@ -35,6 +35,11 @@ export interface SuggestedReplyDto {
   language: string;
 }
 
+export interface ProtobufTimestamp {
+  seconds: number;
+  nanos: number;
+}
+
 export interface NegotiationResult {
   sessionId: string;
   shipmentId: string;
@@ -45,7 +50,7 @@ export interface NegotiationResult {
   currency: string;
   aiSpeech: string;
   status: string;
-  createdAt: string;
+  createdAt: ProtobufTimestamp;
   suggestedReply: SuggestedReplyDto;
   suggestedReplyAvailable: boolean;
   aiDraftUsed: boolean;
@@ -202,32 +207,15 @@ export class NegotiationService {
       newStatus = 'REJECTED';
     }
 
-    // 6. ACID Transaction: Save customer & AI messages + update session round/status/suggestedReply
-    const [, savedMsg, updatedSession] = await this.prisma.$transaction([
-      this.prisma.negotiationMessage.create({
-        data: {
-          sessionId: session.id,
-          round: session.currentRound,
-          sender: 'CUSTOMER',
-          message: `Customer submitted offer of ${offerPrice} ${strategyResult.currency}`,
-          offerPrice,
-          decision: 'OFFER_SUBMITTED',
-          currency: strategyResult.currency,
+    // 6. ACID Transaction: OCC update + save customer & AI messages cleanly
+    const [, savedMsg] = await this.prisma.$transaction(async (tx) => {
+      const updated = await tx.negotiationSession.updateMany({
+        where: {
+          id: session.id,
+          tenantId,
+          status: 'OPEN',
+          currentRound: session.currentRound,
         },
-      }),
-      this.prisma.negotiationMessage.create({
-        data: {
-          sessionId: session.id,
-          round: session.currentRound,
-          sender: 'AI',
-          message: finalBody,
-          offerPrice: strategyResult.counterOfferPrice || offerPrice,
-          decision: strategyResult.decision,
-          currency: strategyResult.currency,
-        },
-      }),
-      this.prisma.negotiationSession.update({
-        where: { id: session.id },
         data: {
           status: newStatus,
           currentRound: { increment: 1 },
@@ -242,8 +230,40 @@ export class NegotiationService {
           sourceMessageId: sourceMessageId || session.sourceMessageId,
           sourceThreadId: sourceThreadId || session.sourceThreadId,
         },
-      }),
-    ]);
+      });
+
+      if (updated.count === 0) {
+        throw new ConflictException(
+          `Negotiation session ${session.id} was modified concurrently or is no longer open at round ${session.currentRound}`,
+        );
+      }
+
+      const customerMsg = await tx.negotiationMessage.create({
+        data: {
+          sessionId: session.id,
+          round: session.currentRound,
+          sender: 'CUSTOMER',
+          message: `Customer submitted offer of ${offerPrice} ${strategyResult.currency}`,
+          offerPrice,
+          decision: 'OFFER_SUBMITTED',
+          currency: strategyResult.currency,
+        },
+      });
+
+      const aiMsg = await tx.negotiationMessage.create({
+        data: {
+          sessionId: session.id,
+          round: session.currentRound,
+          sender: 'AI',
+          message: finalBody,
+          offerPrice: strategyResult.counterOfferPrice || offerPrice,
+          decision: strategyResult.decision,
+          currency: strategyResult.currency,
+        },
+      });
+
+      return [customerMsg, aiMsg];
+    });
 
     this.logger.log(
       `[Negotiation] Session ${session.id} | Round ${session.currentRound} | Decision: ${strategyResult.decision} | SuggestedReply Available (AI Used: ${aiDraftUsed}, Fallback Used: ${fallbackUsed})`,
@@ -259,7 +279,7 @@ export class NegotiationService {
       currency: strategyResult.currency,
       aiSpeech: finalBody,
       status: newStatus,
-      createdAt: savedMsg.createdAt.toISOString(),
+      createdAt: this.toProtobufTimestamp(savedMsg.createdAt),
       suggestedReply: {
         subjectSuggestion: suggestedSubject,
         body: finalBody,
@@ -281,7 +301,75 @@ export class NegotiationService {
       throw new NotFoundException(`Negotiation Session ${sessionId} not found`);
     }
 
-    return session;
+    return {
+      sessionId: session.id,
+      tenantId: session.tenantId,
+      shipmentId: session.shipmentId,
+      customerId: session.customerId,
+      status: session.status,
+      currentRound: session.currentRound,
+      maxRounds: session.maxRounds,
+      listPrice: session.listPrice,
+      bottomPrice: session.bottomPrice,
+      currency: session.currency,
+      messages: session.messages.map((m) => ({
+        id: m.id,
+        sessionId: m.sessionId,
+        round: m.round,
+        sender: m.sender,
+        message: m.message,
+        offerPrice: m.offerPrice ?? 0,
+        decision: m.decision || '',
+        currency: m.currency,
+        createdAt: this.toProtobufTimestamp(m.createdAt),
+      })),
+      createdAt: this.toProtobufTimestamp(session.createdAt),
+      updatedAt: this.toProtobufTimestamp(session.updatedAt),
+    };
+  }
+
+  async listSessions(input: {
+    tenantId?: string;
+    status?: string;
+    page?: number;
+    pageSize?: number;
+  }) {
+    const tenantId = this.requireTenant(input.tenantId);
+    const page = Math.max(1, Number(input.page || 1));
+    const pageSize = Math.min(100, Math.max(1, Number(input.pageSize || 20)));
+    const where: { tenantId: string; status?: string } = { tenantId };
+    if (input.status?.trim()) {
+      where.status = input.status.trim().toUpperCase();
+    }
+
+    const [sessions, total] = await Promise.all([
+      this.prisma.negotiationSession.findMany({
+        where,
+        orderBy: { updatedAt: 'desc' },
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+      }),
+      this.prisma.negotiationSession.count({ where }),
+    ]);
+
+    return {
+      sessions: sessions.map((s) => ({
+        sessionId: s.id,
+        shipmentId: s.shipmentId,
+        customerId: s.customerId,
+        status: s.status,
+        currentRound: s.currentRound,
+        maxRounds: s.maxRounds,
+        listPrice: s.listPrice,
+        bottomPrice: s.bottomPrice,
+        currency: s.currency,
+        lastDecision: s.lastDecision || '',
+        lastApprovedAmount: s.lastApprovedAmount ?? 0,
+        createdAt: this.toProtobufTimestamp(s.createdAt),
+        updatedAt: this.toProtobufTimestamp(s.updatedAt),
+      })),
+      total,
+    };
   }
 
   async getDraftSuggestion(sessionId: string, tenantId?: string): Promise<DraftSuggestionResult> {
@@ -430,6 +518,14 @@ export class NegotiationService {
     }
 
     return true;
+  }
+
+  private toProtobufTimestamp(date: Date): ProtobufTimestamp {
+    const ms = date.getTime();
+    return {
+      seconds: Math.floor(ms / 1000),
+      nanos: (ms % 1000) * 1_000_000,
+    };
   }
 
   private requireTenant(tenantId?: string): string {

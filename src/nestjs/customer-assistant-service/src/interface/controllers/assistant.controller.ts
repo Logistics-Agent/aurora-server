@@ -18,11 +18,24 @@ export class AssistantController {
 
   @Post()
   async chat(@UserContext() user: CurrentUser, @Body() body: LegacyChatInput) {
-    const convId = body.conversationId || `conv-legacy-${user.userId.slice(0, 8)}`;
-    const result = await this.orchestrator.processMessage(convId, body.message, user);
+    const requestedCustomerId = body.customerId?.trim();
+    if (
+      requestedCustomerId &&
+      requestedCustomerId !== user.customerId &&
+      user.actorType !== ActorType.STAFF &&
+      user.actorType !== ActorType.ADMIN
+    ) {
+      throw new ForbiddenException('Only staff can query another customer context.');
+    }
+
+    const effectiveUser: CurrentUser = requestedCustomerId
+      ? { ...user, customerId: requestedCustomerId }
+      : user;
+    const convId = body.conversationId || `conv-legacy-${effectiveUser.userId.slice(0, 8)}`;
+    const result = await this.orchestrator.processMessage(convId, body.message, effectiveUser);
 
     return {
-      customerId: user.customerId,
+      customerId: effectiveUser.customerId,
       intent: result.intent,
       replyMessage: result.answer,
       sources: result.sources,

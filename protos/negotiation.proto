@@ -16,6 +16,7 @@ service NegotiationService {
   rpc SubmitOffer        (SubmitOfferRequest)        returns (SubmitOfferResponse);
   rpc GetSessionHistory  (GetSessionHistoryRequest)  returns (GetSessionHistoryResponse);
   rpc GetDraftSuggestion (GetDraftSuggestionRequest) returns (GetDraftSuggestionResponse);
+  rpc ListSessions       (ListSessionsRequest)       returns (ListSessionsResponse);
 }     
   
 message SubmitOfferRequest {
@@ -103,4 +104,31 @@ message GetDraftSuggestionResponse {
   string currency                  = 11;
   string source_message_id         = 12;
   string source_thread_id          = 13;
+}
+
+message ListSessionsRequest {
+  string status    = 1; // Optional: OPEN, ACCEPTED, HANDOFF, REJECTED
+  int32  page      = 2; // 1-based, default 1
+  int32  page_size = 3; // default 20, max 100
+}
+
+message NegotiationSessionSummaryDto {
+  string session_id           = 1;
+  string shipment_id          = 2;
+  string customer_id          = 3;
+  string status               = 4;
+  int32  current_round        = 5;
+  int32  max_rounds           = 6;
+  double list_price           = 7;
+  double bottom_price         = 8;
+  string currency             = 9;
+  string last_decision        = 10;
+  double last_approved_amount = 11;
+  google.protobuf.Timestamp created_at = 12;
+  google.protobuf.Timestamp updated_at = 13;
+}
+
+message ListSessionsResponse {
+  repeated NegotiationSessionSummaryDto sessions = 1;
+  int32 total = 2;
 }

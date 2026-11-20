@@ -52,6 +52,30 @@ export class BillingService {
     }
   }
 
+  private sumSuccessfulPayments(payments: Array<{ amountPaid: number; status?: string }> = []): number {
+    return payments
+      .filter((p) => (p.status ?? 'SUCCESS') === 'SUCCESS')
+      .reduce((sum, p) => sum + p.amountPaid, 0);
+  }
+
+  private async runInTransaction<T>(fn: (tx: any) => Promise<T>): Promise<T> {
+    if (typeof this.prisma.$transaction === 'function') {
+      return this.prisma.$transaction(async (tx: any) => fn(tx));
+    }
+    return fn(this.prisma);
+  }
+
+  private async lockInvoiceRow(tx: any, invoiceId: string, tenantId: string): Promise<void> {
+    if (typeof tx.$queryRaw === 'function') {
+      const locked = await tx.$queryRaw<Array<{ id: string }>>`
+        SELECT id FROM invoices WHERE id = ${invoiceId} AND tenant_id = ${tenantId} FOR UPDATE
+      `;
+      if (locked.length === 0) {
+        throw new NotFoundException(`Invoice ${invoiceId} not found`);
+      }
+    }
+  }
+
   // ── Invoice Operations ────────────────────────────────────────────────────
 
   async generateInvoice(
@@ -82,7 +106,7 @@ export class BillingService {
       throw new NotFoundException(`Invoice with ID ${request.invoiceId} not found`);
     }
 
-    const totalPaid = invoice.payments.reduce((sum, p) => sum + p.amountPaid, 0);
+    const totalPaid = this.sumSuccessfulPayments(invoice.payments);
     const remainingBalance = Number(Math.max(0, invoice.totalAmount - totalPaid).toFixed(2));
 
     return {
@@ -154,34 +178,37 @@ export class BillingService {
 
   async updateInvoiceStatus(request: UpdateInvoiceStatusRequest): Promise<InvoiceResponse> {
     const tenantId = this.requireTenant(request.tenantId);
-    const existing = await this.prisma.invoice.findFirst({
-      where: { id: request.invoiceId, tenantId },
-      include: { payments: true },
-    });
+    const invoice = await this.runInTransaction(async (tx) => {
+      await this.lockInvoiceRow(tx, request.invoiceId, tenantId);
+      const existing = await tx.invoice.findFirst({
+        where: { id: request.invoiceId, tenantId },
+        include: { payments: true },
+      });
 
-    if (!existing) {
-      throw new NotFoundException(`Invoice ${request.invoiceId} not found`);
-    }
-
-    // Business Rule: Cannot manually set PAID unless payments actually cover the total
-    if (request.status === 'PAID') {
-      const totalPaid = existing.payments.reduce((sum, p) => sum + p.amountPaid, 0);
-      if (totalPaid < existing.totalAmount) {
-        throw new BadRequestException(
-          `Cannot mark invoice as PAID. Total paid ($${totalPaid.toFixed(2)}) is less than invoice total ($${existing.totalAmount.toFixed(2)}). Use RecordPayment instead.`,
-        );
+      if (!existing) {
+        throw new NotFoundException(`Invoice ${request.invoiceId} not found`);
       }
-    }
 
-    // Business Rule: Cannot modify a CANCELLED invoice
-    if (existing.status === 'CANCELLED') {
-      throw new BadRequestException(`Invoice ${existing.invoiceNumber} is CANCELLED and cannot be modified.`);
-    }
+      // Business Rule: Cannot modify a CANCELLED invoice
+      if (existing.status === 'CANCELLED') {
+        throw new BadRequestException(`Invoice ${existing.invoiceNumber} is CANCELLED and cannot be modified.`);
+      }
 
-    const invoice = await this.prisma.invoice.update({
-      where: { id: request.invoiceId },
-      data: { status: request.status },
-      include: { items: true },
+      // Business Rule: Cannot manually set PAID unless successful payments actually cover the total
+      if (request.status === 'PAID') {
+        const totalPaid = this.sumSuccessfulPayments(existing.payments);
+        if (totalPaid < existing.totalAmount) {
+          throw new BadRequestException(
+            `Cannot mark invoice as PAID. Total paid ($${totalPaid.toFixed(2)}) is less than invoice total ($${existing.totalAmount.toFixed(2)}). Use RecordPayment instead.`,
+          );
+        }
+      }
+
+      return tx.invoice.update({
+        where: { id: request.invoiceId },
+        data: { status: request.status },
+        include: { items: true },
+      });
     });
 
     return this.mapInvoiceResponse(invoice);
@@ -224,14 +251,14 @@ export class BillingService {
         if (duplicate.amountPaid !== request.amountPaid) {
           throw new BadRequestException('transactionRef was already used for a different amount');
         }
-        const paid = invoice.payments.reduce((sum, payment) => sum + payment.amountPaid, 0);
+        const paid = this.sumSuccessfulPayments(invoice.payments);
         return { invoice, paymentRecord: duplicate, newStatus: invoice.status,
           remainingBalance: Number(Math.max(0, invoice.totalAmount - paid).toFixed(2)), created: false };
       }
       if (invoice.status === 'CANCELLED' || invoice.status === 'PAID') {
         throw new BadRequestException(`Invoice ${invoice.invoiceNumber} cannot accept a payment`);
       }
-      const totalAlreadyPaid = invoice.payments.reduce((sum, payment) => sum + payment.amountPaid, 0);
+      const totalAlreadyPaid = this.sumSuccessfulPayments(invoice.payments);
       const newTotalPaid = totalAlreadyPaid + request.amountPaid;
       if (newTotalPaid > invoice.totalAmount + 0.01) {
         throw new BadRequestException('Payment exceeds outstanding invoice balance');
@@ -257,17 +284,25 @@ export class BillingService {
     });
     const { invoice, paymentRecord, newStatus, remainingBalance } = result;
 
-    if (result.created) await this.messagingService.publishPaymentReceived({
-      tenantId: effectiveTenantId,
-      customerId: invoice.customerId,
-      invoiceId: request.invoiceId,
-      paymentRecordId: paymentRecord.id,
-      amountPaid: request.amountPaid,
-      paymentMethod: paymentRecord.paymentMethod,
-      transactionRef: paymentRecord.transactionRef || '',
-      newInvoiceStatus: newStatus,
-      createdAt: paymentRecord.createdAt.toISOString(),
-    });
+    if (result.created) {
+      try {
+        await this.messagingService.publishPaymentReceived({
+          tenantId: effectiveTenantId,
+          customerId: invoice.customerId,
+          invoiceId: request.invoiceId,
+          paymentRecordId: paymentRecord.id,
+          amountPaid: request.amountPaid,
+          paymentMethod: paymentRecord.paymentMethod,
+          transactionRef: paymentRecord.transactionRef || '',
+          newInvoiceStatus: newStatus,
+          createdAt: paymentRecord.createdAt.toISOString(),
+        });
+      } catch (err) {
+        this.logger.warn(
+          `Post-commit publishPaymentReceived failed for invoice ${request.invoiceId}: ${(err as Error).message}`,
+        );
+      }
+    }
 
     this.logger.log(
       `Payment recorded for Invoice ${invoice.invoiceNumber}: $${request.amountPaid} | New Status: ${newStatus} | Remaining: $${remainingBalance}`,
@@ -289,30 +324,37 @@ export class BillingService {
 
   async cancelInvoice(request: CancelInvoiceRequest): Promise<InvoiceResponse> {
     const tenantId = this.requireTenant(request.tenantId);
-    const invoice = await this.prisma.invoice.findFirst({
-      where: { id: request.invoiceId, tenantId },
-      include: { items: true },
-    });
+    const cancelled = await this.runInTransaction(async (tx) => {
+      await this.lockInvoiceRow(tx, request.invoiceId, tenantId);
+      const invoice = await tx.invoice.findFirst({
+        where: { id: request.invoiceId, tenantId },
+        include: { items: true, payments: true },
+      });
 
-    if (!invoice) {
-      throw new NotFoundException(`Invoice ${request.invoiceId} not found`);
-    }
+      if (!invoice) {
+        throw new NotFoundException(`Invoice ${request.invoiceId} not found`);
+      }
 
-    // Business Rule: Only UNPAID invoices can be cancelled
-    if (invoice.status === 'PAID' || invoice.status === 'PARTIALLY_PAID') {
-      throw new BadRequestException(
-        `Cannot cancel invoice ${invoice.invoiceNumber} with status '${invoice.status}'. Only UNPAID invoices can be cancelled.`,
-      );
-    }
+      // Business Rule: Only UNPAID invoices with no successful payments can be cancelled
+      if (
+        invoice.status === 'PAID' ||
+        invoice.status === 'PARTIALLY_PAID' ||
+        this.sumSuccessfulPayments(invoice.payments) > 0
+      ) {
+        throw new BadRequestException(
+          `Cannot cancel invoice ${invoice.invoiceNumber} with status '${invoice.status}'. Only UNPAID invoices can be cancelled.`,
+        );
+      }
 
-    if (invoice.status === 'CANCELLED') {
-      throw new BadRequestException(`Invoice ${invoice.invoiceNumber} is already CANCELLED.`);
-    }
+      if (invoice.status === 'CANCELLED') {
+        throw new BadRequestException(`Invoice ${invoice.invoiceNumber} is already CANCELLED.`);
+      }
 
-    const cancelled = await this.prisma.invoice.update({
-      where: { id: request.invoiceId },
-      data: { status: 'CANCELLED', agreementId: null },
-      include: { items: true },
+      return tx.invoice.update({
+        where: { id: request.invoiceId },
+        data: { status: 'CANCELLED', agreementId: null },
+        include: { items: true },
+      });
     });
 
     this.logger.log(
@@ -329,28 +371,36 @@ export class BillingService {
     tenantId?: string,
   ): Promise<AdjustmentNoteResponse> {
     const effectiveTenantId = this.requireTenant(tenantId || request.tenantId);
-
-    const invoice = await this.prisma.invoice.findFirst({
-      where: { id: request.invoiceId, tenantId: effectiveTenantId },
-      include: { payments: true },
-    });
-
-    if (!invoice) {
-      throw new NotFoundException(`Invoice ${request.invoiceId} not found`);
-    }
-
-    if (invoice.status === 'CANCELLED') {
-      throw new BadRequestException(`Cannot issue Debit Note for a CANCELLED invoice.`);
-    }
-
     this.requirePositiveAmount(request.amount);
 
-    const newTotalAmount = Number((invoice.totalAmount + request.amount).toFixed(2));
-    const totalPaid = invoice.payments.reduce((sum, payment) => sum + payment.amountPaid, 0);
-    const newStatus = totalPaid > 0 ? 'PARTIALLY_PAID' : invoice.status;
+    const { note, updatedInvoice, invoice, newTotalAmount } = await this.runInTransaction(async (tx) => {
+      await this.lockInvoiceRow(tx, request.invoiceId, effectiveTenantId);
+      const lockedInvoice = await tx.invoice.findFirst({
+        where: { id: request.invoiceId, tenantId: effectiveTenantId },
+        include: { payments: true },
+      });
 
-    const [note, updatedInvoice] = await this.prisma.$transaction([
-      this.prisma.adjustmentNote.create({
+      if (!lockedInvoice) {
+        throw new NotFoundException(`Invoice ${request.invoiceId} not found`);
+      }
+
+      if (lockedInvoice.status === 'CANCELLED') {
+        throw new BadRequestException(`Cannot issue Debit Note for a CANCELLED invoice.`);
+      }
+
+      const nextTotalAmount = Number((lockedInvoice.totalAmount + request.amount).toFixed(2));
+      const totalPaid = this.sumSuccessfulPayments(lockedInvoice.payments);
+      const remainingBalance = Number(Math.max(0, nextTotalAmount - totalPaid).toFixed(2));
+      const newStatus =
+        remainingBalance === 0
+          ? 'PAID'
+          : lockedInvoice.dueDate < new Date()
+            ? 'OVERDUE'
+            : totalPaid > 0
+              ? 'PARTIALLY_PAID'
+              : 'UNPAID';
+
+      const createdNote = await tx.adjustmentNote.create({
         data: {
           tenantId: effectiveTenantId,
           invoiceId: request.invoiceId,
@@ -360,12 +410,14 @@ export class BillingService {
           description: request.description || 'Extra charge incurred',
           status: 'ISSUED',
         },
-      }),
-      this.prisma.invoice.update({
+      });
+      const savedInvoice = await tx.invoice.update({
         where: { id: request.invoiceId },
-        data: { totalAmount: newTotalAmount, status: newStatus },
-      }),
-    ]);
+        data: { totalAmount: nextTotalAmount, status: newStatus },
+      });
+
+      return { note: createdNote, updatedInvoice: savedInvoice, invoice: lockedInvoice, newTotalAmount: nextTotalAmount };
+    });
 
     this.logger.log(
       `Issued Debit Note ${note.id} for Invoice ${invoice.invoiceNumber}: +$${request.amount} | Reason: ${request.reasonCode} | New Total: $${newTotalAmount}`,
@@ -389,31 +441,40 @@ export class BillingService {
     tenantId?: string,
   ): Promise<AdjustmentNoteResponse> {
     const effectiveTenantId = this.requireTenant(tenantId || request.tenantId);
-
-    const invoice = await this.prisma.invoice.findFirst({
-      where: { id: request.invoiceId, tenantId: effectiveTenantId },
-      include: { payments: true },
-    });
-
-    if (!invoice) {
-      throw new NotFoundException(`Invoice ${request.invoiceId} not found`);
-    }
-
-    if (invoice.status === 'CANCELLED') {
-      throw new BadRequestException(`Cannot issue Credit Note for a CANCELLED invoice.`);
-    }
-
     this.requirePositiveAmount(request.amount);
 
-    const totalPaid = invoice.payments.reduce((sum, payment) => sum + payment.amountPaid, 0);
-    if (request.amount > invoice.totalAmount - totalPaid) {
-      throw new BadRequestException('Credit note exceeds unpaid balance; a refund workflow is required');
-    }
-    const newTotalAmount = Number((invoice.totalAmount - request.amount).toFixed(2));
-    const newStatus = totalPaid >= newTotalAmount ? 'PAID' : totalPaid > 0 ? 'PARTIALLY_PAID' : invoice.status;
+    const { note, updatedInvoice, invoice, newTotalAmount } = await this.runInTransaction(async (tx) => {
+      await this.lockInvoiceRow(tx, request.invoiceId, effectiveTenantId);
+      const lockedInvoice = await tx.invoice.findFirst({
+        where: { id: request.invoiceId, tenantId: effectiveTenantId },
+        include: { payments: true },
+      });
 
-    const [note, updatedInvoice] = await this.prisma.$transaction([
-      this.prisma.adjustmentNote.create({
+      if (!lockedInvoice) {
+        throw new NotFoundException(`Invoice ${request.invoiceId} not found`);
+      }
+
+      if (lockedInvoice.status === 'CANCELLED') {
+        throw new BadRequestException(`Cannot issue Credit Note for a CANCELLED invoice.`);
+      }
+
+      const totalPaid = this.sumSuccessfulPayments(lockedInvoice.payments);
+      const unpaidBalance = Number((lockedInvoice.totalAmount - totalPaid).toFixed(2));
+      if (request.amount > unpaidBalance) {
+        throw new BadRequestException('Credit note exceeds unpaid balance; a refund workflow is required');
+      }
+      const nextTotalAmount = Number((lockedInvoice.totalAmount - request.amount).toFixed(2));
+      const remainingBalance = Number(Math.max(0, nextTotalAmount - totalPaid).toFixed(2));
+      const newStatus =
+        remainingBalance === 0
+          ? 'PAID'
+          : lockedInvoice.dueDate < new Date()
+            ? 'OVERDUE'
+            : totalPaid > 0
+              ? 'PARTIALLY_PAID'
+              : 'UNPAID';
+
+      const createdNote = await tx.adjustmentNote.create({
         data: {
           tenantId: effectiveTenantId,
           invoiceId: request.invoiceId,
@@ -423,12 +484,14 @@ export class BillingService {
           description: request.description || 'Discount or refund applied',
           status: 'ISSUED',
         },
-      }),
-      this.prisma.invoice.update({
+      });
+      const savedInvoice = await tx.invoice.update({
         where: { id: request.invoiceId },
-        data: { totalAmount: newTotalAmount, status: newStatus },
-      }),
-    ]);
+        data: { totalAmount: nextTotalAmount, status: newStatus },
+      });
+
+      return { note: createdNote, updatedInvoice: savedInvoice, invoice: lockedInvoice, newTotalAmount: nextTotalAmount };
+    });
 
     this.logger.log(
       `Issued Credit Note ${note.id} for Invoice ${invoice.invoiceNumber}: -$${request.amount} | Reason: ${request.reasonCode} | New Total: $${newTotalAmount}`,

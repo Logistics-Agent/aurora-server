@@ -215,4 +215,38 @@ describe('ConversationalAssistantOrchestrator', () => {
     expect(result.sources.regulatory.length).toBe(1);
     expect(result.sources.knowledge.length).toBe(1);
   });
+
+  it('inherits prior turn topic and jurisdictionCode on follow-up RAG queries', async () => {
+    const conv = await orchestrator.createConversation(staffUser, 'vi');
+
+    await orchestrator.processMessage(
+      conv.id,
+      'Quy định hải quan xuất khẩu pin lithium UN3480 sang EU là gì?',
+      staffUser,
+    );
+
+    jest.clearAllMocks();
+
+    const followUp = await orchestrator.processMessage(
+      conv.id,
+      'Còn mức phạt và SOP nội bộ thì sao?',
+      staffUser,
+    );
+
+    expect(followUp.decision).toBe('RAG_HYBRID');
+    expect(mockComplianceClient.queryRegulations).toHaveBeenCalledWith(
+      expect.stringContaining('UN3480'),
+      'EU',
+      5,
+      0.4,
+      staffUser,
+    );
+    expect(mockComplianceClient.queryKnowledge).toHaveBeenCalledWith(
+      expect.stringContaining('UN3480'),
+      expect.any(Array),
+      5,
+      0.4,
+      staffUser,
+    );
+  });
 });

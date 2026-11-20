@@ -107,4 +107,160 @@ public class NegotiationsController(
             return ex.ToActionResult();
         }
     }
+
+    [HttpGet]
+    public async Task<IActionResult> ListSessions(
+        [FromQuery] string? status,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20)
+    {
+        try
+        {
+            var response = await negotiationClient.ListSessionsAsync(
+                new ListSessionsRequest
+                {
+                    Status = status ?? string.Empty,
+                    Page = page,
+                    PageSize = pageSize
+                },
+                cancellationToken: HttpContext.RequestAborted);
+
+            return Ok(new
+            {
+                total = response.Total,
+                sessions = response.Sessions.Select(s => new
+                {
+                    sessionId = s.SessionId,
+                    shipmentId = s.ShipmentId,
+                    customerId = s.CustomerId,
+                    status = s.Status,
+                    currentRound = s.CurrentRound,
+                    maxRounds = s.MaxRounds,
+                    listPrice = s.ListPrice,
+                    bottomPrice = s.BottomPrice,
+                    currency = s.Currency,
+                    lastDecision = s.LastDecision,
+                    lastApprovedAmount = s.LastApprovedAmount,
+                    createdAt = s.CreatedAt?.ToDateTimeOffset(),
+                    updatedAt = s.UpdatedAt?.ToDateTimeOffset()
+                })
+            });
+        }
+        catch (RpcException ex)
+        {
+            return ex.ToActionResult();
+        }
+    }
+
+    [HttpGet("{negotiationId}")]
+    public async Task<IActionResult> GetSessionHistory([FromRoute] string negotiationId)
+    {
+        if (string.IsNullOrWhiteSpace(negotiationId))
+        {
+            return BadRequest(new { error = "NegotiationId is required." });
+        }
+
+        try
+        {
+            var history = await negotiationClient.GetSessionHistoryAsync(
+                new GetSessionHistoryRequest { SessionId = negotiationId },
+                cancellationToken: HttpContext.RequestAborted);
+
+            return Ok(new
+            {
+                sessionId = history.SessionId,
+                tenantId = history.TenantId,
+                shipmentId = history.ShipmentId,
+                customerId = history.CustomerId,
+                status = history.Status,
+                currentRound = history.CurrentRound,
+                maxRounds = history.MaxRounds,
+                listPrice = history.ListPrice,
+                bottomPrice = history.BottomPrice,
+                currency = history.Currency,
+                createdAt = history.CreatedAt?.ToDateTimeOffset(),
+                updatedAt = history.UpdatedAt?.ToDateTimeOffset(),
+                messages = history.Messages.Select(m => new
+                {
+                    id = m.Id,
+                    sessionId = m.SessionId,
+                    round = m.Round,
+                    sender = m.Sender,
+                    message = m.Message,
+                    offerPrice = m.OfferPrice,
+                    decision = m.Decision,
+                    currency = m.Currency,
+                    createdAt = m.CreatedAt?.ToDateTimeOffset()
+                })
+            });
+        }
+        catch (RpcException ex)
+        {
+            return ex.ToActionResult();
+        }
+    }
+
+    [HttpPost("offers")]
+    public async Task<IActionResult> SubmitOffer([FromBody] SubmitNegotiationOfferRequest body)
+    {
+        if (string.IsNullOrWhiteSpace(body.ShipmentId) || string.IsNullOrWhiteSpace(body.CustomerId) || body.OfferPrice <= 0)
+        {
+            return BadRequest(new { error = "ShipmentId, CustomerId and positive OfferPrice are required." });
+        }
+
+        try
+        {
+            var result = await negotiationClient.SubmitOfferAsync(
+                new SubmitOfferRequest
+                {
+                    ShipmentId = body.ShipmentId,
+                    CustomerId = body.CustomerId,
+                    OfferPrice = body.OfferPrice,
+                    ListPrice = body.ListPrice ?? 0,
+                    BottomPrice = body.BottomPrice ?? 0,
+                    CustomerTier = body.CustomerTier ?? "STANDARD",
+                    SessionId = body.SessionId ?? string.Empty,
+                    SourceMessageId = body.SourceMessageId ?? string.Empty,
+                    SourceThreadId = body.SourceThreadId ?? string.Empty
+                },
+                cancellationToken: HttpContext.RequestAborted);
+
+            return Ok(new
+            {
+                sessionId = result.SessionId,
+                shipmentId = result.ShipmentId,
+                round = result.Round,
+                decision = result.Decision,
+                counterOfferPrice = result.CounterOfferPrice,
+                currency = result.Currency,
+                aiSpeech = result.AiSpeech,
+                status = result.Status,
+                createdAt = result.CreatedAt?.ToDateTimeOffset(),
+                suggestedReply = result.SuggestedReply is null ? null : new
+                {
+                    subjectSuggestion = result.SuggestedReply.SubjectSuggestion,
+                    body = result.SuggestedReply.Body,
+                    language = result.SuggestedReply.Language
+                },
+                suggestedReplyAvailable = result.SuggestedReplyAvailable,
+                aiDraftUsed = result.AiDraftUsed,
+                fallbackUsed = result.FallbackUsed
+            });
+        }
+        catch (RpcException ex)
+        {
+            return ex.ToActionResult();
+        }
+    }
 }
+
+public sealed record SubmitNegotiationOfferRequest(
+    string ShipmentId,
+    string CustomerId,
+    double OfferPrice,
+    double? ListPrice,
+    double? BottomPrice,
+    string? CustomerTier,
+    string? SessionId,
+    string? SourceMessageId,
+    string? SourceThreadId);

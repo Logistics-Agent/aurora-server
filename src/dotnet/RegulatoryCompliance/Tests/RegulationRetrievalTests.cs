@@ -202,6 +202,235 @@ public sealed class RegulationRetrievalTests
         Assert.Contains(result.Evidence, e => e.ChunkId == chunk.Id);
     }
 
+    [Fact]
+    public async Task HybridSearchRescuesExactCodeMatchWhenVectorRankIsLowAndBoostsCombinedScore()
+    {
+        var tenantId = Guid.NewGuid();
+        await using var context = CreateContext(CurrentUser(tenantId));
+
+        await Seed(
+            context,
+            tenantId,
+            SourceVisibility.Tenant,
+            "VN",
+            RegulationType.Customs,
+            "General warehousing pallet stacking guidelines and domestic dock scheduling procedures.",
+            "filler-doc");
+
+        await Seed(
+            context,
+            tenantId,
+            SourceVisibility.Tenant,
+            "VN",
+            RegulationType.Customs,
+            "Special annex for UN3480 HS 8507.60 MSDS lithium ion battery packaging notice.",
+            "target-un3480");
+
+        await EmbedAll(context);
+
+        var fillerChunk = await context.RegulatoryChunks
+            .SingleAsync(c => c.NormalizedText.Contains("warehousing pallet"));
+        var targetChunk = await context.RegulatoryChunks
+            .SingleAsync(c => c.NormalizedText.Contains("UN3480"));
+
+        var targetVec = targetChunk.Embedding!;
+        var fillerVec = fillerChunk.Embedding!;
+        var dotTf = Dot(fillerVec, targetVec);
+        var orthoFiller = Normalize(
+            Enumerable.Range(0, targetVec.Length)
+                .Select(i => fillerVec[i] - dotTf * targetVec[i])
+                .ToArray());
+
+        float[]? neutralVec = null;
+        for (var basis = 0; basis < targetVec.Length; basis++)
+        {
+            var candidate = new float[targetVec.Length];
+            candidate[basis] = 1f;
+            var dotT = Dot(candidate, targetVec);
+            var dotF = Dot(candidate, orthoFiller);
+            for (var i = 0; i < candidate.Length; i++)
+                candidate[i] -= dotT * targetVec[i] + dotF * orthoFiller[i];
+
+            var norm = MathF.Sqrt(candidate.Sum(x => x * x));
+            if (norm > 0.1f)
+            {
+                neutralVec = candidate.Select(x => x / norm).ToArray();
+                break;
+            }
+        }
+
+        Assert.NotNull(neutralVec);
+        var neutralWeight = MathF.Sqrt(MathF.Max(0f, 1f - 0.45f * 0.45f - 0.05f * 0.05f));
+        var queryVec = Normalize(
+            Enumerable.Range(0, targetVec.Length)
+                .Select(i => 0.45f * orthoFiller[i] + 0.05f * targetVec[i] + neutralWeight * neutralVec![i])
+                .ToArray());
+
+        var service = CreateService(
+            context,
+            CurrentUser(tenantId),
+            new FixedQueryEmbeddingProvider(new EmbeddingModelDescriptor("deterministic-local", "1", 64), queryVec));
+
+        var result = await service.QueryAsync(new RegulationQueryInput(
+            "UN3480 MSDS HS 8507.60",
+            "VN",
+            Now,
+            "en",
+            [RegulationType.Customs],
+            2,
+            0.25m));
+
+        Assert.Contains(result.Evidence, item => item.ChunkId == targetChunk.Id);
+        Assert.Equal(targetChunk.Id, result.Evidence[0].ChunkId);
+    }
+
+    [Fact]
+    public async Task ShortChunkExpandsAdjacentNonOverlappingNeighborInSameSectionAtReadTime()
+    {
+        var tenantId = Guid.NewGuid();
+        await using var context = CreateContext(CurrentUser(tenantId));
+
+        var document = RegulatoryDocument.CreateTenant(
+            tenantId,
+            "Authority",
+            "Rule article-5-doc",
+            "https://regulations.example/article-5-doc",
+            "VN",
+            RegulationType.Customs,
+            "en",
+            Now.AddDays(-10));
+
+        var text1 = "Article 5: Lithium battery air transport rules.";
+        var text2 = "Penalty for undeclared cargo is 20,000,000 VND.";
+        var text3 = "Other chapter tariff notice for cold chain containers.";
+        var version = document.AddVersion(
+            "ingestion-article-5-doc",
+            "1",
+            Now.AddDays(-10),
+            Now.AddDays(-5),
+            null,
+            Hash("article-5-doc"),
+            "regulatory/article-5-doc.txt",
+            "article-5-doc.txt",
+            "text/plain",
+            text1.Length + text2.Length + text3.Length,
+            Now.AddDays(-4));
+        version.StartIngestion(Now.AddDays(-4));
+        var chunk1 = version.AddChunk(
+            1,
+            "Article 5",
+            "1",
+            text1,
+            7,
+            0,
+            text1.Length,
+            Hash("article-5-chunk-1"),
+            Now.AddDays(-4));
+        var chunk2 = version.AddChunk(
+            2,
+            "Article 5",
+            "1",
+            text2,
+            8,
+            100,
+            100 + text2.Length,
+            Hash("article-5-chunk-2"),
+            Now.AddDays(-4));
+        version.AddChunk(
+            3,
+            "Other-Section-99",
+            "2",
+            text3,
+            9,
+            200,
+            200 + text3.Length,
+            Hash("article-5-chunk-3"),
+            Now.AddDays(-4));
+        version.CompleteIngestion(Now.AddDays(-4));
+
+        context.RegulatoryDocuments.Add(document);
+        await context.SaveChangesAsync();
+        await EmbedAll(context);
+
+        var service = CreateService(context, CurrentUser(tenantId));
+
+        var firstResult = await service.QueryAsync(new RegulationQueryInput(
+            "Article 5 lithium battery air transport rules",
+            "VN",
+            Now,
+            "en",
+            [RegulationType.Customs],
+            1,
+            0m));
+
+        Assert.Single(firstResult.Evidence);
+        Assert.Equal(chunk1.Id, firstResult.Evidence[0].ChunkId);
+        Assert.Contains("Article 5: Lithium battery air transport rules.", firstResult.Evidence[0].Excerpt);
+        Assert.Contains("Penalty for undeclared cargo is 20,000,000 VND.", firstResult.Evidence[0].Excerpt);
+
+        var secondResult = await service.QueryAsync(new RegulationQueryInput(
+            "Penalty for undeclared cargo 20,000,000 VND",
+            "VN",
+            Now,
+            "en",
+            [RegulationType.Customs],
+            1,
+            0m));
+
+        Assert.Single(secondResult.Evidence);
+        Assert.Equal(chunk2.Id, secondResult.Evidence[0].ChunkId);
+        Assert.Contains("Article 5: Lithium battery air transport rules.", secondResult.Evidence[0].Excerpt);
+        Assert.Contains("Penalty for undeclared cargo is 20,000,000 VND.", secondResult.Evidence[0].Excerpt);
+        Assert.DoesNotContain("cold chain containers", secondResult.Evidence[0].Excerpt);
+    }
+
+    [Fact]
+    public async Task EmptyLanguageCodeSearchesAllLanguagesAndPersistsTraceWithAnyLanguage()
+    {
+        var tenantId = Guid.CreateVersion7();
+        var currentUser = CurrentUser(tenantId);
+        await using var context = CreateContext(currentUser);
+        var chunk = await Seed(context, tenantId, SourceVisibility.Tenant,
+            "VN", RegulationType.Customs, "dangerous goods declaration required", "empty-lang");
+        await EmbedAll(context);
+
+        var result = await CreateService(context, currentUser).QueryAsync(
+            Query() with { LanguageCode = string.Empty });
+
+        Assert.Equal(EvidenceSufficiency.Sufficient, result.EvidenceSufficiency);
+        Assert.Contains(result.Evidence, item => item.ChunkId == chunk.Id);
+
+        var trace = await context.RetrievalTraces.SingleAsync();
+        Assert.Equal(result.RetrievalTraceId, trace.Id);
+        Assert.Equal("any", trace.LanguageCode);
+    }
+
+    private static float Dot(float[] left, float[] right)
+    {
+        var sum = 0f;
+        for (var i = 0; i < left.Length; i++)
+            sum += left[i] * right[i];
+        return sum;
+    }
+
+    private static float[] Normalize(float[] vector)
+    {
+        var norm = MathF.Sqrt(vector.Sum(x => x * x));
+        return norm <= 0f ? vector : vector.Select(x => x / norm).ToArray();
+    }
+
+    private sealed class FixedQueryEmbeddingProvider(EmbeddingModelDescriptor model, float[] queryVector)
+        : IEmbeddingProvider
+    {
+        public EmbeddingModelDescriptor Model => model;
+
+        public Task<IReadOnlyList<float[]>> GenerateAsync(
+            IReadOnlyList<EmbeddingInput> inputs,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<float[]>>(
+                inputs.Select(_ => queryVector).ToArray());
+    }
+
     private static RegulationQueryInput Query() =>
         new(
             "dangerous goods declaration",

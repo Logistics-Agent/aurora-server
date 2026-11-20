@@ -24,4 +24,20 @@ export class NegotiationController {
     const sessionId = data.negotiationSessionId || data.negotiation_session_id || '';
     return this.negotiationService.getDraftSuggestion(sessionId, data.tenantId);
   }
+
+  @GrpcMethod('NegotiationService', 'ListSessions')
+  async listSessionsGrpc(data: {
+    tenantId?: string;
+    status?: string;
+    page?: number;
+    pageSize?: number;
+    page_size?: number;
+  }) {
+    return this.negotiationService.listSessions({
+      tenantId: data.tenantId,
+      status: data.status,
+      page: data.page,
+      pageSize: data.pageSize ?? data.page_size,
+    });
+  }
 }
