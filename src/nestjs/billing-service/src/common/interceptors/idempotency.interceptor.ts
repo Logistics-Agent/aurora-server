@@ -37,11 +37,14 @@ export class IdempotencyInterceptor implements NestInterceptor, OnModuleDestroy 
 
     const host = this.configService.get<string>('redis.host', 'localhost');
     const port = this.configService.get<number>('redis.port', 6379);
+    const password =
+      this.configService.get<string>('redis.password') || process.env.REDIS_PASSWORD || undefined;
 
     try {
       this.redisClient = new Redis({
         host,
         port,
+        password,
         maxRetriesPerRequest: 1,
         connectTimeout: 1000,
         lazyConnect: true,

@@ -18,13 +18,19 @@ export class RateCacheService {
   constructor(private readonly configService: ConfigService) {
     const host = this.configService.get<string>('redis.host', 'localhost');
     const port = this.configService.get<number>('redis.port', 6379);
+    const password =
+      this.configService.get<string>('redis.password') || process.env.REDIS_PASSWORD || undefined;
 
     try {
       this.redisClient = new Redis({
         host,
         port,
+        password,
         maxRetriesPerRequest: 1,
         lazyConnect: true,
+      });
+      this.redisClient.on('error', () => {
+        // Handled cleanly via fallback to memoryCache
       });
       this.redisClient.connect().catch(() => {
         this.redisClient = null;
