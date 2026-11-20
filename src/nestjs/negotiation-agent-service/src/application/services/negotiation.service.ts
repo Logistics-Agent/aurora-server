@@ -19,6 +19,7 @@ export interface SubmitOfferInput {
   sourceMessageId?: string;
   sourceThreadId?: string;
   quoteId?: string;
+  language?: string;
   // snake_case support for raw Protobuf gRPC payloads
   shipment_id?: string;
   customer_id?: string;
@@ -102,6 +103,7 @@ export class NegotiationService {
     const requestedSessionId = (input.sessionId || input.session_id)?.trim() || undefined;
     const sourceMessageId = (input.sourceMessageId || input.source_message_id)?.trim() || null;
     const sourceThreadId = (input.sourceThreadId || input.source_thread_id)?.trim() || null;
+    const suggestedLanguage = input.language?.trim().toLowerCase() === 'en' ? 'en' : 'vi';
 
     if (!shipmentId || !customerId || !Number.isFinite(offerPrice) || offerPrice <= 0) {
       throw new BadRequestException('shipmentId, customerId and a positive offerPrice are required');
@@ -180,6 +182,7 @@ export class NegotiationService {
       shipmentId: refForPrompt,
       round: session.currentRound,
       customerTier,
+      language: suggestedLanguage,
       tenantId,
       userId: input.userId,
       traceId: input.traceId,
@@ -211,15 +214,20 @@ export class NegotiationService {
         customerOffer: offerPrice,
         shipmentId: refForPrompt,
         round: session.currentRound,
+        language: suggestedLanguage,
       });
       aiDraftUsed = false;
       fallbackUsed = true;
     }
 
-    const suggestedSubject = effectiveShipmentId
-      ? `Re: Quotation Proposal for Shipment ${effectiveShipmentId}`
-      : `Re: Commercial Quotation Proposal${effectiveQuoteId ? ` (${effectiveQuoteId.slice(0, 8)})` : ''}`;
-    const suggestedLanguage = 'en';
+    const suggestedSubject =
+      suggestedLanguage === 'en'
+        ? effectiveShipmentId
+          ? `Re: Quotation Proposal for Shipment ${effectiveShipmentId}`
+          : `Re: Commercial Quotation Proposal${effectiveQuoteId ? ` (${effectiveQuoteId.slice(0, 8)})` : ''}`
+        : effectiveShipmentId
+          ? `Re: Đề xuất báo giá cho lô hàng ${effectiveShipmentId}`
+          : `Re: Đề xuất báo giá thương mại${effectiveQuoteId ? ` (${effectiveQuoteId.slice(0, 8)})` : ''}`;
 
     // 5. Determine new session status
     let newStatus = session.status;

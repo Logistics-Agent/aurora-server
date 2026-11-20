@@ -30,6 +30,7 @@ message SubmitOfferRequest {
   string source_message_id = 8; // Inbound Mail MessageId (RFC / UUID)
   string source_thread_id  = 9; // Inbound Mail ThreadId
   string quote_id          = 10; // Optional: CommercialQuote ID for pre-shipment quotes
+  string language          = 11; // Optional: 'vi' | 'en' (default: 'vi')
 }
 
 message SuggestedReplyDto {

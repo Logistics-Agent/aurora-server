@@ -236,7 +236,8 @@ public class NegotiationsController(
                     CustomerTier = body.CustomerTier ?? "STANDARD",
                     SessionId = body.SessionId ?? string.Empty,
                     SourceMessageId = body.SourceMessageId ?? string.Empty,
-                    SourceThreadId = body.SourceThreadId ?? string.Empty
+                    SourceThreadId = body.SourceThreadId ?? string.Empty,
+                    Language = body.Language ?? "vi"
                 },
                 cancellationToken: HttpContext.RequestAborted);
 
@@ -281,4 +282,5 @@ public sealed record SubmitNegotiationOfferRequest(
     string? SessionId,
     string? SourceMessageId,
     string? SourceThreadId,
-    string? QuoteId = null);
+    string? QuoteId = null,
+    string? Language = null);
