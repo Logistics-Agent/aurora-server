@@ -215,17 +215,11 @@ public class NegotiationsController(
     [HttpPost("offers")]
     public async Task<IActionResult> SubmitOffer([FromBody] SubmitNegotiationOfferRequest body)
     {
-        if (string.IsNullOrWhiteSpace(body.CustomerId) || body.OfferPrice <= 0)
-        {
-            return BadRequest(new { error = "CustomerId and positive OfferPrice are required." });
-        }
-
         if (string.IsNullOrWhiteSpace(body.ShipmentId)
-            && string.IsNullOrWhiteSpace(body.QuoteId)
-            && string.IsNullOrWhiteSpace(body.SessionId)
-            && string.IsNullOrWhiteSpace(body.SourceThreadId))
+            || string.IsNullOrWhiteSpace(body.CustomerId)
+            || body.OfferPrice <= 0)
         {
-            return BadRequest(new { error = "At least one of ShipmentId, QuoteId, SessionId, or SourceThreadId is required." });
+            return BadRequest(new { error = "ShipmentId, CustomerId and positive OfferPrice are required." });
         }
 
         try
@@ -233,7 +227,7 @@ public class NegotiationsController(
             var result = await negotiationClient.SubmitOfferAsync(
                 new SubmitOfferRequest
                 {
-                    ShipmentId = body.ShipmentId ?? string.Empty,
+                    ShipmentId = body.ShipmentId,
                     QuoteId = body.QuoteId ?? string.Empty,
                     CustomerId = body.CustomerId,
                     OfferPrice = body.OfferPrice,
@@ -275,55 +269,10 @@ public class NegotiationsController(
             return ex.ToActionResult();
         }
     }
-
-    [HttpPatch("{negotiationId}/link-shipment")]
-    public async Task<IActionResult> LinkSessionToShipment(
-        [FromRoute] string negotiationId,
-        [FromBody] LinkNegotiationShipmentRequest body)
-    {
-        if (string.IsNullOrWhiteSpace(negotiationId) || string.IsNullOrWhiteSpace(body.ShipmentId))
-        {
-            return BadRequest(new { error = "negotiationId and shipmentId are required." });
-        }
-
-        try
-        {
-            var s = await negotiationClient.LinkSessionToShipmentAsync(
-                new LinkSessionToShipmentRequest
-                {
-                    SessionId = negotiationId,
-                    ShipmentId = body.ShipmentId
-                },
-                cancellationToken: HttpContext.RequestAborted);
-
-            return Ok(new
-            {
-                sessionId = s.SessionId,
-                shipmentId = s.ShipmentId,
-                quoteId = s.QuoteId,
-                sourceThreadId = s.SourceThreadId,
-                customerId = s.CustomerId,
-                status = s.Status,
-                currentRound = s.CurrentRound,
-                maxRounds = s.MaxRounds,
-                listPrice = s.ListPrice,
-                bottomPrice = s.BottomPrice,
-                currency = s.Currency,
-                lastDecision = s.LastDecision,
-                lastApprovedAmount = s.LastApprovedAmount,
-                createdAt = s.CreatedAt?.ToDateTimeOffset(),
-                updatedAt = s.UpdatedAt?.ToDateTimeOffset()
-            });
-        }
-        catch (RpcException ex)
-        {
-            return ex.ToActionResult();
-        }
-    }
 }
 
 public sealed record SubmitNegotiationOfferRequest(
-    string? ShipmentId,
+    string ShipmentId,
     string CustomerId,
     double OfferPrice,
     double? ListPrice,
@@ -333,5 +282,3 @@ public sealed record SubmitNegotiationOfferRequest(
     string? SourceMessageId,
     string? SourceThreadId,
     string? QuoteId = null);
-
-public sealed record LinkNegotiationShipmentRequest(string ShipmentId);

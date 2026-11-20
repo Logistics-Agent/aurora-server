@@ -51,19 +51,4 @@ export class NegotiationController {
       quoteId: data.quoteId || data.quote_id,
     });
   }
-
-  @GrpcMethod('NegotiationService', 'LinkSessionToShipment')
-  async linkSessionToShipmentGrpc(data: {
-    tenantId?: string;
-    sessionId?: string;
-    session_id?: string;
-    shipmentId?: string;
-    shipment_id?: string;
-  }) {
-    return this.negotiationService.linkSessionToShipment({
-      tenantId: data.tenantId,
-      sessionId: data.sessionId || data.session_id || '',
-      shipmentId: data.shipmentId || data.shipment_id || '',
-    });
-  }
 }

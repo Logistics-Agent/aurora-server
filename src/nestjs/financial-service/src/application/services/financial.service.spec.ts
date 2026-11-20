@@ -185,21 +185,15 @@ describe('FinancialService', () => {
     );
   });
 
-  it('persists commercial quotes without shipmentId and links or conflicts on linkQuoteToShipment', async () => {
+  it('enforces 1-way flow: registerShipmentThread (PENDING_ROUTE) -> createQuote with routeId (PRICED) -> confirmQuote (CONFIRMED)', async () => {
     const storedQuotes: any[] = [];
     const calculator = new CostCalculatorDomainService();
     const prismaWithQuotes: any = {
       baseFreightRate: {
-        findFirst: async () => ({
-          id: 'rate-1',
-          ratePerKg: 2.0,
-          ratePerCbm: 300,
-          flatFee: 50,
-          currency: 'USD',
-        }),
+        findFirst: async () => null,
       },
       portHandlingFee: {
-        findMany: async () => [{ amount: 150, currency: 'USD' }],
+        findMany: async () => [],
       },
       customsDutyRate: { findMany: async () => [] },
       commercialQuote: {
@@ -242,53 +236,90 @@ describe('FinancialService', () => {
       { getRate: async () => null, setRate: async () => undefined } as any,
     );
 
-    const q1 = await svc.createQuote(
+    // 1. Register Shipment <-> Mail Thread before Route is chosen
+    const registered = await svc.registerShipmentThread(
       {
-        tenantId: 'tenant-1',
+        shipmentId: 'SHP-901',
         sourceThreadId: 'thread-abc',
-        originCountry: 'VN',
-        originPort: 'VNSGN',
-        destinationCountry: 'SG',
-        destinationPort: 'SGSIN',
-        weightKg: 1000,
-        volumeCbm: 2,
+        customerId: 'customer@example.com',
+        originPort: 'San Jose',
+        destinationPort: 'Panama City',
+        weightKg: 2500,
+        volumeCbm: 12,
+        transportMode: 'ROAD',
       },
       'tenant-1',
     );
-    const q2 = await svc.createQuote(
+    assert.equal(registered.status, 'PENDING_ROUTE');
+    assert.equal(registered.sourceThreadId, 'thread-abc');
+    assert.equal(registered.shipmentId, 'SHP-901');
+
+    // Negotiation/getShipmentQuote must block while PENDING_ROUTE
+    await assert.rejects(() => svc.getShipmentQuote('SHP-901', 'tenant-1'), BadRequestException);
+
+    // 2. Reject createQuote without routeId
+    await assert.rejects(
+      () =>
+        svc.createQuote(
+          {
+            shipmentId: 'SHP-901',
+            routeId: '',
+            originCountry: 'CR',
+            originPort: 'San Jose',
+            destinationCountry: 'PA',
+            destinationPort: 'Panama City',
+            weightKg: 2500,
+            volumeCbm: 12,
+          },
+          'tenant-1',
+        ),
+      BadRequestException,
+    );
+
+    // 3. Price Shipment when Route is chosen (preserving thread link)
+    const priced = await svc.createQuote(
       {
-        tenantId: 'tenant-1',
-        sourceThreadId: 'thread-abc',
-        originCountry: 'VN',
-        originPort: 'VNSGN',
-        destinationCountry: 'SG',
-        destinationPort: 'SGSIN',
-        weightKg: 2000,
-        volumeCbm: 4,
+        shipmentId: 'SHP-901',
+        routeId: 'route-corridor-1',
+        routeName: 'Pan-American Express',
+        distanceKm: 650,
+        originCountry: 'CR',
+        originPort: 'San Jose',
+        destinationCountry: 'PA',
+        destinationPort: 'Panama City',
+        weightKg: 2500,
+        volumeCbm: 12,
+        transportMode: 'ROAD',
       },
       'tenant-1',
     );
-
-    assert.equal(q1.shipmentId, '');
-    assert.equal(q1.status, 'QUOTED');
-    assert.ok(q1.minAcceptableRate > q1.costPrice);
-    assert.ok(q1.targetRate > q1.minAcceptableRate);
-
-    const byThread = await svc.listQuotes({ sourceThreadId: 'thread-abc' }, 'tenant-1');
-    assert.equal(byThread.quotes.length, 2);
-
-    const linked = await svc.linkQuoteToShipment({ quoteId: q1.id, shipmentId: 'SHP-901' }, 'tenant-1');
-    assert.equal(linked.shipmentId, 'SHP-901');
-    assert.equal(linked.status, 'LINKED');
+    assert.equal(priced.id, registered.id);
+    assert.equal(priced.sourceThreadId, 'thread-abc');
+    assert.equal(priced.status, 'PRICED');
+    assert.equal(priced.routeId, 'route-corridor-1');
+    assert.ok(priced.costPrice > 0);
+    assert.ok(priced.minAcceptableRate > priced.costPrice);
+    assert.ok(priced.targetRate > priced.minAcceptableRate);
 
     const byShipment = await svc.getShipmentQuote('SHP-901', 'tenant-1');
-    assert.equal(byShipment.listPrice, q1.targetRate);
-    assert.equal(byShipment.bottomPrice, q1.minAcceptableRate);
+    assert.equal(byShipment.listPrice, priced.targetRate);
+    assert.equal(byShipment.bottomPrice, priced.minAcceptableRate);
+
+    // 4. Confirm quote at agreed price and block conflicting re-confirmation
+    const confirmed = await svc.confirmQuote(
+      { quoteId: priced.id, shipmentId: 'SHP-901', agreedPrice: priced.minAcceptableRate },
+      'tenant-1',
+    );
+    assert.equal(confirmed.status, 'CONFIRMED');
+    assert.equal(confirmed.agreedPrice, priced.minAcceptableRate);
 
     await assert.rejects(
-      () => svc.linkQuoteToShipment({ quoteId: q1.id, shipmentId: 'SHP-OTHER' }, 'tenant-1'),
+      () =>
+        svc.confirmQuote(
+          { quoteId: priced.id, shipmentId: 'SHP-901', agreedPrice: priced.targetRate },
+          'tenant-1',
+        ),
       ConflictException,
     );
-    assert.notEqual(q2.id, q1.id);
   });
 });

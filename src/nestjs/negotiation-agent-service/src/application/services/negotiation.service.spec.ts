@@ -263,75 +263,57 @@ describe('NegotiationService', () => {
     expect(mockPrisma.negotiationMessage.create).not.toHaveBeenCalled();
   });
 
-  it('supports pre-shipment negotiation anchored by quoteId & sourceThreadId and links to shipmentId with 409 conflict protection', async () => {
-    const preShipmentSession = {
-      ...mockSession,
-      id: 'sess-quote-1',
-      shipmentId: null,
-      quoteId: 'quote-1',
-      sourceThreadId: 'thread-abc',
-      createdAt: new Date('2026-11-20T00:00:00Z'),
-      updatedAt: new Date('2026-11-20T00:00:00Z'),
-    };
-    mockPrisma.negotiationSession.findFirst.mockResolvedValueOnce(null);
-    mockPrisma.negotiationSession.create.mockResolvedValueOnce(preShipmentSession);
+  it('requires shipmentId strictly and blocks AI wording that leaks internal cost or bottom floor price', async () => {
+    await expect(
+      service.submitOffer({
+        tenantId: 'tenant-001',
+        shipmentId: '',
+        customerId: 'cust-001',
+        offerPrice: 4000,
+      }),
+    ).rejects.toThrow('shipmentId, customerId and a positive offerPrice are required');
 
-    const offered = await service.submitOffer({
+    mockAiClient.generateNegotiationDraft.mockResolvedValueOnce({
+      content: 'Dear Customer, our giá sàn is $4,200.00 USD so best counter is $4,400.00 USD.',
+      decisionId: 'dec-leak-1',
+      automationLevel: 'ASSISTED',
+      requiresApproval: false,
+      inputTokens: 20,
+      outputTokens: 30,
+      isFallback: false,
+    });
+
+    const leakBlocked = await service.submitOffer({
       tenantId: 'tenant-001',
+      shipmentId: 'SHP-001',
       quoteId: 'quote-1',
       sourceThreadId: 'thread-abc',
       customerId: 'cust-001',
       offerPrice: 4000,
-      listPrice: 5000,
-      bottomPrice: 4200,
     });
 
-    expect(offered.sessionId).toBe('sess-quote-1');
-    expect(offered.shipmentId).toBe('');
-    expect(offered.quoteId).toBe('quote-1');
-    expect(offered.sourceThreadId).toBe('thread-abc');
-    expect(mockPrisma.negotiationSession.create).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({
-          shipmentId: null,
-          quoteId: 'quote-1',
-          sourceThreadId: 'thread-abc',
-        }),
-      }),
-    );
+    expect(leakBlocked.aiDraftUsed).toBe(false);
+    expect(leakBlocked.fallbackUsed).toBe(true);
+    expect(leakBlocked.aiSpeech).not.toContain('giá sàn');
+    expect(leakBlocked.aiSpeech).not.toContain('4,200');
 
-    mockPrisma.negotiationSession.findMany.mockResolvedValueOnce([preShipmentSession]);
+    mockPrisma.negotiationSession.findMany.mockResolvedValueOnce([
+      {
+        ...mockSession,
+        quoteId: 'quote-1',
+        sourceThreadId: 'thread-abc',
+        createdAt: new Date('2026-11-20T00:00:00Z'),
+        updatedAt: new Date('2026-11-20T00:00:00Z'),
+      },
+    ]);
     mockPrisma.negotiationSession.count.mockResolvedValueOnce(1);
     const listed = await service.listSessions({
       tenantId: 'tenant-001',
       sourceThreadId: 'thread-abc',
+      shipmentId: 'SHP-001',
       quoteId: 'quote-1',
     });
     expect(listed.total).toBe(1);
-    expect(listed.sessions[0].quoteId).toBe('quote-1');
-
-    mockPrisma.negotiationSession.findFirst.mockResolvedValueOnce(preShipmentSession);
-    mockPrisma.negotiationSession.update.mockResolvedValueOnce({
-      ...preShipmentSession,
-      shipmentId: 'SHP-NEW-1',
-    });
-    const linked = await service.linkSessionToShipment({
-      tenantId: 'tenant-001',
-      sessionId: 'sess-quote-1',
-      shipmentId: 'SHP-NEW-1',
-    });
-    expect(linked.shipmentId).toBe('SHP-NEW-1');
-
-    mockPrisma.negotiationSession.findFirst.mockResolvedValueOnce({
-      ...preShipmentSession,
-      shipmentId: 'SHP-NEW-1',
-    });
-    await expect(
-      service.linkSessionToShipment({
-        tenantId: 'tenant-001',
-        sessionId: 'sess-quote-1',
-        shipmentId: 'SHP-OTHER',
-      }),
-    ).rejects.toThrow('already linked');
+    expect(listed.sessions[0].shipmentId).toBe('SHP-001');
   });
 });

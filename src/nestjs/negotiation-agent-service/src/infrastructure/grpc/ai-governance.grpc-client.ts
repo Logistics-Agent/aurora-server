@@ -69,6 +69,7 @@ export class AiGovernanceNegotiationClient implements OnModuleInit {
       round: input.round,
       customer_tier: input.customerTier || 'STANDARD',
       business_reason: `Deterministic decision: ${input.action} at ${input.approvedAmount} ${input.currency}.`,
+      privacy_rule: 'Never disclose internal cost, margin, or bottom/floor price.',
     };
 
     const prompt = JSON.stringify(promptPayload);

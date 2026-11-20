@@ -12,7 +12,8 @@ service FinancialService {
   rpc GetExchangeRate(GetExchangeRateRequest) returns (GetExchangeRateResponse);
   rpc CreateQuote(CreateQuoteRequest) returns (CommercialQuoteDto);
   rpc ListQuotes(ListQuotesRequest) returns (ListQuotesResponse);
-  rpc LinkQuoteToShipment(LinkQuoteToShipmentRequest) returns (CommercialQuoteDto);
+  rpc RegisterShipmentThread(RegisterShipmentThreadRequest) returns (CommercialQuoteDto);
+  rpc ConfirmQuote(ConfirmQuoteRequest) returns (CommercialQuoteDto);
 }
                 
 message EstimateCostRequest {
@@ -151,6 +152,10 @@ message CommercialQuoteDto {
   string status = 27;
   string created_at = 28;
   string updated_at = 29;
+  string route_id = 30;
+  string route_name = 31;
+  double distance_km = 32;
+  double agreed_price = 33;
 }
 
 message CreateQuoteRequest {
@@ -174,6 +179,9 @@ message CreateQuoteRequest {
   double insurance_rate_percent = 18;
   double min_margin_percent = 19;
   double target_margin_percent = 20;
+  string route_id = 21;
+  string route_name = 22;
+  double distance_km = 23;
 }
 
 message ListQuotesRequest {
@@ -187,8 +195,21 @@ message ListQuotesResponse {
   repeated CommercialQuoteDto quotes = 1;
 }
 
-message LinkQuoteToShipmentRequest {
+message RegisterShipmentThreadRequest {
+  string tenant_id = 1;
+  string shipment_id = 2;
+  string source_thread_id = 3;
+  string customer_id = 4;
+  string origin_port = 5;
+  string destination_port = 6;
+  double weight_kg = 7;
+  double volume_cbm = 8;
+  string transport_mode = 9;
+}
+
+message ConfirmQuoteRequest {
   string tenant_id = 1;
   string quote_id = 2;
   string shipment_id = 3;
+  double agreed_price = 4;
 }

@@ -121,6 +121,9 @@ export interface CommercialQuoteDto {
   sourceThreadId: string;
   shipmentId: string;
   customerId: string;
+  routeId: string;
+  routeName: string;
+  distanceKm: number;
   originCountry: string;
   originPort: string;
   destinationCountry: string;
@@ -139,6 +142,7 @@ export interface CommercialQuoteDto {
   costPrice: number;
   minAcceptableRate: number;
   targetRate: number;
+  agreedPrice: number;
   currency: string;
   calculationMethod: string;
   description: string;
@@ -149,8 +153,11 @@ export interface CommercialQuoteDto {
 
 export interface CreateQuoteRequest extends EstimateCostRequest {
   sourceThreadId?: string;
-  shipmentId?: string;
+  shipmentId: string;
   customerId?: string;
+  routeId: string;
+  routeName?: string;
+  distanceKm?: number;
   minMarginPercent?: number;
   targetMarginPercent?: number;
 }
@@ -166,8 +173,21 @@ export interface ListQuotesResponse {
   quotes: CommercialQuoteDto[];
 }
 
-export interface LinkQuoteToShipmentRequest {
+export interface RegisterShipmentThreadRequest {
   tenantId?: string;
-  quoteId: string;
   shipmentId: string;
+  sourceThreadId: string;
+  customerId?: string;
+  originPort?: string;
+  destinationPort?: string;
+  weightKg?: number;
+  volumeCbm?: number;
+  transportMode?: string;
+}
+
+export interface ConfirmQuoteRequest {
+  tenantId?: string;
+  quoteId?: string;
+  shipmentId?: string;
+  agreedPrice: number;
 }

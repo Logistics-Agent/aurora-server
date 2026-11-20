@@ -90,7 +90,7 @@ export class NegotiationService {
 
   async submitOffer(input: SubmitOfferInput): Promise<NegotiationResult> {
     const tenantId = this.requireTenant(input.tenantId);
-    const shipmentId = (input.shipmentId || input.shipment_id)?.trim() || undefined;
+    const shipmentId = (input.shipmentId || input.shipment_id)?.trim() || '';
     const quoteId = (input.quoteId || input.quote_id)?.trim() || undefined;
     const customerId = (input.customerId || input.customer_id)?.trim();
     const offerPrice = input.offerPrice ?? input.offer_price ?? NaN;
@@ -101,34 +101,27 @@ export class NegotiationService {
     const sourceMessageId = (input.sourceMessageId || input.source_message_id)?.trim() || null;
     const sourceThreadId = (input.sourceThreadId || input.source_thread_id)?.trim() || null;
 
-    if (!customerId || !Number.isFinite(offerPrice) || offerPrice <= 0) {
-      throw new BadRequestException('customerId and a positive offerPrice are required');
-    }
-    if (!requestedSessionId && !shipmentId && !quoteId && !sourceThreadId) {
-      throw new BadRequestException('At least one of sessionId, shipmentId, quoteId, or sourceThreadId is required');
+    if (!shipmentId || !customerId || !Number.isFinite(offerPrice) || offerPrice <= 0) {
+      throw new BadRequestException('shipmentId, customerId and a positive offerPrice are required');
     }
     const currency = DEFAULT_NEGOTIATION_CURRENCY;
 
-    // 1. Get or create active negotiation session
+    // 1. Get or create active negotiation session anchored strictly to shipmentId
     let session = requestedSessionId
       ? await this.prisma.negotiationSession.findFirst({
           where: {
             id: requestedSessionId,
             tenantId,
-            ...(shipmentId ? { shipmentId } : {}),
-            ...(customerId ? { customerId } : {}),
+            shipmentId,
+            customerId,
           },
         })
       : await this.prisma.negotiationSession.findFirst({
           where: {
             tenantId,
+            shipmentId,
             customerId,
             status: 'OPEN',
-            ...(quoteId && !shipmentId
-              ? { quoteId }
-              : shipmentId
-                ? { shipmentId }
-                : { sourceThreadId }),
           },
         });
 
@@ -145,7 +138,7 @@ export class NegotiationService {
       session = await this.prisma.negotiationSession.create({
         data: {
           tenantId,
-          shipmentId: shipmentId ?? null,
+          shipmentId,
           quoteId: quoteId ?? null,
           customerId,
           status: 'OPEN',
@@ -160,9 +153,9 @@ export class NegotiationService {
       });
     }
 
-    const effectiveShipmentId = shipmentId || session.shipmentId || undefined;
+    const effectiveShipmentId = shipmentId;
     const effectiveQuoteId = quoteId || session.quoteId || undefined;
-    const refForPrompt = effectiveShipmentId || effectiveQuoteId || sourceThreadId || session.id;
+    const refForPrompt = effectiveShipmentId;
 
     // 2. Evaluate Strategy Decision via Deterministic Engine
     const strategyResult = this.strategy.determineDecision({
@@ -195,13 +188,14 @@ export class NegotiationService {
     let aiDraftUsed = !aiResult.isFallback;
     let fallbackUsed = aiResult.isFallback;
 
-    // Validation Guardrails: Check if AI output violates deterministic decision or price
+    // Validation Guardrails: Check if AI output violates deterministic decision or leaks Cost / Floor B
     const isWordingValid = this.validateAiWording(
       aiResult.content,
       strategyResult.decision,
       strategyResult.approvedAmount,
       strategyResult.currency,
       offerPrice,
+      session.bottomPrice,
     );
 
     if (!isWordingValid && !aiResult.isFallback) {
@@ -402,40 +396,6 @@ export class NegotiationService {
     };
   }
 
-  async linkSessionToShipment(input: {
-    tenantId?: string;
-    sessionId: string;
-    shipmentId: string;
-  }) {
-    const tenantId = this.requireTenant(input.tenantId);
-    const sessionId = input.sessionId?.trim();
-    const shipmentId = input.shipmentId?.trim();
-    if (!sessionId || !shipmentId) {
-      throw new BadRequestException('sessionId and shipmentId are required');
-    }
-
-    const existing = await this.prisma.negotiationSession.findFirst({
-      where: { id: sessionId, tenantId },
-    });
-    if (!existing) {
-      throw new NotFoundException(`Negotiation Session ${sessionId} not found`);
-    }
-    if (existing.shipmentId && existing.shipmentId !== shipmentId) {
-      throw new ConflictException(
-        `Negotiation session ${sessionId} is already linked to shipment ${existing.shipmentId}`,
-      );
-    }
-    if (existing.shipmentId === shipmentId) {
-      return this.mapSessionSummary(existing);
-    }
-
-    const updated = await this.prisma.negotiationSession.update({
-      where: { id: sessionId },
-      data: { shipmentId },
-    });
-    return this.mapSessionSummary(updated);
-  }
-
   private mapSessionSummary(s: any) {
     return {
       sessionId: s.id,
@@ -602,8 +562,18 @@ export class NegotiationService {
     approvedAmount: number,
     expectedCurrency: string,
     customerOffer?: number,
+    bottomPrice?: number,
   ): boolean {
     if (!content || content.trim().length === 0) return false;
+
+    // Never allow internal cost, margin, or bottom/floor price terminology in outbound customer wording
+    if (
+      /\b(base cost|cost price|floor price|bottom price|minimum acceptable|internal margin)\b|(giá vốn|giá sàn)/i.test(
+        content,
+      )
+    ) {
+      return false;
+    }
 
     if (
       expectedDecision === 'COUNTER_OFFER' &&
@@ -627,6 +597,15 @@ export class NegotiationService {
             mentionedPrices.push(foundVal);
           }
         }
+      }
+
+      if (
+        expectedDecision === 'COUNTER_OFFER' &&
+        bottomPrice !== undefined &&
+        Math.abs(approvedAmount - bottomPrice) > 1.0 &&
+        mentionedPrices.some((val) => Math.abs(val - bottomPrice) <= 1.0)
+      ) {
+        return false;
       }
 
       if (mentionedPrices.length > 0) {

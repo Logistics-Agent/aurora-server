@@ -18,7 +18,8 @@ import {
   CreateQuoteRequest,
   ListQuotesRequest,
   ListQuotesResponse,
-  LinkQuoteToShipmentRequest,
+  RegisterShipmentThreadRequest,
+  ConfirmQuoteRequest,
 } from '../dto/financial.dto';
 
 @Controller()
@@ -66,9 +67,25 @@ export class FinancialController {
     return this.financialService.listQuotes(data, data.tenantId);
   }
 
-  @GrpcMethod('FinancialService', 'LinkQuoteToShipment')
-  async linkQuoteToShipmentGrpc(data: LinkQuoteToShipmentRequest): Promise<CommercialQuoteDto> {
-    return this.financialService.linkQuoteToShipment(data, data.tenantId);
+  @GrpcMethod('FinancialService', 'RegisterShipmentThread')
+  async registerShipmentThreadGrpc(data: RegisterShipmentThreadRequest): Promise<CommercialQuoteDto> {
+    return this.financialService.registerShipmentThread(data, data.tenantId);
+  }
+
+  @GrpcMethod('FinancialService', 'ConfirmQuote')
+  async confirmQuoteGrpc(data: ConfirmQuoteRequest): Promise<CommercialQuoteDto> {
+    return this.financialService.confirmQuote(data, data.tenantId);
+  }
+
+  @Post('api/v1/financial/quotes/register-shipment')
+  async registerShipmentThreadHttp(
+    @Body() body: RegisterShipmentThreadRequest,
+    @Req() req: any,
+  ): Promise<CommercialQuoteDto> {
+    return this.financialService.registerShipmentThread(
+      body,
+      req?.tenantId || req?.headers?.['x-tenant-id'] || body?.tenantId,
+    );
   }
 
   @Post('api/v1/financial/quotes')
@@ -91,14 +108,18 @@ export class FinancialController {
     );
   }
 
-  @Patch('api/v1/financial/quotes/:quoteId/link-shipment')
-  async linkQuoteToShipmentHttp(
+  @Patch('api/v1/financial/quotes/:quoteId/confirm')
+  async confirmQuoteHttp(
     @Param('quoteId') quoteId: string,
-    @Body() body: { shipmentId: string },
+    @Body() body: { agreedPrice: number; shipmentId?: string },
     @Req() req: any,
   ): Promise<CommercialQuoteDto> {
-    return this.financialService.linkQuoteToShipment(
-      { quoteId, shipmentId: body?.shipmentId },
+    return this.financialService.confirmQuote(
+      {
+        quoteId,
+        shipmentId: body?.shipmentId,
+        agreedPrice: body?.agreedPrice,
+      },
       req?.tenantId || req?.headers?.['x-tenant-id'],
     );
   }

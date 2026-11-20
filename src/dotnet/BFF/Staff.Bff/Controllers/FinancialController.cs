@@ -83,15 +83,53 @@ public class FinancialController(
         }
     }
 
+    [HttpPost("quotes/register-shipment")]
+    public async Task<IActionResult> RegisterShipmentThread(
+        [FromBody] RegisterShipmentThreadBody body,
+        CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(body.ShipmentId) || string.IsNullOrWhiteSpace(body.SourceThreadId))
+        {
+            return BadRequest(new { detail = "ShipmentId and SourceThreadId are required." });
+        }
+
+        try
+        {
+            var quote = await financialClient.RegisterShipmentThreadAsync(
+                new RegisterShipmentThreadRequest
+                {
+                    ShipmentId = body.ShipmentId,
+                    SourceThreadId = body.SourceThreadId,
+                    CustomerId = body.CustomerId ?? string.Empty,
+                    OriginPort = body.OriginPort ?? string.Empty,
+                    DestinationPort = body.DestinationPort ?? string.Empty,
+                    WeightKg = (double)(body.WeightKg ?? 1000),
+                    VolumeCbm = (double)(body.VolumeCbm ?? 0),
+                    TransportMode = body.TransportMode ?? "ROAD"
+                },
+                cancellationToken: ct);
+
+            return Ok(MapQuote(quote));
+        }
+        catch (RpcException ex)
+        {
+            return ex.ToActionResult();
+        }
+    }
+
     [HttpPost("quotes")]
     [RequirePermission(PermissionConstants.Financial.Calculate, "financial_tax:read")]
     public async Task<IActionResult> CreateQuote(
         [FromBody] CreateQuoteBody body,
         CancellationToken ct = default)
     {
-        if (string.IsNullOrWhiteSpace(body.OriginPort) || string.IsNullOrWhiteSpace(body.DestinationPort) || body.WeightKg <= 0)
+        if (string.IsNullOrWhiteSpace(body.ShipmentId)
+            || string.IsNullOrWhiteSpace(body.RouteId)
+            || string.IsNullOrWhiteSpace(body.OriginPort)
+            || string.IsNullOrWhiteSpace(body.DestinationPort)
+            || body.WeightKg <= 0)
         {
-            return BadRequest(new { detail = "OriginPort, DestinationPort and positive WeightKg are required." });
+            return BadRequest(new { detail = "ShipmentId, RouteId, OriginPort, DestinationPort and positive WeightKg are required." });
         }
 
         try
@@ -99,8 +137,11 @@ public class FinancialController(
             var req = new CreateQuoteRequest
             {
                 SourceThreadId = body.SourceThreadId ?? string.Empty,
-                ShipmentId = body.ShipmentId ?? string.Empty,
+                ShipmentId = body.ShipmentId,
                 CustomerId = body.CustomerId ?? string.Empty,
+                RouteId = body.RouteId,
+                RouteName = body.RouteName ?? string.Empty,
+                DistanceKm = (double)(body.DistanceKm ?? 0),
                 OriginCountry = body.OriginCountry ?? string.Empty,
                 OriginPort = body.OriginPort,
                 DestinationCountry = body.DestinationCountry ?? string.Empty,
@@ -161,24 +202,25 @@ public class FinancialController(
         }
     }
 
-    [HttpPatch("quotes/{quoteId}/link-shipment")]
-    public async Task<IActionResult> LinkQuoteToShipment(
+    [HttpPatch("quotes/{quoteId}/confirm")]
+    public async Task<IActionResult> ConfirmQuote(
         [FromRoute] string quoteId,
-        [FromBody] LinkQuoteShipmentBody body,
+        [FromBody] ConfirmQuoteBody body,
         CancellationToken ct = default)
     {
-        if (string.IsNullOrWhiteSpace(quoteId) || string.IsNullOrWhiteSpace(body.ShipmentId))
+        if (string.IsNullOrWhiteSpace(quoteId) || body.AgreedPrice <= 0)
         {
-            return BadRequest(new { detail = "quoteId and shipmentId are required." });
+            return BadRequest(new { detail = "quoteId and positive agreedPrice are required." });
         }
 
         try
         {
-            var quote = await financialClient.LinkQuoteToShipmentAsync(
-                new LinkQuoteToShipmentRequest
+            var quote = await financialClient.ConfirmQuoteAsync(
+                new ConfirmQuoteRequest
                 {
                     QuoteId = quoteId,
-                    ShipmentId = body.ShipmentId
+                    ShipmentId = body.ShipmentId ?? string.Empty,
+                    AgreedPrice = (double)body.AgreedPrice
                 },
                 cancellationToken: ct);
 
@@ -197,6 +239,9 @@ public class FinancialController(
         sourceThreadId = q.SourceThreadId,
         shipmentId = q.ShipmentId,
         customerId = q.CustomerId,
+        routeId = q.RouteId,
+        routeName = q.RouteName,
+        distanceKm = q.DistanceKm,
         originCountry = q.OriginCountry,
         originPort = q.OriginPort,
         destinationCountry = q.DestinationCountry,
@@ -215,6 +260,7 @@ public class FinancialController(
         costPrice = q.CostPrice,
         minAcceptableRate = q.MinAcceptableRate,
         targetRate = q.TargetRate,
+        agreedPrice = q.AgreedPrice,
         currency = q.Currency,
         calculationMethod = q.CalculationMethod,
         description = q.Description,
@@ -248,6 +294,16 @@ public record CustomsDutyBody(
     string? HsCode,
     decimal CargoValue);
 
+public record RegisterShipmentThreadBody(
+    string ShipmentId,
+    string SourceThreadId,
+    string? CustomerId,
+    string? OriginPort,
+    string? DestinationPort,
+    decimal? WeightKg,
+    decimal? VolumeCbm,
+    string? TransportMode);
+
 public record CreateQuoteBody(
     string? SourceThreadId,
     string? ShipmentId,
@@ -267,6 +323,9 @@ public record CreateQuoteBody(
     decimal? EbsRatePercent,
     decimal? InsuranceRatePercent,
     decimal? MinMarginPercent,
-    decimal? TargetMarginPercent);
+    decimal? TargetMarginPercent,
+    string? RouteId = null,
+    string? RouteName = null,
+    decimal? DistanceKm = null);
 
-public record LinkQuoteShipmentBody(string ShipmentId);
+public record ConfirmQuoteBody(decimal AgreedPrice, string? ShipmentId = null);

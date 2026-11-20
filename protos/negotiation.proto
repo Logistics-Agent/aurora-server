@@ -17,7 +17,6 @@ service NegotiationService {
   rpc GetSessionHistory     (GetSessionHistoryRequest)     returns (GetSessionHistoryResponse);
   rpc GetDraftSuggestion    (GetDraftSuggestionRequest)    returns (GetDraftSuggestionResponse);
   rpc ListSessions          (ListSessionsRequest)          returns (ListSessionsResponse);
-  rpc LinkSessionToShipment (LinkSessionToShipmentRequest) returns (NegotiationSessionSummaryDto);
 }     
   
 message SubmitOfferRequest {
@@ -139,11 +138,6 @@ message NegotiationSessionSummaryDto {
   string source_thread_id           = 15;
   string suggested_body             = 16;
   string suggested_subject          = 17;
-}
-
-message LinkSessionToShipmentRequest {
-  string session_id  = 1;
-  string shipment_id = 2;
 }
 
 message ListSessionsResponse {
