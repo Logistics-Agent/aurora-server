@@ -12,6 +12,7 @@ export interface AiDraftGenerateInput {
   shipmentId: string;
   round: number;
   customerTier?: string;
+  language?: string;
   tenantId?: string;
   userId?: string;
   traceId?: string;
@@ -60,6 +61,7 @@ export class AiGovernanceNegotiationClient implements OnModuleInit {
   }
 
   async generateNegotiationDraft(input: AiDraftGenerateInput): Promise<AiDraftGenerateResult> {
+    const language = input.language?.trim().toLowerCase() === 'en' ? 'en' : 'vi';
     const promptPayload = {
       action: input.action,
       approved_amount: input.approvedAmount,
@@ -68,7 +70,13 @@ export class AiGovernanceNegotiationClient implements OnModuleInit {
       shipment_id: input.shipmentId,
       round: input.round,
       customer_tier: input.customerTier || 'STANDARD',
+      language,
+      instruction:
+        language === 'en'
+          ? 'Write the response in professional English.'
+          : 'Viết nội dung phản hồi hoàn toàn bằng tiếng Việt chuyên nghiệp.',
       business_reason: `Deterministic decision: ${input.action} at ${input.approvedAmount} ${input.currency}.`,
+      privacy_rule: 'Never disclose internal cost, margin, or bottom/floor price.',
     };
 
     const prompt = JSON.stringify(promptPayload);
@@ -128,16 +136,31 @@ export class AiGovernanceNegotiationClient implements OnModuleInit {
   }
 
   public getDeterministicFallback(input: AiDraftGenerateInput): string {
+    const language = input.language?.trim().toLowerCase() === 'en' ? 'en' : 'vi';
+    if (language === 'en') {
+      switch (input.action) {
+        case 'ACCEPT':
+          return `Dear Customer,\n\nThank you for your offer of ${input.customerOffer} ${input.currency} for shipment ${input.shipmentId}. We are pleased to confirm that your offer has been accepted.\n\nBest regards,\nLogistics Team`;
+        case 'COUNTER_OFFER':
+          return `Dear Customer,\n\nThank you for your quotation request of ${input.customerOffer} ${input.currency} regarding shipment ${input.shipmentId}. Based on our current route and capacity calculations, our best possible counter-offer is ${input.approvedAmount} ${input.currency}.\n\nPlease let us know if you would like to proceed.\n\nBest regards,\nLogistics Team`;
+        case 'HUMAN_HANDOFF':
+          return `Dear Customer,\n\nThank you for your proposal regarding shipment ${input.shipmentId}. Your request has been escalated to a dedicated commercial account manager who will contact you shortly with a personalized solution.\n\nBest regards,\nLogistics Team`;
+        case 'REJECT':
+        default:
+          return `Dear Customer,\n\nThank you for your inquiry regarding shipment ${input.shipmentId}. Unfortunately, we are unable to accept the offered rate of ${input.customerOffer} ${input.currency} as it is below our operational threshold.\n\nBest regards,\nLogistics Team`;
+      }
+    }
+
     switch (input.action) {
       case 'ACCEPT':
-        return `Dear Customer,\n\nThank you for your offer of ${input.customerOffer} ${input.currency} for shipment ${input.shipmentId}. We are pleased to confirm that your offer has been accepted.\n\nBest regards,\nLogistics Team`;
+        return `Kính gửi Quý khách,\n\nCảm ơn Quý khách đã gửi đề xuất mức giá ${input.customerOffer} ${input.currency} cho lô hàng ${input.shipmentId}. Chúng tôi trân trọng xác nhận chấp nhận mức giá này.\n\nTrân trọng,\nĐội ngũ Kinh doanh & Vận hành`;
       case 'COUNTER_OFFER':
-        return `Dear Customer,\n\nThank you for your quotation request of ${input.customerOffer} ${input.currency} regarding shipment ${input.shipmentId}. Based on our current route and capacity calculations, our best possible counter-offer is ${input.approvedAmount} ${input.currency}.\n\nPlease let us know if you would like to proceed.\n\nBest regards,\nLogistics Team`;
+        return `Kính gửi Quý khách,\n\nCảm ơn Quý khách đã gửi đề xuất mức giá ${input.customerOffer} ${input.currency} cho lô hàng ${input.shipmentId}. Dựa trên tuyến vận chuyển và năng lực khai thác hiện tại, mức giá tốt nhất chúng tôi có thể đề xuất lại là ${input.approvedAmount} ${input.currency}.\n\nVui lòng phản hồi nếu Quý khách đồng ý với phương án này.\n\nTrân trọng,\nĐội ngũ Kinh doanh & Vận hành`;
       case 'HUMAN_HANDOFF':
-        return `Dear Customer,\n\nThank you for your proposal regarding shipment ${input.shipmentId}. Your request has been escalated to a dedicated commercial account manager who will contact you shortly with a personalized solution.\n\nBest regards,\nLogistics Team`;
+        return `Kính gửi Quý khách,\n\nCảm ơn Quý khách đã gửi đề xuất cho lô hàng ${input.shipmentId}. Yêu cầu của Quý khách đã được chuyển tới chuyên viên phụ trách khách hàng để trực tiếp hỗ trợ và trao đổi phương án phù hợp nhất.\n\nTrân trọng,\nĐội ngũ Kinh doanh & Vận hành`;
       case 'REJECT':
       default:
-        return `Dear Customer,\n\nThank you for your inquiry regarding shipment ${input.shipmentId}. Unfortunately, we are unable to accept the offered rate of ${input.customerOffer} ${input.currency} as it is below our operational threshold.\n\nBest regards,\nLogistics Team`;
+        return `Kính gửi Quý khách,\n\nCảm ơn Quý khách đã quan tâm tới dịch vụ vận chuyển cho lô hàng ${input.shipmentId}. Rất tiếc chúng tôi chưa thể chấp nhận mức giá ${input.customerOffer} ${input.currency} do chưa đáp ứng ngưỡng vận hành tối thiểu.\n\nTrân trọng,\nĐội ngũ Kinh doanh & Vận hành`;
     }
   }
 }

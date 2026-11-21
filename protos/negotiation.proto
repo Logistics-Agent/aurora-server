@@ -13,9 +13,10 @@ import "google/protobuf/timestamp.proto";
 // ==============================================================================
       
 service NegotiationService {
-  rpc SubmitOffer        (SubmitOfferRequest)        returns (SubmitOfferResponse);
-  rpc GetSessionHistory  (GetSessionHistoryRequest)  returns (GetSessionHistoryResponse);
-  rpc GetDraftSuggestion (GetDraftSuggestionRequest) returns (GetDraftSuggestionResponse);
+  rpc SubmitOffer           (SubmitOfferRequest)           returns (SubmitOfferResponse);
+  rpc GetSessionHistory     (GetSessionHistoryRequest)     returns (GetSessionHistoryResponse);
+  rpc GetDraftSuggestion    (GetDraftSuggestionRequest)    returns (GetDraftSuggestionResponse);
+  rpc ListSessions          (ListSessionsRequest)          returns (ListSessionsResponse);
 }     
   
 message SubmitOfferRequest {
@@ -28,6 +29,8 @@ message SubmitOfferRequest {
   string session_id        = 7; // Optional: reuse existing session if provided
   string source_message_id = 8; // Inbound Mail MessageId (RFC / UUID)
   string source_thread_id  = 9; // Inbound Mail ThreadId
+  string quote_id          = 10; // Optional: CommercialQuote ID for pre-shipment quotes
+  string language          = 11; // Optional: 'vi' | 'en' (default: 'vi')
 }
 
 message SuggestedReplyDto {
@@ -51,6 +54,8 @@ message SubmitOfferResponse {
   bool              suggested_reply_available = 11;
   bool              ai_draft_used            = 12;
   bool              fallback_used            = 13;
+  string            quote_id                 = 14;
+  string            source_thread_id         = 15;
 }
 
 message GetSessionHistoryRequest {
@@ -83,6 +88,8 @@ message GetSessionHistoryResponse {
   repeated NegotiationMessageDto messages = 11;
   google.protobuf.Timestamp created_at = 12;
   google.protobuf.Timestamp updated_at = 13;
+  string quote_id                   = 14;
+  string source_thread_id           = 15;
 }
 
 message GetDraftSuggestionRequest {
@@ -103,4 +110,38 @@ message GetDraftSuggestionResponse {
   string currency                  = 11;
   string source_message_id         = 12;
   string source_thread_id          = 13;
+}
+
+message ListSessionsRequest {
+  string status           = 1; // Optional: OPEN, ACCEPTED, HANDOFF, REJECTED
+  int32  page             = 2; // 1-based, default 1
+  int32  page_size        = 3; // default 20, max 100
+  string source_thread_id = 4; // Optional filter by Mail ThreadId
+  string shipment_id      = 5; // Optional filter by ShipmentId
+  string quote_id         = 6; // Optional filter by CommercialQuote ID
+}
+
+message NegotiationSessionSummaryDto {
+  string session_id           = 1;
+  string shipment_id          = 2;
+  string customer_id          = 3;
+  string status               = 4;
+  int32  current_round        = 5;
+  int32  max_rounds           = 6;
+  double list_price           = 7;
+  double bottom_price         = 8;
+  string currency             = 9;
+  string last_decision        = 10;
+  double last_approved_amount = 11;
+  google.protobuf.Timestamp created_at = 12;
+  google.protobuf.Timestamp updated_at = 13;
+  string quote_id                   = 14;
+  string source_thread_id           = 15;
+  string suggested_body             = 16;
+  string suggested_subject          = 17;
+}
+
+message ListSessionsResponse {
+  repeated NegotiationSessionSummaryDto sessions = 1;
+  int32 total = 2;
 }

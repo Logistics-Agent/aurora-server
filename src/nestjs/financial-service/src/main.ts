@@ -21,7 +21,8 @@ async function bootstrap() {
 
   logger.log(`Loading gRPC Proto from: ${protoPath}`);
 
-  const app = await NestFactory.createMicroservice<MicroserviceOptions>(AppModule, {
+  const app = await NestFactory.create(AppModule);
+  app.connectMicroservice<MicroserviceOptions>({
     transport: Transport.GRPC,
     options: {
       package: 'financial',
@@ -30,8 +31,12 @@ async function bootstrap() {
     },
   });
 
-  await app.listen();
-  logger.log(`Financial & Cost Estimation NestJS gRPC Microservice is listening on ${url}`);
+  await app.startAllMicroservices();
+  const httpPort = Number(process.env.HTTP_PORT || process.env.PORT || 3003);
+  await app.listen(httpPort, '0.0.0.0');
+  logger.log(
+    `Financial & Cost Estimation NestJS Hybrid Microservice listening on gRPC ${url} and HTTP :${httpPort}`,
+  );
 }
 
 bootstrap();

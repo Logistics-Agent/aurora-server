@@ -1,8 +1,9 @@
-import { Injectable, Logger, NotFoundException, BadRequestException, ConflictException, ServiceUnavailableException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, BadRequestException, ConflictException, ServiceUnavailableException, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { NegotiationStrategyDomainService, DEFAULT_NEGOTIATION_CURRENCY } from '../../domain/services/negotiation-strategy.domain-service';
 import { AiGovernanceNegotiationClient } from '../../infrastructure/grpc/ai-governance.grpc-client';
+import { FinancialGrpcClient } from '../../infrastructure/grpc/financial.grpc-client';
 
 export interface SubmitOfferInput {
   tenantId?: string;
@@ -17,6 +18,8 @@ export interface SubmitOfferInput {
   sessionId?: string;
   sourceMessageId?: string;
   sourceThreadId?: string;
+  quoteId?: string;
+  language?: string;
   // snake_case support for raw Protobuf gRPC payloads
   shipment_id?: string;
   customer_id?: string;
@@ -27,6 +30,7 @@ export interface SubmitOfferInput {
   session_id?: string;
   source_message_id?: string;
   source_thread_id?: string;
+  quote_id?: string;
 }
 
 export interface SuggestedReplyDto {
@@ -35,9 +39,16 @@ export interface SuggestedReplyDto {
   language: string;
 }
 
+export interface ProtobufTimestamp {
+  seconds: number;
+  nanos: number;
+}
+
 export interface NegotiationResult {
   sessionId: string;
   shipmentId: string;
+  quoteId?: string;
+  sourceThreadId?: string;
   round: number;
   decision: string;
   counterOfferPrice?: number;
@@ -45,7 +56,7 @@ export interface NegotiationResult {
   currency: string;
   aiSpeech: string;
   status: string;
-  createdAt: string;
+  createdAt: ProtobufTimestamp;
   suggestedReply: SuggestedReplyDto;
   suggestedReplyAvailable: boolean;
   aiDraftUsed: boolean;
@@ -77,27 +88,38 @@ export class NegotiationService {
     private readonly strategy: NegotiationStrategyDomainService,
     private readonly aiGovernanceClient: AiGovernanceNegotiationClient,
     private readonly config: ConfigService,
+    @Optional() private readonly financialGrpcClient?: FinancialGrpcClient,
   ) {}
 
   async submitOffer(input: SubmitOfferInput): Promise<NegotiationResult> {
     const tenantId = this.requireTenant(input.tenantId);
-    const shipmentId = input.shipmentId || input.shipment_id;
-    const customerId = input.customerId || input.customer_id;
+    const shipmentId = (input.shipmentId || input.shipment_id)?.trim() || '';
+    const quoteId = (input.quoteId || input.quote_id)?.trim() || undefined;
+    const customerId = (input.customerId || input.customer_id)?.trim();
     const offerPrice = input.offerPrice ?? input.offer_price ?? NaN;
     const listPrice = input.listPrice ?? input.list_price ?? NaN;
     const bottomPrice = input.bottomPrice ?? input.bottom_price ?? NaN;
+    const customerTier = input.customerTier || input.customer_tier;
+    const requestedSessionId = (input.sessionId || input.session_id)?.trim() || undefined;
+    const sourceMessageId = (input.sourceMessageId || input.source_message_id)?.trim() || null;
+    const sourceThreadId = (input.sourceThreadId || input.source_thread_id)?.trim() || null;
+    const suggestedLanguage = input.language?.trim().toLowerCase() === 'en' ? 'en' : 'vi';
+
     if (!shipmentId || !customerId || !Number.isFinite(offerPrice) || offerPrice <= 0) {
       throw new BadRequestException('shipmentId, customerId and a positive offerPrice are required');
     }
-    const customerTier = input.customerTier || input.customer_tier;
-    const requestedSessionId = input.sessionId || input.session_id;
-    const sourceMessageId = input.sourceMessageId || input.source_message_id || null;
-    const sourceThreadId = input.sourceThreadId || input.source_thread_id || null;
     const currency = DEFAULT_NEGOTIATION_CURRENCY;
 
-    // 1. Get or create active negotiation session
+    // 1. Get or create active negotiation session anchored strictly to shipmentId
     let session = requestedSessionId
-      ? await this.prisma.negotiationSession.findFirst({ where: { id: requestedSessionId, tenantId, shipmentId, customerId } })
+      ? await this.prisma.negotiationSession.findFirst({
+          where: {
+            id: requestedSessionId,
+            tenantId,
+            shipmentId,
+            customerId,
+          },
+        })
       : await this.prisma.negotiationSession.findFirst({
           where: {
             tenantId,
@@ -113,6 +135,7 @@ export class NegotiationService {
       const resolvedPricing = await this.resolveAuthoritativePricing(
         tenantId,
         shipmentId,
+        quoteId,
         listPrice,
         bottomPrice,
       );
@@ -120,6 +143,7 @@ export class NegotiationService {
         data: {
           tenantId,
           shipmentId,
+          quoteId: quoteId ?? null,
           customerId,
           status: 'OPEN',
           currentRound: 1,
@@ -132,6 +156,10 @@ export class NegotiationService {
         },
       });
     }
+
+    const effectiveShipmentId = shipmentId;
+    const effectiveQuoteId = quoteId || session.quoteId || undefined;
+    const refForPrompt = effectiveShipmentId;
 
     // 2. Evaluate Strategy Decision via Deterministic Engine
     const strategyResult = this.strategy.determineDecision({
@@ -151,9 +179,10 @@ export class NegotiationService {
       approvedAmount: strategyResult.approvedAmount,
       currency: strategyResult.currency,
       customerOffer: offerPrice,
-      shipmentId,
+      shipmentId: refForPrompt,
       round: session.currentRound,
       customerTier,
+      language: suggestedLanguage,
       tenantId,
       userId: input.userId,
       traceId: input.traceId,
@@ -164,13 +193,14 @@ export class NegotiationService {
     let aiDraftUsed = !aiResult.isFallback;
     let fallbackUsed = aiResult.isFallback;
 
-    // Validation Guardrails: Check if AI output violates deterministic decision or price
+    // Validation Guardrails: Check if AI output violates deterministic decision or leaks Cost / Floor B
     const isWordingValid = this.validateAiWording(
       aiResult.content,
       strategyResult.decision,
       strategyResult.approvedAmount,
       strategyResult.currency,
       offerPrice,
+      session.bottomPrice,
     );
 
     if (!isWordingValid && !aiResult.isFallback) {
@@ -182,15 +212,22 @@ export class NegotiationService {
         approvedAmount: strategyResult.approvedAmount,
         currency: strategyResult.currency,
         customerOffer: offerPrice,
-        shipmentId,
+        shipmentId: refForPrompt,
         round: session.currentRound,
+        language: suggestedLanguage,
       });
       aiDraftUsed = false;
       fallbackUsed = true;
     }
 
-    const suggestedSubject = `Re: Quotation Proposal for Shipment ${shipmentId}`;
-    const suggestedLanguage = 'en';
+    const suggestedSubject =
+      suggestedLanguage === 'en'
+        ? effectiveShipmentId
+          ? `Re: Quotation Proposal for Shipment ${effectiveShipmentId}`
+          : `Re: Commercial Quotation Proposal${effectiveQuoteId ? ` (${effectiveQuoteId.slice(0, 8)})` : ''}`
+        : effectiveShipmentId
+          ? `Re: Đề xuất báo giá cho lô hàng ${effectiveShipmentId}`
+          : `Re: Đề xuất báo giá thương mại${effectiveQuoteId ? ` (${effectiveQuoteId.slice(0, 8)})` : ''}`;
 
     // 5. Determine new session status
     let newStatus = session.status;
@@ -202,32 +239,15 @@ export class NegotiationService {
       newStatus = 'REJECTED';
     }
 
-    // 6. ACID Transaction: Save customer & AI messages + update session round/status/suggestedReply
-    const [, savedMsg, updatedSession] = await this.prisma.$transaction([
-      this.prisma.negotiationMessage.create({
-        data: {
-          sessionId: session.id,
-          round: session.currentRound,
-          sender: 'CUSTOMER',
-          message: `Customer submitted offer of ${offerPrice} ${strategyResult.currency}`,
-          offerPrice,
-          decision: 'OFFER_SUBMITTED',
-          currency: strategyResult.currency,
+    // 6. ACID Transaction: OCC update + save customer & AI messages cleanly
+    const [, savedMsg] = await this.prisma.$transaction(async (tx) => {
+      const updated = await tx.negotiationSession.updateMany({
+        where: {
+          id: session.id,
+          tenantId,
+          status: 'OPEN',
+          currentRound: session.currentRound,
         },
-      }),
-      this.prisma.negotiationMessage.create({
-        data: {
-          sessionId: session.id,
-          round: session.currentRound,
-          sender: 'AI',
-          message: finalBody,
-          offerPrice: strategyResult.counterOfferPrice || offerPrice,
-          decision: strategyResult.decision,
-          currency: strategyResult.currency,
-        },
-      }),
-      this.prisma.negotiationSession.update({
-        where: { id: session.id },
         data: {
           status: newStatus,
           currentRound: { increment: 1 },
@@ -242,8 +262,40 @@ export class NegotiationService {
           sourceMessageId: sourceMessageId || session.sourceMessageId,
           sourceThreadId: sourceThreadId || session.sourceThreadId,
         },
-      }),
-    ]);
+      });
+
+      if (updated.count === 0) {
+        throw new ConflictException(
+          `Negotiation session ${session.id} was modified concurrently or is no longer open at round ${session.currentRound}`,
+        );
+      }
+
+      const customerMsg = await tx.negotiationMessage.create({
+        data: {
+          sessionId: session.id,
+          round: session.currentRound,
+          sender: 'CUSTOMER',
+          message: `Customer submitted offer of ${offerPrice} ${strategyResult.currency}`,
+          offerPrice,
+          decision: 'OFFER_SUBMITTED',
+          currency: strategyResult.currency,
+        },
+      });
+
+      const aiMsg = await tx.negotiationMessage.create({
+        data: {
+          sessionId: session.id,
+          round: session.currentRound,
+          sender: 'AI',
+          message: finalBody,
+          offerPrice: strategyResult.counterOfferPrice || offerPrice,
+          decision: strategyResult.decision,
+          currency: strategyResult.currency,
+        },
+      });
+
+      return [customerMsg, aiMsg];
+    });
 
     this.logger.log(
       `[Negotiation] Session ${session.id} | Round ${session.currentRound} | Decision: ${strategyResult.decision} | SuggestedReply Available (AI Used: ${aiDraftUsed}, Fallback Used: ${fallbackUsed})`,
@@ -251,7 +303,9 @@ export class NegotiationService {
 
     return {
       sessionId: session.id,
-      shipmentId,
+      shipmentId: effectiveShipmentId ?? '',
+      quoteId: effectiveQuoteId ?? '',
+      sourceThreadId: sourceThreadId || session.sourceThreadId || '',
       round: session.currentRound,
       decision: strategyResult.decision,
       counterOfferPrice: strategyResult.counterOfferPrice,
@@ -259,7 +313,7 @@ export class NegotiationService {
       currency: strategyResult.currency,
       aiSpeech: finalBody,
       status: newStatus,
-      createdAt: savedMsg.createdAt.toISOString(),
+      createdAt: this.toProtobufTimestamp(savedMsg.createdAt),
       suggestedReply: {
         subjectSuggestion: suggestedSubject,
         body: finalBody,
@@ -281,7 +335,97 @@ export class NegotiationService {
       throw new NotFoundException(`Negotiation Session ${sessionId} not found`);
     }
 
-    return session;
+    return {
+      sessionId: session.id,
+      tenantId: session.tenantId,
+      shipmentId: session.shipmentId ?? '',
+      quoteId: session.quoteId ?? '',
+      sourceThreadId: session.sourceThreadId ?? '',
+      customerId: session.customerId,
+      status: session.status,
+      currentRound: session.currentRound,
+      maxRounds: session.maxRounds,
+      listPrice: session.listPrice,
+      bottomPrice: session.bottomPrice,
+      currency: session.currency,
+      messages: session.messages.map((m) => ({
+        id: m.id,
+        sessionId: m.sessionId,
+        round: m.round,
+        sender: m.sender,
+        message: m.message,
+        offerPrice: m.offerPrice ?? 0,
+        decision: m.decision || '',
+        currency: m.currency,
+        createdAt: this.toProtobufTimestamp(m.createdAt),
+      })),
+      createdAt: this.toProtobufTimestamp(session.createdAt),
+      updatedAt: this.toProtobufTimestamp(session.updatedAt),
+    };
+  }
+
+  async listSessions(input: {
+    tenantId?: string;
+    status?: string;
+    page?: number;
+    pageSize?: number;
+    sourceThreadId?: string;
+    shipmentId?: string;
+    quoteId?: string;
+  }) {
+    const tenantId = this.requireTenant(input.tenantId);
+    const page = Math.max(1, Number(input.page || 1));
+    const pageSize = Math.min(100, Math.max(1, Number(input.pageSize || 20)));
+    const where: Record<string, any> = { tenantId };
+    if (input.status?.trim()) {
+      where.status = input.status.trim().toUpperCase();
+    }
+    if (input.sourceThreadId?.trim()) {
+      where.sourceThreadId = input.sourceThreadId.trim();
+    }
+    if (input.shipmentId?.trim()) {
+      where.shipmentId = input.shipmentId.trim();
+    }
+    if (input.quoteId?.trim()) {
+      where.quoteId = input.quoteId.trim();
+    }
+
+    const [sessions, total] = await Promise.all([
+      this.prisma.negotiationSession.findMany({
+        where,
+        orderBy: { updatedAt: 'desc' },
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+      }),
+      this.prisma.negotiationSession.count({ where }),
+    ]);
+
+    return {
+      sessions: sessions.map((s) => this.mapSessionSummary(s)),
+      total,
+    };
+  }
+
+  private mapSessionSummary(s: any) {
+    return {
+      sessionId: s.id,
+      shipmentId: s.shipmentId ?? '',
+      quoteId: s.quoteId ?? '',
+      sourceThreadId: s.sourceThreadId ?? '',
+      customerId: s.customerId,
+      status: s.status,
+      currentRound: s.currentRound,
+      maxRounds: s.maxRounds,
+      listPrice: s.listPrice,
+      bottomPrice: s.bottomPrice,
+      currency: s.currency,
+      lastDecision: s.lastDecision || '',
+      lastApprovedAmount: s.lastApprovedAmount ?? 0,
+      suggestedBody: s.suggestedBody || '',
+      suggestedSubject: s.suggestedSubject || '',
+      createdAt: this.toProtobufTimestamp(s.createdAt),
+      updatedAt: this.toProtobufTimestamp(s.updatedAt),
+    };
   }
 
   async getDraftSuggestion(sessionId: string, tenantId?: string): Promise<DraftSuggestionResult> {
@@ -295,11 +439,15 @@ export class NegotiationService {
 
     return {
       negotiationSessionId: session.id,
-      shipmentId: session.shipmentId,
+      shipmentId: session.shipmentId ?? '',
       suggestedReplyAvailable: session.suggestedReplyAvailable,
       aiDraftUsed: session.aiDraftUsed,
       fallbackUsed: session.fallbackUsed,
-      subject: session.suggestedSubject || `Re: Quotation Proposal for Shipment ${session.shipmentId}`,
+      subject:
+        session.suggestedSubject ||
+        (session.shipmentId
+          ? `Re: Quotation Proposal for Shipment ${session.shipmentId}`
+          : 'Re: Commercial Quotation Proposal'),
       body: session.suggestedBody || '',
       language: session.suggestedLanguage || 'en',
       decision: session.lastDecision || session.status,
@@ -316,43 +464,91 @@ export class NegotiationService {
    */
   private async resolveAuthoritativePricing(
     tenantId: string,
-    shipmentId: string,
+    shipmentId: string | undefined,
+    quoteId: string | undefined,
     inputListPrice: number,
     inputBottomPrice: number,
   ): Promise<{ listPrice: number; bottomPrice: number }> {
+    if (this.financialGrpcClient?.isConfigured()) {
+      const grpcPricing = await this.financialGrpcClient.resolveQuotePricing(
+        tenantId,
+        shipmentId,
+        quoteId,
+      );
+      if (grpcPricing) {
+        return grpcPricing;
+      }
+    }
+
     const financialServiceUrl = this.config.get<string>('FINANCIAL_SERVICE_URL');
     if (financialServiceUrl?.trim()) {
-      try {
-        const baseUrl = financialServiceUrl.trim().replace(/\/+$/, '');
-        const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), 2500);
-        const res = await fetch(
-          `${baseUrl}/api/v1/financial/quotes/${encodeURIComponent(shipmentId)}`,
-          {
-            headers: { 'x-tenant-id': tenantId, Accept: 'application/json' },
-            signal: controller.signal,
-          },
-        );
-        clearTimeout(timer);
-        if (res.ok) {
-          const payload = (await res.json()) as Record<string, any>;
-          const quoteData = payload?.data ?? payload;
-          const remoteList = Number(quoteData?.listPrice ?? quoteData?.finalPrice);
-          const remoteBottom = Number(quoteData?.bottomPrice ?? quoteData?.floorPrice);
-          if (
-            Number.isFinite(remoteList) &&
-            Number.isFinite(remoteBottom) &&
-            remoteList > 0 &&
-            remoteBottom > 0 &&
-            remoteBottom <= remoteList
-          ) {
-            return { listPrice: remoteList, bottomPrice: remoteBottom };
+      const baseUrl = financialServiceUrl.trim().replace(/\/+$/, '');
+      if (quoteId) {
+        try {
+          const controller = new AbortController();
+          const timer = setTimeout(() => controller.abort(), 2500);
+          const res = await fetch(
+            `${baseUrl}/api/v1/financial/quotes?quoteId=${encodeURIComponent(quoteId)}`,
+            {
+              headers: { 'x-tenant-id': tenantId, Accept: 'application/json' },
+              signal: controller.signal,
+            },
+          );
+          clearTimeout(timer);
+          if (res.ok) {
+            const payload = (await res.json()) as Record<string, any>;
+            const quotes = payload?.quotes ?? payload?.data?.quotes ?? [];
+            const quoteData = Array.isArray(quotes) ? quotes[0] : quotes;
+            const remoteList = Number(quoteData?.targetRate ?? quoteData?.listPrice);
+            const remoteBottom = Number(quoteData?.minAcceptableRate ?? quoteData?.bottomPrice);
+            if (
+              Number.isFinite(remoteList) &&
+              Number.isFinite(remoteBottom) &&
+              remoteList > 0 &&
+              remoteBottom > 0 &&
+              remoteBottom <= remoteList
+            ) {
+              return { listPrice: remoteList, bottomPrice: remoteBottom };
+            }
           }
+        } catch (err) {
+          this.logger.warn(
+            `[Negotiation] Failed to fetch quote ${quoteId} from FINANCIAL_SERVICE_URL: ${(err as Error).message}`,
+          );
         }
-      } catch (err) {
-        this.logger.warn(
-          `[Negotiation] Failed to fetch authoritative pricing from FINANCIAL_SERVICE_URL for shipment ${shipmentId}: ${(err as Error).message}`,
-        );
+      }
+      if (shipmentId) {
+        try {
+          const controller = new AbortController();
+          const timer = setTimeout(() => controller.abort(), 2500);
+          const res = await fetch(
+            `${baseUrl}/api/v1/financial/quotes/${encodeURIComponent(shipmentId)}`,
+            {
+              headers: { 'x-tenant-id': tenantId, Accept: 'application/json' },
+              signal: controller.signal,
+            },
+          );
+          clearTimeout(timer);
+          if (res.ok) {
+            const payload = (await res.json()) as Record<string, any>;
+            const quoteData = payload?.data ?? payload;
+            const remoteList = Number(quoteData?.listPrice ?? quoteData?.finalPrice ?? quoteData?.targetRate);
+            const remoteBottom = Number(quoteData?.bottomPrice ?? quoteData?.floorPrice ?? quoteData?.minAcceptableRate);
+            if (
+              Number.isFinite(remoteList) &&
+              Number.isFinite(remoteBottom) &&
+              remoteList > 0 &&
+              remoteBottom > 0 &&
+              remoteBottom <= remoteList
+            ) {
+              return { listPrice: remoteList, bottomPrice: remoteBottom };
+            }
+          }
+        } catch (err) {
+          this.logger.warn(
+            `[Negotiation] Failed to fetch authoritative pricing from FINANCIAL_SERVICE_URL for shipment ${shipmentId}: ${(err as Error).message}`,
+          );
+        }
       }
     }
 
@@ -387,8 +583,18 @@ export class NegotiationService {
     approvedAmount: number,
     expectedCurrency: string,
     customerOffer?: number,
+    bottomPrice?: number,
   ): boolean {
     if (!content || content.trim().length === 0) return false;
+
+    // Never allow internal cost, margin, or bottom/floor price terminology in outbound customer wording
+    if (
+      /\b(base cost|cost price|floor price|bottom price|minimum acceptable|internal margin)\b|(giá vốn|giá sàn)/i.test(
+        content,
+      )
+    ) {
+      return false;
+    }
 
     if (
       expectedDecision === 'COUNTER_OFFER' &&
@@ -414,6 +620,15 @@ export class NegotiationService {
         }
       }
 
+      if (
+        expectedDecision === 'COUNTER_OFFER' &&
+        bottomPrice !== undefined &&
+        Math.abs(approvedAmount - bottomPrice) > 1.0 &&
+        mentionedPrices.some((val) => Math.abs(val - bottomPrice) <= 1.0)
+      ) {
+        return false;
+      }
+
       if (mentionedPrices.length > 0) {
         const hasApprovedAmount = mentionedPrices.some(
           (val) => Math.abs(val - approvedAmount) <= 1.0,
@@ -430,6 +645,14 @@ export class NegotiationService {
     }
 
     return true;
+  }
+
+  private toProtobufTimestamp(date: Date): ProtobufTimestamp {
+    const ms = date.getTime();
+    return {
+      seconds: Math.floor(ms / 1000),
+      nanos: (ms % 1000) * 1_000_000,
+    };
   }
 
   private requireTenant(tenantId?: string): string {

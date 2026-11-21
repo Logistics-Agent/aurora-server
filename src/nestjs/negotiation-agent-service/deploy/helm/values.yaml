@@ -11,7 +11,7 @@ service:
   annotations:
     service.beta.kubernetes.io/azure-load-balancer-internal: "true"
     service.beta.kubernetes.io/azure-load-balancer-internal-subnet: "snet-aks-ai"
-  loadBalancerIP: 10.20.2.15
+  loadBalancerIP: 10.20.15.15
   port: 8080
   targetPort: 8080
   name: grpc
@@ -31,6 +31,7 @@ env:
   REDIS_PORT: "6379"
   REDIS_TLS: "false"
   AI_GOVERNANCE_GRPC_URL: "ai-governance:9090"
+  FINANCIAL_SERVICE_GRPC_URL: "10.10.15.10:5003"
 
 externalSecret:
   enabled: true

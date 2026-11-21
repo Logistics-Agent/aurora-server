@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using System.Text;
 using Microsoft.EntityFrameworkCore;
 using RegulatoryCompliance.Application.Embeddings;
+using RegulatoryCompliance.Application.Retrieval;
 using RegulatoryCompliance.Domain.Entities;
 using RegulatoryCompliance.Domain.Enums;
 using RegulatoryCompliance.Infrastructure.Persistences;
@@ -288,22 +289,40 @@ public sealed class KnowledgeIngestionService(
 
         var queryVector = queryEmbeddings[0];
 
-        // Candidate chunk query with tenant isolation pre-filtering
-        var chunkQuery = dbContext.KnowledgeChunks
-            .AsNoTracking()
-            .Where(c => c.EmbeddingStatus == ChunkEmbeddingStatus.Completed && c.Embedding != null);
+        // Candidate chunk query with tenant isolation & category pre-filtering, ordered by recency
+        var candidateRows = await (
+                from chunk in dbContext.KnowledgeChunks.AsNoTracking()
+                join version in dbContext.KnowledgeDocumentVersions.AsNoTracking()
+                    on chunk.KnowledgeDocumentVersionId equals version.Id
+                join document in dbContext.KnowledgeDocuments.AsNoTracking()
+                    on version.KnowledgeDocumentId equals document.Id
+                where chunk.EmbeddingStatus == ChunkEmbeddingStatus.Completed
+                      && chunk.Embedding != null
+                      && version.IngestionStatus == RegulatoryIngestionStatus.Completed
+                      && (categories.Count == 0 || categories.Contains(document.Category))
+                orderby version.CreatedAt descending, chunk.Sequence ascending, chunk.Id ascending
+                select new
+                {
+                    chunk.Id,
+                    chunk.NormalizedText,
+                    chunk.SectionLabel,
+                    document.Title
+                })
+            .Take(2_000)
+            .ToListAsync(cancellationToken);
 
-        var candidateChunkIds = await chunkQuery.Select(c => c.Id).Take(2000).ToListAsync(cancellationToken);
+        var candidateChunkIds = candidateRows.Select(row => row.Id).ToList();
         if (candidateChunkIds.Count == 0)
             return await QueryByKeywordAsync(query, categories, topK, minimumRelevanceScore, cancellationToken);
 
+        int vectorTopK = Math.Min(100, Math.Max(1, topK * 3));
         var searchRequest = new VectorSearchRequest(
             queryVector,
             embeddingProvider.Model.Name,
             embeddingProvider.Model.Version,
             embeddingProvider.Model.Dimension,
             candidateChunkIds,
-            topK,
+            vectorTopK,
             minimumRelevanceScore);
 
         IReadOnlyList<KnowledgeVectorSearchResult> searchResults;
@@ -315,13 +334,42 @@ public sealed class KnowledgeIngestionService(
         {
             return await QueryByKeywordAsync(query, categories, topK, minimumRelevanceScore, cancellationToken);
         }
-        if (searchResults.Count == 0)
+
+        var vectorScoreMap = searchResults
+            .OrderByDescending(item => item.Score)
+            .ThenBy(item => item.ChunkId)
+            .Take(vectorTopK)
+            .ToDictionary(item => item.ChunkId, item => item.Score);
+
+        int lexicalLimit = Math.Min(100, Math.Max(1, topK * 2));
+        var lexicalTopIds = candidateRows
+            .Select(item => new
+            {
+                item.Id,
+                LexScore = RegulationRetrievalService.ComputeLexicalRelevanceScore(
+                    query,
+                    item.NormalizedText,
+                    item.Title,
+                    item.SectionLabel)
+            })
+            .Where(item => item.LexScore > 0m)
+            .OrderByDescending(item => item.LexScore)
+            .ThenBy(item => item.Id)
+            .Take(lexicalLimit)
+            .Select(item => item.Id)
+            .ToArray();
+
+        var unionChunkIds = vectorScoreMap.Keys
+            .Union(lexicalTopIds)
+            .Distinct()
+            .ToList();
+
+        if (unionChunkIds.Count == 0)
             return await QueryByKeywordAsync(query, categories, topK, minimumRelevanceScore, cancellationToken);
 
-        var resultChunkIds = searchResults.Select(r => r.ChunkId).ToList();
         var chunks = await dbContext.KnowledgeChunks
             .AsNoTracking()
-            .Where(c => resultChunkIds.Contains(c.Id))
+            .Where(c => unionChunkIds.Contains(c.Id))
             .ToDictionaryAsync(c => c.Id, cancellationToken);
 
         var versionIds = chunks.Values.Select(c => c.KnowledgeDocumentVersionId).Distinct().ToList();
@@ -336,33 +384,137 @@ public sealed class KnowledgeIngestionService(
             .Where(d => docIds.Contains(d.Id))
             .ToDictionaryAsync(d => d.Id, cancellationToken);
 
-        var evidence = new List<KnowledgeEvidenceResult>();
-        foreach (var result in searchResults)
-        {
-            if (!chunks.TryGetValue(result.ChunkId, out var chunk)) continue;
-            if (!versions.TryGetValue(chunk.KnowledgeDocumentVersionId, out var ver)) continue;
-            if (!docs.TryGetValue(ver.KnowledgeDocumentId, out var doc)) continue;
+        var evidence = unionChunkIds
+            .Where(chunks.ContainsKey)
+            .Select(chunkId =>
+            {
+                var chunk = chunks[chunkId];
+                if (!versions.TryGetValue(chunk.KnowledgeDocumentVersionId, out var ver)) return null;
+                if (!docs.TryGetValue(ver.KnowledgeDocumentId, out var doc)) return null;
+                if (categories.Count > 0 && !categories.Contains(doc.Category)) return null;
 
-            if (categories.Count > 0 && !categories.Contains(doc.Category))
-                continue;
+                var vecScore = vectorScoreMap.GetValueOrDefault(chunkId, 0m);
+                var lexScore = RegulationRetrievalService.ComputeLexicalRelevanceScore(
+                    query,
+                    chunk.NormalizedText,
+                    doc.Title,
+                    chunk.SectionLabel);
+                var hybridBoost = RegulationRetrievalService.ComputeHybridLexicalBoost(
+                    query,
+                    chunk.NormalizedText,
+                    doc.Title);
+                var finalScore = RegulationRetrievalService.ComputeHybridFusionScore(
+                    vecScore,
+                    lexScore,
+                    hybridBoost);
 
-            evidence.Add(new KnowledgeEvidenceResult(
-                doc.Id,
-                ver.Id,
-                chunk.Id,
-                doc.Title,
-                doc.Category,
-                chunk.SectionLabel,
-                chunk.PageLabel,
-                chunk.NormalizedText,
-                result.Score,
-                doc.SourceReference));
-        }
+                return new KnowledgeEvidenceResult(
+                    doc.Id,
+                    ver.Id,
+                    chunk.Id,
+                    doc.Title,
+                    doc.Category,
+                    chunk.SectionLabel,
+                    chunk.PageLabel,
+                    chunk.NormalizedText,
+                    finalScore,
+                    doc.SourceReference);
+            })
+            .Where(item => item is not null && item.RelevanceScore >= minimumRelevanceScore)
+            .Cast<KnowledgeEvidenceResult>()
+            .OrderByDescending(item => item.RelevanceScore)
+            .ThenBy(item => item.ChunkId)
+            .Take(topK)
+            .ToList();
 
+        IReadOnlyList<KnowledgeEvidenceResult> resolvedEvidence = evidence.Count == 0
+            ? await QueryByKeywordAsync(query, categories, topK, minimumRelevanceScore, cancellationToken)
+            : evidence;
+
+        return await ExpandKnowledgeNeighborContextAsync(resolvedEvidence, cancellationToken);
+    }
+
+    private async Task<IReadOnlyList<KnowledgeEvidenceResult>> ExpandKnowledgeNeighborContextAsync(
+        IReadOnlyList<KnowledgeEvidenceResult> evidence,
+        CancellationToken cancellationToken)
+    {
         if (evidence.Count == 0)
-            return await QueryByKeywordAsync(query, categories, topK, minimumRelevanceScore, cancellationToken);
+            return evidence;
 
-        return evidence;
+        var shortIds = evidence
+            .Where(item => item.Excerpt.Length < RegulationRetrievalService.NeighborExpansionLengthThreshold)
+            .Select(item => item.ChunkId)
+            .Distinct()
+            .ToArray();
+
+        if (shortIds.Length == 0)
+            return evidence;
+
+        var centerChunks = await dbContext.KnowledgeChunks
+            .AsNoTracking()
+            .Where(chunk => shortIds.Contains(chunk.Id))
+            .Select(chunk => new RegulationRetrievalService.NeighborChunkSlice(
+                chunk.Id,
+                chunk.KnowledgeDocumentVersionId,
+                chunk.Sequence,
+                chunk.SectionLabel,
+                chunk.NormalizedText))
+            .ToListAsync(cancellationToken);
+
+        if (centerChunks.Count == 0)
+            return evidence;
+
+        var versionIds = centerChunks
+            .Select(chunk => chunk.VersionId)
+            .Distinct()
+            .ToArray();
+
+        var desiredSequences = centerChunks
+            .SelectMany(chunk => new[] { chunk.Sequence - 1, chunk.Sequence + 1 })
+            .Where(seq => seq >= 0)
+            .Distinct()
+            .ToArray();
+
+        if (desiredSequences.Length == 0)
+            return evidence;
+
+        var neighborCandidates = await dbContext.KnowledgeChunks
+            .AsNoTracking()
+            .Where(chunk =>
+                versionIds.Contains(chunk.KnowledgeDocumentVersionId) &&
+                desiredSequences.Contains(chunk.Sequence))
+            .Select(chunk => new RegulationRetrievalService.NeighborChunkSlice(
+                chunk.Id,
+                chunk.KnowledgeDocumentVersionId,
+                chunk.Sequence,
+                chunk.SectionLabel,
+                chunk.NormalizedText))
+            .ToListAsync(cancellationToken);
+
+        if (neighborCandidates.Count == 0)
+            return evidence;
+
+        var selectedChunkIds = evidence.Select(item => item.ChunkId).ToHashSet();
+        var centersById = centerChunks.ToDictionary(chunk => chunk.Id);
+
+        return evidence
+            .Select(item =>
+            {
+                if (item.Excerpt.Length >= RegulationRetrievalService.NeighborExpansionLengthThreshold)
+                    return item;
+
+                var merged = RegulationRetrievalService.MergeNeighborContextForChunk(
+                    item.ChunkId,
+                    item.Excerpt,
+                    selectedChunkIds,
+                    centersById,
+                    neighborCandidates);
+
+                return ReferenceEquals(merged, item.Excerpt)
+                    ? item
+                    : item with { Excerpt = merged };
+            })
+            .ToList();
     }
 
     private void Authorize(SourceVisibility visibility)

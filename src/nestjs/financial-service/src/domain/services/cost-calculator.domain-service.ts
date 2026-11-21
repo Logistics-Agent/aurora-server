@@ -1,5 +1,23 @@
 import { Injectable } from '@nestjs/common';
 
+export const DEFAULT_MIN_MARGIN_PERCENT = 10;
+export const DEFAULT_TARGET_MARGIN_PERCENT = 25;
+
+export interface CorridorRatePolicy {
+  ratePerKm: number;
+  ratePerTonKm: number;
+  handlingFeeUsd: number;
+  fuelSurchargePercent: number;
+}
+
+export const CORRIDOR_RATES_BY_MODE: Record<string, CorridorRatePolicy> = {
+  ROAD: { ratePerKm: 1.15, ratePerTonKm: 0.085, handlingFeeUsd: 140, fuelSurchargePercent: 12 },
+  SEA: { ratePerKm: 0.45, ratePerTonKm: 0.032, handlingFeeUsd: 180, fuelSurchargePercent: 10 },
+  OCEAN: { ratePerKm: 0.45, ratePerTonKm: 0.032, handlingFeeUsd: 180, fuelSurchargePercent: 10 },
+  AIR: { ratePerKm: 2.2, ratePerTonKm: 0.24, handlingFeeUsd: 160, fuelSurchargePercent: 15 },
+  MULTIMODAL: { ratePerKm: 0.95, ratePerTonKm: 0.065, handlingFeeUsd: 170, fuelSurchargePercent: 11 },
+};
+
 /**
  * Domain Service: CostCalculatorDomainService
  * Contains pure domain mathematics and business logic for logistics pricing formulas.
@@ -180,6 +198,47 @@ export class CostCalculatorDomainService {
       minAcceptablePrice: Number(minAcceptablePrice.toFixed(2)),
       currentMarginPercent: Number(currentMarginPercent.toFixed(4)),
       decayFactor: Number(decayFactor.toFixed(4)),
+    };
+  }
+
+  /**
+   * Computes real route-corridor cost from Route Planning distance, weight, volume, and transport mode.
+   */
+  calculateRouteCorridorCost(input: {
+    distanceKm: number;
+    weightKg: number;
+    volumeCbm: number;
+    transportMode?: string;
+  }): {
+    baseFreightCost: number;
+    portHandlingFees: number;
+    fuelSurchargeFee: number;
+    totalEstimatedCost: number;
+    calculationMethod: string;
+    description: string;
+  } {
+    const mode = (input.transportMode || 'ROAD').toUpperCase();
+    const policy = CORRIDOR_RATES_BY_MODE[mode] ?? CORRIDOR_RATES_BY_MODE.ROAD;
+    const distance = Math.max(1, Number(input.distanceKm) || 0);
+    const weightTons = Math.max(0.5, (Number(input.weightKg) || 0) / 1000);
+    const volumetricRatio = mode === 'AIR' ? 167 : 1000;
+    const chargeableTons = Math.max(weightTons, ((Number(input.volumeCbm) || 0) * volumetricRatio) / 1000);
+
+    const distanceCharge = distance * policy.ratePerKm;
+    const weightDistanceCharge = distance * chargeableTons * policy.ratePerTonKm;
+    const baseFreightCost = Number((distanceCharge + weightDistanceCharge).toFixed(2));
+    const portHandlingFees = policy.handlingFeeUsd;
+    const fuelSurchargeFee = Number(((baseFreightCost * policy.fuelSurchargePercent) / 100).toFixed(2));
+    const totalEstimatedCost = Number((baseFreightCost + portHandlingFees + fuelSurchargeFee).toFixed(2));
+    const calculationMethod = `ROUTE_CORRIDOR_${mode}`;
+
+    return {
+      baseFreightCost,
+      portHandlingFees,
+      fuelSurchargeFee,
+      totalEstimatedCost,
+      calculationMethod,
+      description: `${calculationMethod}: ${distance.toFixed(1)} km · ${chargeableTons.toFixed(2)}t chargeable · Base $${baseFreightCost} + Handling $${portHandlingFees} + FSC $${fuelSurchargeFee}`,
     };
   }
 }

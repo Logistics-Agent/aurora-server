@@ -61,6 +61,8 @@ env:
   Stalwart__SmtpUser: "ops@e-verland.site"
   AiGovernance__GrpcEndpoint: "http://10.30.2.10:9090"
   Grpc__AiGovernance__Url: "http://10.30.2.10:9090"
+  Grpc__NegotiationAgent__Url: "http://10.20.15.15:8080"
+  Grpc__NegotiationService__Url: "http://10.20.15.15:8080"
   ClamAV__Host: "clamav.aurora.svc.cluster.local"
   ClamAV__Port: "3310"
   SpamAssassin__Host: "spamassassin.aurora.svc.cluster.local"

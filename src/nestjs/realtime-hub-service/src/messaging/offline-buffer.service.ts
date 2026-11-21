@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import Redis from 'ioredis';
 
@@ -12,7 +12,8 @@ export interface BufferedMessage {
 }
 
 @Injectable()
-export class OfflineBufferService {
+export class OfflineBufferService implements OnModuleDestroy {
+  private static readonly MAX_OFFLINE_BUFFER = 200;
   private readonly logger = new Logger(OfflineBufferService.name);
   private redisClient: Redis | null = null;
   private inMemoryBuffer: Map<string, BufferedMessage[]> = new Map(); // Fallback in-memory buffer
@@ -21,13 +22,20 @@ export class OfflineBufferService {
   constructor(private readonly configService: ConfigService) {
     const host = this.configService.get<string>('redis.host', 'localhost');
     const port = this.configService.get<number>('redis.port', 6379);
+    const password =
+      this.configService.get<string>('redis.password') || process.env.REDIS_PASSWORD || undefined;
 
     try {
       this.redisClient = new Redis({
         host,
         port,
+        password,
         maxRetriesPerRequest: 1,
         lazyConnect: true,
+      });
+
+      this.redisClient.on('error', () => {
+        // Handled cleanly via catch fallback to in-memory buffer
       });
 
       this.redisClient.connect().catch(() => {
@@ -35,6 +43,17 @@ export class OfflineBufferService {
         this.redisClient = null;
       });
     } catch {
+      this.redisClient = null;
+    }
+  }
+
+  async onModuleDestroy(): Promise<void> {
+    if (this.redisClient) {
+      try {
+        await this.redisClient.quit();
+      } catch {
+        this.redisClient.disconnect();
+      }
       this.redisClient = null;
     }
   }
@@ -114,6 +133,7 @@ export class OfflineBufferService {
     if (this.redisClient) {
       try {
         await this.redisClient.rpush(key, JSON.stringify(msg));
+        await this.redisClient.ltrim(key, -OfflineBufferService.MAX_OFFLINE_BUFFER, -1);
         await this.redisClient.expire(key, 86400 * 7); // TTL 7 days
         this.logger.log(`[OfflineBuffer] Buffered message ${msg.msgId} to Redis key '${key}'`);
         return;
@@ -125,7 +145,11 @@ export class OfflineBufferService {
     // In-memory fallback
     const list = this.inMemoryBuffer.get(key) || [];
     list.push(msg);
-    this.inMemoryBuffer.set(key, list);
+    const bounded =
+      list.length > OfflineBufferService.MAX_OFFLINE_BUFFER
+        ? list.slice(-OfflineBufferService.MAX_OFFLINE_BUFFER)
+        : list;
+    this.inMemoryBuffer.set(key, bounded);
     this.logger.log(`[OfflineBuffer] Buffered message ${msg.msgId} to In-Memory buffer key '${key}'`);
   }
 

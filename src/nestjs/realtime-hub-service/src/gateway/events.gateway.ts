@@ -8,7 +8,7 @@ import {
   ConnectedSocket,
 } from '@nestjs/websockets';
 import { Server } from 'socket.io';
-import { Logger } from '@nestjs/common';
+import { Logger, OnModuleDestroy } from '@nestjs/common';
 import { WsJwtGuard, AuthenticatedSocket } from '../common/guards/ws-jwt.guard';
 import { RealtimePayloadDto } from './dto/realtime-payload.dto';
 import { OfflineBufferService } from '../messaging/offline-buffer.service';
@@ -18,7 +18,7 @@ import { OfflineBufferService } from '../messaging/offline-buffer.service';
     origin: '*',
   },
 })
-export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
+export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect, OnModuleDestroy {
   @WebSocketServer()
   server: Server;
 
@@ -29,6 +29,13 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     private readonly wsJwtGuard: WsJwtGuard,
     private readonly offlineBuffer: OfflineBufferService,
   ) {}
+
+  onModuleDestroy() {
+    for (const [msgId, pending] of this.pendingAcks.entries()) {
+      clearTimeout(pending.timeout);
+      this.pendingAcks.delete(msgId);
+    }
+  }
 
   async handleConnection(client: AuthenticatedSocket) {
     try {

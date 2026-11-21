@@ -480,6 +480,7 @@ message GenerateGroundedAnswerResponse {
 message AssistantContext {
   string shipment_id = 1;
   string evaluation_id = 2;
+  string shipment_summary = 3;
 }
 
 message AssistantContextSummary {

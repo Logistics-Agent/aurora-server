@@ -385,13 +385,16 @@ export class PostgresConversationRepository
 
     try {
       const res = await this.pool.query(
-        `SELECT id, conversation_id, sequence_number, role, content, intent, sources_json, conflicts_json, insufficient_evidence, retrieval_trace_id, ai_decision_id, metadata, created_at
-         FROM conversation_messages
-         WHERE conversation_id = $1
-           AND ($2::int IS NULL OR sequence_number <= $2)
-         ORDER BY sequence_number DESC
-         LIMIT $3`,
-        [conversationId, upToSequenceNumber || null, limit],
+        `SELECT m.id, m.conversation_id, m.sequence_number, m.role, m.content, m.intent, m.sources_json, m.conflicts_json, m.insufficient_evidence, m.retrieval_trace_id, m.ai_decision_id, m.metadata, m.created_at
+         FROM conversation_messages m
+         INNER JOIN conversations c ON c.id = m.conversation_id
+         WHERE m.conversation_id = $1
+           AND c.tenant_id = $2
+           AND c.user_id = $3
+           AND ($4::int IS NULL OR m.sequence_number <= $4)
+         ORDER BY m.sequence_number DESC
+         LIMIT $5`,
+        [conversationId, tenantId, userId, upToSequenceNumber || null, limit],
       );
 
       const messages: ConversationMessage[] = res.rows
@@ -451,14 +454,17 @@ export class PostgresConversationRepository
 
     try {
       const res = await this.pool.query(
-        `SELECT id, conversation_id, sequence_number, role, content, intent, sources_json, conflicts_json, insufficient_evidence, retrieval_trace_id, ai_decision_id, metadata, created_at
-         FROM conversation_messages
-         WHERE conversation_id = $1
-           AND sequence_number > $2
-           AND ($3::int IS NULL OR sequence_number <= $3)
-         ORDER BY sequence_number ASC
-         LIMIT $4`,
-        [conversationId, afterSequenceNumber, upToSequenceNumber || null, limit],
+        `SELECT m.id, m.conversation_id, m.sequence_number, m.role, m.content, m.intent, m.sources_json, m.conflicts_json, m.insufficient_evidence, m.retrieval_trace_id, m.ai_decision_id, m.metadata, m.created_at
+         FROM conversation_messages m
+         INNER JOIN conversations c ON c.id = m.conversation_id
+         WHERE m.conversation_id = $1
+           AND c.tenant_id = $2
+           AND c.user_id = $3
+           AND m.sequence_number > $4
+           AND ($5::int IS NULL OR m.sequence_number <= $5)
+         ORDER BY m.sequence_number ASC
+         LIMIT $6`,
+        [conversationId, tenantId, userId, afterSequenceNumber, upToSequenceNumber || null, limit],
       );
 
       return res.rows.map((row) => ({

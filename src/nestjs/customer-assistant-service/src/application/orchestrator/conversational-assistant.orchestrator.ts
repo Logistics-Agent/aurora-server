@@ -215,6 +215,11 @@ export class ConversationalAssistantOrchestrator {
       capabilityCode,
     };
     const toolCallsMetadata: Array<{ toolName: string; outcome: 'SUCCESS' | 'FAILED' | 'DENIED'; durationMs?: number }> = [];
+    const ragQuery = this.buildContextualRagQuery(trimmedMessage, recentMessages);
+    const requestedJurisdiction =
+      classification.extractedParameters?.jurisdictionCode ||
+      this.extractJurisdictionFromHistory(recentMessages) ||
+      '';
 
     // 6. Synthesis & Routing Matrix (PATCH 2, 6, 7 & 11)
     switch (classification.decision) {
@@ -263,7 +268,7 @@ export class ConversationalAssistantOrchestrator {
 
         const [knowEvidence, domainExec] = await Promise.all([
           this.complianceClient.queryKnowledge(
-            trimmedMessage,
+            ragQuery,
             access.effectiveCategories || [],
             5,
             0.4,
@@ -314,17 +319,23 @@ export class ConversationalAssistantOrchestrator {
       case NeedRagDecision.RAG_REGULATORY: {
         // Pure Regulatory RAG (capability: compliance.answer) + optional cross-domain tool execution
         capabilityCode = 'compliance.answer';
-        const access = this.accessPolicy.canSearchRegulatory(currentUser.actorType, currentUser.tenantId, '', currentUser);
+        const access = this.accessPolicy.canSearchRegulatory(
+          currentUser.actorType,
+          currentUser.tenantId,
+          requestedJurisdiction,
+          currentUser,
+        );
         if (!access.allowed) {
           answerText = access.reason || 'Không có quyền tra cứu văn bản pháp luật.';
           isInsufficient = true;
           break;
         }
 
+        const effectiveJurisdiction = requestedJurisdiction || access.effectiveJurisdictions?.[0] || '';
         const [regEvidence, domainExec] = await Promise.all([
           this.complianceClient.queryRegulations(
-            trimmedMessage,
-            access.effectiveJurisdictions?.[0] || '',
+            ragQuery,
+            effectiveJurisdiction,
             5,
             0.4,
             currentUser,
@@ -375,15 +386,21 @@ export class ConversationalAssistantOrchestrator {
       default: {
         // Stage 3: CustomerAssistant owns HYBRID synthesis (capability: assistant.answer) + optional cross-domain tools
         capabilityCode = 'assistant.answer';
-        const regAccess = this.accessPolicy.canSearchRegulatory(currentUser.actorType, currentUser.tenantId, '', currentUser);
+        const regAccess = this.accessPolicy.canSearchRegulatory(
+          currentUser.actorType,
+          currentUser.tenantId,
+          requestedJurisdiction,
+          currentUser,
+        );
         const knowAccess = this.accessPolicy.canSearchKnowledge(currentUser.actorType, currentUser.tenantId, [], currentUser);
+        const effectiveJurisdiction = requestedJurisdiction || regAccess.effectiveJurisdictions?.[0] || '';
 
         const [regEvidence, knowEvidence, domainExec] = await Promise.all([
           regAccess.allowed
-            ? this.complianceClient.queryRegulations(trimmedMessage, regAccess.effectiveJurisdictions?.[0] || '', 5, 0.4, currentUser)
+            ? this.complianceClient.queryRegulations(ragQuery, effectiveJurisdiction, 5, 0.4, currentUser)
             : Promise.resolve([]),
           knowAccess.allowed
-            ? this.complianceClient.queryKnowledge(trimmedMessage, knowAccess.effectiveCategories || [], 5, 0.4, currentUser)
+            ? this.complianceClient.queryKnowledge(ragQuery, knowAccess.effectiveCategories || [], 5, 0.4, currentUser)
             : Promise.resolve([]),
           this.executeRequestedDomainTools(
             classification,
@@ -746,6 +763,52 @@ export class ConversationalAssistantOrchestrator {
         missingInformation: [],
       };
     }
+  }
+
+  private buildContextualRagQuery(
+    currentQuery: string,
+    recentMessages: ReadonlyArray<{ role: string; content: string }>,
+  ): string {
+    const trimmed = currentQuery.trim();
+    const isFollowUp =
+      trimmed.length < 80 ||
+      /^(vậy|thế|còn|nếu|trường hợp|thì sao|như thế nào|cần giấy tờ gì|mức phạt|bao nhiêu|ở đâu|what about|how about|and if)/i.test(
+        trimmed,
+      );
+    if (!isFollowUp || !recentMessages || recentMessages.length === 0) {
+      return trimmed;
+    }
+
+    const previousUserTurns = recentMessages
+      .filter(
+        (m) =>
+          m.role === 'USER' &&
+          m.content.trim() !== trimmed &&
+          m.content.trim().length > 10,
+      )
+      .slice(-2)
+      .map((m) => m.content.trim());
+
+    if (previousUserTurns.length === 0) {
+      return trimmed;
+    }
+
+    return `${previousUserTurns[previousUserTurns.length - 1]} — ${trimmed}`.slice(0, 500);
+  }
+
+  private extractJurisdictionFromHistory(
+    recentMessages: ReadonlyArray<{ role: string; content: string }>,
+  ): string | undefined {
+    if (!recentMessages || recentMessages.length === 0) {
+      return undefined;
+    }
+    for (let i = recentMessages.length - 1; i >= 0; i--) {
+      const msg = recentMessages[i];
+      if (msg.role !== 'USER') continue;
+      const code = this.intentRouter.extractJurisdictionCode(msg.content);
+      if (code) return code;
+    }
+    return undefined;
   }
 }
 

@@ -96,21 +96,35 @@ public sealed class AssistantController(
 
         if (request.Context is not null)
         {
-            if (!TryParseContextId(request.Context.ShipmentId, out var shipmentId) ||
-                !TryParseContextId(request.Context.EvaluationId, out var evaluationId))
+            if (!TryParseContextId(request.Context.EvaluationId, out var evaluationId))
                 return BadRequest(new ProblemDetails
                 {
                     Title = "INVALID_ASSISTANT_CONTEXT",
-                    Detail = "Assistant context identifiers must be valid UUIDs.",
+                    Detail = "Assistant context evaluationId must be a valid UUID.",
                     Status = (int)HttpStatusCode.BadRequest
                 });
 
-            if (shipmentId.HasValue)
+            Guid? shipmentId = null;
+            string? shipmentSummary = null;
+            var rawShipmentId = request.Context.ShipmentId?.Trim();
+            if (!string.IsNullOrWhiteSpace(rawShipmentId))
             {
+                if (rawShipmentId.Length > 128 ||
+                    (Guid.TryParse(rawShipmentId, out var parsedEmptyCheck) && parsedEmptyCheck == Guid.Empty))
+                {
+                    return BadRequest(new ProblemDetails
+                    {
+                        Title = "INVALID_ASSISTANT_CONTEXT",
+                        Detail = "Assistant context shipmentId must be a valid shipment UUID or shipment code.",
+                        Status = (int)HttpStatusCode.BadRequest
+                    });
+                }
+
+                ShipmentResponse shipment;
                 try
                 {
-                    await shipmentClient.GetShipmentAsync(
-                        new GetShipmentRequest { Id = shipmentId.Value.ToString() },
+                    shipment = await shipmentClient.GetShipmentAsync(
+                        new GetShipmentRequest { Id = rawShipmentId },
                         cancellationToken: cancellationToken);
                 }
                 catch (RpcException ex) when (ex.StatusCode == Grpc.Core.StatusCode.NotFound)
@@ -122,13 +136,70 @@ public sealed class AssistantController(
                         Status = (int)HttpStatusCode.NotFound
                     });
                 }
+                catch (RpcException ex) when (ex.StatusCode == Grpc.Core.StatusCode.InvalidArgument)
+                {
+                    return BadRequest(new ProblemDetails
+                    {
+                        Title = "INVALID_ASSISTANT_CONTEXT",
+                        Detail = string.IsNullOrWhiteSpace(ex.Status.Detail)
+                            ? "Assistant context shipmentId is invalid."
+                            : ex.Status.Detail,
+                        Status = (int)HttpStatusCode.BadRequest
+                    });
+                }
+                catch (RpcException ex) when (ex.StatusCode == Grpc.Core.StatusCode.PermissionDenied)
+                {
+                    return StatusCode((int)HttpStatusCode.Forbidden, new ProblemDetails
+                    {
+                        Title = "PERMISSION_DENIED",
+                        Detail = ex.Status.Detail,
+                        Status = (int)HttpStatusCode.Forbidden
+                    });
+                }
+                catch (RpcException ex) when (ex.StatusCode is Grpc.Core.StatusCode.Unavailable or Grpc.Core.StatusCode.DeadlineExceeded)
+                {
+                    logger.LogWarning(ex, "Shipment workflow service is unavailable or timed out for assistant context lookup.");
+                    return StatusCode((int)HttpStatusCode.ServiceUnavailable, new ProblemDetails
+                    {
+                        Title = "SHIPMENT_SERVICE_UNAVAILABLE",
+                        Detail = ex.Status.Detail,
+                        Status = (int)HttpStatusCode.ServiceUnavailable
+                    });
+                }
+                catch (RpcException ex)
+                {
+                    logger.LogError(ex, "Shipment lookup gRPC call failed for assistant context: StatusCode={StatusCode}, Detail={Detail}", ex.StatusCode, ex.Status.Detail);
+                    return StatusCode((int)HttpStatusCode.BadGateway, new ProblemDetails
+                    {
+                        Title = "SHIPMENT_SERVICE_ERROR",
+                        Detail = string.IsNullOrWhiteSpace(ex.Status.Detail) ? "Failed to verify shipment context." : ex.Status.Detail,
+                        Status = (int)HttpStatusCode.BadGateway
+                    });
+                }
+
+                if (!Guid.TryParse(shipment.Id, out var resolvedShipmentId) || resolvedShipmentId == Guid.Empty)
+                {
+                    return BadRequest(new ProblemDetails
+                    {
+                        Title = "INVALID_ASSISTANT_CONTEXT",
+                        Detail = "Resolved shipment context did not contain a valid shipment UUID.",
+                        Status = (int)HttpStatusCode.BadRequest
+                    });
+                }
+
+                shipmentId = resolvedShipmentId;
+                shipmentSummary = BuildVerifiedShipmentSummary(shipment);
             }
 
-            rpcRequest.Context = new AssistantContext
+            if (shipmentId.HasValue || evaluationId.HasValue || !string.IsNullOrWhiteSpace(shipmentSummary))
             {
-                ShipmentId = shipmentId?.ToString() ?? string.Empty,
-                EvaluationId = evaluationId?.ToString() ?? string.Empty
-            };
+                rpcRequest.Context = new AssistantContext
+                {
+                    ShipmentId = shipmentId?.ToString() ?? string.Empty,
+                    EvaluationId = evaluationId?.ToString() ?? string.Empty,
+                    ShipmentSummary = shipmentSummary ?? string.Empty
+                };
+            }
         }
 
         if (request.RegulationTypes != null)
@@ -170,7 +241,7 @@ public sealed class AssistantController(
                 Page: r.Page,
                 Excerpt: r.Excerpt,
                 CanonicalSourceUri: r.CanonicalSourceUri,
-                Score: r.Score)).ToList();
+                Score: ClampScore(r.Score))).ToList();
 
             var knowReferences = response.KnowledgeReferences.Select(k => new AssistantKnowledgeReference(
                 EvidenceId: k.EvidenceId,
@@ -182,7 +253,7 @@ public sealed class AssistantController(
                 Section: k.Section,
                 Page: k.Page,
                 Excerpt: k.Excerpt,
-                Score: k.Score)).ToList();
+                Score: ClampScore(k.Score))).ToList();
 
             var conflicts = response.Conflicts.Select(c => new AssistantConflict(
                 RegulatoryEvidenceId: c.RegulatoryEvidenceId,
@@ -194,15 +265,15 @@ public sealed class AssistantController(
                 AutomationLevel: response.Governance?.AutomationLevel ?? "ASSISTED",
                 RequiresApproval: response.Governance?.RequiresApproval ?? false,
                 CapabilityCode: response.Governance?.CapabilityCode ?? "compliance.answer",
-                TotalTokens: response.Governance?.TotalTokens ?? 0);
+                TotalTokens: Math.Max(0L, response.Governance?.TotalTokens ?? 0));
 
             var contextSummary = response.Context is null
                 ? null
                 : new AssistantContextSummary(
-                    ShipmentId: ParseOptionalGuid(response.Context.ShipmentId),
-                    EvaluationId: ParseOptionalGuid(response.Context.EvaluationId),
-                    Freshness: response.Context.Freshness,
-                    SnapshotHash: response.Context.SnapshotHash);
+                    ShipmentId: ParseOptionalGuid(response.Context.ShipmentId)?.ToString() ?? string.Empty,
+                    EvaluationId: ParseOptionalGuid(response.Context.EvaluationId)?.ToString() ?? string.Empty,
+                    Freshness: response.Context.Freshness ?? string.Empty,
+                    SnapshotHash: response.Context.SnapshotHash ?? string.Empty);
 
             return Ok(new AssistantQueryResponse(
                 Query: response.Query,
@@ -308,6 +379,114 @@ public sealed class AssistantController(
 
     private static Guid? ParseOptionalGuid(string value) =>
         Guid.TryParse(value, out var parsed) && parsed != Guid.Empty ? parsed : null;
+
+    private static double ClampScore(double score) =>
+        double.IsNaN(score) || double.IsInfinity(score) ? 0d : Math.Clamp(score, 0d, 1d);
+
+    private static string BuildVerifiedShipmentSummary(ShipmentResponse shipment)
+    {
+        var lines = new List<string>
+        {
+            $"ShipmentNo: {OrUnknown(shipment.ShipmentNo)}",
+            $"ShipmentId: {shipment.Id}"
+        };
+
+        if (!string.IsNullOrWhiteSpace(shipment.OrderId))
+            lines.Add($"OrderId: {shipment.OrderId}");
+
+        lines.Add($"Status: {OrUnknown(shipment.Status)}");
+
+        if (shipment.CreatedAt is not null)
+            lines.Add($"CreatedAt: {FormatTimestamp(shipment.CreatedAt)}");
+        if (shipment.UpdatedAt is not null)
+            lines.Add($"UpdatedAt: {FormatTimestamp(shipment.UpdatedAt)}");
+        if (!string.IsNullOrWhiteSpace(shipment.CustomerName))
+            lines.Add($"CustomerName: {shipment.CustomerName}");
+
+        var origin = FormatLocation(shipment.OriginAddress, shipment.OriginCountry);
+        if (!string.IsNullOrEmpty(origin))
+            lines.Add($"Origin: {origin}");
+
+        var destination = FormatLocation(shipment.DestinationAddress, shipment.DestinationCountry);
+        if (!string.IsNullOrEmpty(destination))
+            lines.Add($"Destination: {destination}");
+
+        if (!string.IsNullOrWhiteSpace(shipment.TransportMode))
+            lines.Add($"TransportMode: {shipment.TransportMode}");
+        if (!string.IsNullOrWhiteSpace(shipment.Priority))
+            lines.Add($"Priority: {shipment.Priority}");
+
+        if (shipment.EstimatedPickupTime is not null)
+            lines.Add($"EstimatedPickupTime: {FormatTimestamp(shipment.EstimatedPickupTime)}");
+        if (shipment.EstimatedDeliveryTime is not null)
+            lines.Add($"EstimatedDeliveryTime: {FormatTimestamp(shipment.EstimatedDeliveryTime)}");
+        if (shipment.ActualPickupTime is not null)
+            lines.Add($"ActualPickupTime: {FormatTimestamp(shipment.ActualPickupTime)}");
+        if (shipment.ActualDeliveryTime is not null)
+            lines.Add($"ActualDeliveryTime: {FormatTimestamp(shipment.ActualDeliveryTime)}");
+
+        if (shipment.CargoItems.Count > 0)
+        {
+            var cargoItems = shipment.CargoItems
+                .Take(10)
+                .Select(c =>
+                {
+                    var hs = string.IsNullOrWhiteSpace(c.HsCode) ? string.Empty : $" (HS: {c.HsCode})";
+                    var dg = c.IsDangerousGoods ? " [DG]" : string.Empty;
+                    return $"{c.Name} x{c.Quantity}, {c.WeightKg}kg{hs}{dg}";
+                });
+            lines.Add($"CargoItems ({shipment.CargoItems.Count}): {string.Join("; ", cargoItems)}");
+        }
+
+        if (shipment.Documents.Count > 0)
+        {
+            var docTypes = shipment.Documents
+                .Take(10)
+                .Select(d => string.IsNullOrWhiteSpace(d.DocumentType) ? d.FileName : d.DocumentType)
+                .Where(d => !string.IsNullOrWhiteSpace(d));
+            lines.Add($"Documents ({shipment.Documents.Count}): {string.Join(", ", docTypes)}");
+        }
+
+        if (shipment.Milestones.Count > 0)
+        {
+            var latestMilestone = shipment.Milestones
+                .OrderByDescending(m => m.RecordedAt?.ToDateTimeOffset() ?? DateTimeOffset.MinValue)
+                .First();
+            var recorded = latestMilestone.RecordedAt is not null
+                ? $" at {FormatTimestamp(latestMilestone.RecordedAt)}"
+                : string.Empty;
+            var desc = string.IsNullOrWhiteSpace(latestMilestone.Description)
+                ? string.Empty
+                : $" - {latestMilestone.Description}";
+            lines.Add($"LatestMilestone: {latestMilestone.Status}{recorded}{desc}");
+        }
+
+        if (!string.IsNullOrWhiteSpace(shipment.Notes))
+        {
+            var trimmedNotes = shipment.Notes.Trim();
+            var cappedNotes = trimmedNotes.Length > 300 ? $"{trimmedNotes[..300]}..." : trimmedNotes;
+            lines.Add($"Notes: {cappedNotes}");
+        }
+
+        return string.Join('\n', lines);
+    }
+
+    private static string FormatTimestamp(Timestamp timestamp)
+    {
+        var utc = timestamp.ToDateTimeOffset().ToUniversalTime();
+        var vn = utc.ToOffset(TimeSpan.FromHours(7));
+        return $"{utc:yyyy-MM-dd HH:mm:ss} UTC ({vn:yyyy-MM-dd HH:mm:ss} +07:00)";
+    }
+
+    private static string FormatLocation(string? address, string? country)
+    {
+        var parts = new[] { address?.Trim(), country?.Trim() }
+            .Where(part => !string.IsNullOrWhiteSpace(part));
+        return string.Join(", ", parts);
+    }
+
+    private static string OrUnknown(string? value) =>
+        string.IsNullOrWhiteSpace(value) ? "N/A" : value.Trim();
 }
 
 public sealed record AssistantQueryRequest(
@@ -375,7 +554,7 @@ public sealed record AssistantGovernanceSummary(
     long TotalTokens);
 
 public sealed record AssistantContextSummary(
-    Guid? ShipmentId,
-    Guid? EvaluationId,
+    string ShipmentId,
+    string EvaluationId,
     string Freshness,
     string SnapshotHash);

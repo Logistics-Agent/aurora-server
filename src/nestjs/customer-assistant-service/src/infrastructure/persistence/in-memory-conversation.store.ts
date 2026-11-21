@@ -140,6 +140,10 @@ export class InMemoryConversationStore implements IConversationRepository {
     upToSequenceNumber?: number,
   ): Promise<ConversationMessage[]> {
     const key = this.buildKey(tenantId, userId, conversationId);
+    const conv = this.conversations.get(key);
+    if (!conv || conv.tenantId !== tenantId || conv.userId !== userId) {
+      return [];
+    }
     const list = this.messages.get(key) || [];
 
     const filtered = upToSequenceNumber !== undefined
@@ -158,6 +162,10 @@ export class InMemoryConversationStore implements IConversationRepository {
     limit = 20,
   ): Promise<ConversationMessage[]> {
     const key = this.buildKey(tenantId, userId, conversationId);
+    const conv = this.conversations.get(key);
+    if (!conv || conv.tenantId !== tenantId || conv.userId !== userId) {
+      return [];
+    }
     const list = this.messages.get(key) || [];
 
     const filtered = list.filter(

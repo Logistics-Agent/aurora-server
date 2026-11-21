@@ -3,6 +3,7 @@ import { NegotiationService } from './negotiation.service';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { NegotiationStrategyDomainService } from '../../domain/services/negotiation-strategy.domain-service';
 import { AiGovernanceNegotiationClient } from '../../infrastructure/grpc/ai-governance.grpc-client';
+import { FinancialGrpcClient } from '../../infrastructure/grpc/financial.grpc-client';
 import { ConfigService } from '@nestjs/config';
 
 describe('NegotiationService', () => {
@@ -39,7 +40,10 @@ describe('NegotiationService', () => {
       findFirst: jest.fn().mockResolvedValue(mockSession),
       create: jest.fn().mockResolvedValue(mockSession),
       update: jest.fn().mockResolvedValue({ ...mockSession, currentRound: 2 }),
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       findUnique: jest.fn().mockResolvedValue(mockSession),
+      findMany: jest.fn().mockResolvedValue([mockSession]),
+      count: jest.fn().mockResolvedValue(1),
     },
     negotiationMessage: {
       create: jest.fn().mockResolvedValue({
@@ -47,7 +51,9 @@ describe('NegotiationService', () => {
         createdAt: new Date('2026-08-25T12:00:00Z'),
       }),
     },
-    $transaction: jest.fn().mockImplementation((promises) => Promise.all(promises)),
+    $transaction: jest.fn().mockImplementation((arg) =>
+      typeof arg === 'function' ? arg(mockPrisma) : Promise.all(arg),
+    ),
   };
 
   const mockAiClient = {
@@ -63,10 +69,16 @@ describe('NegotiationService', () => {
     getDeterministicFallback: jest.fn().mockReturnValue('Deterministic fallback wording.'),
   };
   const mockConfig = { get: jest.fn().mockReturnValue('test') };
+  const mockFinancialGrpcClient = {
+    isConfigured: jest.fn().mockReturnValue(false),
+    resolveQuotePricing: jest.fn().mockResolvedValue(null),
+  };
 
   beforeEach(async () => {
     jest.clearAllMocks();
     mockConfig.get.mockReturnValue('test');
+    mockFinancialGrpcClient.isConfigured.mockReturnValue(false);
+    mockFinancialGrpcClient.resolveQuotePricing.mockResolvedValue(null);
     mockAiClient.generateNegotiationDraft.mockResolvedValue({
       content: 'Dear Customer, our best counter-offer is $4,400.00 USD.',
       decisionId: 'dec-123',
@@ -88,6 +100,10 @@ describe('NegotiationService', () => {
         {
           provide: AiGovernanceNegotiationClient,
           useValue: mockAiClient,
+        },
+        {
+          provide: FinancialGrpcClient,
+          useValue: mockFinancialGrpcClient,
         },
         { provide: ConfigService, useValue: mockConfig },
       ],
@@ -198,6 +214,44 @@ describe('NegotiationService', () => {
     expect(mockPrisma.negotiationSession.create).not.toHaveBeenCalled();
   });
 
+  it('opens a production session using authoritative pricing from FinancialService gRPC', async () => {
+    mockConfig.get.mockReturnValue('production');
+    mockFinancialGrpcClient.isConfigured.mockReturnValue(true);
+    mockFinancialGrpcClient.resolveQuotePricing.mockResolvedValueOnce({
+      listPrice: 4702.25,
+      bottomPrice: 4137.98,
+    });
+    mockPrisma.negotiationSession.findFirst.mockResolvedValueOnce(null);
+    mockPrisma.negotiationSession.create.mockResolvedValueOnce({
+      ...mockSession,
+      listPrice: 4702.25,
+      bottomPrice: 4137.98,
+    });
+
+    const result = await service.submitOffer({
+      tenantId: 'tenant-001',
+      shipmentId: 'SHP-001',
+      quoteId: 'quote-1',
+      customerId: 'cust-001',
+      offerPrice: 4000,
+    });
+
+    expect(mockFinancialGrpcClient.resolveQuotePricing).toHaveBeenCalledWith(
+      'tenant-001',
+      'SHP-001',
+      'quote-1',
+    );
+    expect(mockPrisma.negotiationSession.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          listPrice: 4702.25,
+          bottomPrice: 4137.98,
+        }),
+      }),
+    );
+    expect(result.sessionId).toBe('sess-001');
+  });
+
   it('accepts AI draft that echoes customer offer ($4,000) alongside approved counter-offer ($4,400)', async () => {
     mockAiClient.generateNegotiationDraft.mockResolvedValueOnce({
       content: 'Thank you for your offer of $4,000.00 USD. Our best counter-offer is $4,400.00 USD.',
@@ -243,5 +297,72 @@ describe('NegotiationService', () => {
     });
     expect(goodR2.counterOfferPrice).toBeLessThan(4400);
     expect(goodR2.counterOfferPrice).toBeGreaterThanOrEqual(4200);
+  });
+
+  it('rejects concurrent offer submission with ConflictException via OCC guard', async () => {
+    mockPrisma.negotiationSession.updateMany.mockResolvedValueOnce({ count: 0 });
+    await expect(
+      service.submitOffer({
+        tenantId: 'tenant-001',
+        shipmentId: 'SHP-001',
+        customerId: 'cust-001',
+        offerPrice: 4000,
+      }),
+    ).rejects.toThrow('modified concurrently or is no longer open');
+    expect(mockPrisma.negotiationMessage.create).not.toHaveBeenCalled();
+  });
+
+  it('requires shipmentId strictly and blocks AI wording that leaks internal cost or bottom floor price', async () => {
+    await expect(
+      service.submitOffer({
+        tenantId: 'tenant-001',
+        shipmentId: '',
+        customerId: 'cust-001',
+        offerPrice: 4000,
+      }),
+    ).rejects.toThrow('shipmentId, customerId and a positive offerPrice are required');
+
+    mockAiClient.generateNegotiationDraft.mockResolvedValueOnce({
+      content: 'Dear Customer, our giá sàn is $4,200.00 USD so best counter is $4,400.00 USD.',
+      decisionId: 'dec-leak-1',
+      automationLevel: 'ASSISTED',
+      requiresApproval: false,
+      inputTokens: 20,
+      outputTokens: 30,
+      isFallback: false,
+    });
+
+    const leakBlocked = await service.submitOffer({
+      tenantId: 'tenant-001',
+      shipmentId: 'SHP-001',
+      quoteId: 'quote-1',
+      sourceThreadId: 'thread-abc',
+      customerId: 'cust-001',
+      offerPrice: 4000,
+    });
+
+    expect(leakBlocked.aiDraftUsed).toBe(false);
+    expect(leakBlocked.fallbackUsed).toBe(true);
+    expect(leakBlocked.aiSpeech).not.toContain('giá sàn');
+    expect(leakBlocked.aiSpeech).not.toContain('4,200');
+
+    mockPrisma.negotiationSession.findMany.mockResolvedValueOnce([
+      {
+        ...mockSession,
+        quoteId: 'quote-1',
+        sourceThreadId: 'thread-abc',
+        createdAt: new Date('2026-11-20T00:00:00Z'),
+        updatedAt: new Date('2026-11-20T00:00:00Z'),
+      },
+    ]);
+    mockPrisma.negotiationSession.count.mockResolvedValueOnce(1);
+    const listed = await service.listSessions({
+      tenantId: 'tenant-001',
+      sourceThreadId: 'thread-abc',
+      shipmentId: 'SHP-001',
+      quoteId: 'quote-1',
+    });
+    expect(listed.total).toBe(1);
+    expect(listed.sessions[0].shipmentId).toBe('SHP-001');
   });
 });

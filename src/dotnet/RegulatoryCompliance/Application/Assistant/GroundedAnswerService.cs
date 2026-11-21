@@ -31,7 +31,10 @@ public sealed record GroundedAnswerInput(
     VerifiedAssistantContextInput? Context = null,
     string? LanguageCode = null);
 
-public sealed record VerifiedAssistantContextInput(Guid? ShipmentId, Guid? EvaluationId);
+public sealed record VerifiedAssistantContextInput(
+    Guid? ShipmentId,
+    Guid? EvaluationId,
+    string? ShipmentSummary = null);
 
 public sealed record VerifiedAssistantContextSummary(
     Guid? ShipmentId,
@@ -52,7 +55,8 @@ public sealed record VerifiedAssistantContext(
     string? SnapshotHash,
     ComplianceRiskLevel? RiskLevel,
     EvidenceSufficiency? EvidenceSufficiency,
-    IReadOnlyList<VerifiedAssistantFinding> Findings);
+    IReadOnlyList<VerifiedAssistantFinding> Findings,
+    string? ShipmentSummary = null);
 
 public sealed class AssistantContextMismatchException(string message) : Exception(message);
 
@@ -230,7 +234,7 @@ public sealed class GroundedAnswerService(
         var evidenceContext = new EvidenceContext(regEvidenceList, knowEvidenceList);
 
         // 3. Short-circuit if No Evidence Exists (Cost Optimization & Anti-Hallucination)
-        if (evidenceContext.IsEmpty)
+        if (evidenceContext.IsEmpty && string.IsNullOrWhiteSpace(verifiedContext?.ShipmentSummary))
         {
             if (verifiedContext is not null)
                 return BuildDeterministicFallback(input.Query, evidenceContext, traceId, verifiedContext);
@@ -387,7 +391,10 @@ public sealed class GroundedAnswerService(
         VerifiedAssistantContextInput? input,
         CancellationToken cancellationToken)
     {
-        if (input is null || (input.ShipmentId is null && input.EvaluationId is null))
+        if (input is null ||
+            (input.ShipmentId is null &&
+             input.EvaluationId is null &&
+             string.IsNullOrWhiteSpace(input.ShipmentSummary)))
             return null;
 
         if (input.ShipmentId is Guid shipmentId && shipmentId == Guid.Empty ||
@@ -403,7 +410,8 @@ public sealed class GroundedAnswerService(
                 null,
                 null,
                 null,
-                []);
+                [],
+                input.ShipmentSummary);
         }
 
         if (complianceEvaluationService is null)
@@ -443,7 +451,8 @@ public sealed class GroundedAnswerService(
                     finding.Title,
                     finding.Description,
                     finding.Severity.ToString()))
-                .ToArray());
+                .ToArray(),
+            input.ShipmentSummary);
     }
 
     private async Task<string> ResolveEvaluationFreshnessAsync(
@@ -522,15 +531,29 @@ public sealed class GroundedAnswerService(
             Score: Convert.ToDouble(k.RelevanceScore))).ToList();
 
         var sb = new System.Text.StringBuilder();
-        sb.AppendLine("Dưới đây là các tài liệu và bằng chứng đã được tìm thấy liên quan đến câu hỏi của bạn:\n");
+        var hasShipmentSummary = !string.IsNullOrWhiteSpace(verifiedContext?.ShipmentSummary);
+        if (!evidenceContext.IsEmpty)
+            sb.AppendLine("Dưới đây là các tài liệu và bằng chứng đã được tìm thấy liên quan đến câu hỏi của bạn:\n");
+        else if (hasShipmentSummary)
+            sb.AppendLine("Dưới đây là thông tin đã xác minh từ hệ thống:\n");
 
         if (verifiedContext is not null)
         {
-            sb.AppendLine($"Đánh giá tuân thủ đã xác minh: {verifiedContext.EvaluationId?.ToString() ?? "chưa có"}.");
-            sb.AppendLine($"Mức rủi ro đã lưu: {verifiedContext.RiskLevel?.ToString() ?? "chưa xác định"}; trạng thái dữ liệu: {verifiedContext.Freshness}.");
-            foreach (var finding in verifiedContext.Findings)
-                sb.AppendLine($"- {finding.Code}: {finding.Title} — {finding.Description}");
-            sb.AppendLine();
+            if (hasShipmentSummary)
+            {
+                sb.AppendLine("### Thông tin vận đơn đã xác minh:");
+                sb.AppendLine(verifiedContext.ShipmentSummary!.Trim());
+                sb.AppendLine();
+            }
+
+            if (verifiedContext.EvaluationId.HasValue || !hasShipmentSummary)
+            {
+                sb.AppendLine($"Đánh giá tuân thủ đã xác minh: {verifiedContext.EvaluationId?.ToString() ?? "chưa có"}.");
+                sb.AppendLine($"Mức rủi ro đã lưu: {verifiedContext.RiskLevel?.ToString() ?? "chưa xác định"}; trạng thái dữ liệu: {verifiedContext.Freshness}.");
+                foreach (var finding in verifiedContext.Findings)
+                    sb.AppendLine($"- {finding.Code}: {finding.Title} — {finding.Description}");
+                sb.AppendLine();
+            }
         }
 
         if (knowReferences.Count > 0)
@@ -559,7 +582,7 @@ public sealed class GroundedAnswerService(
             RegulatoryCitations: regCitations,
             KnowledgeReferences: knowReferences,
             Conflicts: [],
-            InsufficientEvidence: evidenceContext.IsEmpty,
+            InsufficientEvidence: evidenceContext.IsEmpty && !hasShipmentSummary,
             MissingInformation: [],
             Governance: governance ?? new AssistantGovernanceResult("deterministic-fallback-" + traceId.ToString("N"), "DETERMINISTIC_FALLBACK", false, CapabilityCode, 0),
             RetrievalTraceId: traceId,

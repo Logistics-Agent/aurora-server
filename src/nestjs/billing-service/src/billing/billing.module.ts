@@ -5,6 +5,7 @@ import { CommercialAuthorityService } from '../application/services/commercial-a
 import { InvoiceDomainService } from '../domain/services/invoice.domain-service';
 import { GenerateInvoiceUseCase } from '../application/use-cases/generate-invoice.use-case';
 import { RabbitMQMessagingService } from '../infrastructure/messaging/rabbitmq.service';
+import { DLQService } from '../infrastructure/messaging/dlq.service';
 import { ShipmentWorkflowGrpcClient } from '../infrastructure/grpc-clients/shipment-workflow.grpc-client';
 import { OverdueInvoiceCronJob } from '../infrastructure/jobs/overdue-invoice.cron';
 import { IdempotencyInterceptor } from '../common/interceptors/idempotency.interceptor';
@@ -17,6 +18,7 @@ import { IdempotencyInterceptor } from '../common/interceptors/idempotency.inter
     InvoiceDomainService,
     GenerateInvoiceUseCase,
     RabbitMQMessagingService,
+    DLQService,
     ShipmentWorkflowGrpcClient,
     OverdueInvoiceCronJob,
     IdempotencyInterceptor,

@@ -10,6 +10,7 @@ using Microsoft.Extensions.Logging;
 using MimeKit;
 using MailService.Application.Pipeline;
 using MailService.Application.Common;
+using MailService.Application.Interfaces.Negotiation;
 using MailService.Application.Interfaces.Storage;
 using MailService.Domain.Entities;
 using MailService.Domain.Enums;
@@ -40,17 +41,20 @@ public class ProcessInboundEmailCommandHandler : IRequestHandler<ProcessInboundE
     private readonly MailServiceDbContext _dbContext;
     private readonly InboundPipelineRunner _pipelineRunner;
     private readonly IR2StorageClient? _storageClient;
+    private readonly IInboundNegotiationTrigger? _negotiationTrigger;
     private readonly ILogger<ProcessInboundEmailCommandHandler> _logger;
 
     public ProcessInboundEmailCommandHandler(
         MailServiceDbContext dbContext,
         InboundPipelineRunner pipelineRunner,
         IR2StorageClient? storageClient = null,
-        ILogger<ProcessInboundEmailCommandHandler>? logger = null)
+        ILogger<ProcessInboundEmailCommandHandler>? logger = null,
+        IInboundNegotiationTrigger? negotiationTrigger = null)
     {
         _dbContext = dbContext;
         _pipelineRunner = pipelineRunner;
         _storageClient = storageClient;
+        _negotiationTrigger = negotiationTrigger;
         _logger = logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<ProcessInboundEmailCommandHandler>.Instance;
     }
 
@@ -279,6 +283,20 @@ public class ProcessInboundEmailCommandHandler : IRequestHandler<ProcessInboundE
 
         _logger.LogInformation("Inbound email {MessageId} processed -> Thread {ThreadId} (Status: {Status}, Category: {Category})",
             executedContext.ProcessedMessage.MessageId, thread.Id, executedContext.ProcessedMessage.PipelineStatus, executedContext.ProcessedMessage.EmailCategory);
+
+        if (_negotiationTrigger != null && !executedContext.IsQuarantined)
+        {
+            await _negotiationTrigger.TryTriggerAsync(
+                new InboundNegotiationContext(
+                    tenantId,
+                    sender,
+                    subject,
+                    bodyText,
+                    executedContext.ProcessedMessage.MessageId,
+                    thread.Id,
+                    executedContext.ProcessedMessage.EmailCategory),
+                cancellationToken);
+        }
 
         return new ProcessInboundEmailResult(
             executedContext.ProcessedMessage.MessageId,

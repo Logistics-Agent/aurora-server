@@ -83,4 +83,35 @@ describe('IntentRouterService', () => {
     expect(bill.intent).toBe(AssistantIntent.BILLING_QUERY);
     expect(bill.decision).toBe(NeedRagDecision.DOMAIN_QUERY);
   });
+
+  it('preserves extractedParameters in Layer 2 AI classifier and fallback responses', async () => {
+    const id = '4c9b3fd2-5a5c-42c8-9181-f608dbf94e21';
+    mockAiGovernance.generate.mockResolvedValueOnce({
+      content: '{"intent":"SHIPMENT_QUERY"}',
+    });
+
+    const aiRes = await router.classify(`Tình trạng của khách hàng ${id} thế nào?`, user);
+    expect(aiRes.intent).toBe(AssistantIntent.SHIPMENT_QUERY);
+    expect(aiRes.extractedParameters?.targetCustomerId).toBe(id);
+    expect(aiRes.extractedParameters?.includeShipmentLookup).toBe(true);
+
+    mockAiGovernance.generate.mockRejectedValueOnce(new Error('gRPC timeout'));
+    const fallbackRes = await router.classify(`Khách hàng ${id} hỏi gì vậy?`, user);
+    expect(fallbackRes.intent).toBe(AssistantIntent.HYBRID_RAG_QUERY);
+    expect(fallbackRes.extractedParameters?.targetCustomerId).toBe(id);
+  });
+
+  it('extracts deterministic jurisdictionCode without false positives on English words', async () => {
+    const euRes = await router.classify('Quy định xuất khẩu pin lithium sang EU', user);
+    expect(euRes.extractedParameters?.jurisdictionCode).toBe('EU');
+
+    const usRes = await router.classify('Thủ tục xuất khẩu sang Mỹ', user);
+    expect(usRes.extractedParameters?.jurisdictionCode).toBe('US');
+
+    const vnRes = await router.classify('Thủ tục hải quan tại Việt Nam', user);
+    expect(vnRes.extractedParameters?.jurisdictionCode).toBe('VN');
+
+    const englishNoFalsePositive = await router.classify('Tell us how to follow my company SOP', user);
+    expect(englishNoFalsePositive.extractedParameters?.jurisdictionCode).toBeUndefined();
+  });
 });

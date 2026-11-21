@@ -807,7 +807,8 @@ public sealed class RegulatoryComplianceGrpcService(
     {
         if (context is null ||
             (string.IsNullOrWhiteSpace(context.ShipmentId) &&
-             string.IsNullOrWhiteSpace(context.EvaluationId)))
+             string.IsNullOrWhiteSpace(context.EvaluationId) &&
+             string.IsNullOrWhiteSpace(context.ShipmentSummary)))
             return null;
 
         Guid? shipmentId = null;
@@ -826,7 +827,16 @@ public sealed class RegulatoryComplianceGrpcService(
             evaluationId = parsedEvaluationId;
         }
 
-        return new VerifiedAssistantContextInput(shipmentId, evaluationId);
+        string? shipmentSummary = null;
+        if (!string.IsNullOrWhiteSpace(context.ShipmentSummary))
+        {
+            var trimmedSummary = context.ShipmentSummary.Trim();
+            shipmentSummary = trimmedSummary.Length > 4_000
+                ? trimmedSummary[..4_000]
+                : trimmedSummary;
+        }
+
+        return new VerifiedAssistantContextInput(shipmentId, evaluationId, shipmentSummary);
     }
 
     public override Task<ComplianceGrpc.ValidateGroundedEvidenceResponse> ValidateGroundedEvidence(
