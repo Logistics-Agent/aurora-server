@@ -1,0 +1,23 @@
+{
+  "name": "Profile C - Baseline Production Workload",
+  "description": "100 virtual vehicles sending telemetry at 1 event/sec (100 GPS events/sec)",
+  "profile": "C",
+  "vehicles": 100,
+  "intervalSeconds": 1.0,
+  "warmupSeconds": 60,
+  "measurementSeconds": 300,
+  "iterations": 3,
+  "seed": 42,
+  "baseSpeedKph": 50.0,
+  "behavior": "normal",
+  "resourceLimits": {
+    "cpu": "500m",
+    "memory": "256Mi"
+  },
+  "serviceEndpoints": {
+    "gpsGrpcUrl": "http://localhost:6002",
+    "postgresUrl": "postgres://aurora_admin:aurora_secure_password_2026!@localhost:5435/aurora_gps_tracking",
+    "rabbitmqUrl": "amqp://aurora_admin:aurora_secure_password_2026!@localhost:5672/"
+  }
+}
+

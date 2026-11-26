@@ -228,6 +228,37 @@ services:
       RabbitMQ__Port: 5672
       RabbitMQ__Username: ${RABBITMQ_USER:-aurora_admin}
       RabbitMQ__Password: ${RABBITMQ_PASSWORD:-aurora_secure_password_2026!}
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+    depends_on:
+      - postgres
+      - rabbitmq
+    networks:
+      - aurora-local
+
+  gps-tracking-go:
+    build:
+      context: ../../
+      dockerfile: src/go/gps-tracking/Dockerfile
+    container_name: aurora-gps-tracking-go
+    profiles: ["benchmark", "full"]
+    ports:
+      - "6006:6002"
+    environment:
+      PORT: 6002
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: ${POSTGRES_USER:-aurora_admin}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-aurora_secure_password_2026!}
+      POSTGRES_DB: gps_tracking_db
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
     depends_on:
       - postgres
       - rabbitmq
@@ -502,6 +533,73 @@ services:
       - redis
       - rabbitmq
       - ai-governance
+    networks:
+      - aurora-local
+
+  ai-governance-go:
+    build:
+      context: ../../
+      dockerfile: src/go/ai-governance/Dockerfile
+    container_name: aurora-ai-governance-go
+    profiles: ["ai-go", "benchmark"]
+    ports:
+      - "8091:8080"
+      - "9095:9090"
+    environment:
+      SERVER_PORT: 8080
+      GRPC_SERVER_PORT: 9090
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/ai_governance_db
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-aurora_admin}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-aurora_secure_password_2026!}
+      SPRING_REDIS_HOST: redis
+      SPRING_REDIS_PORT: 6379
+      SPRING_RABBITMQ_HOST: rabbitmq
+      SPRING_RABBITMQ_PORT: 5672
+      SPRING_RABBITMQ_USERNAME: ${RABBITMQ_USER:-aurora_admin}
+      SPRING_RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-aurora_secure_password_2026!}
+      IAM_TENANT_GRPC_ADDRESS: iam-tenant:5000
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-mock-dev-key}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-mock-dev-key}
+      AZURE_OPENAI_KEY_DEVOPS: ${AZURE_OPENAI_KEY_DEVOPS:-demo-local-key}
+      GEMINI_API_KEY_DEVOPS_01: ${GEMINI_API_KEY_DEVOPS_01:-demo-local-key}
+      GEMINI_API_KEY_DEVOPS_02: ${GEMINI_API_KEY_DEVOPS_02:-demo-local-key}
+      GEMINI_API_KEY_DEVOPS_03: ${GEMINI_API_KEY_DEVOPS_03:-demo-local-key}
+      GEMINI_API_KEY_DEVOPS_04: ${GEMINI_API_KEY_DEVOPS_04:-demo-local-key}
+    depends_on:
+      - postgres
+      - redis
+      - rabbitmq
+    networks:
+      - aurora-local
+
+  devops-agent-go:
+    build:
+      context: ../../
+      dockerfile: src/go/devops-agent/Dockerfile
+    container_name: aurora-devops-agent-go
+    profiles: ["ai-go", "benchmark"]
+    ports:
+      - "8092:8080"
+      - "9096:9090"
+    environment:
+      SERVER_PORT: 8080
+      GRPC_SERVER_PORT: 9090
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/devops_agent_db
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-aurora_admin}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-aurora_secure_password_2026!}
+      SPRING_RABBITMQ_HOST: rabbitmq
+      SPRING_RABBITMQ_PORT: 5672
+      SPRING_RABBITMQ_USERNAME: ${RABBITMQ_USER:-aurora_admin}
+      SPRING_RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-aurora_secure_password_2026!}
+      SPRING_REDIS_HOST: redis
+      SPRING_REDIS_PORT: 6379
+      DEVOPS_ALERT_WEBHOOK_TOKEN: local-dev-only-token
+      AI_GOVERNANCE_GRPC_ADDRESS: ai-governance-go:9090
+    depends_on:
+      - postgres
+      - redis
+      - rabbitmq
+      - ai-governance-go
     networks:
       - aurora-local
 

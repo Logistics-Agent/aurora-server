@@ -1,0 +1,284 @@
+package workers
+
+import (
+	"context"
+	"fmt"
+	"log/slog"
+	"strings"
+	"time"
+
+	"aurora/devops-agent/internal/application"
+	"aurora/devops-agent/internal/domain"
+	"aurora/devops-agent/internal/infrastructure/metrics"
+	"aurora/shared/rabbitmq"
+
+	amqp "github.com/rabbitmq/amqp091-go"
+)
+
+const (
+	AuditExchange           = "devops.audit.events"
+	AuditRoutingKeyPrefix   = "devops.audit."
+	NotificationExchange    = "devops.events.exchange"
+	NotificationRoutingKey  = "devops.alert.incident.detected"
+)
+
+type RcaAnalysisWorker struct {
+	incidentRepo    application.IncidentRepository
+	outboxRepo      application.OutboxRepository
+	uow             application.UnitOfWork
+	rcaOrchestrator *application.RcaOrchestratorService
+	metrics         *metrics.DevOpsMetrics
+	interval        time.Duration
+	batchSize       int
+	logger          *slog.Logger
+}
+
+func NewRcaAnalysisWorker(
+	incidentRepo application.IncidentRepository,
+	outboxRepo application.OutboxRepository,
+	uow application.UnitOfWork,
+	rcaOrchestrator *application.RcaOrchestratorService,
+	m *metrics.DevOpsMetrics,
+	interval time.Duration,
+	batchSize int,
+	logger *slog.Logger,
+) *RcaAnalysisWorker {
+	if batchSize < 1 {
+		batchSize = 1
+	}
+	if interval <= 0 {
+		interval = 5 * time.Second
+	}
+	if logger == nil {
+		logger = slog.Default()
+	}
+	return &RcaAnalysisWorker{
+		incidentRepo:    incidentRepo,
+		outboxRepo:      outboxRepo,
+		uow:             uow,
+		rcaOrchestrator: rcaOrchestrator,
+		metrics:         m,
+		interval:        interval,
+		batchSize:       batchSize,
+		logger:          logger,
+	}
+}
+
+func (w *RcaAnalysisWorker) Start(ctx context.Context) {
+	ticker := time.NewTicker(w.interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if err := w.ProcessPendingIncidents(ctx); err != nil {
+				w.logger.Error("RcaAnalysisWorker cycle failed", slog.Any("error", err))
+			}
+		}
+	}
+}
+
+func (w *RcaAnalysisWorker) ProcessPendingIncidents(ctx context.Context) error {
+	return w.uow.WithTransaction(ctx, func(txCtx context.Context) error {
+		pending, err := w.incidentRepo.FindAndLockByStatus(txCtx, domain.IncidentStatusNew, w.batchSize)
+		if err != nil {
+			return err
+		}
+		for _, incident := range pending {
+			if _, rcaErr := w.rcaOrchestrator.ExecuteRca(txCtx, incident, incident.EvidenceJson); rcaErr != nil {
+				w.metrics.IncrementRcaFailures()
+				w.logger.Error("RCA failed for incident", slog.String("correlationId", incident.CorrelationID), slog.Any("error", rcaErr))
+				if incident.Status == domain.IncidentStatusContextReady {
+					_ = incident.TransitionTo(domain.IncidentStatusAiAnalysis)
+				}
+				if incident.Status == domain.IncidentStatusAiAnalysis {
+					_ = incident.TransitionTo(domain.IncidentStatusAiAnalysisFailed)
+				}
+				incident.UpdatedAt = time.Now().UTC()
+				if saveErr := w.incidentRepo.Save(txCtx, incident); saveErr != nil {
+					w.logger.Error("Could not persist RCA failure state", slog.String("correlationId", incident.CorrelationID), slog.Any("error", saveErr))
+					continue
+				}
+				_ = w.outboxRepo.Enqueue(txCtx, incident.CorrelationID, &incident.ID, domain.AuditActionRcaAnalysisFailed,
+					"SYSTEM_DEVOPS_AGENT", `{"reason":"RCA execution failed; inspect sanitized service logs"}`)
+			}
+		}
+		return nil
+	})
+}
+
+type OutboxPollerWorker struct {
+	outboxRepo   application.OutboxRepository
+	uow          application.UnitOfWork
+	rabbitClient *rabbitmq.Client
+	metrics      *metrics.DevOpsMetrics
+	interval     time.Duration
+	logger       *slog.Logger
+}
+
+func NewOutboxPollerWorker(
+	outboxRepo application.OutboxRepository,
+	uow application.UnitOfWork,
+	rabbitClient *rabbitmq.Client,
+	m *metrics.DevOpsMetrics,
+	interval time.Duration,
+	logger *slog.Logger,
+) *OutboxPollerWorker {
+	if interval <= 0 {
+		interval = 5 * time.Second
+	}
+	if logger == nil {
+		logger = slog.Default()
+	}
+	return &OutboxPollerWorker{
+		outboxRepo:   outboxRepo,
+		uow:          uow,
+		rabbitClient: rabbitClient,
+		metrics:      m,
+		interval:     interval,
+		logger:       logger,
+	}
+}
+
+func (w *OutboxPollerWorker) Start(ctx context.Context) {
+	ticker := time.NewTicker(w.interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if err := w.ProcessOutboxEvents(ctx); err != nil {
+				w.logger.Error("OutboxPollerWorker cycle failed", slog.Any("error", err))
+			}
+		}
+	}
+}
+
+func (w *OutboxPollerWorker) ProcessOutboxEvents(ctx context.Context) error {
+	if w.rabbitClient == nil {
+		return nil
+	}
+	return w.uow.WithTransaction(ctx, func(txCtx context.Context) error {
+		pending, err := w.outboxRepo.FindAndLockPendingBatch(txCtx, 50)
+		if err != nil || len(pending) == 0 {
+			return err
+		}
+
+		for _, event := range pending {
+			isNotif := event.ActionType == domain.AuditActionIncidentDetected
+			exchange := AuditExchange
+			routingKey := AuditRoutingKeyPrefix + strings.ToLower(string(event.ActionType))
+			if isNotif {
+				exchange = NotificationExchange
+				routingKey = NotificationRoutingKey
+			}
+
+			headers := amqp.Table{
+				"action_type": string(event.ActionType),
+				"actor":       event.Actor,
+			}
+			pubErr := w.rabbitClient.PublishTopic(txCtx, exchange, routingKey, []byte(event.PayloadJson), "application/json", event.CorrelationID, headers)
+			now := time.Now().UTC()
+			if pubErr != nil {
+				w.metrics.IncrementOutboxPublishFailures()
+				w.logger.Error("Failed to publish outbox event", slog.String("id", event.ID.String()), slog.Any("error", pubErr))
+				event.RetryCount++
+				msg := pubErr.Error()
+				event.LastError = &msg
+				event.UpdatedAt = now
+				_ = w.outboxRepo.Save(txCtx, event)
+				continue
+			}
+
+			event.Processed = true
+			event.ProcessedAt = &now
+			event.UpdatedAt = now
+			_ = w.outboxRepo.Save(txCtx, event)
+		}
+		return nil
+	})
+}
+
+type ApprovalTimeoutWorker struct {
+	approvalRepo application.PrApprovalRecordRepository
+	outboxRepo   application.OutboxRepository
+	uow          application.UnitOfWork
+	metrics      *metrics.DevOpsMetrics
+	interval     time.Duration
+	logger       *slog.Logger
+}
+
+func NewApprovalTimeoutWorker(
+	approvalRepo application.PrApprovalRecordRepository,
+	outboxRepo application.OutboxRepository,
+	uow application.UnitOfWork,
+	m *metrics.DevOpsMetrics,
+	interval time.Duration,
+	logger *slog.Logger,
+) *ApprovalTimeoutWorker {
+	if interval <= 0 {
+		interval = 15 * time.Second
+	}
+	if logger == nil {
+		logger = slog.Default()
+	}
+	return &ApprovalTimeoutWorker{
+		approvalRepo: approvalRepo,
+		outboxRepo:   outboxRepo,
+		uow:          uow,
+		metrics:      m,
+		interval:     interval,
+		logger:       logger,
+	}
+}
+
+func (w *ApprovalTimeoutWorker) Start(ctx context.Context) {
+	ticker := time.NewTicker(w.interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if err := w.ProcessExpiredApprovals(ctx); err != nil {
+				w.logger.Error("ApprovalTimeoutWorker cycle failed", slog.Any("error", err))
+			}
+		}
+	}
+}
+
+func (w *ApprovalTimeoutWorker) ProcessExpiredApprovals(ctx context.Context) error {
+	return w.uow.WithTransaction(ctx, func(txCtx context.Context) error {
+		now := time.Now().UTC()
+		expired, err := w.approvalRepo.FindByStatusAndExpiresAtBefore(txCtx, domain.ApprovalStatusPending, now)
+		if err != nil || len(expired) == 0 {
+			return err
+		}
+
+		for _, rec := range expired {
+			rec.Status = domain.ApprovalStatusExpired
+			rec.UpdatedAt = now
+			if err := w.approvalRepo.Save(txCtx, rec); err != nil {
+				return err
+			}
+			w.metrics.IncrementApprovalTimeouts()
+
+			var corrID string
+			if rec.Incident != nil {
+				corrID = rec.Incident.CorrelationID
+			}
+			incID := rec.IncidentID
+			payload := fmt.Sprintf(`{"approvalId":"%s","reason":"Approval expired due to timeout (%d minutes)"}`,
+				rec.ID.String(), rec.TimeoutMinutes)
+			if err := w.outboxRepo.Enqueue(txCtx, corrID, &incID, domain.AuditActionApprovalRejected, "SYSTEM_DEVOPS_AGENT", payload); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}

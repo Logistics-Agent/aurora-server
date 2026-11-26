@@ -1,0 +1,16 @@
+﻿{
+    "Timestamp":  "2026-11-08 21:36:30",
+    "Target":  "dotnet",
+    "Driver":  "go",
+    "Profile":  "A",
+    "Iteration":  1,
+    "DurationSec":  2,
+    "Vehicles":  10,
+    "TotalSent":  10,
+    "ThroughputEvtSec":  0,
+    "LatencyP50Ms":  0,
+    "LatencyP95Ms":  0,
+    "LatencyP99Ms":  0,
+    "SuccessRatePct":  0,
+    "Timeouts":  0
+}

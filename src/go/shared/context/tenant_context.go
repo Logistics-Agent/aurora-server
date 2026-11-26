@@ -14,6 +14,7 @@ const (
 	userRoleKey      contextKey = "user_role"
 	traceIDKey       contextKey = "trace_id"
 	correlationIDKey contextKey = "correlation_id"
+	serviceIDKey     contextKey = "service_id"
 )
 
 // WithTenantID gắn TenantID (UUID) vào context
@@ -71,6 +72,17 @@ func WithCorrelationID(ctx context.Context, correlationID string) context.Contex
 // GetCorrelationID lấy CorrelationID từ context
 func GetCorrelationID(ctx context.Context) (string, bool) {
 	val, ok := ctx.Value(correlationIDKey).(string)
+	return val, ok && val != ""
+}
+
+// WithServiceID gắn ServiceID vào context
+func WithServiceID(ctx context.Context, serviceID string) context.Context {
+	return context.WithValue(ctx, serviceIDKey, serviceID)
+}
+
+// GetServiceID lấy ServiceID từ context
+func GetServiceID(ctx context.Context) (string, bool) {
+	val, ok := ctx.Value(serviceIDKey).(string)
 	return val, ok && val != ""
 }
 

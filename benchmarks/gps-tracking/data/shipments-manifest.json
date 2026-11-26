@@ -1,0 +1,63 @@
+[
+  {
+    "shipmentId": "01920000-0000-7000-8000-000000000001",
+    "vehicleId": "sim-veh-0001",
+    "routeId": "route-cr-pa-01",
+    "customerName": "San Jose Logistics"
+  },
+  {
+    "shipmentId": "01920000-0000-7000-8000-000000000002",
+    "vehicleId": "sim-veh-0002",
+    "routeId": "route-cr-pa-01",
+    "customerName": "Cartago Express"
+  },
+  {
+    "shipmentId": "01920000-0000-7000-8000-000000000003",
+    "vehicleId": "sim-veh-0003",
+    "routeId": "route-cr-pa-01",
+    "customerName": "Panama Cargo Hub"
+  },
+  {
+    "shipmentId": "01920000-0000-7000-8000-000000000004",
+    "vehicleId": "sim-veh-0004",
+    "routeId": "route-cr-pa-01",
+    "customerName": "Paso Canoas Border Freight"
+  },
+  {
+    "shipmentId": "01920000-0000-7000-8000-000000000005",
+    "vehicleId": "sim-veh-0005",
+    "routeId": "route-cr-pa-01",
+    "customerName": "David Logistics Center"
+  },
+  {
+    "shipmentId": "01920000-0000-7000-8000-000000000006",
+    "vehicleId": "sim-veh-0006",
+    "routeId": "route-cr-pa-01",
+    "customerName": "Santiago Distribution"
+  },
+  {
+    "shipmentId": "01920000-0000-7000-8000-000000000007",
+    "vehicleId": "sim-veh-0007",
+    "routeId": "route-cr-pa-01",
+    "customerName": "Penonome Transport"
+  },
+  {
+    "shipmentId": "01920000-0000-7000-8000-000000000008",
+    "vehicleId": "sim-veh-0008",
+    "routeId": "route-cr-pa-01",
+    "customerName": "San Isidro Freight"
+  },
+  {
+    "shipmentId": "01920000-0000-7000-8000-000000000009",
+    "vehicleId": "sim-veh-0009",
+    "routeId": "route-cr-pa-01",
+    "customerName": "Palmar Norte Express"
+  },
+  {
+    "shipmentId": "01920000-0000-7000-8000-000000000010",
+    "vehicleId": "sim-veh-0010",
+    "routeId": "route-cr-pa-01",
+    "customerName": "Tole Cargo Line"
+  }
+]
+

@@ -10,11 +10,12 @@ Terraform, ArgoCD
 Redis, PostgreSQL Neon: Db per services.
 Docker, Grafana, Prometheus, Loki - Helm heal
 BFF gateway
+Cloudflare -> ALB -> Yarp -> BFF
 Agent:
 	Function Calling - Plugin
 	RAG
 	AI Assistant
-Cloudflare -> ALB -> Yarp -> BFF
+
 
 8eade: Khoa - core
 e6222: Tan  - shared
@@ -25,7 +26,7 @@ Service:
 Identity & Tenant Service [CORE] - on going					
 Route Planning Agent Service [AI] - VRP(OSRM+VROOM) - https://download.geofabrik.de/asia.html
 AI Ops & Monitoring Service [AI + DEVOPS]	
-Email Security Service [AI]: Stalwart-TLS Verification-SPF-DKIM-DMARC-Sender Validation-Attachment Scan-Spam Detection-Pub Event-> ORC/RoutePlan/Shipment
+Email Security Service [AI]
 AI-Governance: AI Management
 
 @Đào Huỳnh:  Financial & Cost Estimation Service [AI + CORE]	- ongoing		

@@ -1,0 +1,37 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: gps-loadgen-benchmark
+  namespace: aurora
+spec:
+  backoffLimit: 0
+  template:
+    metadata:
+      labels:
+        app: gps-loadgen
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: gps-loadgen
+        image: aurora/gps-loadgen:latest
+        imagePullPolicy: IfNotPresent
+        args:
+          - "-profile"
+          - "C"
+          - "-duration"
+          - "300"
+          - "-seed"
+          - "42"
+          - "-gps"
+          - "dns:///gps-tracking-service:6002"
+        resources:
+          requests:
+            cpu: 500m
+            memory: 256Mi
+          limits:
+            cpu: 1000m
+            memory: 512Mi
+        env:
+          - name: TENANT_ID
+            value: "01920000-0000-7000-8000-000000000001"
+

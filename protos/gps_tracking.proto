@@ -1,6 +1,7 @@
 syntax = "proto3";
 
 option csharp_namespace = "GpsTracking.Grpc";
+option go_package = "aurora/gps-loadgen/proto/gpstrackingpb";
 
 import "google/protobuf/timestamp.proto";
 

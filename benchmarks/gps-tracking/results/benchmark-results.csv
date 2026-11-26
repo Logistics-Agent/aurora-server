@@ -1,0 +1,2 @@
+﻿Timestamp,Target,Driver,Profile,Iteration,DurationSec,Vehicles,TotalSent,ThroughputEvtSec,LatencyP50Ms,LatencyP95Ms,LatencyP99Ms,SuccessRatePct,Timeouts
+2026-11-08 21:36:30,dotnet,go,A,1,2,10,10,0,0,0,0,0,0

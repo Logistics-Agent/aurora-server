@@ -1,6 +1,9 @@
-go 1.22
+go 1.26.0
 
 use (
 	./shared
 	./route-planning-agent
+	./gps-tracking
+	./ai-governance
+	./devops-agent
 )

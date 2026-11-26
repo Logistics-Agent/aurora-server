@@ -47,6 +47,11 @@ func UnaryMetadataInterceptor() grpc.UnaryServerInterceptor {
 			if values := md.Get(constants.HeaderCorrelationID); len(values) > 0 && values[0] != "" {
 				ctx = sharedctx.WithCorrelationID(ctx, values[0])
 			}
+
+			// 6. Trích xuất ServiceID
+			if values := md.Get(constants.HeaderServiceID); len(values) > 0 && values[0] != "" {
+				ctx = sharedctx.WithServiceID(ctx, values[0])
+			}
 		}
 
 		return handler(ctx, req)

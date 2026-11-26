@@ -1,230 +1,172 @@
-using Google.Protobuf.WellKnownTypes;
+using GpsSimulator.Models;
+using GpsSimulator.Services;
 using GpsTracking.Grpc;
 using Grpc.Core;
 using Grpc.Net.Client;
+using RoutePlanningAgent.Grpc;
 using ShipmentWorkflow.Grpc;
 
 namespace GpsSimulator;
 
 public class Program
 {
-    private const string Usage =
-        "Usage: gps-simulator --shipment <uuid> [--interval <sec>] [--speed <kmh>] [--grpc <url>] [--tenant <id>]";
-
     public static async Task<int> Main(string[] args)
     {
-        string? shipmentId = null;
-        int intervalSeconds = 3;
-        double baseSpeed = 50.0;
-        string gpsGrpcUrl = Environment.GetEnvironmentVariable("GPS_GRPC_URL") ?? "http://localhost:6002";
-        string shipmentGrpcUrl = Environment.GetEnvironmentVariable("SHIPMENT_GRPC_URL") ?? "http://localhost:6000";
-        string tenantId = Environment.GetEnvironmentVariable("TENANT_ID") ?? "01920000-0000-7000-8000-000000000001";
-        string userId = Environment.GetEnvironmentVariable("USER_ID") ?? "01910000-0000-7000-8000-000000000001";
-
-        for (int i = 0; i < args.Length; i++)
+        SimulationConfig config;
+        try
         {
-            if (args[i] is "--help" or "-h")
-            {
-                Console.WriteLine(Usage);
-                return 0;
-            }
-
-            if (i + 1 >= args.Length)
-            {
-                return PrintUsageError($"Missing value for '{args[i]}'.");
-            }
-
-            string option = args[i];
-            string value = args[++i];
-            switch (option)
-            {
-                case "--shipment":
-                    shipmentId = value;
-                    break;
-                case "--interval" when int.TryParse(value, out var parsedInterval):
-                    intervalSeconds = Math.Max(1, parsedInterval);
-                    break;
-                case "--speed" when double.TryParse(value, out var parsedSpeed):
-                    baseSpeed = Math.Max(10.0, parsedSpeed);
-                    break;
-                case "--grpc":
-                    gpsGrpcUrl = value;
-                    break;
-                case "--tenant":
-                    tenantId = value;
-                    break;
-                default:
-                    return PrintUsageError($"Invalid argument or value near '{option}'.");
-            }
+            config = SimulationConfig.Parse(args);
         }
-
-        if (string.IsNullOrWhiteSpace(shipmentId) || !Guid.TryParse(shipmentId, out _))
+        catch (ArgumentException ex)
         {
-            return PrintUsageError("--shipment is required and must be a valid UUID.");
+            Console.Error.WriteLine(SimulationConfig.Usage);
+            Console.Error.WriteLine();
+            Console.Error.WriteLine($"Error: {ex.Message}");
+            return 1;
         }
 
         using var cts = new CancellationTokenSource();
         ConsoleCancelEventHandler cancelHandler = (_, e) =>
         {
             e.Cancel = true;
+            Console.WriteLine("\n[Shutdown] Cancellation received. Stopping vehicles gracefully...");
             cts.Cancel();
         };
         Console.CancelKeyPress += cancelHandler;
 
-        Console.WriteLine("Aurora GPS Simulator");
-        Console.WriteLine($"Shipment : {shipmentId}");
-        Console.WriteLine($"Interval : {intervalSeconds}s  Speed: {baseSpeed:0.#} km/h");
-        Console.WriteLine($"GPS URL  : {gpsGrpcUrl}");
-        Console.WriteLine($"Shipment URL: {shipmentGrpcUrl}");
-        Console.WriteLine($"Tenant   : {tenantId}");
+        Console.WriteLine("=========================================================");
+        Console.WriteLine("                  Aurora GPS Simulator                   ");
+        Console.WriteLine("=========================================================");
+        Console.WriteLine($"Mode          : {config.Mode}");
+        if (config.Mode == SimulationMode.Single)
+        {
+            Console.WriteLine($"Shipment      : {config.SingleShipmentId}");
+        }
+        else if (config.VehiclesLimit.HasValue)
+        {
+            Console.WriteLine($"Vehicles Limit: {config.VehiclesLimit.Value}");
+        }
+        Console.WriteLine($"Behavior      : {config.Behavior}");
+        Console.WriteLine($"Interval      : {config.IntervalSeconds}s | Base Speed: {config.BaseSpeedKph:0.#} km/h");
+        if (config.DurationSeconds.HasValue)
+        {
+            Console.WriteLine($"Duration      : {config.DurationSeconds.Value}s");
+        }
+        if (config.RandomSeed.HasValue)
+        {
+            Console.WriteLine($"Random Seed   : {config.RandomSeed.Value}");
+        }
+        Console.WriteLine($"GPS URL       : {config.GpsGrpcUrl}");
+        Console.WriteLine($"Shipment URL  : {config.ShipmentGrpcUrl}");
+        Console.WriteLine($"Route URL     : {config.RouteGrpcUrl}");
+        Console.WriteLine($"Tenant ID     : {config.TenantId}");
+        Console.WriteLine($"Max Concurrency: {config.MaxConcurrency}");
+        Console.WriteLine("=========================================================");
         Console.WriteLine();
 
         var headers = new Metadata
         {
-            { "x-tenant-id", tenantId },
-            { "x-user-id", userId }
+            { "x-tenant-id", config.TenantId },
+            { "x-user-id", config.UserId }
         };
 
-        Console.WriteLine("Validating shipment...");
+        using var gpsChannel = CreateChannel(config.GpsGrpcUrl);
+        var gpsClient = new GpsTrackingService.GpsTrackingServiceClient(gpsChannel);
+
+        if (config.Mode == SimulationMode.Scenario)
+        {
+            var scenarioRunner = new FunctionalScenarioRunner(gpsClient, config);
+            return await scenarioRunner.RunScenariosAsync(config.ScenarioName ?? "all", cts.Token);
+        }
+
+        using var shipmentChannel = CreateChannel(config.ShipmentGrpcUrl);
+        var shipmentClient = new ShipmentWorkflowService.ShipmentWorkflowServiceClient(shipmentChannel);
+
+        using var routeChannel = CreateChannel(config.RouteGrpcUrl);
+        var routeClient = new RoutePlanningService.RoutePlanningServiceClient(routeChannel);
+
+        // 1. Discover shipment candidates
+        Console.WriteLine("Discovering shipment candidates...");
+        var discoveryService = new ShipmentDiscoveryService(shipmentClient, headers);
+        List<ShipmentCandidate> candidates;
         try
         {
-            using var shipmentChannel = CreateChannel(shipmentGrpcUrl);
-            var shipmentClient = new ShipmentWorkflowService.ShipmentWorkflowServiceClient(shipmentChannel);
-            var shipment = await shipmentClient.GetShipmentAsync(
-                new GetShipmentRequest { Id = shipmentId },
-                headers,
-                deadline: DateTime.UtcNow.AddSeconds(10),
-                cancellationToken: cts.Token);
-
-            Console.WriteLine($"Shipment found: {shipment.CustomerName} ({shipment.Status})");
+            candidates = await discoveryService.DiscoverAsync(config, cts.Token);
         }
-        catch (RpcException ex) when (ex.StatusCode == StatusCode.NotFound)
+        catch (KeyNotFoundException ex)
         {
-            Console.Error.WriteLine($"Error: Shipment '{shipmentId}' not found.");
+            Console.Error.WriteLine($"Error: {ex.Message}");
             return 2;
-        }
-        catch (RpcException ex) when (cts.IsCancellationRequested && ex.StatusCode == StatusCode.Cancelled)
-        {
-            Console.WriteLine("Simulation cancelled.");
-            return 130;
         }
         catch (OperationCanceledException) when (cts.IsCancellationRequested)
         {
-            Console.WriteLine("Simulation cancelled.");
+            Console.WriteLine("Simulation cancelled during discovery.");
             return 130;
         }
         catch (Exception ex)
         {
-            Console.Error.WriteLine(
-                $"Error: Cannot connect to Shipment Workflow Service at {shipmentGrpcUrl}: {ex.Message}");
+            Console.Error.WriteLine($"Error during shipment discovery: {ex.Message}");
             return 3;
         }
 
-        var waypoints = new (double Lat, double Lng)[]
+        if (candidates.Count == 0)
         {
-            (9.9333, -84.0833), // San Jose Hub
-            (9.8653, -83.9189), // Cartago
-            (9.3789, -83.7042), // San Isidro
-            (8.9667, -83.5167), // Palmar Norte
-            (8.5333, -82.8333), // Paso Canoas Border
-            (8.4333, -82.4333), // David Hub
-            (8.2333, -81.7500), // Tole
-            (8.1000, -80.9667), // Santiago
-            (8.4000, -80.4167), // Penonome
-            (8.9824, -79.5199), // Panama City Logistics Center
-        };
+            Console.WriteLine("[WARN] No eligible shipments found. (Make sure shipments have vehicles assigned or use --auto-assign).");
+            return 0;
+        }
 
-        var routePoints = InterpolateRoute(waypoints, 20);
-        Console.WriteLine("Route: San Jose CR -> Panama City PA (hardcoded ROAD corridor)");
-        Console.WriteLine($"Route points: {routePoints.Count}");
-        Console.WriteLine();
+        Console.WriteLine($"Found {candidates.Count} candidate shipment(s).");
 
-        using var gpsChannel = CreateChannel(gpsGrpcUrl);
-        var gpsClient = new GpsTrackingService.GpsTrackingServiceClient(gpsChannel);
-        var random = new Random();
-        int successCount = 0;
-        int failCount = 0;
+        // 2. Trajectory provider
+        var trajectoryProvider = new CompositeTrajectoryProvider(routeClient, headers);
+        var rnd = config.RandomSeed.HasValue ? new Random(config.RandomSeed.Value) : new Random();
 
-        // vehicle_id = shipmentId (UUID string).
-        // GPS Tracking links it to a shipment when a VehicleShipmentAssignment exists.
-        // The demo UI queries type=vehicle so movement is visible with or without that assignment.
-        for (int i = 0; i < routePoints.Count && !cts.IsCancellationRequested; i++)
+        // 3. Build VehicleSimulation objects
+        Console.WriteLine("Building vehicle simulation models and trajectories...");
+        var vehicles = new List<VehicleSimulation>();
+        for (int i = 0; i < candidates.Count; i++)
         {
-            var point = routePoints[i];
-            var nextPoint = i < routePoints.Count - 1 ? routePoints[i + 1] : point;
-            double heading = CalculateHeading(point.Lat, point.Lng, nextPoint.Lat, nextPoint.Lng);
-            double speed = Math.Round(baseSpeed + random.NextDouble() * 6 - 3, 1);
+            var candidate = candidates[i];
+            var trajectory = await trajectoryProvider.GetAsync(candidate, cts.Token);
 
-            var request = new IngestPositionRequest
+            var behavior = config.Behavior switch
             {
-                ExternalReadingId = $"sim-{Guid.NewGuid():N}",
-                DeviceId = $"sim-dev-{shipmentId}",
-                VehicleId = shipmentId,
-                Latitude = point.Lat,
-                Longitude = point.Lng,
-                SpeedKph = speed,
-                HeadingDegrees = heading,
-                AccuracyMeters = 3.5,
-                RecordedAt = Timestamp.FromDateTimeOffset(DateTimeOffset.UtcNow)
+                SimulationBehavior.Mixed => (rnd.Next(100)) switch
+                {
+                    < 70 => SimulationBehavior.Normal,
+                    < 85 => SimulationBehavior.Deviation,
+                    _ => SimulationBehavior.SignalLoss
+                },
+                _ => config.Behavior
             };
 
-            try
+            var vehicle = new VehicleSimulation
             {
-                await gpsClient.IngestPositionAsync(
-                    request,
-                    headers,
-                    deadline: DateTime.UtcNow.AddSeconds(5),
-                    cancellationToken: cts.Token);
-                successCount++;
-            }
-            catch (RpcException ex) when (cts.IsCancellationRequested && ex.StatusCode == StatusCode.Cancelled)
-            {
-                break;
-            }
-            catch (OperationCanceledException) when (cts.IsCancellationRequested)
-            {
-                break;
-            }
-            catch (Exception ex)
-            {
-                failCount++;
-                Console.WriteLine($"[WARN] IngestPosition failed: {ex.Message}");
-            }
+                ShipmentId = candidate.ShipmentId,
+                VehicleId = candidate.VehicleId ?? $"sim-veh-{i + 1:D4}",
+                DeviceId = $"sim-dev-{candidate.VehicleId ?? $"veh-{i + 1:D4}"}",
+                RouteId = candidate.RouteId,
+                Trajectory = trajectory,
+                CurrentPosition = trajectory.Points[0],
+                CurrentSpeed = config.BaseSpeedKph,
+                CurrentWaypointIndex = 0,
+                ExternalReadingSequence = 0,
+                Behavior = behavior
+            };
 
-            Console.WriteLine(
-                $"[{i + 1}/{routePoints.Count}] {point.Lat:F4},{point.Lng:F4} | {speed:F0} km/h");
-
-            if (i == routePoints.Count - 1)
-            {
-                continue;
-            }
-
-            try
-            {
-                await Task.Delay(TimeSpan.FromSeconds(intervalSeconds), cts.Token);
-            }
-            catch (OperationCanceledException)
-            {
-                break;
-            }
+            vehicles.Add(vehicle);
         }
 
+        Console.WriteLine($"Initialized {vehicles.Count} active vehicle simulation(s).");
         Console.WriteLine();
-        if (cts.IsCancellationRequested)
-        {
-            Console.WriteLine($"Simulation cancelled. {successCount} sent, {failCount} failed.");
-            return 130;
-        }
 
-        Console.WriteLine($"Simulation completed. {successCount} sent, {failCount} failed.");
-        return failCount == 0 ? 0 : 4;
-    }
+        // 4. Start concurrent simulation
+        var telemetryGenerator = new TelemetryGenerator(config.BaseSpeedKph, config.RandomSeed);
+        var metrics = new SimulationMetrics();
+        var runner = new SimulationRunner(gpsClient, telemetryGenerator, metrics, headers);
 
-    private static int PrintUsageError(string message)
-    {
-        Console.Error.WriteLine(Usage);
-        Console.Error.WriteLine($"Error: {message}");
-        return 1;
+        int exitCode = await runner.RunAsync(vehicles, config, cts.Token);
+        return exitCode;
     }
 
     private static GrpcChannel CreateChannel(string url)
@@ -236,38 +178,5 @@ public class Program
                 EnableMultipleHttp2Connections = true
             }
         });
-    }
-
-    private static List<(double Lat, double Lng)> InterpolateRoute(
-        (double Lat, double Lng)[] waypoints,
-        int stepsBetween)
-    {
-        var result = new List<(double Lat, double Lng)>();
-        for (int i = 0; i < waypoints.Length - 1; i++)
-        {
-            var start = waypoints[i];
-            var end = waypoints[i + 1];
-            for (int step = 0; step < stepsBetween; step++)
-            {
-                double progress = (double)step / stepsBetween;
-                double latitude = start.Lat + progress * (end.Lat - start.Lat);
-                double longitude = start.Lng + progress * (end.Lng - start.Lng);
-                result.Add((latitude, longitude));
-            }
-        }
-
-        result.Add(waypoints[^1]);
-        return result;
-    }
-
-    private static double CalculateHeading(double lat1, double lon1, double lat2, double lon2)
-    {
-        double dLon = (lon2 - lon1) * Math.PI / 180.0;
-        double y = Math.Sin(dLon) * Math.Cos(lat2 * Math.PI / 180.0);
-        double x = Math.Cos(lat1 * Math.PI / 180.0) * Math.Sin(lat2 * Math.PI / 180.0) -
-                   Math.Sin(lat1 * Math.PI / 180.0) * Math.Cos(lat2 * Math.PI / 180.0) * Math.Cos(dLon);
-        double radians = Math.Atan2(y, x);
-        double degrees = (radians * 180.0 / Math.PI + 360.0) % 360.0;
-        return Math.Round(degrees, 1);
     }
 }

@@ -219,3 +219,144 @@ func (c *Client) Close() error {
 	return nil
 }
 
+// DeclareTopicExchange khai báo topic exchange bền vững (durable)
+func (c *Client) DeclareTopicExchange(exchange string) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.ch == nil {
+		return fmt.Errorf("kênh RabbitMQ chưa sẵn sàng")
+	}
+
+	return c.ch.ExchangeDeclare(
+		exchange,
+		"topic",
+		true,  // durable
+		false, // auto-deleted
+		false, // internal
+		false, // no-wait
+		nil,
+	)
+}
+
+// PublishTopic gửi payload tới topic exchange với routing key, contentType, correlationID và headers
+func (c *Client) PublishTopic(
+	ctx context.Context,
+	exchange, routingKey string,
+	body []byte,
+	contentType, correlationID string,
+	headers amqp.Table,
+) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.ch == nil {
+		return fmt.Errorf("kênh RabbitMQ chưa sẵn sàng")
+	}
+
+	if exchange != "" {
+		if err := c.ch.ExchangeDeclare(
+			exchange,
+			"topic",
+			true,  // durable
+			false, // auto-deleted
+			false, // internal
+			false, // no-wait
+			nil,
+		); err != nil {
+			return fmt.Errorf("lỗi khai báo topic exchange %s: %w", exchange, err)
+		}
+	}
+
+	if contentType == "" {
+		contentType = "application/json"
+	}
+
+	msg := amqp.Publishing{
+		ContentType:   contentType,
+		DeliveryMode:  amqp.Persistent,
+		Timestamp:     time.Now().UTC(),
+		CorrelationId: correlationID,
+		Headers:       headers,
+		Body:          body,
+	}
+
+	return c.ch.PublishWithContext(ctx, exchange, routingKey, false, false, msg)
+}
+
+// SubscribeTopic đăng ký lắng nghe message từ durable queue bind tới topic exchange với routingKey
+func (c *Client) SubscribeTopic(
+	ctx context.Context,
+	queueName, exchange, routingKey string,
+	handler func(d amqp.Delivery),
+) error {
+	c.mu.Lock()
+	ch := c.ch
+	c.mu.Unlock()
+
+	if ch == nil {
+		return fmt.Errorf("kênh RabbitMQ chưa sẵn sàng")
+	}
+
+	if exchange != "" {
+		if err := ch.ExchangeDeclare(
+			exchange,
+			"topic",
+			true,
+			false,
+			false,
+			false,
+			nil,
+		); err != nil {
+			return fmt.Errorf("lỗi khai báo topic exchange %s: %w", exchange, err)
+		}
+	}
+
+	q, err := ch.QueueDeclare(
+		queueName,
+		true,  // durable
+		false, // auto-delete
+		false, // exclusive
+		false, // no-wait
+		nil,
+	)
+	if err != nil {
+		return fmt.Errorf("lỗi khai báo queue %s: %w", queueName, err)
+	}
+
+	if exchange != "" {
+		if err := ch.QueueBind(q.Name, routingKey, exchange, false, nil); err != nil {
+			return fmt.Errorf("lỗi bind queue %s tới exchange %s: %w", q.Name, exchange, err)
+		}
+	}
+
+	msgs, err := ch.Consume(
+		q.Name,
+		"",    // consumer tag
+		false, // auto-ack
+		false, // exclusive
+		false, // no-local
+		false, // no-wait
+		nil,
+	)
+	if err != nil {
+		return fmt.Errorf("lỗi đăng ký consume từ queue %s: %w", q.Name, err)
+	}
+
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case d, ok := <-msgs:
+				if !ok {
+					return
+				}
+				handler(d)
+			}
+		}
+	}()
+
+	return nil
+}
+
