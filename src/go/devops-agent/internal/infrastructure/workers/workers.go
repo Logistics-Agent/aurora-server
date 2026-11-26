@@ -81,7 +81,8 @@ func (w *RcaAnalysisWorker) Start(ctx context.Context) {
 }
 
 func (w *RcaAnalysisWorker) ProcessPendingIncidents(ctx context.Context) error {
-	return w.uow.WithTransaction(ctx, func(txCtx context.Context) error {
+	var failedIncidents []*domain.Incident
+	err := w.uow.WithTransaction(ctx, func(txCtx context.Context) error {
 		pending, err := w.incidentRepo.FindAndLockByStatus(txCtx, domain.IncidentStatusNew, w.batchSize)
 		if err != nil {
 			return err
@@ -90,23 +91,46 @@ func (w *RcaAnalysisWorker) ProcessPendingIncidents(ctx context.Context) error {
 			if _, rcaErr := w.rcaOrchestrator.ExecuteRca(txCtx, incident, incident.EvidenceJson); rcaErr != nil {
 				w.metrics.IncrementRcaFailures()
 				w.logger.Error("RCA failed for incident", slog.String("correlationId", incident.CorrelationID), slog.Any("error", rcaErr))
-				if incident.Status == domain.IncidentStatusContextReady {
-					_ = incident.TransitionTo(domain.IncidentStatusAiAnalysis)
-				}
-				if incident.Status == domain.IncidentStatusAiAnalysis {
-					_ = incident.TransitionTo(domain.IncidentStatusAiAnalysisFailed)
-				}
-				incident.UpdatedAt = time.Now().UTC()
-				if saveErr := w.incidentRepo.Save(txCtx, incident); saveErr != nil {
-					w.logger.Error("Could not persist RCA failure state", slog.String("correlationId", incident.CorrelationID), slog.Any("error", saveErr))
-					continue
-				}
-				_ = w.outboxRepo.Enqueue(txCtx, incident.CorrelationID, &incident.ID, domain.AuditActionRcaAnalysisFailed,
-					"SYSTEM_DEVOPS_AGENT", `{"reason":"RCA execution failed; inspect sanitized service logs"}`)
+				failedIncidents = append(failedIncidents, incident)
+				return rcaErr
 			}
 		}
 		return nil
 	})
+	if err != nil && len(failedIncidents) > 0 {
+		// Persist failure state in a fresh transaction so an aborted tx never leaves the incident stuck in NEW
+		_ = w.uow.WithTransaction(ctx, func(recCtx context.Context) error {
+			for _, inc := range failedIncidents {
+				fresh, findErr := w.incidentRepo.FindByCorrelationID(recCtx, inc.CorrelationID)
+				if findErr != nil || fresh == nil {
+					fresh = inc
+				}
+				if fresh.Status == domain.IncidentStatusNew {
+					_ = fresh.TransitionTo(domain.IncidentStatusCollectingContext)
+				}
+				if fresh.Status == domain.IncidentStatusCollectingContext {
+					_ = fresh.TransitionTo(domain.IncidentStatusContextReady)
+				}
+				if fresh.Status == domain.IncidentStatusContextReady {
+					_ = fresh.TransitionTo(domain.IncidentStatusAiAnalysis)
+				}
+				if fresh.Status == domain.IncidentStatusAiAnalysis {
+					_ = fresh.TransitionTo(domain.IncidentStatusAiAnalysisFailed)
+				}
+				fresh.UpdatedAt = time.Now().UTC()
+				if saveErr := w.incidentRepo.Save(recCtx, fresh); saveErr != nil {
+					w.logger.Error("Could not persist RCA failure state", slog.String("correlationId", fresh.CorrelationID), slog.Any("error", saveErr))
+					continue
+				}
+				if outErr := w.outboxRepo.Enqueue(recCtx, fresh.CorrelationID, &fresh.ID, domain.AuditActionRcaAnalysisFailed,
+					"SYSTEM_DEVOPS_AGENT", `{"reason":"RCA execution failed; inspect sanitized service logs"}`); outErr != nil {
+					w.logger.Error("Could not enqueue RCA_ANALYSIS_FAILED outbox", slog.String("correlationId", fresh.CorrelationID), slog.Any("error", outErr))
+				}
+			}
+			return nil
+		})
+	}
+	return err
 }
 
 type OutboxPollerWorker struct {
@@ -190,14 +214,18 @@ func (w *OutboxPollerWorker) ProcessOutboxEvents(ctx context.Context) error {
 				msg := pubErr.Error()
 				event.LastError = &msg
 				event.UpdatedAt = now
-				_ = w.outboxRepo.Save(txCtx, event)
+				if saveErr := w.outboxRepo.Save(txCtx, event); saveErr != nil {
+					return saveErr
+				}
 				continue
 			}
 
 			event.Processed = true
 			event.ProcessedAt = &now
 			event.UpdatedAt = now
-			_ = w.outboxRepo.Save(txCtx, event)
+			if saveErr := w.outboxRepo.Save(txCtx, event); saveErr != nil {
+				return saveErr
+			}
 		}
 		return nil
 	})

@@ -47,4 +47,9 @@ type UsageRecordRepository interface {
 type ProcessedEventRepository interface {
 	ExistsByEventID(ctx context.Context, eventID string) (bool, error)
 	Save(ctx context.Context, event *domain.ProcessedEvent) error
+	TryInsert(ctx context.Context, event *domain.ProcessedEvent) (bool, error)
+}
+
+type TransactionRunner interface {
+	WithTransaction(ctx context.Context, fn func(txCtx context.Context) error) error
 }

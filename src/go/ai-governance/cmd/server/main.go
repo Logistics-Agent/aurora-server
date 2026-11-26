@@ -55,18 +55,31 @@ func main() {
 		slog.String("iamAddr", cfg.IamTenantGRPCAddr),
 	)
 
-	// 1. PostgreSQL
-	db, err := gorm.Open(postgres.Open(cfg.PostgresDSN), &gorm.Config{
-		Logger: gormlogger.Default.LogMode(gormlogger.Warn),
-	})
+	// 1. PostgreSQL (bounded retry at startup)
+	var db *gorm.DB
+	var err error
+	for attempt := 1; attempt <= 5; attempt++ {
+		db, err = gorm.Open(postgres.Open(cfg.PostgresDSN), &gorm.Config{
+			Logger: gormlogger.Default.LogMode(gormlogger.Warn),
+		})
+		if err == nil {
+			if sqlDB, dbErr := db.DB(); dbErr == nil {
+				sqlDB.SetMaxIdleConns(2)
+				sqlDB.SetMaxOpenConns(10)
+				sqlDB.SetConnMaxLifetime(time.Hour)
+				if pingErr := sqlDB.Ping(); pingErr == nil {
+					break
+				} else {
+					err = pingErr
+				}
+			}
+		}
+		logger.Warn("Waiting for PostgreSQL...", slog.Int("attempt", attempt), slog.Any("error", err))
+		time.Sleep(2 * time.Second)
+	}
 	if err != nil {
 		logger.Warn("Could not connect to PostgreSQL at startup", slog.Any("error", err))
 	} else {
-		if sqlDB, err := db.DB(); err == nil {
-			sqlDB.SetMaxIdleConns(2)
-			sqlDB.SetMaxOpenConns(10)
-			sqlDB.SetConnMaxLifetime(time.Hour)
-		}
 		logger.Info("Connected to PostgreSQL")
 	}
 
@@ -103,6 +116,7 @@ func main() {
 	planRepo := govpersist.NewPlanRepository(db)
 	usageRepo := govpersist.NewUsageRecordRepository(db)
 	processedRepo := govpersist.NewProcessedEventRepository(db)
+	uow := govpersist.NewUnitOfWork(db)
 
 	periodCalc := govapp.NewPeriodKeyCalculator()
 	quotaAdapter := govcache.NewQuotaRedisAdapter(redisClient, logger)
@@ -113,7 +127,7 @@ func main() {
 	usagePublisher := messaging.NewUsageEventPublisher(rabbitClient, logger)
 
 	if rabbitClient != nil {
-		usageConsumer := messaging.NewAiUsageEventConsumer(rabbitClient, processedRepo, quotaSyncService, logger)
+		usageConsumer := messaging.NewAiUsageEventConsumer(rabbitClient, processedRepo, uow, quotaSyncService, logger)
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -152,7 +166,24 @@ func main() {
 	httpServer := &http.Server{
 		Addr: fmt.Sprintf(":%s", cfg.HTTPPort),
 		Handler: httphandler.NewHTTPHandler(func() bool {
-			return db != nil
+			if db == nil {
+				return false
+			}
+			sqlDB, dbErr := db.DB()
+			if dbErr != nil || sqlDB == nil {
+				return false
+			}
+			pingCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer cancel()
+			if err := sqlDB.PingContext(pingCtx); err != nil {
+				return false
+			}
+			if redisClient != nil {
+				if err := redisClient.Ping(pingCtx).Err(); err != nil {
+					return false
+				}
+			}
+			return true
 		}),
 		ReadHeaderTimeout: 10 * time.Second,
 	}

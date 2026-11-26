@@ -54,12 +54,14 @@ func (s *IncidentService) Approve(ctx context.Context, correlationID, comment st
 		if err := inc.TransitionTo(domain.IncidentStatusApproved); err != nil {
 			return err
 		}
+		actor := resolveActor(txCtx)
 		inc.UpdatedAt = time.Now().UTC()
+		inc.UpdatedBy = &actor
 		if err := s.incidentRepo.Save(txCtx, inc); err != nil {
 			return err
 		}
 		payload, _ := json.Marshal(map[string]string{"comment": comment})
-		if err := s.outboxRepo.Enqueue(txCtx, inc.CorrelationID, &inc.ID, domain.AuditActionApprovalGranted, resolveActor(txCtx), string(payload)); err != nil {
+		if err := s.outboxRepo.Enqueue(txCtx, inc.CorrelationID, &inc.ID, domain.AuditActionApprovalGranted, actor, string(payload)); err != nil {
 			return err
 		}
 		updated = inc
@@ -81,12 +83,14 @@ func (s *IncidentService) Reject(ctx context.Context, correlationID, reason stri
 		if err := inc.TransitionTo(domain.IncidentStatusCancelled); err != nil {
 			return err
 		}
+		actor := resolveActor(txCtx)
 		inc.UpdatedAt = time.Now().UTC()
+		inc.UpdatedBy = &actor
 		if err := s.incidentRepo.Save(txCtx, inc); err != nil {
 			return err
 		}
 		payload, _ := json.Marshal(map[string]string{"rejectionReason": reason})
-		if err := s.outboxRepo.Enqueue(txCtx, inc.CorrelationID, &inc.ID, domain.AuditActionApprovalRejected, resolveActor(txCtx), string(payload)); err != nil {
+		if err := s.outboxRepo.Enqueue(txCtx, inc.CorrelationID, &inc.ID, domain.AuditActionApprovalRejected, actor, string(payload)); err != nil {
 			return err
 		}
 		updated = inc
@@ -148,12 +152,17 @@ func (s *RuleService) CreateRule(ctx context.Context, cmd CreateRuleCommand) (*d
 	params := cmd.ActionParamsJson
 	if strings.TrimSpace(params) == "" {
 		params = "{}"
+	} else if !json.Valid([]byte(params)) {
+		return nil, ErrInvalidArgument
 	}
+	actor := resolveActor(ctx)
 	rule := &domain.ExistingRule{
 		BaseAuditable: domain.BaseAuditable{
 			ID:        uuid.New(),
 			CreatedAt: now,
 			UpdatedAt: now,
+			CreatedBy: &actor,
+			UpdatedBy: &actor,
 			Version:   0,
 		},
 		RuleName:         cmd.Name,
@@ -199,9 +208,14 @@ func (s *RuleService) UpdateRule(ctx context.Context, cmd UpdateRuleCommand) (*d
 		rule.ErrorPattern = cmd.ErrorSignaturePattern
 		rule.ActionType = cmd.ActionType
 		if strings.TrimSpace(cmd.ActionParamsJson) != "" {
+			if !json.Valid([]byte(cmd.ActionParamsJson)) {
+				return ErrInvalidArgument
+			}
 			rule.ActionParamsJson = cmd.ActionParamsJson
 		}
+		actor := resolveActor(txCtx)
 		rule.UpdatedAt = time.Now().UTC()
+		rule.UpdatedBy = &actor
 		if err := s.existingRepo.Save(txCtx, rule); err != nil {
 			return err
 		}
@@ -239,8 +253,10 @@ func (s *RuleService) ApprovePending(ctx context.Context, pendingRuleID string) 
 		}
 
 		now := time.Now().UTC()
+		actor := resolveActor(txCtx)
 		pr.Status = "APPROVED"
 		pr.UpdatedAt = now
+		pr.UpdatedBy = &actor
 		if err := s.pendingRepo.Save(txCtx, pr); err != nil {
 			return err
 		}
@@ -254,6 +270,8 @@ func (s *RuleService) ApprovePending(ctx context.Context, pendingRuleID string) 
 				ID:        uuid.New(),
 				CreatedAt: now,
 				UpdatedAt: now,
+				CreatedBy: &actor,
+				UpdatedBy: &actor,
 				Version:   0,
 			},
 			RuleName:         pr.ProposedRuleName,
@@ -347,6 +365,7 @@ func (s *SelfConfigService) Update(ctx context.Context, cmd UpdateSelfConfigComm
 		if err != nil {
 			return err
 		}
+		actor := resolveActor(txCtx)
 		now := time.Now().UTC()
 		if cfg == nil {
 			cfg = &domain.DevOpsAgentSelfConfig{
@@ -354,24 +373,33 @@ func (s *SelfConfigService) Update(ctx context.Context, cmd UpdateSelfConfigComm
 					ID:        uuid.New(),
 					CreatedAt: now,
 					UpdatedAt: now,
+					CreatedBy: &actor,
+					UpdatedBy: &actor,
 				},
 			}
 		}
 		if cmd.ModelProvider != "" {
 			v := cmd.ModelProvider
 			cfg.ModelProvider = &v
+		} else {
+			cfg.ModelProvider = nil
 		}
 		if cmd.ModelName != "" {
 			v := cmd.ModelName
 			cfg.ModelName = &v
+		} else {
+			cfg.ModelName = nil
 		}
 		if cmd.ApiEndpoint != "" {
 			v := cmd.ApiEndpoint
 			cfg.ApiEndpoint = &v
+		} else {
+			cfg.ApiEndpoint = nil
 		}
 		cfg.MaxTokensPerRequest = cmd.MaxTokensPerRequest
 		cfg.AlertThresholdUsdPerDay = cmd.AlertThresholdUsdPerDay
 		cfg.UpdatedAt = now
+		cfg.UpdatedBy = &actor
 		if err := s.repo.Save(txCtx, cfg); err != nil {
 			return err
 		}

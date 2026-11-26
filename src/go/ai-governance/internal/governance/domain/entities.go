@@ -11,7 +11,7 @@ type Plan struct {
 	Code            string           `gorm:"column:code;uniqueIndex;size:50;not null"`
 	Name            string           `gorm:"column:name;size:100;not null"`
 	DefaultProvider *AiProvider      `gorm:"column:default_provider;size:30"`
-	CloudAiEnabled  bool             `gorm:"column:cloud_ai_enabled;not null;default:true"`
+	CloudAiEnabled  bool             `gorm:"column:cloud_ai_enabled;not null"`
 	CreatedAt       time.Time        `gorm:"column:created_at;not null"`
 	CreatedBy       string           `gorm:"column:created_by;size:100"`
 	UpdatedAt       *time.Time       `gorm:"column:updated_at"`
@@ -55,7 +55,7 @@ type Tenant struct {
 	ExternalTenantID uuid.UUID    `gorm:"type:uuid;column:external_tenant_id;uniqueIndex;not null"`
 	PlanID           uuid.UUID    `gorm:"type:uuid;column:plan_id;not null"`
 	Status           TenantStatus `gorm:"column:status;size:20;not null;default:ACTIVE"`
-	CloudAiEnabled   bool         `gorm:"column:cloud_ai_enabled;not null;default:true"`
+	CloudAiEnabled   bool         `gorm:"column:cloud_ai_enabled;not null"`
 	CreatedAt        time.Time    `gorm:"column:created_at;not null"`
 	CreatedBy        string       `gorm:"column:created_by;size:100"`
 	UpdatedAt        *time.Time   `gorm:"column:updated_at"`

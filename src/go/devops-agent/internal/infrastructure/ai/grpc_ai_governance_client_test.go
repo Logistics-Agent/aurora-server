@@ -65,4 +65,29 @@ func TestGrpcAiGovernanceClient_RetryOnlyUnavailable(t *testing.T) {
 	if !errors.Is(err, ai.ErrPolicyDenied) || stub2.calls != 1 {
 		t.Fatalf("expected immediate ErrPolicyDenied with 1 call, calls=%d err=%v", stub2.calls, err)
 	}
+
+	// 3. Policy denials must NOT dilute circuit breaker window or prevent transport fault opening
+	stubMixed := &stubExecutionStub{}
+	client3 := ai.NewGrpcAiGovernanceClient(stubMixed, logger)
+	// Inject 20 PermissionDenied calls — should NOT record successes or open breaker
+	stubMixed.errs = make([]error, 20)
+	for i := range stubMixed.errs {
+		stubMixed.errs[i] = status.Error(codes.PermissionDenied, "denied")
+	}
+	for i := 0; i < 20; i++ {
+		_, _ = client3.Generate(context.Background(), application.GenerateCommand{CapabilityCode: "devops.rca", Prompt: "p"})
+	}
+	// Now inject 20 Internal transport faults -> breaker MUST open on the 20th
+	stubMixed.calls = 0
+	stubMixed.errs = make([]error, 25)
+	for i := range stubMixed.errs {
+		stubMixed.errs[i] = status.Error(codes.Internal, "internal failure")
+	}
+	for i := 0; i < 20; i++ {
+		_, _ = client3.Generate(context.Background(), application.GenerateCommand{CapabilityCode: "devops.rca", Prompt: "p"})
+	}
+	_, err = client3.Generate(context.Background(), application.GenerateCommand{CapabilityCode: "devops.rca", Prompt: "p"})
+	if !errors.Is(err, ai.ErrCircuitOpen) {
+		t.Fatalf("expected ErrCircuitOpen after 20 transport faults, got %v", err)
+	}
 }

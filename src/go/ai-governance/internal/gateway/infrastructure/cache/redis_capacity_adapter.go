@@ -20,10 +20,32 @@ import (
 //go:embed reserve_capacity.lua
 var reserveCapacityLua string
 
+const releaseCapacityLua = `
+if redis.call('EXISTS', KEYS[1]) == 1 then
+    local val = redis.call('DECRBY', KEYS[1], tonumber(ARGV[1]))
+    if val < 0 then
+        redis.call('SET', KEYS[1], 0, 'KEEPTTL')
+    end
+end
+return 1
+`
+
+const reconcileCapacityLua = `
+if redis.call('EXISTS', KEYS[1]) == 1 then
+    local val = redis.call('INCRBY', KEYS[1], tonumber(ARGV[1]))
+    if val < 0 then
+        redis.call('SET', KEYS[1], 0, 'KEEPTTL')
+    end
+end
+return 1
+`
+
 type RedisCapacityAdapter struct {
 	client             *redis.Client
 	rateWindowPolicies map[govdomain.AiProvider]application.ProviderRateWindowPolicy
 	reserveScript      *redis.Script
+	releaseScript      *redis.Script
+	reconcileScript    *redis.Script
 	logger             *slog.Logger
 }
 
@@ -39,6 +61,8 @@ func NewRedisCapacityAdapter(
 		client:             client,
 		rateWindowPolicies: rateWindowPolicies,
 		reserveScript:      redis.NewScript(reserveCapacityLua),
+		releaseScript:      redis.NewScript(releaseCapacityLua),
+		reconcileScript:    redis.NewScript(reconcileCapacityLua),
 		logger:             logger,
 	}
 }
@@ -102,7 +126,7 @@ func (a *RedisCapacityAdapter) Reconcile(ctx context.Context, reservation *domai
 	if delta == 0 {
 		return
 	}
-	if err := a.client.IncrBy(ctx, reservation.TpmKey, delta).Err(); err != nil {
+	if err := a.reconcileScript.Run(ctx, a.client, []string{reservation.TpmKey}, delta).Err(); err != nil {
 		a.logger.Warn("Failed to reconcile TPM capacity", slog.String("slot", reservation.Slot.SlotAlias), slog.Any("error", err))
 		return
 	}
@@ -113,16 +137,14 @@ func (a *RedisCapacityAdapter) Release(ctx context.Context, reservation *domain.
 	if a.client == nil || reservation == nil {
 		return
 	}
-	pipe := a.client.Pipeline()
-	pipe.DecrBy(ctx, reservation.RpmKey, 1)
-	pipe.DecrBy(ctx, reservation.TpmKey, reservation.ReservedTokens)
-	pipe.DecrBy(ctx, reservation.RpdKey, 1)
-	if _, err := pipe.Exec(ctx); err != nil {
-		a.logger.Warn("Failed to release reservation",
-			slog.String("reservationId", reservation.ReservationID),
-			slog.String("slot", reservation.Slot.SlotAlias),
-			slog.Any("error", err))
-		return
+	if err := a.releaseScript.Run(ctx, a.client, []string{reservation.RpmKey}, 1).Err(); err != nil {
+		a.logger.Warn("Failed to release RPM reservation", slog.String("reservationId", reservation.ReservationID), slog.Any("error", err))
+	}
+	if err := a.releaseScript.Run(ctx, a.client, []string{reservation.TpmKey}, reservation.ReservedTokens).Err(); err != nil {
+		a.logger.Warn("Failed to release TPM reservation", slog.String("reservationId", reservation.ReservationID), slog.Any("error", err))
+	}
+	if err := a.releaseScript.Run(ctx, a.client, []string{reservation.RpdKey}, 1).Err(); err != nil {
+		a.logger.Warn("Failed to release RPD reservation", slog.String("reservationId", reservation.ReservationID), slog.Any("error", err))
 	}
 	a.logger.Debug("Released reservation",
 		slog.String("reservationId", reservation.ReservationID),

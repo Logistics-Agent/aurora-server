@@ -12,6 +12,35 @@ import (
 	"gorm.io/gorm/clause"
 )
 
+type txKeyType struct{}
+
+var txKey = txKeyType{}
+
+func getDB(ctx context.Context, fallback *gorm.DB) *gorm.DB {
+	if tx, ok := ctx.Value(txKey).(*gorm.DB); ok && tx != nil {
+		return tx
+	}
+	return fallback
+}
+
+type UnitOfWork struct {
+	db *gorm.DB
+}
+
+func NewUnitOfWork(db *gorm.DB) *UnitOfWork {
+	return &UnitOfWork{db: db}
+}
+
+func (u *UnitOfWork) WithTransaction(ctx context.Context, fn func(txCtx context.Context) error) error {
+	if u.db == nil {
+		return errors.New("postgres db not initialized")
+	}
+	return u.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		txCtx := context.WithValue(ctx, txKey, tx)
+		return fn(txCtx)
+	})
+}
+
 type PlanRepository struct {
 	db *gorm.DB
 }
@@ -21,11 +50,12 @@ func NewPlanRepository(db *gorm.DB) *PlanRepository {
 }
 
 func (r *PlanRepository) FindByCode(ctx context.Context, code string) (*domain.Plan, error) {
-	if r.db == nil {
+	db := getDB(ctx, r.db)
+	if db == nil {
 		return nil, errors.New("postgres db not initialized")
 	}
 	var plan domain.Plan
-	err := r.db.WithContext(ctx).
+	err := db.WithContext(ctx).
 		Preload("Capabilities").
 		Preload("Quotas").
 		Where("code = ?", code).
@@ -55,7 +85,8 @@ func (r *UsageRecordRepository) UpsertIncrement(
 	periodKey string,
 	amount int64,
 ) error {
-	if r.db == nil {
+	db := getDB(ctx, r.db)
+	if db == nil {
 		return errors.New("postgres db not initialized")
 	}
 	now := time.Now().UTC()
@@ -72,7 +103,7 @@ func (r *UsageRecordRepository) UpsertIncrement(
 		UpdatedBy:   "system",
 		Version:     1,
 	}
-	return r.db.WithContext(ctx).
+	return db.WithContext(ctx).
 		Clauses(clause.OnConflict{
 			Columns: []clause.Column{
 				{Name: "tenant_id"},
@@ -99,11 +130,12 @@ func NewProcessedEventRepository(db *gorm.DB) *ProcessedEventRepository {
 }
 
 func (r *ProcessedEventRepository) ExistsByEventID(ctx context.Context, eventID string) (bool, error) {
-	if r.db == nil {
+	db := getDB(ctx, r.db)
+	if db == nil {
 		return false, errors.New("postgres db not initialized")
 	}
 	var count int64
-	err := r.db.WithContext(ctx).
+	err := db.WithContext(ctx).
 		Model(&domain.ProcessedEvent{}).
 		Where("event_id = ?", eventID).
 		Count(&count).Error
@@ -111,11 +143,32 @@ func (r *ProcessedEventRepository) ExistsByEventID(ctx context.Context, eventID 
 }
 
 func (r *ProcessedEventRepository) Save(ctx context.Context, event *domain.ProcessedEvent) error {
-	if r.db == nil {
+	db := getDB(ctx, r.db)
+	if db == nil {
 		return errors.New("postgres db not initialized")
 	}
 	if event.ID == uuid.Nil {
 		event.ID = uuid.New()
 	}
-	return r.db.WithContext(ctx).Create(event).Error
+	return db.WithContext(ctx).Create(event).Error
+}
+
+func (r *ProcessedEventRepository) TryInsert(ctx context.Context, event *domain.ProcessedEvent) (bool, error) {
+	db := getDB(ctx, r.db)
+	if db == nil {
+		return false, errors.New("postgres db not initialized")
+	}
+	if event.ID == uuid.Nil {
+		event.ID = uuid.New()
+	}
+	res := db.WithContext(ctx).
+		Clauses(clause.OnConflict{
+			Columns:   []clause.Column{{Name: "event_id"}},
+			DoNothing: true,
+		}).
+		Create(event)
+	if res.Error != nil {
+		return false, res.Error
+	}
+	return res.RowsAffected > 0, nil
 }

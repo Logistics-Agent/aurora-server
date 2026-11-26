@@ -224,7 +224,7 @@ func (c *Client) DeclareTopicExchange(exchange string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	if c.ch == nil {
+	if c.ch == nil || c.ch.IsClosed() {
 		return fmt.Errorf("kênh RabbitMQ chưa sẵn sàng")
 	}
 
@@ -239,6 +239,34 @@ func (c *Client) DeclareTopicExchange(exchange string) error {
 	)
 }
 
+// DeclareTopicQueue khai báo durable topic exchange, durable queue và bind với routingKey
+func (c *Client) DeclareTopicQueue(queueName, exchange, routingKey string) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.ch == nil || c.ch.IsClosed() {
+		return fmt.Errorf("kênh RabbitMQ chưa sẵn sàng")
+	}
+
+	if exchange != "" {
+		if err := c.ch.ExchangeDeclare(exchange, "topic", true, false, false, false, nil); err != nil {
+			return fmt.Errorf("lỗi khai báo topic exchange %s: %w", exchange, err)
+		}
+	}
+
+	q, err := c.ch.QueueDeclare(queueName, true, false, false, false, nil)
+	if err != nil {
+		return fmt.Errorf("lỗi khai báo queue %s: %w", queueName, err)
+	}
+
+	if exchange != "" {
+		if err := c.ch.QueueBind(q.Name, routingKey, exchange, false, nil); err != nil {
+			return fmt.Errorf("lỗi bind queue %s tới exchange %s: %w", q.Name, exchange, err)
+		}
+	}
+	return nil
+}
+
 // PublishTopic gửi payload tới topic exchange với routing key, contentType, correlationID và headers
 func (c *Client) PublishTopic(
 	ctx context.Context,
@@ -250,7 +278,7 @@ func (c *Client) PublishTopic(
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	if c.ch == nil {
+	if c.ch == nil || c.ch.IsClosed() {
 		return fmt.Errorf("kênh RabbitMQ chưa sẵn sàng")
 	}
 
@@ -284,75 +312,112 @@ func (c *Client) PublishTopic(
 	return c.ch.PublishWithContext(ctx, exchange, routingKey, false, false, msg)
 }
 
-// SubscribeTopic đăng ký lắng nghe message từ durable queue bind tới topic exchange với routingKey
+// SubscribeTopic đăng ký lắng nghe message từ durable queue trên một channel riêng và tự động khôi phục khi reconnect
 func (c *Client) SubscribeTopic(
 	ctx context.Context,
 	queueName, exchange, routingKey string,
 	handler func(d amqp.Delivery),
 ) error {
-	c.mu.Lock()
-	ch := c.ch
-	c.mu.Unlock()
-
-	if ch == nil {
-		return fmt.Errorf("kênh RabbitMQ chưa sẵn sàng")
+	if err := c.setupAndConsumeTopic(ctx, queueName, exchange, routingKey, handler); err != nil {
+		return err
 	}
+	return nil
+}
 
-	if exchange != "" {
-		if err := ch.ExchangeDeclare(
-			exchange,
-			"topic",
-			true,
-			false,
-			false,
-			false,
-			nil,
-		); err != nil {
-			return fmt.Errorf("lỗi khai báo topic exchange %s: %w", exchange, err)
+func (c *Client) setupAndConsumeTopic(
+	ctx context.Context,
+	queueName, exchange, routingKey string,
+	handler func(d amqp.Delivery),
+) error {
+	openConsumer := func() (<-chan amqp.Delivery, *amqp.Channel, error) {
+		c.mu.RLock()
+		conn := c.conn
+		closing := c.isClosing
+		c.mu.RUnlock()
+
+		if closing {
+			return nil, nil, fmt.Errorf("client RabbitMQ đang đóng")
 		}
-	}
-
-	q, err := ch.QueueDeclare(
-		queueName,
-		true,  // durable
-		false, // auto-delete
-		false, // exclusive
-		false, // no-wait
-		nil,
-	)
-	if err != nil {
-		return fmt.Errorf("lỗi khai báo queue %s: %w", queueName, err)
-	}
-
-	if exchange != "" {
-		if err := ch.QueueBind(q.Name, routingKey, exchange, false, nil); err != nil {
-			return fmt.Errorf("lỗi bind queue %s tới exchange %s: %w", q.Name, exchange, err)
+		if conn == nil || conn.IsClosed() {
+			return nil, nil, fmt.Errorf("kết nối RabbitMQ chưa sẵn sàng")
 		}
+
+		ch, err := conn.Channel()
+		if err != nil {
+			return nil, nil, fmt.Errorf("lỗi mở channel consumer: %w", err)
+		}
+
+		if exchange != "" {
+			if err := ch.ExchangeDeclare(exchange, "topic", true, false, false, false, nil); err != nil {
+				_ = ch.Close()
+				return nil, nil, fmt.Errorf("lỗi khai báo topic exchange %s: %w", exchange, err)
+			}
+		}
+
+		q, err := ch.QueueDeclare(queueName, true, false, false, false, nil)
+		if err != nil {
+			_ = ch.Close()
+			return nil, nil, fmt.Errorf("lỗi khai báo queue %s: %w", queueName, err)
+		}
+
+		if exchange != "" {
+			if err := ch.QueueBind(q.Name, routingKey, exchange, false, nil); err != nil {
+				_ = ch.Close()
+				return nil, nil, fmt.Errorf("lỗi bind queue %s tới exchange %s: %w", q.Name, exchange, err)
+			}
+		}
+
+		msgs, err := ch.Consume(q.Name, "", false, false, false, false, nil)
+		if err != nil {
+			_ = ch.Close()
+			return nil, nil, fmt.Errorf("lỗi đăng ký consume từ queue %s: %w", q.Name, err)
+		}
+		return msgs, ch, nil
 	}
 
-	msgs, err := ch.Consume(
-		q.Name,
-		"",    // consumer tag
-		false, // auto-ack
-		false, // exclusive
-		false, // no-local
-		false, // no-wait
-		nil,
-	)
+	msgs, ch, err := openConsumer()
 	if err != nil {
-		return fmt.Errorf("lỗi đăng ký consume từ queue %s: %w", q.Name, err)
+		return err
 	}
 
 	go func() {
+		defer func() {
+			if ch != nil {
+				_ = ch.Close()
+			}
+		}()
 		for {
-			select {
-			case <-ctx.Done():
-				return
-			case d, ok := <-msgs:
-				if !ok {
+			for {
+				select {
+				case <-ctx.Done():
 					return
+				case d, ok := <-msgs:
+					if !ok {
+						goto reconnect
+					}
+					handler(d)
 				}
-				handler(d)
+			}
+		reconnect:
+			if ch != nil {
+				_ = ch.Close()
+				ch = nil
+			}
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-c.done:
+					return
+				case <-time.After(2 * time.Second):
+				}
+				nextMsgs, nextCh, err := openConsumer()
+				if err == nil {
+					msgs = nextMsgs
+					ch = nextCh
+					c.logger.Info("Đã khôi phục subscription RabbitMQ", slog.String("queue", queueName))
+					break
+				}
 			}
 		}
 	}()

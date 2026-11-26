@@ -31,7 +31,7 @@ type AiUsageEvent struct {
 	CapabilityCode  string             `json:"capabilityCode"`
 	Operation       shared.AiOperation `json:"operation"`
 	Provider        string             `json:"provider"`
-	Model           string             `json:"model"`
+	SlotAlias       string             `json:"slotAlias"`
 	InputTokens     int64              `json:"inputTokens"`
 	OutputTokens    int64              `json:"outputTokens"`
 	DurationMs      int64              `json:"durationMs"`
@@ -97,15 +97,17 @@ func (p *UsageEventPublisher) PublishUsageEvent(ctx context.Context, event AiUsa
 }
 
 type AiUsageEventConsumer struct {
-	client         *rabbitmq.Client
-	processedRepo  application.ProcessedEventRepository
-	quotaSync      *application.QuotaSyncService
-	logger         *slog.Logger
+	client        *rabbitmq.Client
+	processedRepo application.ProcessedEventRepository
+	txRunner      application.TransactionRunner
+	quotaSync     *application.QuotaSyncService
+	logger        *slog.Logger
 }
 
 func NewAiUsageEventConsumer(
 	client *rabbitmq.Client,
 	processedRepo application.ProcessedEventRepository,
+	txRunner application.TransactionRunner,
 	quotaSync *application.QuotaSyncService,
 	logger *slog.Logger,
 ) *AiUsageEventConsumer {
@@ -115,6 +117,7 @@ func NewAiUsageEventConsumer(
 	return &AiUsageEventConsumer{
 		client:        client,
 		processedRepo: processedRepo,
+		txRunner:      txRunner,
 		quotaSync:     quotaSync,
 		logger:        logger,
 	}
@@ -124,8 +127,8 @@ func (c *AiUsageEventConsumer) Start(ctx context.Context) error {
 	if c.client == nil {
 		return nil
 	}
-	// Ensure audit queue binding also exists
-	if err := c.client.DeclareTopicExchange(ExchangeAiGovernance); err != nil {
+	// Declare both policy audit and usage events queues + bindings matching Java RabbitMqConfig
+	if err := c.client.DeclareTopicQueue(QueuePolicyAudit, ExchangeAiGovernance, RoutingKeyPolicyAudit); err != nil {
 		return err
 	}
 	return c.client.SubscribeTopic(ctx, QueueUsageEvents, ExchangeAiGovernance, RoutingKeyUsageEvents, func(d amqp.Delivery) {
@@ -145,32 +148,53 @@ func (c *AiUsageEventConsumer) Start(ctx context.Context) error {
 }
 
 func (c *AiUsageEventConsumer) HandleUsageEvent(ctx context.Context, event AiUsageEvent) error {
-	exists, err := c.processedRepo.ExistsByEventID(ctx, event.EventID)
-	if err != nil {
-		return err
+	if event.EventID == "" {
+		return nil
 	}
-	if exists {
-		c.logger.Info("Duplicate event ignored", slog.String("eventId", event.EventID))
+	ts := event.Timestamp
+	if ts.IsZero() {
+		ts = time.Now().UTC()
+	}
+	totalTokens := event.InputTokens + event.OutputTokens
+	shouldUpdateRedis := false
+
+	processInTx := func(txCtx context.Context) error {
+		processed := &domain.ProcessedEvent{
+			ID:          uuid.New(),
+			EventID:     event.EventID,
+			ProcessedAt: time.Now().UTC(),
+			Version:     1,
+		}
+		inserted, err := c.processedRepo.TryInsert(txCtx, processed)
+		if err != nil {
+			return err
+		}
+		if !inserted {
+			c.logger.Info("Duplicate event ignored", slog.String("eventId", event.EventID))
+			return nil
+		}
+
+		if event.Success && event.TenantID != nil && *event.TenantID != uuid.Nil {
+			if err := c.quotaSync.RecordDurableUsage(txCtx, *event.TenantID, 1, totalTokens, ts); err != nil {
+				return err
+			}
+			shouldUpdateRedis = true
+		}
 		return nil
 	}
 
-	processed := &domain.ProcessedEvent{
-		ID:          uuid.New(),
-		EventID:     event.EventID,
-		ProcessedAt: time.Now().UTC(),
-		Version:     1,
-	}
-	if err := c.processedRepo.Save(ctx, processed); err != nil {
-		return err
+	if c.txRunner != nil {
+		if err := c.txRunner.WithTransaction(ctx, processInTx); err != nil {
+			return err
+		}
+	} else {
+		if err := processInTx(ctx); err != nil {
+			return err
+		}
 	}
 
-	if event.Success && event.TenantID != nil && *event.TenantID != uuid.Nil {
-		totalTokens := event.InputTokens + event.OutputTokens
-		ts := event.Timestamp
-		if ts.IsZero() {
-			ts = time.Now().UTC()
-		}
-		return c.quotaSync.RecordUsage(ctx, *event.TenantID, 1, totalTokens, ts)
+	if shouldUpdateRedis && event.TenantID != nil && *event.TenantID != uuid.Nil {
+		c.quotaSync.RecordCacheUsage(ctx, *event.TenantID, 1, totalTokens, ts)
 	}
 	return nil
 }

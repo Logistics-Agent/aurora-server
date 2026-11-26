@@ -76,14 +76,23 @@ func (h *IncidentGrpcHandler) GetIncident(ctx context.Context, req *devopsagentp
 	}, nil
 }
 
+func normalizeGrpcPage(page, size int32) (int32, int32) {
+	if page < 0 {
+		page = 0
+	}
+	if size <= 0 {
+		size = 20
+	} else if size > 100 {
+		size = 100
+	}
+	return page, size
+}
+
 func (h *IncidentGrpcHandler) ListIncidents(ctx context.Context, req *devopsagentpb.ListIncidentsRequest) (*devopsagentpb.ListIncidentsResponse, error) {
-	items, total, err := h.service.List(ctx, req.GetSeverity(), req.GetPageNumber(), req.GetPageSize())
+	page, size := normalizeGrpcPage(req.GetPageNumber(), req.GetPageSize())
+	items, total, err := h.service.List(ctx, req.GetSeverity(), page, size)
 	if err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
-	}
-	size := req.GetPageSize()
-	if size <= 0 {
-		size = 10
 	}
 	totalPages := int32(math.Ceil(float64(total) / float64(size)))
 	summaries := make([]*devopsagentpb.IncidentSummary, 0, len(items))
@@ -103,7 +112,7 @@ func (h *IncidentGrpcHandler) ListIncidents(ctx context.Context, req *devopsagen
 		Incidents:     summaries,
 		TotalElements: int32(total),
 		TotalPages:    totalPages,
-		CurrentPage:   req.GetPageNumber(),
+		CurrentPage:   page,
 	}, nil
 }
 
@@ -143,13 +152,10 @@ func NewRuleGrpcHandler(service *application.RuleService) *RuleGrpcHandler {
 }
 
 func (h *RuleGrpcHandler) ListExistingRules(ctx context.Context, req *devopsagentpb.ListRulesRequest) (*devopsagentpb.ListExistingRulesResponse, error) {
-	items, total, err := h.service.ListExisting(ctx, req.GetPageNumber(), req.GetPageSize())
+	page, size := normalizeGrpcPage(req.GetPageNumber(), req.GetPageSize())
+	items, total, err := h.service.ListExisting(ctx, page, size)
 	if err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
-	}
-	size := req.GetPageSize()
-	if size <= 0 {
-		size = 10
 	}
 	rules := make([]*devopsagentpb.ExistingRuleSummary, 0, len(items))
 	for _, r := range items {
@@ -165,7 +171,7 @@ func (h *RuleGrpcHandler) ListExistingRules(ctx context.Context, req *devopsagen
 		Rules:         rules,
 		TotalElements: int32(total),
 		TotalPages:    int32(math.Ceil(float64(total) / float64(size))),
-		CurrentPage:   req.GetPageNumber(),
+		CurrentPage:   page,
 	}, nil
 }
 
@@ -220,13 +226,10 @@ func (h *RuleGrpcHandler) DeleteRule(ctx context.Context, req *devopsagentpb.Del
 }
 
 func (h *RuleGrpcHandler) ListPendingRules(ctx context.Context, req *devopsagentpb.ListRulesRequest) (*devopsagentpb.ListPendingRulesResponse, error) {
-	items, total, err := h.service.ListPending(ctx, req.GetPageNumber(), req.GetPageSize())
+	page, size := normalizeGrpcPage(req.GetPageNumber(), req.GetPageSize())
+	items, total, err := h.service.ListPending(ctx, page, size)
 	if err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
-	}
-	size := req.GetPageSize()
-	if size <= 0 {
-		size = 10
 	}
 	rules := make([]*devopsagentpb.PendingRuleSummary, 0, len(items))
 	for _, pr := range items {
@@ -242,7 +245,7 @@ func (h *RuleGrpcHandler) ListPendingRules(ctx context.Context, req *devopsagent
 		Rules:         rules,
 		TotalElements: int32(total),
 		TotalPages:    int32(math.Ceil(float64(total) / float64(size))),
-		CurrentPage:   req.GetPageNumber(),
+		CurrentPage:   page,
 	}, nil
 }
 

@@ -191,6 +191,10 @@ func isDefiniteNonConsumingRejection(err error) bool {
 		strings.Contains(msg, "rate limit") ||
 		strings.Contains(msg, "400") ||
 		strings.Contains(msg, "bad request") ||
+		strings.Contains(msg, "401") ||
+		strings.Contains(msg, "403") ||
+		strings.Contains(msg, "unauthorized") ||
+		strings.Contains(msg, "forbidden") ||
 		strings.Contains(msg, "secretref cannot be null")
 }
 

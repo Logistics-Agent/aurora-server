@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strconv"
 	"sync"
 	"time"
 
@@ -157,6 +158,9 @@ func (c *GrpcAiGovernanceClient) Generate(ctx context.Context, cmd application.G
 	if traceID, ok := sharedctx.GetTraceID(ctx); ok {
 		md.Append(constants.HeaderTraceID, traceID)
 	}
+	if pv, ok := sharedctx.GetPermissionVersion(ctx); ok {
+		md.Append(constants.HeaderPermissionVersion, strconv.FormatInt(int64(pv), 10))
+	}
 	outCtx := metadata.NewOutgoingContext(ctx, md)
 
 	var resp *aigovpb.AiGenerateResponse
@@ -184,10 +188,8 @@ func (c *GrpcAiGovernanceClient) Generate(ctx context.Context, cmd application.G
 
 		if isTransportFault(lastErr) {
 			c.cb.record(true)
-		} else {
-			// Policy denials, invalid arguments, quota exhaustion are not transport faults
-			c.cb.record(false)
 		}
+		// Policy denials, invalid arguments, quota exhaustion are ignored by the circuit breaker (neither failure nor success).
 
 		if isTransientUnavailable(lastErr) && attempt < maxAttempts {
 			select {

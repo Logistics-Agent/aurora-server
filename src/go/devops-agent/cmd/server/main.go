@@ -51,18 +51,31 @@ func main() {
 		slog.String("ragAddr", cfg.RagServiceGRPCAddr),
 	)
 
-	// 1. PostgreSQL
-	db, err := gorm.Open(postgres.Open(cfg.PostgresDSN), &gorm.Config{
-		Logger: gormlogger.Default.LogMode(gormlogger.Warn),
-	})
+	// 1. PostgreSQL (bounded retry at startup)
+	var db *gorm.DB
+	var err error
+	for attempt := 1; attempt <= 5; attempt++ {
+		db, err = gorm.Open(postgres.Open(cfg.PostgresDSN), &gorm.Config{
+			Logger: gormlogger.Default.LogMode(gormlogger.Warn),
+		})
+		if err == nil {
+			if sqlDB, dbErr := db.DB(); dbErr == nil {
+				sqlDB.SetMaxIdleConns(5)
+				sqlDB.SetMaxOpenConns(20)
+				sqlDB.SetConnMaxLifetime(5 * time.Minute)
+				if pingErr := sqlDB.Ping(); pingErr == nil {
+					break
+				} else {
+					err = pingErr
+				}
+			}
+		}
+		logger.Warn("Waiting for PostgreSQL...", slog.Int("attempt", attempt), slog.Any("error", err))
+		time.Sleep(2 * time.Second)
+	}
 	if err != nil {
 		logger.Warn("Could not connect to PostgreSQL at startup", slog.Any("error", err))
 	} else {
-		if sqlDB, err := db.DB(); err == nil {
-			sqlDB.SetMaxIdleConns(5)
-			sqlDB.SetMaxOpenConns(20)
-			sqlDB.SetConnMaxLifetime(5 * time.Minute)
-		}
 		logger.Info("Connected to PostgreSQL")
 	}
 
@@ -147,7 +160,24 @@ func main() {
 	httpServer := &http.Server{
 		Addr: fmt.Sprintf(":%s", cfg.HTTPPort),
 		Handler: httphandler.NewHTTPHandler(ingestHandler, cfg.AlertmanagerWebhookToken, func() bool {
-			return db != nil
+			if db == nil {
+				return false
+			}
+			sqlDB, dbErr := db.DB()
+			if dbErr != nil || sqlDB == nil {
+				return false
+			}
+			pingCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer cancel()
+			if err := sqlDB.PingContext(pingCtx); err != nil {
+				return false
+			}
+			if redisClient != nil {
+				if err := redisClient.Ping(pingCtx).Err(); err != nil {
+					return false
+				}
+			}
+			return true
 		}),
 		ReadHeaderTimeout: 10 * time.Second,
 	}

@@ -99,7 +99,7 @@ type RcaAnalysis struct {
 	ContextQualityScore   *float64          `gorm:"column:context_quality_score;type:numeric(3,2)"`
 	WarningFlagsJson      *string           `gorm:"column:warning_flags_json;type:jsonb"`
 	DurationMs            *int64            `gorm:"column:duration_ms"`
-	RagAugmented          bool              `gorm:"column:rag_augmented;not null;default:true"`
+	RagAugmented          bool              `gorm:"column:rag_augmented;not null"`
 	RagFailureReason      *string           `gorm:"column:rag_failure_reason;size:255"`
 	GovernanceDecisionID  string            `gorm:"column:governance_decision_id;size:100"`
 	AutomationLevel       string            `gorm:"column:automation_level;size:50"`
@@ -117,7 +117,7 @@ type ExistingRule struct {
 	ActionType       string     `gorm:"column:action_type;size:50;not null"`
 	ActionParamsJson string     `gorm:"column:action_params_json;type:jsonb;default:'{}'"`
 	Confidence       float64    `gorm:"column:confidence;type:numeric(5,4);not null;default:1.0000"`
-	Active           bool       `gorm:"column:active;not null;default:true"`
+	Active           bool       `gorm:"column:active;not null"`
 	MatchCount       int        `gorm:"column:match_count;not null;default:0"`
 	LastMatchedAt    *time.Time `gorm:"column:last_matched_at"`
 }

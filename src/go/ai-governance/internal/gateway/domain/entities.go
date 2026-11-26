@@ -37,7 +37,7 @@ type ProviderSlot struct {
 	RpdLimit      int                  `gorm:"column:rpd_limit;not null"`
 	Priority      int                  `gorm:"column:priority;not null;default:1"`
 	Weight        int                  `gorm:"column:weight;not null;default:1"`
-	Enabled       bool                 `gorm:"column:enabled;not null;default:true"`
+	Enabled       bool                 `gorm:"column:enabled;not null"`
 	CooldownUntil *time.Time           `gorm:"column:cooldown_until"`
 	CreatedAt     time.Time            `gorm:"column:created_at;not null"`
 	CreatedBy     string               `gorm:"column:created_by;size:100"`

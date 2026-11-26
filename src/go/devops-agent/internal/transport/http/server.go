@@ -52,6 +52,7 @@ func NewHTTPHandler(ingestHandler *application.IngestAlertHandler, webhookToken 
 		}
 
 		var payload AlertmanagerWebhook
+		r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 			http.Error(w, "Invalid JSON payload", http.StatusBadRequest)
 			return

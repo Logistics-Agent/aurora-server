@@ -114,6 +114,9 @@ func (c *AzureOpenAiProviderClient) Generate(ctx context.Context, slot *domain.P
 	if len(parsed.Choices) > 0 {
 		text = parsed.Choices[0].Message.Content
 	}
+	if strings.TrimSpace(text) == "" {
+		return domain.AiGenerateResult{}, fmt.Errorf("azure openai provider returned empty choices/content")
+	}
 	inputTokens := parsed.Usage.PromptTokens
 	if inputTokens == 0 {
 		inputTokens = request.EstimatedInputTokens
@@ -199,6 +202,9 @@ func (c *AzureOpenAiProviderClient) Embed(ctx context.Context, slot *domain.Prov
 	var vec []float32
 	if len(parsed.Data) > 0 {
 		vec = parsed.Data[0].Embedding
+	}
+	if len(vec) == 0 {
+		return domain.AiEmbeddingResult{}, fmt.Errorf("azure openai embed provider returned empty embedding vector")
 	}
 	NormalizeVector(vec)
 

@@ -26,15 +26,22 @@ type GeminiProviderClient struct {
 }
 
 func NewGeminiProviderClient(credentialPort credential.CredentialPort, baseURL string, logger *slog.Logger) *GeminiProviderClient {
+	return NewGeminiProviderClientWithHTTP(credentialPort, &http.Client{Timeout: 30 * time.Second}, baseURL, logger)
+}
+
+func NewGeminiProviderClientWithHTTP(credentialPort credential.CredentialPort, httpClient *http.Client, baseURL string, logger *slog.Logger) *GeminiProviderClient {
 	if baseURL == "" {
 		baseURL = defaultGeminiBaseURL
+	}
+	if httpClient == nil {
+		httpClient = &http.Client{Timeout: 30 * time.Second}
 	}
 	if logger == nil {
 		logger = slog.Default()
 	}
 	return &GeminiProviderClient{
 		credentialPort: credentialPort,
-		httpClient:     &http.Client{Timeout: 30 * time.Second},
+		httpClient:     httpClient,
 		baseURL:        strings.TrimRight(baseURL, "/"),
 		logger:         logger,
 	}
@@ -76,10 +83,12 @@ func (c *GeminiProviderClient) Generate(ctx context.Context, slot *domain.Provid
 			{"parts": parts},
 		},
 	}
-	if request.MaxOutputTokens > 0 {
+	if request.MaxOutputTokens > 0 || RequiresJSONObject(request) {
 		genCfg := map[string]any{
-			"maxOutputTokens": request.MaxOutputTokens,
-			"temperature":     0.1,
+			"temperature": 0.1,
+		}
+		if request.MaxOutputTokens > 0 {
+			genCfg["maxOutputTokens"] = request.MaxOutputTokens
 		}
 		if RequiresJSONObject(request) {
 			genCfg["responseMimeType"] = "application/json"
@@ -134,6 +143,9 @@ func (c *GeminiProviderClient) Generate(ctx context.Context, slot *domain.Provid
 	var text string
 	if len(parsed.Candidates) > 0 && len(parsed.Candidates[0].Content.Parts) > 0 {
 		text = parsed.Candidates[0].Content.Parts[0].Text
+	}
+	if strings.TrimSpace(text) == "" {
+		return domain.AiGenerateResult{}, fmt.Errorf("gemini provider returned empty candidates/text")
 	}
 	inputTokens := parsed.UsageMetadata.PromptTokenCount
 	if inputTokens == 0 {
@@ -218,6 +230,9 @@ func (c *GeminiProviderClient) Embed(ctx context.Context, slot *domain.ProviderS
 	}
 
 	vec := parsed.Embedding.Values
+	if len(vec) == 0 {
+		return domain.AiEmbeddingResult{}, fmt.Errorf("gemini embed provider returned empty embedding vector")
+	}
 	NormalizeVector(vec)
 
 	inputTokens := request.EstimatedInputTokens

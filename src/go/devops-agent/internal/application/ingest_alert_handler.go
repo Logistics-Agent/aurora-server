@@ -80,8 +80,10 @@ func (h *IngestAlertHandler) Handle(ctx context.Context, cmd IngestAlertCommand)
 
 	existingCorrID, isDup, err := h.dedupService.CheckAndStore(ctx, dedupKey, proposedCorrID)
 	if err != nil {
-		h.logger.Warn("Dedup check failed, proceeding as non-duplicate", slog.Any("error", err))
-	} else if isDup {
+		h.logger.Error("Dedup check failed; failing closed to prevent alert storm", slog.Any("error", err))
+		return IngestAlertResult{}, fmt.Errorf("dedup check failed: %w", err)
+	}
+	if isDup {
 		h.metrics.IncrementAlertsDeduplicated()
 		h.logger.Info("Alert is duplicate", slog.String("correlationId", existingCorrID))
 		return IngestAlertResult{
@@ -117,11 +119,14 @@ func (h *IngestAlertHandler) Handle(ctx context.Context, cmd IngestAlertCommand)
 	sanitizedService := h.redaction.Redact(cmd.AffectedService)
 	safeEnv := h.redaction.Redact(cmd.Environment)
 
+	actor := resolveActor(ctx)
 	incident := &domain.Incident{
 		BaseAuditable: domain.BaseAuditable{
 			ID:        uuid.New(),
 			CreatedAt: now,
 			UpdatedAt: now,
+			CreatedBy: &actor,
+			UpdatedBy: &actor,
 			Version:   0,
 		},
 		CorrelationID:    proposedCorrID,
@@ -166,7 +171,6 @@ func (h *IngestAlertHandler) Handle(ctx context.Context, cmd IngestAlertCommand)
 		return IngestAlertResult{}, fmt.Errorf("serialize incident notification event: %w", err)
 	}
 
-	actor := resolveActor(ctx)
 	err = h.uow.WithTransaction(ctx, func(txCtx context.Context) error {
 		if err := h.incidentRepo.Save(txCtx, incident); err != nil {
 			return err

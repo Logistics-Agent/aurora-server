@@ -7,12 +7,28 @@ import (
 	"time"
 
 	"aurora/devops-agent/internal/domain"
-	"aurora/shared/pagination"
 
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
+
+const (
+	defaultPageSize = 20
+	maxPageSize     = 100
+)
+
+func normalizePageArgs(page, size int32) (int32, int32) {
+	if page < 0 {
+		page = 0
+	}
+	if size <= 0 {
+		size = defaultPageSize
+	} else if size > maxPageSize {
+		size = maxPageSize
+	}
+	return page, size
+}
 
 type txKeyType struct{}
 
@@ -73,14 +89,7 @@ func (r *IncidentRepository) List(ctx context.Context, severity string, page, si
 	if db == nil {
 		return nil, 0, errors.New("postgres db not initialized")
 	}
-	if size <= 0 {
-		size = 10
-	} else if size > 100 {
-		size = 100
-	}
-	if page < 0 {
-		page = 0
-	}
+	page, size = normalizePageArgs(page, size)
 
 	q := db.WithContext(ctx).Model(&domain.Incident{})
 	if s := strings.TrimSpace(severity); s != "" {
@@ -169,10 +178,7 @@ func (r *ExistingRuleRepository) List(ctx context.Context, page, size int32) ([]
 	if db == nil {
 		return nil, 0, errors.New("postgres db not initialized")
 	}
-	_, limit := pagination.NormalizePagination(page+1, size)
-	if page < 0 {
-		page = 0
-	}
+	page, limit := normalizePageArgs(page, size)
 	var total int64
 	if err := db.WithContext(ctx).Model(&domain.ExistingRule{}).Count(&total).Error; err != nil {
 		return nil, 0, err
@@ -214,10 +220,7 @@ func (r *PendingRuleRepository) ListByStatus(ctx context.Context, status string,
 	if db == nil {
 		return nil, 0, errors.New("postgres db not initialized")
 	}
-	_, limit := pagination.NormalizePagination(page+1, size)
-	if page < 0 {
-		page = 0
-	}
+	page, limit := normalizePageArgs(page, size)
 	q := db.WithContext(ctx).Model(&domain.PendingRule{}).Where("status = ?", status)
 	var total int64
 	if err := q.Count(&total).Error; err != nil {
@@ -268,6 +271,7 @@ func (r *PrApprovalRecordRepository) FindByStatusAndExpiresAtBefore(ctx context.
 	}
 	var records []*domain.PrApprovalRecord
 	err := db.WithContext(ctx).
+		Clauses(clause.Locking{Strength: "UPDATE", Options: "SKIP LOCKED"}).
 		Preload("Incident").
 		Where("status = ? AND expires_at < ?", status, before).
 		Find(&records).Error

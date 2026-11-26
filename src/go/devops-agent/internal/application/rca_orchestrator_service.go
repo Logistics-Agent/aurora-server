@@ -95,7 +95,9 @@ func (s *RcaOrchestratorService) ExecuteRca(ctx context.Context, incident *domai
 		"severity":        string(incident.Severity),
 		"affectedService": incident.AffectedService,
 	})
-	_ = s.outboxRepo.Enqueue(ctx, incident.CorrelationID, &incident.ID, domain.AuditActionRcaAnalysisStarted, actor, string(startedPayload))
+	if err := s.outboxRepo.Enqueue(ctx, incident.CorrelationID, &incident.ID, domain.AuditActionRcaAnalysisStarted, actor, string(startedPayload)); err != nil {
+		return nil, err
+	}
 
 	// 2. Mandatory Redaction before RAG and AI
 	if rawEvidenceJson == "" {
@@ -175,6 +177,8 @@ func (s *RcaOrchestratorService) ExecuteRca(ctx context.Context, incident *domai
 			ID:        uuid.New(),
 			CreatedAt: now,
 			UpdatedAt: now,
+			CreatedBy: &actor,
+			UpdatedBy: &actor,
 			Version:   0,
 		},
 		IncidentID:            incident.ID,
